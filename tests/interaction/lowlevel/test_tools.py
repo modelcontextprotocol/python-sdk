@@ -343,7 +343,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
 
     async with connect(server) as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
 
                 async def call_and_record(tag: str) -> None:
                     results[tag] = await client.call_tool("echo", {"tag": tag})

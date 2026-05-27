@@ -28,10 +28,12 @@ async def test_response_chunks_arrive_as_the_application_sends_them() -> None:
         await send({"type": "http.response.body", "body": b"", "more_body": True})
         await send({"type": "http.response.body", "body": b"second", "more_body": False})
 
-    async with httpx.AsyncClient(transport=StreamingASGITransport(chunked_app), base_url="http://bridge") as http:
-        async with http.stream("GET", "/chunks") as response:
-            with anyio.fail_after(5):
-                chunks = [chunk async for chunk in response.aiter_raw()]
+    async with (
+        httpx.AsyncClient(transport=StreamingASGITransport(chunked_app), base_url="http://bridge") as http,
+        http.stream("GET", "/chunks") as response,
+    ):
+        with anyio.fail_after(5):
+            chunks = [chunk async for chunk in response.aiter_raw()]
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain"

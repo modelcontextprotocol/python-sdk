@@ -222,7 +222,7 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
         standalone_ready = anyio.Event()
         seen_on_standalone = anyio.Event()
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
                 tg.start_soon(read_standalone_stream)
                 await standalone_ready.wait()
 

@@ -75,7 +75,7 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
     async with mounted_app(_counting_server(), event_store=SequencedEventStore(), retry_interval=0) as (http, _):
         session_id = await initialize_via_http(http)
         with anyio.fail_after(5):
-            async with http.stream(
+            async with http.stream(  # pragma: no branch
                 "POST", "/mcp", content=_tools_call(1, "count", {"n": 2}), headers=base_headers(session_id=session_id)
             ) as response:
                 assert response.status_code == 200
@@ -155,7 +155,7 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
             await store.wait_until_stored(4)
             await store.wait_until_stored(8)
             replay_headers = base_headers(session_id=session_id) | {"last-event-id": last_seen}
-            async with http.stream("GET", "/mcp", headers=replay_headers) as replay:
+            async with http.stream("GET", "/mcp", headers=replay_headers) as replay:  # pragma: no branch
                 assert replay.status_code == 200
                 missed = await _read_events(replay, 3)
 
@@ -274,7 +274,7 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
         mcp, event_store=SequencedEventStore(), retry_interval=0, logging_callback=collect
     ) as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
                     result.append(await client.call_tool("interrupt", {}))

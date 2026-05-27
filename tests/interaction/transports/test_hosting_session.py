@@ -195,7 +195,7 @@ async def test_stateless_mode_serves_concurrent_clients_independently() -> None:
                 results[label] = await client.list_tools()
 
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
                 tg.start_soon(list_via, "a")
                 tg.start_soon(list_via, "b")
 

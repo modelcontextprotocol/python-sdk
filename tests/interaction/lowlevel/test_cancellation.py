@@ -13,7 +13,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError, types
 from mcp.client import ClientSession
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolResult,
@@ -170,63 +170,65 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
     scripted-peer mechanism is the in-memory stream pair, not because the behaviour is
     transport-specific.
     """
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
 
-        async def scripted_server() -> None:
-            def respond(request_id: types.RequestId, result: types.Result) -> SessionMessage:
-                return SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=request_id,
-                        # Serialized exactly as a real server serializes results onto the wire.
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
-                )
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
 
-            init = await server_read.receive()
-            assert isinstance(init, SessionMessage)
-            assert isinstance(init.message, JSONRPCRequest)
-            assert init.message.method == "initialize"
-            await server_write.send(
-                respond(
-                    init.message.id,
-                    InitializeResult(
-                        protocol_version="2025-11-25",
-                        capabilities=ServerCapabilities(),
-                        server_info=Implementation(name="scripted", version="0.0.1"),
-                    ),
+        def respond(request_id: types.RequestId, result: types.Result) -> SessionMessage:
+            return SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    # Serialized exactly as a real server serializes results onto the wire.
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
 
-            initialized = await server_read.receive()
-            assert isinstance(initialized, SessionMessage)
-            assert isinstance(initialized.message, JSONRPCNotification)
-            assert initialized.message.method == "notifications/initialized"
+        init = await server_read.receive()
+        assert isinstance(init, SessionMessage)
+        assert isinstance(init.message, JSONRPCRequest)
+        assert init.message.method == "initialize"
+        await server_write.send(
+            respond(
+                init.message.id,
+                InitializeResult(
+                    protocol_version="2025-11-25",
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="scripted", version="0.0.1"),
+                ),
+            )
+        )
 
-            ping = await server_read.receive()
-            assert isinstance(ping, SessionMessage)
-            assert isinstance(ping.message, JSONRPCRequest)
-            assert ping.message.method == "ping"
-            # First answer with a fabricated id that matches nothing in flight, then the real id.
-            await server_write.send(respond(9999, EmptyResult()))
-            await server_write.send(respond(ping.message.id, EmptyResult()))
+        initialized = await server_read.receive()
+        assert isinstance(initialized, SessionMessage)
+        assert isinstance(initialized.message, JSONRPCNotification)
+        assert initialized.message.method == "notifications/initialized"
 
-        incoming: list[IncomingMessage] = []
+        ping = await server_read.receive()
+        assert isinstance(ping, SessionMessage)
+        assert isinstance(ping.message, JSONRPCRequest)
+        assert ping.message.method == "ping"
+        # First answer with a fabricated id that matches nothing in flight, then the real id.
+        await server_write.send(respond(9999, EmptyResult()))
+        await server_write.send(respond(ping.message.id, EmptyResult()))
 
-        async def message_handler(message: IncomingMessage) -> None:
-            incoming.append(message)
+    incoming: list[IncomingMessage] = []
 
-        async with anyio.create_task_group() as task_group:
-            task_group.start_soon(scripted_server)
-            async with ClientSession(client_read, client_write, message_handler=message_handler) as session:
-                with anyio.fail_after(5):
-                    await session.initialize()
-                    pong = await session.send_request(PingRequest(), EmptyResult)
+    async def message_handler(message: IncomingMessage) -> None:
+        incoming.append(message)
 
-            assert pong == snapshot(EmptyResult())
-            assert len(incoming) == 1
-            assert isinstance(incoming[0], RuntimeError)
-            # The full message embeds the response object's repr; only the prefix is stable.
-            assert str(incoming[0]).startswith("Received response with an unknown request ID:")
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as task_group,
+        ClientSession(client_read, client_write, message_handler=message_handler) as session,
+    ):
+        task_group.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            await session.initialize()
+            pong = await session.send_request(PingRequest(), EmptyResult)
+
+        assert pong == snapshot(EmptyResult())
+        assert len(incoming) == 1
+        assert isinstance(incoming[0], RuntimeError)
+        # The full message embeds the response object's repr; only the prefix is stable.
+        assert str(incoming[0]).startswith("Received response with an unknown request ID:")

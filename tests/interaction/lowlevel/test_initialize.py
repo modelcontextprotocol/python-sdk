@@ -15,7 +15,7 @@ from mcp import MCPError, types
 from mcp.client import ClientRequestContext, ClientSession
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     INVALID_PARAMS,
@@ -241,14 +241,16 @@ async def test_request_before_initialization_is_rejected() -> None:
 
     server = Server("strict", on_list_tools=list_tools)
 
-    async with InMemoryTransport(server) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            with anyio.fail_after(5):
-                with pytest.raises(MCPError) as exc_info:
-                    await session.send_request(ListToolsRequest(), ListToolsResult)
+    async with (
+        InMemoryTransport(server) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        with anyio.fail_after(5):
+            with pytest.raises(MCPError) as exc_info:
+                await session.send_request(ListToolsRequest(), ListToolsResult)
 
-                # Ping is explicitly permitted before initialization completes.
-                pong = await session.send_ping()
+            # Ping is explicitly permitted before initialization completes.
+            pong = await session.send_ping()
 
     assert exc_info.value.error == snapshot(
         ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
@@ -275,16 +277,20 @@ async def test_initialize_negotiates_protocol_version() -> None:
             )
         )
 
-    async with InMemoryTransport(server) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            with anyio.fail_after(5):
-                result = await session.send_request(initialize_request("2025-03-26"), InitializeResult)
+    async with (
+        InMemoryTransport(server) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        with anyio.fail_after(5):
+            result = await session.send_request(initialize_request("2025-03-26"), InitializeResult)
     assert result.protocol_version == snapshot("2025-03-26")
 
-    async with InMemoryTransport(server) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            with anyio.fail_after(5):
-                result = await session.send_request(initialize_request("1999-01-01"), InitializeResult)
+    async with (
+        InMemoryTransport(server) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        with anyio.fail_after(5):
+            result = await session.send_request(initialize_request("1999-01-01"), InitializeResult)
     assert result.protocol_version == snapshot("2025-11-25")
 
 
@@ -297,40 +303,41 @@ async def test_unsupported_server_protocol_version_fails_initialization() -> Non
     answers it with a hand-built result. Reserve this pattern for behaviour no real server can
     be made to produce.
     """
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
 
-        async def scripted_server() -> None:
-            message = await server_read.receive()
-            assert isinstance(message, SessionMessage)
-            request = message.message
-            assert isinstance(request, JSONRPCRequest)
-            assert request.method == "initialize"
-            result = InitializeResult(
-                protocol_version="1991-08-06",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="relic", version="0.0.1"),
-            )
-            await server_write.send(
-                SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=request.id,
-                        # Serialized exactly as a real server serializes results onto the wire.
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        message = await server_read.receive()
+        assert isinstance(message, SessionMessage)
+        request = message.message
+        assert isinstance(request, JSONRPCRequest)
+        assert request.method == "initialize"
+        result = InitializeResult(
+            protocol_version="1991-08-06",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="relic", version="0.0.1"),
+        )
+        await server_write.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=request.id,
+                    # Serialized exactly as a real server serializes results onto the wire.
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
+        )
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(scripted_server)
-            async with ClientSession(client_read, client_write) as session:
-                with anyio.fail_after(5):
-                    with pytest.raises(RuntimeError) as exc_info:
-                        await session.initialize()
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as tg,
+        ClientSession(client_read, client_write) as session,
+    ):
+        tg.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            with pytest.raises(RuntimeError) as exc_info:
+                await session.initialize()
 
-            assert str(exc_info.value) == snapshot("Unsupported protocol version from the server: 1991-08-06")
+        assert str(exc_info.value) == snapshot("Unsupported protocol version from the server: 1991-08-06")
 
 
 @requirement("lifecycle:version:downgrade")
@@ -341,36 +348,37 @@ async def test_an_older_supported_protocol_version_from_the_server_is_accepted()
     plays the server's side of the wire by hand to return a fixed older version regardless of what
     was requested. Reserve this pattern for behaviour no real server can be made to produce.
     """
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
 
-        async def scripted_server() -> None:
-            message = await server_read.receive()
-            assert isinstance(message, SessionMessage)
-            request = message.message
-            assert isinstance(request, JSONRPCRequest)
-            assert request.method == "initialize"
-            result = InitializeResult(
-                protocol_version="2025-06-18",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="conservative", version="0.0.1"),
-            )
-            await server_write.send(
-                SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=request.id,
-                        # Serialized exactly as a real server serializes results onto the wire.
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        message = await server_read.receive()
+        assert isinstance(message, SessionMessage)
+        request = message.message
+        assert isinstance(request, JSONRPCRequest)
+        assert request.method == "initialize"
+        result = InitializeResult(
+            protocol_version="2025-06-18",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="conservative", version="0.0.1"),
+        )
+        await server_write.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=request.id,
+                    # Serialized exactly as a real server serializes results onto the wire.
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
+        )
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(scripted_server)
-            async with ClientSession(client_read, client_write) as session:
-                with anyio.fail_after(5):
-                    initialize_result = await session.initialize()
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as tg,
+        ClientSession(client_read, client_write) as session,
+    ):
+        tg.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            initialize_result = await session.initialize()
 
-            assert initialize_result.protocol_version == snapshot("2025-06-18")
+        assert initialize_result.protocol_version == snapshot("2025-06-18")

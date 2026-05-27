@@ -135,16 +135,15 @@ async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_o
     async def record(request: httpx.Request) -> None:
         requests.append(request)
 
-    async with mounted_app(_tooled_server(), on_request=record) as (http, _):
-        async with client_via_http(http) as client:
+    async with mounted_app(_tooled_server(), on_request=record) as (http, _), client_via_http(http) as client:
 
-            async def call(n: int) -> None:
-                results[n] = await client.call_tool("echo", {"text": str(n)})
+        async def call(n: int) -> None:
+            results[n] = await client.call_tool("echo", {"text": str(n)})
 
-            with anyio.fail_after(5):
-                async with anyio.create_task_group() as tg:
-                    for n in (1, 2, 3):
-                        tg.start_soon(call, n)
+        with anyio.fail_after(5):  # pragma: no branch
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                for n in (1, 2, 3):
+                    tg.start_soon(call, n)
 
     assert results == snapshot(
         {
@@ -176,13 +175,14 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
             return
         await real_app(scope, receive, send)
 
-    async with server.session_manager.run():
-        http_client = httpx.AsyncClient(transport=StreamingASGITransport(filter_methods), base_url=BASE_URL)
-        async with http_client:
-            transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-            with anyio.fail_after(5):
-                async with Client(transport) as client:
-                    result = await client.list_tools()
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(transport=StreamingASGITransport(filter_methods), base_url=BASE_URL) as http_client,
+    ):
+        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
+        with anyio.fail_after(5):  # pragma: no branch
+            async with Client(transport) as client:  # pragma: no branch
+                result = await client.list_tools()
 
     assert [tool.name for tool in result.tools] == ["echo"]
 
@@ -201,10 +201,12 @@ async def test_a_completed_post_stream_is_not_reconnected() -> None:
         requests.append(request)
 
     server = _tooled_server()
-    async with mounted_app(server, event_store=SequencedEventStore(), retry_interval=0, on_request=record) as (http, _):
-        async with client_via_http(http) as client:
-            with anyio.fail_after(5):
-                result = await client.list_tools()
+    async with (
+        mounted_app(server, event_store=SequencedEventStore(), retry_interval=0, on_request=record) as (http, _),
+        client_via_http(http) as client,
+    ):
+        with anyio.fail_after(5):
+            result = await client.list_tools()
 
     assert [tool.name for tool in result.tools] == ["echo"]
     resumption_gets = [r for r in requests if r.method == "GET" and "last-event-id" in r.headers]
@@ -232,13 +234,14 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
             initialize_seen.set()
         await real_app(scope, receive, send)
 
-    async with server.session_manager.run():
-        http_client = httpx.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL)
-        async with http_client:
-            transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-            with anyio.fail_after(5):
-                async with Client(transport) as client:
-                    with pytest.raises(MCPError) as exc_info:
-                        await client.list_tools()
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL) as http_client,
+    ):
+        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
+        with anyio.fail_after(5):  # pragma: no branch
+            async with Client(transport) as client:  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+                    await client.list_tools()
 
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))

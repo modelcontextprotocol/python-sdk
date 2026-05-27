@@ -178,7 +178,7 @@ async def test_closing_the_transport_fails_in_flight_requests_with_connection_cl
                             )
                         errors.append(exc_info.value.error)
 
-                    async with anyio.create_task_group() as task_group:
+                    async with anyio.create_task_group() as task_group:  # pragma: no branch
                         task_group.start_soon(call_and_capture_error)
                         await handler_started.wait()
                         await server_write.aclose()

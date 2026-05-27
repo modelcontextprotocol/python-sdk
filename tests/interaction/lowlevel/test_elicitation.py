@@ -11,7 +11,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError, UrlElicitationRequiredError, types
 from mcp.client import ClientRequestContext, ClientSession
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolResult,
@@ -594,68 +594,68 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
         received.append(params)
         return ElicitResult(action="accept", content={})
 
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
-
-        async def scripted_server() -> None:
-            initialize = await server_read.receive()
-            assert isinstance(initialize, SessionMessage)
-            request = initialize.message
-            assert isinstance(request, JSONRPCRequest)
-            assert request.method == "initialize"
-            result = InitializeResult(
-                protocol_version="2025-11-25",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="legacy", version="0.0.1"),
-            )
-            await server_write.send(
-                SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=request.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        initialize = await server_read.receive()
+        assert isinstance(initialize, SessionMessage)
+        request = initialize.message
+        assert isinstance(request, JSONRPCRequest)
+        assert request.method == "initialize"
+        result = InitializeResult(
+            protocol_version="2025-11-25",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="legacy", version="0.0.1"),
+        )
+        await server_write.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=request.id,
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
-            initialized = await server_read.receive()
-            assert isinstance(initialized, SessionMessage)
-            assert isinstance(initialized.message, JSONRPCNotification)
-            assert initialized.message.method == "notifications/initialized"
-            # No mode key: a server speaking a pre-mode revision of the spec sends only message + schema.
-            await server_write.send(
-                SessionMessage(
-                    JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=2,
-                        method="elicitation/create",
-                        params={"message": "Legacy ask.", "requestedSchema": {"type": "object", "properties": {}}},
-                    )
+        )
+        initialized = await server_read.receive()
+        assert isinstance(initialized, SessionMessage)
+        assert isinstance(initialized.message, JSONRPCNotification)
+        assert initialized.message.method == "notifications/initialized"
+        # No mode key: a server speaking a pre-mode revision of the spec sends only message + schema.
+        await server_write.send(
+            SessionMessage(
+                JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=2,
+                    method="elicitation/create",
+                    params={"message": "Legacy ask.", "requestedSchema": {"type": "object", "properties": {}}},
                 )
             )
-            response = await server_read.receive()
-            assert isinstance(response, SessionMessage)
-            server_received.append(response.message)
-            answered.set()
+        )
+        response = await server_read.receive()
+        assert isinstance(response, SessionMessage)
+        server_received.append(response.message)
+        answered.set()
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(scripted_server)
-            async with ClientSession(client_read, client_write, elicitation_callback=answer_form) as session:
-                with anyio.fail_after(5):
-                    await session.initialize()
-                    await answered.wait()
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as tg,
+        ClientSession(client_read, client_write, elicitation_callback=answer_form) as session,
+    ):
+        tg.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            await session.initialize()
+            await answered.wait()
 
-            assert received == snapshot(
-                [
-                    ElicitRequestFormParams(
-                        _meta=None,
-                        message="Legacy ask.",
-                        requested_schema={"type": "object", "properties": {}},
-                    )
-                ]
+    assert received == snapshot(
+        [
+            ElicitRequestFormParams(
+                _meta=None,
+                message="Legacy ask.",
+                requested_schema={"type": "object", "properties": {}},
             )
-            assert isinstance(received[0], ElicitRequestFormParams)
-            assert received[0].mode == "form"
-            assert len(server_received) == 1
-            assert isinstance(server_received[0], JSONRPCResponse)
-            assert server_received[0].id == 2
+        ]
+    )
+    assert isinstance(received[0], ElicitRequestFormParams)
+    assert received[0].mode == "form"
+    assert len(server_received) == 1
+    assert isinstance(server_received[0], JSONRPCResponse)
+    assert server_received[0].id == 2

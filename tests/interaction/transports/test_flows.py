@@ -46,7 +46,7 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
 
     async with mounted_app(mcp) as (http, _):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call(label: str, collect: LoggingFnT) -> None:
                     async with client_via_http(http, logging_callback=collect) as client:
@@ -112,12 +112,14 @@ async def test_one_server_serves_streamable_http_and_sse_clients_concurrently() 
         """Return the input unchanged."""
         return text
 
-    async with mounted_app(mcp) as (http, _):
-        async with connect_over_sse(mcp) as sse_client:
-            async with client_via_http(http) as shttp_client:
-                with anyio.fail_after(5):
-                    shttp_result = await shttp_client.call_tool("echo", {"text": "via http"})
-                    sse_result = await sse_client.call_tool("echo", {"text": "via sse"})
+    async with (
+        mounted_app(mcp) as (http, _),
+        connect_over_sse(mcp) as sse_client,
+        client_via_http(http) as shttp_client,
+    ):
+        with anyio.fail_after(5):
+            shttp_result = await shttp_client.call_tool("echo", {"text": "via http"})
+            sse_result = await sse_client.call_tool("echo", {"text": "via sse"})
 
     assert shttp_result == snapshot(
         CallToolResult(content=[TextContent(text="via http")], structured_content={"result": "via http"})

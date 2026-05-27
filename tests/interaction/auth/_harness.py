@@ -11,7 +11,7 @@ sockets, no threads, and no real time.
 
 import json
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlsplit
@@ -451,11 +451,15 @@ async def connect_with_oauth(
 
         event_hooks = {"request": [hook]}
 
-    async with server.session_manager.run():
-        async with httpx.AsyncClient(
-            transport=StreamingASGITransport(app), base_url=BASE_URL, auth=oauth, event_hooks=event_hooks
-        ) as http_client:
-            headless.bind(http_client)
-            transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-            async with Client(transport) as client:
-                yield client, headless
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(server.session_manager.run())
+        http_client = await stack.enter_async_context(
+            httpx.AsyncClient(
+                transport=StreamingASGITransport(app), base_url=BASE_URL, auth=oauth, event_hooks=event_hooks
+            )
+        )
+        headless.bind(http_client)
+        client = await stack.enter_async_context(
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client))
+        )
+        yield client, headless

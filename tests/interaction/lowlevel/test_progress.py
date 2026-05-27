@@ -191,7 +191,7 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
             await client.call_tool("report", {"label": label}, progress_callback=collect)
 
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
                 task_group.start_soon(call, "a", collect_a)
                 task_group.start_soon(call, "b", collect_b)
                 await entered["a"].wait()

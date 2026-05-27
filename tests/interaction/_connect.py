@@ -130,20 +130,21 @@ async def connect_over_streamable_http(
         retry_interval=retry_interval,
         transport_security=NO_DNS_REBINDING_PROTECTION,
     )
-    async with server.session_manager.run():
-        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client:
-            transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-            async with Client(
-                transport,
-                read_timeout_seconds=read_timeout_seconds,
-                sampling_callback=sampling_callback,
-                list_roots_callback=list_roots_callback,
-                logging_callback=logging_callback,
-                message_handler=message_handler,
-                client_info=client_info,
-                elicitation_callback=elicitation_callback,
-            ) as client:
-                yield client
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
+        Client(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            client_info=client_info,
+            elicitation_callback=elicitation_callback,
+        ) as client,
+    ):
+        yield client
 
 
 @asynccontextmanager
@@ -183,11 +184,13 @@ async def mounted_app(
         auth_server_provider=auth_server_provider,
     )
     event_hooks = {"request": [on_request]} if on_request is not None else None
-    async with server.session_manager.run():
-        async with httpx.AsyncClient(
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(
             transport=StreamingASGITransport(app), base_url=BASE_URL, event_hooks=event_hooks, headers=headers
-        ) as http_client:
-            yield http_client, server.session_manager
+        ) as http_client,
+    ):
+        yield http_client, server.session_manager
 
 
 @asynccontextmanager
@@ -357,11 +360,13 @@ async def connect_over_sse(
         ) as client:
             yield client
     finally:
-        # SseServerTransport.connect_sse hands its internal SSE-chunk receive stream to
-        # sse_starlette's EventSourceResponse, which never closes it when its task group is
-        # cancelled on disconnect (see notes/findings.md). Collect the orphan here so its
-        # ResourceWarning fires deterministically inside this fixture instead of at an
-        # arbitrary later GC.
+        # SseServerTransport.connect_sse never closes its sse_stream_reader (handed to
+        # sse_starlette.EventSourceResponse, which does not aclose() its content on cancel).
+        # After teardown that reader is held only by a reference cycle through the connect_sse
+        # frame and its task objects; collecting twice runs the cycle's finalizers and then
+        # frees the reader while ResourceWarning is suppressed, instead of at an arbitrary
+        # later GC under pytest's error filter. One pass suffices on 3.11+; 3.10 needs both.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ResourceWarning)
+            gc.collect()
             gc.collect()

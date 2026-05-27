@@ -111,22 +111,25 @@ async def test_stdio_server_writes_one_jsonrpc_message_per_line() -> None:
     sent_line = json.dumps(initialize_body(request_id=1)) + "\n"
 
     with anyio.fail_after(5):
-        async with stdio_server(stdin=anyio.wrap_file(io.StringIO(sent_line)), stdout=anyio.wrap_file(captured)) as (
+        async with (
+            stdio_server(stdin=anyio.wrap_file(io.StringIO(sent_line)), stdout=anyio.wrap_file(captured)) as (
+                read_stream,
+                write_stream,
+            ),
             read_stream,
             write_stream,
         ):
-            async with read_stream, write_stream:
-                received = await read_stream.receive()
-                assert isinstance(received, SessionMessage)
-                assert isinstance(received.message, JSONRPCRequest)
-                assert received.message.method == "initialize"
+            received = await read_stream.receive()
+            assert isinstance(received, SessionMessage)
+            assert isinstance(received.message, JSONRPCRequest)
+            assert received.message.method == "initialize"
 
-                response = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": "line\nbreak"})
-                notification = JSONRPCNotification(
-                    jsonrpc="2.0", method="notifications/message", params={"level": "info", "data": "two\nlines"}
-                )
-                await write_stream.send(SessionMessage(response))
-                await write_stream.send(SessionMessage(notification))
+            response = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": "line\nbreak"})
+            notification = JSONRPCNotification(
+                jsonrpc="2.0", method="notifications/message", params={"level": "info", "data": "two\nlines"}
+            )
+            await write_stream.send(SessionMessage(response))
+            await write_stream.send(SessionMessage(notification))
 
     output = captured.getvalue()
     assert output.endswith("\n")

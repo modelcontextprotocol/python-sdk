@@ -208,5 +208,8 @@ assert after the call, with no synchronisation. The exceptions:
 
 CI requires 100% line and branch coverage, including `tests/`, and `strict-no-cover` fails the
 build if a line marked `# pragma: no cover` is ever executed. When a new test starts covering a
-pragma'd line in `src/`, delete the pragma in the same change. Do not add new `# pragma`,
-`# type: ignore`, or `# noqa` comments; restructure instead.
+pragma'd line in `src/`, delete the pragma in the same change. Do not add new `# type: ignore` or
+`# noqa` comments; restructure instead. The one sanctioned pragma is `# pragma: no branch` on a
+`with`/`async with` line whose only fault is coverage.py mis-tracing the exit arc of a nested
+async context — restructure first, and reserve the pragma for shapes that cannot collapse (a sync
+`with` adjacent to an `async with`).
