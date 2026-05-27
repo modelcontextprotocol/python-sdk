@@ -30,6 +30,7 @@ _HARNESS_SELF_TESTS = {
     "tests.interaction.transports.test_bridge.test_closing_the_response_delivers_a_disconnect_to_the_application",
     "tests.interaction.transports.test_bridge.test_an_application_failure_before_the_response_starts_fails_the_request",
     "tests.interaction.transports.test_bridge.test_disabling_cancel_on_close_lets_the_application_finish_after_disconnect",
+    "tests.interaction.auth.test_flow.test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_wrapped_app",
 }
 
 

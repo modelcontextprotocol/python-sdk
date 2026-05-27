@@ -11,7 +11,7 @@ import gc
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from httpx_sse import ServerSentEvent, aconnect_sse
@@ -25,6 +25,8 @@ from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, Message
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
@@ -154,6 +156,9 @@ async def mounted_app(
     transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
     on_request: Callable[[httpx.Request], Awaitable[None]] | None = None,
     headers: dict[str, str] | None = None,
+    auth: AuthSettings | None = None,
+    token_verifier: TokenVerifier | None = None,
+    auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, StreamableHTTPSessionManager]]:
     """Mount the server's streamable HTTP app on the in-process bridge and yield an httpx client.
 
@@ -167,11 +172,15 @@ async def mounted_app(
     DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
     localhost auto-enable behaviour) to test the protection itself.
     """
-    app = server.streamable_http_app(
+    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
+    app = lowlevel.streamable_http_app(
         stateless_http=stateless_http,
         event_store=event_store,
         retry_interval=retry_interval,
         transport_security=transport_security,
+        auth=auth,
+        token_verifier=token_verifier,
+        auth_server_provider=auth_server_provider,
     )
     event_hooks = {"request": [on_request]} if on_request is not None else None
     async with server.session_manager.run():

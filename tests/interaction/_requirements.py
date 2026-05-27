@@ -1896,42 +1896,37 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(and revocation when supported)."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
-        ),
     ),
     "hosting:auth:aud-validation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#access-token-usage",
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+        divergence=Divergence(
+            note=(
+                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
+                "resource is accepted. Spec MUST."
+            ),
+        ),
     ),
     "hosting:auth:authinfo-propagates": Requirement(
         source="sdk",
         behavior="A valid token's auth info is exposed to request handlers.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
-        ),
     ),
     "hosting:auth:expired-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="An expired token returns 401 invalid_token.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
+        divergence=Divergence(
+            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
         ),
     ),
     "hosting:auth:invalid-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="A malformed bearer token or token-verification failure returns 401 with WWW-Authenticate.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
+        divergence=Divergence(
+            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
         ),
     ),
     "hosting:auth:metadata-endpoints": Requirement(
@@ -1942,10 +1937,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "at its own."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
-        ),
     ),
     "hosting:auth:missing-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
@@ -1954,9 +1945,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carries resource_metadata (one of the spec's two permitted discovery mechanisms)."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
+        divergence=Divergence(
+            note=(
+                "The SDK never emits a `scope` parameter in any WWW-Authenticate challenge — neither the "
+                "discovery-time 401 (#protected-resource-metadata-discovery-requirements SHOULD) nor the "
+                "runtime 403 (#runtime-insufficient-scope-errors SHOULD); and for the no-credentials case "
+                'it emits error="invalid_token", which RFC 6750 Section 3.1 says SHOULD NOT appear when no '
+                "authentication information was presented."
+            ),
         ),
     ),
     "hosting:auth:prm:authorization-servers-field": Requirement(
@@ -1965,7 +1961,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The protected-resource metadata document includes an authorization_servers array with at least one entry."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+    ),
+    "hosting:auth:query-token-ignored": Requirement(
+        source="sdk",
+        behavior=(
+            "An access token presented in the URI query string is not accepted; the request is treated as "
+            "unauthenticated."
+        ),
+        transports=("streamable-http",),
     ),
     "hosting:auth:scope-403": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#runtime-insufficient-scope-errors",
@@ -1974,7 +1977,81 @@ REQUIREMENTS: dict[str, Requirement] = {
             "insufficient_scope, the required scope, and resource_metadata."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+        divergence=Divergence(
+            note=(
+                'The SDK emits error="insufficient_scope" and error_description but never the `scope` '
+                "parameter the spec SHOULD include; the SDK client reads `scope` from this header to drive "
+                "step-up (utils.py extract_scope_from_www_auth) — a resource-server/client asymmetry."
+            ),
+        ),
+    ),
+    "hosting:auth:as:authorize-requires-pkce": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
+        behavior=(
+            "The bundled authorization endpoint rejects an authorize request that omits "
+            "`code_challenge` with `invalid_request`."
+        ),
+        transports=("streamable-http",),
+    ),
+    "hosting:auth:as:verifier-mismatch": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
+        behavior=(
+            "The bundled token endpoint rejects an authorization-code exchange whose `code_verifier` "
+            "does not hash to the stored `code_challenge` with `invalid_grant`."
+        ),
+        transports=("streamable-http",),
+    ),
+    "hosting:auth:as:code-single-use": Requirement(
+        source="sdk",
+        behavior=(
+            "An authorization code can be exchanged exactly once; a second exchange of the same code "
+            "is rejected with `invalid_grant`. Enforced by the provider deleting the code on first use; "
+            "the handler relies on `load_authorization_code` returning None."
+        ),
+        transports=("streamable-http",),
+    ),
+    "hosting:auth:as:redirect-uri-binding": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",
+        behavior=(
+            "The bundled token endpoint rejects an authorization-code exchange whose `redirect_uri` "
+            "differs from the one used at authorize; the bundled authorize endpoint rejects a "
+            "`redirect_uri` not in the client's registered list without redirecting to it."
+        ),
+        transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "RFC 6749 §5.2 assigns redirect_uri mismatch at the token endpoint to invalid_grant; "
+                "the SDK's TokenHandler returns invalid_request (src/mcp/server/auth/handlers/token.py:157). "
+                "The rejection itself is the security-relevant property and is correct."
+            ),
+        ),
+    ),
+    "hosting:auth:as:redirect-uri-scheme": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#communication-security",
+        behavior=(
+            "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host."
+        ),
+        transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "Not enforced: the registration handler models redirect_uris as AnyUrl with no scheme or "
+                "host check, so http://evil.example/callback is accepted and registered. The spec's "
+                "localhost-or-HTTPS rule is left to the provider implementation."
+            ),
+        ),
+    ),
+    "hosting:auth:as:token-cache-headers": Requirement(
+        source="sdk",
+        behavior=("Every token-endpoint response carries `Cache-Control: no-store` and `Pragma: no-cache`."),
+        transports=("streamable-http",),
+    ),
+    "hosting:auth:as:register-error-response": Requirement(
+        source="sdk",
+        behavior=(
+            "The bundled registration endpoint answers invalid client metadata with HTTP 400 and an "
+            "RFC 7591 error body."
+        ),
+        transports=("streamable-http",),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: resumability
@@ -2304,16 +2381,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "If the server still returns 401 after a successful authorization, the client fails instead of looping."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:401-triggers-flow": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
         behavior="A 401 on a request triggers the OAuth authorization flow once.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:403-scope-upgrade": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
@@ -2321,7 +2393,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt; repeated 403s do not loop."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:as-metadata-discovery:priority-order": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
@@ -2331,10 +2402,45 @@ REQUIREMENTS: dict[str, Requirement] = {
             "root-path forms when the issuer URL has no path)."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
+    ),
+    "client-auth:as-metadata-discovery:issuer-validation": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
+        behavior=(
+            "The client rejects authorization-server metadata whose issuer does not match the URL the "
+            "metadata was retrieved from (RFC 8414 section 3.3)."
         ),
+        transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "The SDK parses authorization-server metadata without comparing issuer to the discovery "
+                "URL; a mismatched issuer is accepted and the flow proceeds. The SDK also does not "
+                "validate that the document's authorization_endpoint, token_endpoint, and "
+                "registration_endpoint use http(s) schemes."
+            ),
+        ),
+    ),
+    "client-auth:authorize:error-surfaces": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-flow-steps",
+        behavior=(
+            "An OAuth error redirect from the authorize endpoint aborts the flow before any token "
+            "request is issued, surfacing as an error to the caller."
+        ),
+        transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "The callback contract has no error form, so the client surfaces 'No authorization code "
+                "received' rather than the redirect's `error`/`error_description` values."
+            ),
+        ),
+    ),
+    "client-auth:authorize:offline-access-consent": Requirement(
+        source="sdk",
+        behavior=(
+            "When the authorization server's metadata advertises offline_access in scopes_supported and "
+            "the client uses the refresh_token grant, offline_access is appended to the requested scope "
+            "and prompt=consent is added to the authorize request."
+        ),
+        transports=("streamable-http",),
     ),
     "client-auth:bearer-header:every-request": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-requirements",
@@ -2343,16 +2449,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "request to the MCP server, never in the query string."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:cimd": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#client-id-metadata-documents",
         behavior="The client can use a client-ID metadata document URL as its OAuth client_id instead of registration.",
         transports=("streamable-http",),
-        deferred="Not implemented in the SDK: client-ID metadata documents are not supported.",
     ),
     "client-auth:client-credentials": Requirement(
         source="sdk",
@@ -2361,10 +2462,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "bearer token authorizes subsequent requests."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/auth/; interaction-level coverage "
-            "planned with the auth tests in this suite."
+    ),
+    "client-auth:dcr:registration-error-surfaces": Requirement(
+        source="sdk",
+        behavior=(
+            "A 400 from the registration endpoint surfaces to the caller as an OAuthRegistrationError "
+            "carrying the status and the server's RFC 7591 error body."
         ),
+        transports=("streamable-http",),
     ),
     "client-auth:dcr": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#dynamic-client-registration",
@@ -2373,10 +2478,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "client_id is preconfigured."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:invalid-client-clears-all": Requirement(
         source="sdk",
@@ -2384,13 +2485,22 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An invalid-client or unauthorized-client error during authorization invalidates all stored credentials."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+        divergence=Divergence(
+            note=(
+                "The token-response handlers do not parse the error body; an invalid_client or "
+                "unauthorized_client response leaves stored client_info untouched. The TypeScript SDK "
+                "clears it."
+            ),
+        ),
+        deferred=(
+            "Not implemented in the SDK: no token-response path inspects the error code to decide "
+            "whether to clear client_info."
+        ),
     ),
     "client-auth:invalid-grant-clears-tokens": Requirement(
         source="sdk",
         behavior="An invalid-grant error during authorization invalidates only the stored tokens.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:pkce:refuse-if-unsupported": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
@@ -2399,7 +2509,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "code_challenge_methods_supported, since PKCE support cannot be verified."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+        divergence=Divergence(
+            note=(
+                "The client never inspects code_challenge_methods_supported and proceeds with PKCE S256 "
+                "regardless; the spec MUST is not enforced."
+            ),
+        ),
     ),
     "client-auth:pkce:s256": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
@@ -2408,10 +2523,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the matching verifier."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:pre-registration": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#preregistration",
@@ -2419,16 +2530,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A client with statically preconfigured credentials skips dynamic registration and uses them directly."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:private-key-jwt": Requirement(
         source="sdk",
         behavior="The client can authenticate the client-credentials grant with a signed JWT assertion.",
         transports=("streamable-http",),
-        deferred="Not implemented in the SDK: JWT-assertion client authentication is not supported.",
     ),
     "client-auth:prm-discovery:fallback-order": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
@@ -2437,10 +2543,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "well-known protected-resource locations in the documented order."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
+    ),
+    "client-auth:prm-discovery:no-prm-fallback": Requirement(
+        source="sdk",
+        behavior=(
+            "When every protected-resource metadata probe fails, the client falls back to discovering "
+            "authorization-server metadata directly at the MCP server's origin (the legacy 2025-03-26 path) "
+            "rather than aborting."
         ),
+        transports=("streamable-http",),
     ),
     "client-auth:prm-resource-mismatch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -2449,7 +2560,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "match the server URL it is connecting to."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+    ),
+    "client-auth:refresh:transparent": Requirement(
+        source="sdk",
+        behavior=(
+            "An access token the client considers expired is transparently refreshed before the next "
+            "request, using the stored refresh token; the refresh request includes the resource indicator "
+            "and the new token is persisted."
+        ),
+        transports=("streamable-http",),
     ),
     "client-auth:resource-parameter": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#resource-parameter-implementation",
@@ -2458,10 +2577,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "authorization request and the token request."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/client/test_auth.py; interaction-level "
-            "coverage planned with the auth tests in this suite."
-        ),
     ),
     "client-auth:scope-selection:priority": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#scope-selection-strategy",
@@ -2470,7 +2585,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "protected-resource metadata, and otherwise omits scope."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:state:verify": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",
@@ -2479,13 +2593,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "missing or mismatched state are discarded."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:token-endpoint-auth-method": Requirement(
         source="sdk",
         behavior="The client authenticates to the token endpoint using the auth method established at registration.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "client-auth:token-provenance": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
@@ -2494,7 +2606,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "never tokens obtained elsewhere."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
+        deferred=(
+            "Untestable negative through the public API: there is no path to inject a token obtained "
+            "elsewhere into the auth provider's state, so the absence cannot be observed end to end."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # stdio transport
@@ -2618,7 +2733,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "attempt requires authorization, the code is exchanged, and a subsequent connection succeeds."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the auth interaction tests in this suite.",
     ),
     "flow:resume:tool-call-resumption-token": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
