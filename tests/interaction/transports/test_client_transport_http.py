@@ -14,11 +14,11 @@ import pytest
 from inline_snapshot import snapshot
 from starlette.types import Receive, Scope, Send
 
-from mcp import types
+from mcp import MCPError, types
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+from mcp.types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION, client_via_http, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -209,3 +209,36 @@ async def test_a_completed_post_stream_is_not_reconnected() -> None:
     assert [tool.name for tool in result.tools] == ["echo"]
     resumption_gets = [r for r in requests if r.method == "GET" and "last-event-id" in r.headers]
     assert resumption_gets == []
+
+
+@requirement("client-transport:http:404-surfaces")
+async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> None:
+    """A 404 in response to a request after initialization is reported to the caller as an MCP error.
+
+    The spec says the client MUST start a new session in this situation; the SDK instead surfaces a
+    `Session terminated` error to the caller (see the divergence on the requirement). This test pins
+    that current behaviour.
+    """
+    server = _tooled_server()
+    real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
+    initialize_seen = anyio.Event()
+
+    async def first_post_then_404(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["method"] == "POST" and initialize_seen.is_set():
+            await send({"type": "http.response.start", "status": 404, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+            return
+        if scope["type"] == "http" and scope["method"] == "POST":
+            initialize_seen.set()
+        await real_app(scope, receive, send)
+
+    async with server.session_manager.run():
+        http_client = httpx.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL)
+        async with http_client:
+            transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
+            with anyio.fail_after(5):
+                async with Client(transport) as client:
+                    with pytest.raises(MCPError) as exc_info:
+                        await client.list_tools()
+
+    assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))

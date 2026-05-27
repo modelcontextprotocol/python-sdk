@@ -229,11 +229,14 @@ async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler()
             await finished.wait()
 
 
+# This test intentionally carries every resumability requirement: the close-then-resume
+# scenario is indivisible, so splitting it would mean six near-identical bodies.
 @requirement("hosting:resume:close-stream")
 @requirement("transport:streamable-http:resumability")
 @requirement("client-transport:http:reconnect-post-priming")
 @requirement("client-transport:http:reconnect-retry-value")
 @requirement("client-transport:http:resume-stream-api")
+@requirement("flow:resume:tool-call-resumption-token")
 async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() -> None:
     """A server-closed request stream is reconnected by the client and the call completes.
 

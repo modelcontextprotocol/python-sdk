@@ -15,6 +15,7 @@ from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
     ErrorData,
+    Implementation,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
     TextContent,
@@ -91,6 +92,33 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
         CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
+
+
+@requirement("mcpserver:tool:extra")
+async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Connect) -> None:
+    """A tool can read the per-request id and the connecting client's identity through Context.
+
+    The request id is non-empty (its concrete value depends on transport-level sequencing, so the
+    test asserts the value the tool saw is the one returned, rather than pinning the literal); the
+    client info reflects what the caller passed to `Client`.
+    """
+    mcp = MCPServer("introspector")
+
+    @mcp.tool()
+    async def whoami(ctx: Context) -> str:
+        client_params = ctx.session.client_params
+        assert client_params is not None
+        return f"request {ctx.request_id} from {client_params.client_info.name} {client_params.client_info.version}"
+
+    async with connect(mcp, client_info=Implementation(name="acme-agent", version="9.9.9")) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert text.startswith("request ")
+    assert text.endswith(" from acme-agent 9.9.9")
+    request_id = text.removeprefix("request ").removesuffix(" from acme-agent 9.9.9")
+    assert request_id
 
 
 @requirement("protocol:progress:no-token")

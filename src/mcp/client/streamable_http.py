@@ -267,8 +267,8 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:  # pragma: no branch
-                if isinstance(message, JSONRPCRequest):  # pragma: no branch
+            if response.status_code == 404:
+                if isinstance(message, JSONRPCRequest):
                     error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)

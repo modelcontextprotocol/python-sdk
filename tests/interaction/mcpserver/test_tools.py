@@ -1,10 +1,10 @@
 """Tool interactions against MCPServer, driven through the public Client API."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mcp import MCPError
 from mcp.server.mcpserver import Context, MCPServer
@@ -43,6 +43,34 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
+
+
+@requirement("mcpserver:tool:schema-variants")
+async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool_runs(connect: Connect) -> None:
+    """Literal, nested-model, and constrained parameters are validated and coerced from the wire arguments.
+
+    The string "3" is coerced to `int` and the `point` dict to a `Point` instance before the function
+    body sees them, proving the generated input schema and validation pipeline cover non-trivial types.
+    """
+    mcp = MCPServer("typed")
+
+    class Point(BaseModel):
+        x: int
+        y: int
+
+    @mcp.tool()
+    def place(mode: Literal["fast", "slow"], point: Point, count: Annotated[int, Field(ge=1, le=10)]) -> str:
+        assert isinstance(point, Point)
+        return f"{mode} at ({point.x}, {point.y}) x{count}"
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("place", {"mode": "fast", "point": {"x": "3", "y": 4}, "count": 5})
+
+    assert result == snapshot(
+        CallToolResult(
+            content=[TextContent(text="fast at (3, 4) x5")], structured_content={"result": "fast at (3, 4) x5"}
+        )
+    )
 
 
 @requirement("mcpserver:tool:handler-throws")

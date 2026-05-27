@@ -672,10 +672,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:extra": Requirement(
         source="sdk",
         behavior=(
-            "Tool functions can access request metadata (request id, client params, session, lifespan "
-            "state) through the Context parameter."
+            "Tool functions can access request metadata (request id, client params, session) through the "
+            "Context parameter."
         ),
-        deferred="Not yet covered here: planned gap test (Context request-metadata access from inside a tool).",
     ),
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
@@ -718,10 +717,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Tool input schemas generated from complex parameter types (unions, nested models, "
             "constrained types) validate and coerce arguments before the function runs."
-        ),
-        deferred=(
-            "Not yet covered here: planned gap test (complex parameter types validated and coerced before "
-            "the function runs)."
         ),
     ),
     "mcpserver:tool:unknown-name": Requirement(
@@ -2186,10 +2181,6 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "session; the spec's MUST is not satisfied."
             ),
         ),
-        deferred=(
-            "Not implemented in the SDK: the client surfaces the 404 as an error to the caller instead of "
-            "re-initializing a new session."
-        ),
     ),
     "client-transport:http:accept-header-get": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
@@ -2520,13 +2511,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "is not a valid MCP message is written to its stdin."
         ),
         transports=("stdio",),
-        deferred="Not yet covered here: planned with the stdio end-to-end test.",
+        divergence=Divergence(
+            note=(
+                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
+                "handler code that calls print() writes directly to the protocol stream and corrupts the "
+                "framing. The spec MUST is satisfied only as long as application code behaves."
+            ),
+        ),
     ),
     "transport:stdio:no-embedded-newlines": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
         behavior="Serialized JSON-RPC messages on stdio contain no embedded newlines; one message per line.",
         transports=("stdio",),
-        deferred="Not yet covered here: planned with the stdio end-to-end test.",
     ),
     "transport:stdio:shutdown-escalation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#stdio",
@@ -2535,13 +2531,17 @@ REQUIREMENTS: dict[str, Requirement] = {
             "it (and kills it if still alive) after a grace period."
         ),
         transports=("stdio",),
-        deferred="Not yet covered here; existing coverage in tests/client/test_stdio.py.",
+        deferred=(
+            "Not yet covered here: a server that ignores stdin close takes the full "
+            "PROCESS_TERMINATION_TIMEOUT (2.0 s) grace period plus up to a further 2.0 s for "
+            "SIGTERM/SIGKILL escalation; a robust test of that path is real-time-bound and the constant "
+            "is module-level (no public override). Covered by tests/client/test_stdio.py."
+        ),
     ),
     "transport:stdio:stderr-passthrough": Requirement(
         source="sdk",
         behavior="Server stderr is available to the client and is not consumed by the transport.",
         transports=("stdio",),
-        deferred="Not yet covered here; existing coverage in tests/client/test_stdio.py.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Composite end-to-end flows
@@ -2553,7 +2553,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "concurrently; clients on either transport can call the same tools."
         ),
         transports=("streamable-http", "sse"),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "flow:compat:streamable-then-sse-fallback": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
@@ -2562,7 +2561,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "SSE client transport against the same server connects successfully."
         ),
         transports=("streamable-http", "sse"),
-        deferred="Not yet covered here: planned with the transport conformance work.",
+        divergence=Divergence(
+            note=(
+                "The SDK provides no automatic streamable-HTTP-to-SSE client fallback; the spec's "
+                "client-side SHOULD is left to the application to compose from streamable_http_client "
+                "and sse_client. Both halves are independently proven by the matrix."
+            ),
+        ),
+        deferred=(
+            "A demonstration test would only re-prove what the matrix already covers (an SSE-only "
+            "server is reachable via sse_client; an unmounted route returns 404), with the application "
+            "doing the fallback in between rather than the SDK."
+        ),
     ),
     "flow:elicitation:multi-step-form": Requirement(
         source="sdk",
@@ -2570,7 +2580,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A single tool handler issues sequential elicitations; an accept on one step feeds the next, "
             "and a decline or cancel at any step short-circuits to a final result."
         ),
-        deferred="Not yet covered here: planned gap test (multi-step elicitation flow).",
     ),
     "flow:elicitation:url-at-session-init": Requirement(
         source="sdk",
@@ -2579,7 +2588,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "session initialization, before any client request."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
+        deferred=(
+            "No public per-session post-initialization hook exists on either server flavour "
+            "(Server.lifespan runs at server startup, not per session; ServerSession handles the "
+            "initialized notification internally with no callback). Driving 'before any client "
+            "request' deterministically would also require knowing the standalone GET stream is "
+            "established, which has no synchronization signal."
+        ),
     ),
     "flow:elicitation:url-required-then-retry": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#url-elicitation-required-error",
@@ -2587,7 +2602,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool call rejected with the URL-elicitation-required error can be retried successfully "
             "after the client completes the URL flow and the server announces completion."
         ),
-        deferred="Not yet covered here: planned gap test (full URL-elicitation-required retry flow).",
     ),
     "flow:multi-client:stateful-isolation": Requirement(
         source="sdk",
@@ -2596,7 +2610,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "only the notifications produced by their own requests."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "flow:oauth:authorization-code-roundtrip": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-flow-steps",
@@ -2610,17 +2623,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     "flow:resume:tool-call-resumption-token": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior=(
-            "A tool call interrupted mid-stream can be resumed with the captured resumption token, "
-            "delivering only the remaining notifications and the final result."
+            "A tool call interrupted mid-stream is transparently resumed by the client transport using "
+            "the last-seen event id, delivering only the remaining notifications and the final result."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "flow:session:terminate-then-reconnect": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior=("After terminating a session, a fresh connection obtains a new session id and operations succeed."),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "flow:tool-result:resource-link-follow": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#resource-links",
@@ -2628,7 +2639,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A resource_link returned by a tool call can be followed with resources/read on the linked "
             "URI to retrieve the referenced contents."
         ),
-        deferred="Not yet covered here: planned gap test (follow a resource link returned by a tool).",
     ),
 }
 
