@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -322,14 +321,6 @@ class MCPServer(Generic[LifespanResultT]):
                 content=list(unstructured_content),  # type: ignore[arg-type]
                 structured_content=structured_content,  # type: ignore[arg-type]
             )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
-            )
         return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
@@ -399,8 +390,15 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Call a tool by name with arguments."""
+    ) -> CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]:
+        """Call a tool by name with arguments.
+
+        Returns:
+            CallToolResult: If the tool returned a CallToolResult directly.
+            Sequence[ContentBlock]: If the tool returned unstructured content and has no output schema.
+            tuple[Sequence[ContentBlock], dict[str, Any]]: If the tool has an output schema,
+                returning both unstructured content and structured content.
+        """
         if context is None:
             context = Context(mcp_server=self)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
