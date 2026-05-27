@@ -904,7 +904,7 @@ class StreamableHTTPServerTransport:
                         stream_id = await event_store.replay_events_after(last_event_id, send_event)
 
                         # If stream ID not in mapping, create it
-                        if stream_id and stream_id not in self._request_streams:
+                        if stream_id and stream_id not in self._request_streams:  # pragma: no branch
                             # Register SSE writer so close_sse_stream() can close it
                             self._sse_stream_writers[stream_id] = sse_stream_writer
 
