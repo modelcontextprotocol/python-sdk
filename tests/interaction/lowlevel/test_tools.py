@@ -353,3 +353,114 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
     # The message embeds the jsonschema validation error, so only the SDK-authored prefix is pinned.
     assert str(exc_info.value).startswith("Invalid structured content returned by tool forecast")
+
+
+@requirement("client:output-schema:skip-on-error")
+async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect) -> None:
+    """A tool result with isError true is returned as-is even when its structured content violates the schema.
+
+    The schema is cached up front so the client could validate, proving the bypass is specifically the
+    isError flag and not an empty cache.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="forecast",
+                    input_schema={"type": "object"},
+                    output_schema={
+                        "type": "object",
+                        "properties": {"temperature": {"type": "number"}},
+                        "required": ["temperature"],
+                    },
+                )
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "forecast"
+        return CallToolResult(
+            content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True
+        )
+
+    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        result = await client.call_tool("forecast", {})
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True)
+    )
+
+
+@requirement("client:output-schema:missing-structured")
+async def test_declared_output_schema_with_no_structured_content_is_rejected_by_the_client(connect: Connect) -> None:
+    """A tool that declared an output schema but returned no structuredContent fails the client-side check.
+
+    The error is the SDK's own message, so the full text is snapshotted.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="forecast",
+                    input_schema={"type": "object"},
+                    output_schema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+                )
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "forecast"
+        return CallToolResult(content=[TextContent(text="warm")])
+
+    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("forecast", {})
+
+    assert str(exc_info.value) == snapshot("Tool forecast has an output schema but did not return structured content")
+
+
+@requirement("client:output-schema:auto-list")
+async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(connect: Connect) -> None:
+    """Calling a tool whose schema is not cached issues exactly one implicit tools/list to populate it.
+
+    The first call_tool of an uncached tool triggers a tools/list the caller never asked for; the
+    second call hits the cache and does not. This is the SDK's chosen cache strategy and the cause of
+    the surprising behaviour where a server with only on_call_tool sees a successful call answered
+    with METHOD_NOT_FOUND from a request the caller never made; see the divergence on the requirement.
+    """
+    list_calls: list[str] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        list_calls.append("called")
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="forecast",
+                    input_schema={"type": "object"},
+                    output_schema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+                )
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "forecast"
+        return CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21})
+
+    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        first = await client.call_tool("forecast", {})
+        assert list_calls == ["called"]
+        second = await client.call_tool("forecast", {})
+
+    assert list_calls == ["called"]
+    assert first == snapshot(CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21}))
+    assert second == first

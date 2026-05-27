@@ -633,10 +633,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client:output-schema:skip-on-error": Requirement(
         source="sdk",
         behavior="The client skips structured-content validation when the tool result has isError true.",
-        deferred=(
-            "Not yet covered here: planned gap test (an isError result with mismatching structuredContent "
-            "is returned to the caller rather than rejected)."
-        ),
     ),
     "client:output-schema:validate": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
@@ -645,10 +641,27 @@ REQUIREMENTS: dict[str, Requirement] = {
             "is rejected by the client: the call raises instead of returning the invalid result."
         ),
     ),
+    "client:output-schema:missing-structured": Requirement(
+        source="sdk",
+        behavior="A tool that declares an output schema but returns no structuredContent fails client-side validation.",
+    ),
+    "client:output-schema:auto-list": Requirement(
+        source="sdk",
+        behavior=(
+            "Calling a tool whose output schema is not yet cached issues an implicit tools/list to "
+            "populate the cache; subsequent calls of the same tool do not."
+        ),
+        divergence=Divergence(
+            note=(
+                "Design concern rather than spec violation: the implicit request is invisible to the "
+                "caller, and against a server that registers only on_call_tool a successful call surfaces "
+                "as METHOD_NOT_FOUND from a tools/list the caller never asked for."
+            ),
+        ),
+    ),
     "mcpserver:output-schema:missing-structured": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
         behavior="A tool with an output schema whose function returns no structured content produces a server error.",
-        deferred="Not yet covered here: planned gap test (output schema declared but no structured content returned).",
     ),
     "mcpserver:output-schema:server-validate": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
@@ -656,17 +669,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "MCPServer validates structured content against the tool's output schema before returning; a "
             "mismatch produces a server error."
         ),
-        deferred="Not yet covered here: planned gap test (server-side output schema validation failure).",
     ),
     "mcpserver:output-schema:skip-on-error": Requirement(
         source="sdk",
         behavior="Server-side output schema validation is skipped when the tool returns an isError result.",
-        deferred="Not yet covered here: planned gap test (isError results bypass server-side schema validation).",
     ),
     "mcpserver:tool:duplicate-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool-names",
         behavior="Registering a tool with a name already in use is rejected at registration time.",
-        deferred="Not yet covered here: planned gap test (duplicate tool registration).",
+        divergence=Divergence(
+            note=(
+                "MCPServer logs a warning and keeps the first registration instead of rejecting; "
+                "warn_on_duplicate_tools defaults to True and warning is the only effect -- there is "
+                "no rejection mode."
+            ),
+        ),
     ),
     "mcpserver:tool:extra": Requirement(
         source="sdk",
@@ -693,7 +710,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:naming-validation": Requirement(
         source="sdk",
         behavior="Tool names that violate the spec's naming rules are rejected at registration time.",
-        deferred="Not yet covered here: tool-name validation at registration has not been pinned yet.",
+        deferred=(
+            "Not implemented in the SDK: MCPServer accepts any string as a tool name; there is no "
+            "spec-naming-rules check at registration time."
+        ),
     ),
     "mcpserver:tool:output-schema:model": Requirement(
         source="sdk",
@@ -736,10 +756,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A tool function that raises the URL-elicitation-required error surfaces to the caller as "
             "error -32042 with the elicitation parameters intact."
-        ),
-        deferred=(
-            "Not yet covered here: the low-level equivalent is pinned by elicitation:url:required-error; "
-            "the MCPServer-decorated path is a planned gap test."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -882,12 +898,20 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:duplicate-name": Requirement(
         source="sdk",
         behavior="Registering a resource or template with a duplicate identifier is rejected at registration time.",
-        deferred="Not yet covered here: planned gap test (duplicate resource registration).",
+        divergence=Divergence(
+            note=(
+                "MCPServer logs a warning and keeps the first registration instead of rejecting; same "
+                "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name)."
+            ),
+        ),
+        deferred=(
+            "Not yet covered here: mechanical sibling of mcpserver:tool:duplicate-name (same "
+            "warn-and-ignore behaviour); planned as a small follow-on to that test."
+        ),
     ),
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
         behavior="A resource function that raises is surfaced to the caller as a JSON-RPC error response.",
-        deferred="Not yet covered here: planned gap test (resource function raising during read).",
     ),
     "mcpserver:resource:static": Requirement(
         source="sdk",
@@ -983,7 +1007,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
-        deferred="Not yet covered here: planned gap test (argument validation on decorated prompts).",
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -995,12 +1018,20 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:duplicate-name": Requirement(
         source="sdk",
         behavior="Registering a duplicate prompt name is rejected at registration time.",
-        deferred="Not yet covered here: planned gap test (duplicate prompt registration).",
+        divergence=Divergence(
+            note=(
+                "MCPServer logs a warning and keeps the first registration instead of rejecting; same "
+                "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name)."
+            ),
+        ),
+        deferred=(
+            "Not yet covered here: mechanical sibling of mcpserver:tool:duplicate-name (same "
+            "warn-and-ignore behaviour); planned as a small follow-on to that test."
+        ),
     ),
     "mcpserver:prompt:optional-args": Requirement(
         source="sdk",
         behavior="A prompt with optional arguments can be fetched without supplying them.",
-        deferred="Not yet covered here: planned gap test (optional prompt arguments omitted).",
     ),
     "mcpserver:prompt:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
@@ -1056,7 +1087,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "MCPServer advertises the completions capability when at least one completion source is "
             "registered, and omits it otherwise."
         ),
-        deferred="Not yet covered here: planned gap test (automatic completions capability derivation).",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Logging
@@ -1112,7 +1142,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A client that handles sampling requests advertises the sampling capability in its initialize request."
         ),
-        deferred="Not yet covered here: planned gap test (positive sampling capability declaration).",
     ),
     "sampling:create:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
@@ -1136,10 +1165,6 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "include_context is forwarded regardless of the client's declared sampling.context "
                 "capability; the server-side validator only checks tools/tool_choice."
             ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: include_context is forwarded regardless of the client's declared "
-            "sampling.context capability (unlike tools, which are gated by the server-side validator)."
         ),
     ),
     "sampling:create:model-preferences": Requirement(
@@ -1168,7 +1193,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:create-message:audio-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#audio-content",
         behavior="Sampling messages can carry audio content: base64 data with a mimeType.",
-        deferred="Not yet covered here: planned gap test (audio content in sampling messages, both directions).",
     ),
     "sampling:create-message:image-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#image-content",
@@ -1191,7 +1215,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:message:content-cardinality": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling",
         behavior="A sampling message's content may be a single block or an array of blocks.",
-        deferred="Not yet covered here: planned gap test (list-valued sampling message content).",
     ),
     "sampling:result:no-tools-single-content": Requirement(
         source="sdk",
@@ -1199,7 +1222,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the request carries no tools, a sampling callback result whose content is an array is "
             "rejected by the client."
         ),
-        deferred="Not yet covered here: planned gap test (array content rejected for tool-free sampling).",
+        divergence=Divergence(
+            note=(
+                "The client does not validate the callback result against the request shape; an array-content "
+                "result for a tool-free request is accepted client-side and surfaces as a raw "
+                "pydantic.ValidationError from the server's response parsing (send_request) instead."
+            ),
+        ),
     ),
     "sampling:result:with-tools-array-content": Requirement(
         source="sdk",
@@ -1225,7 +1254,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Every assistant tool_use block in a sampling request must be matched by a tool_result with "
             "the same id in the following user message; an unmatched tool_use is rejected with Invalid params."
         ),
-        deferred="Not yet covered here: planned gap test (unmatched tool_use rejected by the validator).",
     ),
     "sampling:tools:server-gated-by-capability": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tools-in-sampling",
@@ -1433,9 +1461,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "of roots changes."
         ),
         deferred=(
-            "Not implemented in the SDK: the client keeps no managed roots store, so nothing fires "
-            "automatically when the configured roots change; emission is an explicit "
-            "send_roots_list_changed() call (pinned by roots:list-changed)."
+            "Not implemented in the SDK: the client does not own the root set (it calls back to the host "
+            "via list_roots_callback), so there is no mutation it could observe to auto-emit on; the SDK "
+            "provides send_roots_list_changed() for the host to call when its roots change, and that "
+            "emission path is covered by roots:list-changed."
         ),
     ),
     "roots:list:basic": Requirement(
@@ -1467,8 +1496,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/client/roots#root",
         behavior="Every root returned by the client identifies itself with a file:// URI.",
         deferred=(
-            "Not yet covered here: planned gap test (the SDK's Root type enforces the file:// scheme; pin "
-            "it end-to-end through roots/list)."
+            "Schema-level validation: the FileUrl type on Root.uri rejects any non-file:// scheme at "
+            "construction and at parse, so a non-conforming root cannot reach the wire from either side; "
+            "type-level coverage belongs in tests/test_types.py rather than this interaction suite."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════

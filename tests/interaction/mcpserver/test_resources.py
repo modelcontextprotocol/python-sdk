@@ -128,3 +128,24 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
             await client.read_resource("config://missing")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown resource: config://missing"))
+
+
+@requirement("mcpserver:resource:read-throws-surfaced")
+async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(connect: Connect) -> None:
+    """An exception raised by a resource function reaches the caller as a JSON-RPC error.
+
+    MCPServer wraps the failure in a generic error that names only the URI, so the original
+    exception text is not leaked to the client. The wrapped exception becomes error code 0 the
+    same way every other unhandled server-side exception does.
+    """
+    mcp = MCPServer("library")
+
+    @mcp.resource("res://boom")
+    def boom() -> str:
+        raise RuntimeError("nope")
+
+    async with connect(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("res://boom")
+
+    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource res://boom"))

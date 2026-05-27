@@ -110,3 +110,48 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
             await client.get_prompt("greet")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Missing required arguments: {'name'}"))
+
+
+@requirement("mcpserver:prompt:args-validation")
+async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_function_runs(connect: Connect) -> None:
+    """An argument that fails the function signature's type validation is rejected before the function runs.
+
+    The decorated function is wrapped in pydantic's validate_call, so a value that cannot be
+    coerced to the parameter's annotation fails before the body executes. The function body
+    raises NotImplementedError to prove it never ran. The error is wrapped in the SDK's stable
+    rendering-error prefix; the body of the message is raw pydantic output and is not asserted.
+    """
+    mcp = MCPServer("prompter")
+
+    @mcp.prompt()
+    def repeat(phrase: str, count: int) -> str:
+        """A registered prompt; type validation rejects the call before the function runs."""
+        raise NotImplementedError
+
+    async with connect(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.get_prompt("repeat", {"phrase": "hi", "count": "many"})
+
+    assert exc_info.value.error.code == 0
+    assert exc_info.value.error.message.startswith("Error rendering prompt repeat: 1 validation error")
+
+
+@requirement("mcpserver:prompt:optional-args")
+async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(connect: Connect) -> None:
+    """A prompt rendered without one of its optional arguments uses that parameter's default value."""
+    mcp = MCPServer("prompter")
+
+    @mcp.prompt()
+    def review(code: str, style: str = "pep8") -> str:
+        """Review a snippet of code against a style guide."""
+        return f"Review {code} per {style}."
+
+    async with connect(mcp) as client:
+        result = await client.get_prompt("review", {"code": "x = 1"})
+
+    assert result == snapshot(
+        GetPromptResult(
+            description="Review a snippet of code against a style guide.",
+            messages=[PromptMessage(role="user", content=TextContent(text="Review x = 1 per pep8."))],
+        )
+    )
