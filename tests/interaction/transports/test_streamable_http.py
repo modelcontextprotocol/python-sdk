@@ -63,6 +63,8 @@ def _smoke_server() -> MCPServer:
 
 
 @requirement("transport:streamable-http:json-response")
+@requirement("hosting:http:json-response-mode")
+@requirement("client-transport:http:json-response-parsed")
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
@@ -104,6 +106,7 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
 
 @requirement("transport:streamable-http:notifications")
 @requirement("transport:streamable-http:unrelated-messages")
+@requirement("hosting:http:standalone-sse")
 async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> None:
     """A server message with no related request reaches the client through the standalone GET stream.
 

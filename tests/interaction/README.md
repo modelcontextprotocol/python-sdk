@@ -62,6 +62,12 @@ stream pair), the bare-`ClientSession` lifecycle tests, the real-clock timeout t
 machinery is transport-independent and must not race transport latency), and everything under
 `transports/`, which pins behaviour only observable on that transport.
 
+A transport conformance test in `transports/` speaks raw `httpx` against the mounted ASGI app
+**only** when its assertion is about HTTP semantics that `Client` cannot observe — status codes,
+response headers, SSE event fields, which stream a message travels on. Any other behaviour is
+asserted through a `Client`, connected to the mounted app via `client_via_http(http)` so several
+clients can share one session manager.
+
 ## The requirements manifest
 
 `_requirements.py` maps every behaviour the suite covers to the reason it must hold:

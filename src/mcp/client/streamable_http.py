@@ -210,7 +210,7 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception:  # pragma: lax no cover
+            except Exception:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
 
@@ -492,17 +492,17 @@ class StreamableHTTPTransport:
 
     async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""
-        if not self.session_id:  # pragma: lax no cover
-            return
+        if not self.session_id:
+            return  # pragma: no cover
 
         try:
             headers = self._prepare_headers()
             response = await client.delete(self.url, headers=headers)
 
-            if response.status_code == 405:  # pragma: lax no cover
+            if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
-            elif response.status_code not in (200, 204):  # pragma: lax no cover
-                logger.warning(f"Session termination failed: {response.status_code}")
+            elif response.status_code not in (200, 204):
+                logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 

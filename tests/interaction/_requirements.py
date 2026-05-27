@@ -1738,19 +1738,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior="A client that reconnects with Last-Event-ID receives the events it missed.",
         transports=("streamable-http",),
-        deferred=(
-            "Replay requires dropping and re-establishing the SSE connection, which the in-process ASGI "
-            "client cannot express. Covered over a real socket by tests/shared/test_streamable_http.py."
-        ),
     ),
     "transport:streamable-http:origin-validation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
         behavior="Requests with an invalid Origin header are rejected with 403 before reaching the session.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here: the in-process fixture leaves the SDK's opt-in protection disabled (see "
-            "hosting:http:dns-rebinding); existing coverage in tests/server/test_streamable_http_security.py."
-        ),
     ),
     "transport:sse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
@@ -1801,70 +1793,70 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response headers."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/shared/test_streamable_http.py and "
-            "tests/server/test_streamable_http_manager.py."
-        ),
     ),
     "hosting:session:delete": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="DELETE with a valid Mcp-Session-Id terminates the session and removes its transport.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:session:id-charset": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="Generated Mcp-Session-Id values contain only visible ASCII characters.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:session:isolation": Requirement(
         source="sdk",
         behavior="Each session gets its own server instance; closing one session does not affect others.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/server/test_streamable_http_manager.py.",
     ),
     "hosting:session:missing-id": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A non-initialize POST without Mcp-Session-Id in stateful mode returns 400.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
+    ),
+    "hosting:session:post-termination-404": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#session-management",
+        behavior=(
+            "After a session is terminated, any further request carrying that session ID is answered with "
+            "404 Not Found."
+        ),
+        transports=("streamable-http",),
     ),
     "hosting:session:reinitialize": Requirement(
         source="sdk",
         behavior="A second initialize on an already-initialized session transport is rejected.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
+        divergence=Divergence(
+            note=(
+                "The transport forwards a second initialize carrying the existing session ID to the running "
+                "server, which answers it as a fresh handshake; nothing rejects re-initialization."
+            ),
+        ),
     ),
     "hosting:session:reuse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A POST carrying a valid Mcp-Session-Id routes to that session's transport with state preserved.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:session:unknown-id": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A POST, GET, or DELETE with an unknown Mcp-Session-Id returns 404.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:stateless:concurrent-clients": Requirement(
         source="sdk",
         behavior="Multiple independent clients can connect to a stateless server concurrently.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:stateless:no-reuse": Requirement(
         source="sdk",
         behavior="A stateless per-request transport cannot be reused for a second request.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:stateless:no-session-id": Requirement(
         source="sdk",
         behavior="In stateless mode no Mcp-Session-Id is emitted and no session validation is performed.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: auth
@@ -1963,25 +1955,28 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A Last-Event-ID that cannot be mapped to a stream is rejected.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
+        divergence=Divergence(
+            note=(
+                "The replay path returns an empty SSE stream rather than rejecting an unknown "
+                "Last-Event-ID; the client cannot tell an unknown ID apart from a stream with no missed "
+                "events."
+            ),
+        ),
     ),
     "hosting:resume:buffered-replay": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="Notifications emitted while no client is connected are replayed in order on reconnect.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:resume:close-stream": Requirement(
         source="sdk",
         behavior="Handlers can close an SSE stream cleanly when an event store is configured.",
         transports=("streamable-http",),
-        deferred="Not implemented in the SDK: handlers have no API to close SSE streams.",
     ),
     "hosting:resume:event-ids": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="With an event store configured, every SSE event carries an id field.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:resume:priming": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -1991,19 +1986,23 @@ REQUIREMENTS: dict[str, Requirement] = {
             "retry field first."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: whether the python server emits priming events has not been pinned.",
+        divergence=Divergence(
+            note=(
+                "The retry hint is attached to the priming event itself rather than sent as a separate "
+                "event before the connection closes, and a priming event is only sent when an event store "
+                "is configured and the negotiated protocol version is at least 2025-11-25."
+            ),
+        ),
     ),
     "hosting:resume:replay": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="GET with Last-Event-ID replays stored events for that stream after the given id.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:resume:stream-scoped": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="Replay via Last-Event-ID returns only messages from the stream that event id belongs to.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: HTTP semantics
@@ -2012,7 +2011,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A request whose Accept header does not allow the response representation returns 406.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:batch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2021,13 +2019,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "that forbid them."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:content-type-415": Requirement(
         source="sdk",
         behavior="A POST with a Content-Type other than application/json returns 415.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
+        divergence=Divergence(
+            note=(
+                "The transport-security middleware rejects a non-JSON Content-Type with 400 'Invalid "
+                "Content-Type header' before the request reaches the transport, so the transport's own 415 "
+                "path is unreachable through any public entry point."
+            ),
+        ),
     ),
     "hosting:http:disconnect-not-cancel": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2036,7 +2039,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "handler; the request continues and its result remains retrievable."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:dns-rebinding": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
@@ -2045,27 +2047,24 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Origin is rejected with 403 Forbidden."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/server/test_streamable_http_security.py. "
-            "The SDK's protection is opt-in and disabled by default (no TransportSecuritySettings means "
-            "no Origin validation), and it also checks Host — the off-by-default gap is one to record as "
-            "a divergence when the transport conformance tests land."
+        divergence=Divergence(
+            note=(
+                "The spec's Origin validation is an unconditional MUST; the SDK enables it only when the "
+                "host is a localhost address or explicit TransportSecuritySettings are passed (with no "
+                "settings, no Origin validation runs), and additionally validates the Host header "
+                "(returning 421 on mismatch), which the spec does not require."
+            ),
         ),
     ),
     "hosting:http:json-response-mode": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="With JSON response mode enabled, POST returns application/json instead of SSE.",
         transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/shared/test_streamable_http.py and the "
-            "json-response tests in this suite's transports directory."
-        ),
     ),
     "hosting:http:method-405": Requirement(
         source="sdk",
         behavior="An unsupported HTTP method on the MCP endpoint returns 405.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:no-broadcast": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#multiple-connections",
@@ -2074,13 +2073,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "exactly one stream, never duplicated."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:notifications-202": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A POST containing only notifications or responses returns 202 with no body.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:onerror": Requirement(
         source="sdk",
@@ -2095,13 +2092,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the body may carry a JSON-RPC error response (the SDK sends a Parse error body)."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:protocol-version-400": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
         behavior="An invalid or unsupported MCP-Protocol-Version header returns 400 Bad Request.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:protocol-version-default": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
@@ -2110,7 +2105,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "way, the server assumes protocol version 2025-03-26."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:response-same-connection": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2119,25 +2113,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "that stream's resumed continuation), not on an unrelated stream."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:second-sse-rejected": Requirement(
         source="sdk",
         behavior="A second concurrent standalone GET SSE stream on the same session is rejected.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:sse-close-after-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="The server terminates a POST-initiated SSE stream after writing the JSON-RPC response.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "hosting:http:standalone-sse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="GET opens a standalone SSE stream that receives server-initiated messages.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "hosting:http:standalone-sse-no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
@@ -2146,7 +2136,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response, except when resuming a prior request stream."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
@@ -2167,7 +2156,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="The client GET to the MCP endpoint includes an Accept header listing text/event-stream.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:accept-header-post": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2176,13 +2164,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and text/event-stream."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",
         behavior="Multiple concurrent POST-initiated SSE streams each deliver their response to the right caller.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:custom-client": Requirement(
         source="sdk",
@@ -2191,31 +2177,26 @@ REQUIREMENTS: dict[str, Requirement] = {
             "including auth flows."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:custom-headers": Requirement(
         source="sdk",
         behavior="Caller-supplied headers are sent on every POST, GET, and DELETE to the MCP endpoint.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:json-response-parsed": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A Content-Type application/json response is parsed as a single JSON-RPC message.",
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:no-reconnect-after-close": Requirement(
         source="sdk",
         behavior="After the transport is closed, no further reconnection attempts are scheduled.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:no-reconnect-after-response": Requirement(
         source="sdk",
         behavior="A POST-initiated stream that already delivered its response is not reconnected when it closes.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:protocol-version-header": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
@@ -2224,13 +2205,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "subsequent HTTP request."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:protocol-version-stored": Requirement(
         source="sdk",
-        behavior="The client transport exposes the negotiated protocol version once initialization completes.",
+        behavior=(
+            "The client transport stores the negotiated protocol version and sends it on every subsequent request."
+        ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:reconnect-get": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
@@ -2238,7 +2219,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A standalone GET SSE stream that errors is reconnected with the Last-Event-ID of the last received event."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
+        deferred=(
+            "Not yet covered here: the standalone GET stream emits no priming event or retry hint, so "
+            "the client's reconnection path always sleeps the hard-coded 1 s default; a deterministic "
+            "in-process test would inject real-time delay or require an SDK change. The POST-stream "
+            "reconnection path is covered by client-transport:http:reconnect-post-priming."
+        ),
     ),
     "client-transport:http:reconnect-post-priming": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2247,13 +2233,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "if a priming event (an event carrying an ID) was received on it."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:reconnect-retry-value": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="Reconnection delay honours the server-provided SSE retry value when one was sent.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:resume-stream-api": Requirement(
         source="sdk",
@@ -2262,7 +2246,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the notifications it missed."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:session-stored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
@@ -2271,19 +2254,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             "every subsequent request."
         ),
         transports=("streamable-http",),
-        deferred="Not yet covered here; existing coverage in tests/shared/test_streamable_http.py.",
     ),
     "client-transport:http:sse-405-tolerated": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="Opening the standalone GET SSE stream tolerates a 405 response without failing the connection.",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     "client-transport:http:terminate-405-ok": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="Session termination succeeds without error if the server answers 405 (termination unsupported).",
         transports=("streamable-http",),
-        deferred="Not yet covered here: planned with the transport conformance work.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth
