@@ -2187,9 +2187,10 @@ already owns the original request ID.
 For long-running work that a client needs to cancel, prefer the experimental task API when the server supports it:
 
 ```python
+from mcp import ClientSession
 from mcp.types import CallToolResult
 
-async def cancel_long_running_tool(session):
+async def cancel_long_running_tool(session: ClientSession) -> CallToolResult:
     # Start the tool as a task instead of blocking on call_tool().
     task_result = await session.experimental.call_tool_as_task(
         "long_running_tool",
