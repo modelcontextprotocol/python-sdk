@@ -467,17 +467,26 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
+                    async def send_message() -> None:
                         if is_resumption:
                             await self._handle_resumption_request(ctx)
                         else:
                             await self._handle_post_request(ctx)
 
+                    async def handle_request_async(request: JSONRPCRequest) -> None:
+                        try:
+                            await send_message()
+                        except httpx.TransportError as exc:
+                            logger.debug("Error handling request", exc_info=True)
+                            error_data = ErrorData(code=INTERNAL_ERROR, message=f"Transport error: {exc}")
+                            error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request.id, error=error_data))
+                            await ctx.read_stream_writer.send(error_msg)
+
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
-                        tg.start_soon(handle_request_async)
+                        tg.start_soon(handle_request_async, message)
                     else:
-                        await handle_request_async()
+                        await send_message()
 
                 async for session_message in write_stream_reader:
                     sender_ctx = write_stream_reader.last_context

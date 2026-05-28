@@ -52,6 +52,27 @@ def test_client_session_group_component_properties():
 
 
 @pytest.mark.anyio
+async def test_client_session_group_context_manager_closes_session_stacks_with_external_stack():
+    class SessionStack(contextlib.AsyncExitStack):
+        def __init__(self) -> None:
+            super().__init__()
+            self.closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+            await super().aclose()
+
+    session_stack = SessionStack()
+    group = ClientSessionGroup(exit_stack=contextlib.AsyncExitStack())
+    group._session_exit_stacks[mock.Mock(spec=mcp.ClientSession)] = session_stack
+
+    async with group as entered:
+        assert entered is group
+
+    assert session_stack.closed
+
+
+@pytest.mark.anyio
 async def test_client_session_group_call_tool():
     # --- Mock Dependencies ---
     mock_session = mock.AsyncMock()
@@ -276,6 +297,25 @@ async def test_client_session_group_disconnect_non_existent_server():
     group = ClientSessionGroup()
     with pytest.raises(MCPError):
         await group.disconnect_from_server(session)
+
+
+@pytest.mark.anyio
+async def test_client_session_group_streamable_http_connection_error_surfaces() -> None:
+    async def fail_request(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(fail_request))
+
+    with mock.patch("mcp.client.session_group.create_mcp_http_client", return_value=http_client):
+        async with ClientSessionGroup() as group:
+            with pytest.raises(MCPError) as excinfo:
+                await group.connect_to_server(
+                    StreamableHttpParameters(url="http://example.test/mcp"),
+                    ClientSessionParameters(read_timeout_seconds=2),
+                )
+
+    assert excinfo.value.error.code == types.INTERNAL_ERROR
+    assert excinfo.value.error.message == "Transport error: offline"
 
 
 # TODO(Marcelo): This is horrible. We should drop this test.
