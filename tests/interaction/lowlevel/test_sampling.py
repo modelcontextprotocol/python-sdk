@@ -589,12 +589,13 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     )
 
 
-@requirement("sampling:tool-use:result-balance")
+@requirement("sampling:tool-use:server-preflight")
 async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejected(connect: Connect) -> None:
     """A sampling request whose tool_result ids do not match the preceding tool_use ids never leaves the server.
 
     The message-structure validation runs inside create_message before the request is sent, so the
-    client callback is never invoked and the handler observes the ValueError directly.
+    client callback is never invoked and the handler observes the ValueError directly. The spec's
+    client-side -32602 check is tracked separately at sampling:tool-use:result-balance.
     """
 
     async def list_tools(

@@ -689,13 +689,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "mcpserver:tool:naming-validation": Requirement(
         source="sdk",
-        behavior="Tool names that violate the spec's naming rules are rejected at registration time.",
-        divergence=Divergence(
-            note=(
-                "MCPServer runs the SEP-986 naming check at registration (validate_and_warn_tool_name at "
-                "tools/base.py) and logs a warning for non-conforming names, but does not reject them; the "
-                "bool result is discarded and registration proceeds."
-            ),
+        behavior=(
+            "Registering a tool whose name violates the spec's tool-naming conventions emits a warning; "
+            "registration still succeeds."
         ),
     ),
     "mcpserver:tool:output-schema:model": Requirement(
@@ -1215,9 +1211,27 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:tool-use:result-balance": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tool-use-and-result-balance",
         behavior=(
-            "Every assistant tool_use block in a sampling request must be matched by a tool_result with "
-            "the same id in the following user message; an unmatched tool_use is rejected with a ValueError "
-            "before the request is sent."
+            "In a sampling/createMessage request, every assistant tool_use block in messages MUST be "
+            "matched by a tool_result with the same toolUseId in the immediately-following user message; "
+            "an unmatched tool_use is rejected with -32602 Invalid params."
+        ),
+        divergence=Divergence(
+            note=(
+                "The client does not validate inbound tool_use/tool_result balance; the SDK enforces "
+                "the rule server-side instead, before the request leaves the server (see "
+                "sampling:tool-use:server-preflight)."
+            ),
+        ),
+        deferred=(
+            "Not implemented on the client receive path: validation runs only on the server send path "
+            "(pinned by sampling:tool-use:server-preflight)."
+        ),
+    ),
+    "sampling:tool-use:server-preflight": Requirement(
+        source="sdk",
+        behavior=(
+            "The server validates tool_use/tool_result balance before sending a sampling/createMessage "
+            "request; an unmatched tool_use raises ValueError and the request never reaches the wire."
         ),
     ),
     "sampling:tools:server-gated-by-capability": Requirement(
@@ -2252,6 +2266,11 @@ REQUIREMENTS: dict[str, Requirement] = {
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════
     "client-transport:http:404-surfaces": Requirement(
+        source="sdk",
+        behavior="A 404 (session expired) on a request surfaces as an error to the caller.",
+        transports=("streamable-http",),
+    ),
+    "client-transport:http:session-404-reinitialize": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior=(
             "A 404 in response to a request carrying a session ID makes the client start a new session "
@@ -2263,6 +2282,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The client surfaces the 404 as an error to the caller instead of re-initializing a new "
                 "session; the spec's MUST is not satisfied."
             ),
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client surfaces a Session terminated error instead of "
+            "re-initializing (the surfaced error is pinned by client-transport:http:404-surfaces)."
         ),
     ),
     "client-transport:http:accept-header-get": Requirement(
@@ -2585,11 +2608,17 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:scope-selection:priority": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#scope-selection-strategy",
         behavior=(
-            "The client selects the requested scope from WWW-Authenticate when present, then from the "
-            "protected-resource metadata, then (as an SDK addition beyond the spec's chain) from the "
-            "AS metadata's scopes_supported, and otherwise omits scope."
+            "Client selects requested scope from the WWW-Authenticate scope param if present; otherwise "
+            "uses scopes_supported from the PRM document; otherwise omits scope."
         ),
         transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "The SDK inserts an extra fallback step between PRM and omit: if the authorization "
+                "server metadata advertises scopes_supported, that list is used (client/auth/utils.py). "
+                "This is beyond the spec's two-step chain."
+            ),
+        ),
     ),
     "client-auth:state:verify": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",

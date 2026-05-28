@@ -218,8 +218,8 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
     """A 404 in response to a request after initialization is reported to the caller as an MCP error.
 
     The spec says the client MUST start a new session in this situation; the SDK instead surfaces a
-    `Session terminated` error to the caller (see the divergence on the requirement). This test pins
-    that current behaviour.
+    `Session terminated` error to the caller. The spec's MUST is tracked at
+    client-transport:http:session-404-reinitialize; this test pins the SDK's current behaviour.
     """
     server = _tooled_server()
     real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
