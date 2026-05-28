@@ -2177,6 +2177,37 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/stdio_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/stdio_client.py)_
 <!-- /snippet-source -->
 
+#### Cancelling Long-Running Tool Calls
+
+For regular `session.call_tool()` requests, the high-level client waits for the tool result and does not expose
+the generated JSON-RPC request ID. The server-side `ctx.request_id` is useful for server logs, progress
+notifications, and low-level protocol handlers, but it is not a client-side cancellation handle unless the client
+already owns the original request ID.
+
+For long-running work that a client needs to cancel, prefer the experimental task API when the server supports it:
+
+```python
+from mcp.types import CallToolResult
+
+async def cancel_long_running_tool(session):
+    # Start the tool as a task instead of blocking on call_tool().
+    task_result = await session.experimental.call_tool_as_task(
+        "long_running_tool",
+        {"input": "data"},
+    )
+    task_id = task_result.task.task_id
+
+    # Later, cancel cooperatively by task ID.
+    await session.experimental.cancel_task(task_id)
+
+    # When a task completes normally, retrieve the normal tool result.
+    return await session.experimental.get_task_result(task_id, CallToolResult)
+```
+
+Protocol-level cancellation with `CancelledNotification` is for low-level client implementations that can track the
+in-flight request ID they sent. Avoid relying on private session internals such as `_request_id`; those details are not
+part of the public API.
+
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
 <!-- snippet-source examples/snippets/clients/streamable_basic.py -->
