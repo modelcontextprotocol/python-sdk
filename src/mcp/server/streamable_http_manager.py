@@ -196,10 +196,11 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
-            # Push back idle deadline on activity
-            if transport.idle_scope is not None and self.session_idle_timeout is not None:
-                transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout  # pragma: no cover
-            await transport.handle_request(scope, receive, send)
+            transport.mark_request_started()
+            try:
+                await transport.handle_request(scope, receive, send)
+            finally:
+                transport.mark_request_finished(self.session_idle_timeout)
             return
 
         if request_mcp_session_id is None:
@@ -223,7 +224,6 @@ class StreamableHTTPSessionManager:
                 async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
                     async with http_transport.connect() as streams:
                         read_stream, write_stream = streams
-                        task_status.started()
                         try:
                             # Use a cancel scope for idle timeout — when the
                             # deadline passes the scope cancels app.run() and
@@ -233,6 +233,8 @@ class StreamableHTTPSessionManager:
                             if self.session_idle_timeout is not None:
                                 idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
                                 http_transport.idle_scope = idle_scope
+
+                            task_status.started()
 
                             with idle_scope:
                                 await self.app.run(
@@ -267,7 +269,11 @@ class StreamableHTTPSessionManager:
                 await self._task_group.start(run_server)
 
                 # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+                http_transport.mark_request_started()
+                try:
+                    await http_transport.handle_request(scope, receive, send)
+                finally:
+                    http_transport.mark_request_finished(self.session_idle_timeout)
         else:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO: Align error code once spec clarifies

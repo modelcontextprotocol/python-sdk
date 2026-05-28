@@ -2,20 +2,31 @@
 
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import httpx
 import pytest
-from starlette.types import Message
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext, streamable_http_manager
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
+from mcp.types import (
+    INVALID_REQUEST,
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 
 
 @pytest.mark.anyio
@@ -374,8 +385,10 @@ async def test_idle_session_is_reaped():
 
         assert session_id is not None, "Session ID not found in response headers"
 
-        # Wait for the 50ms idle timeout to fire and cleanup to complete
-        await anyio.sleep(0.1)
+        # Wait deterministically for the idle timeout to fire and cleanup to complete.
+        with anyio.fail_after(1):
+            while session_id in manager._server_instances:
+                await anyio.sleep(0)
 
         # Verify via public API: old session ID now returns 404
         response_messages: list[Message] = []
@@ -388,6 +401,7 @@ async def test_idle_session_is_reaped():
             "method": "POST",
             "path": "/mcp",
             "headers": [
+                (b"accept", b"application/json, text/event-stream"),
                 (b"content-type", b"application/json"),
                 (b"mcp-session-id", session_id.encode()),
             ],
@@ -413,3 +427,55 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+def test_streamable_http_app_exposes_session_idle_timeout():
+    app = Server("test-streamable-http-app")
+
+    starlette_app = app.streamable_http_app(session_idle_timeout=30)
+
+    assert starlette_app is not None
+    assert app.session_manager.session_idle_timeout == 30
+
+
+@pytest.mark.anyio
+async def test_session_idle_timeout_does_not_cancel_in_flight_request():
+    async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="slow",
+                    description="Slow tool",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
+
+    async def on_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        await anyio.sleep(2.0)
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    server = Server("idle-timeout-active-request", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    manager = StreamableHTTPSessionManager(app=server, session_idle_timeout=1.0)
+
+    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
+        await manager.handle_request(scope, receive, send)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        async with manager.run():
+            yield
+
+    starlette_app = Starlette(routes=[Mount("/", app=handle_streamable_http)], lifespan=lifespan)
+
+    async with (
+        starlette_app.router.lifespan_context(starlette_app),
+        httpx.ASGITransport(starlette_app) as transport,
+        httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client,
+        Client(streamable_http_client("http://testserver/", http_client=http_client)) as client,
+    ):
+        with anyio.fail_after(5):
+            result = await client.call_tool("slow", {})
+
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "ok"
