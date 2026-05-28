@@ -430,7 +430,11 @@ The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `Reso
 
 ### `MCPServer.call_tool()` return type corrected
 
-`MCPServer.call_tool()`'s return type signature has been corrected from `Sequence[ContentBlock] | dict[str, Any]` to `CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]` to match what the internal tool manager actually returns when converting tool results.
+`MCPServer.call_tool()`'s return type signature has been corrected from `Sequence[ContentBlock] | dict[str, Any]` to match what the internal tool manager actually returns when converting tool results. The union is now defined once as the `ToolResult` type alias (`mcp.server.mcpserver.server.ToolResult`), so the signature has a single source of truth:
+
+```python
+ToolResult: TypeAlias = CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]
+```
 
 **Before (v1):**
 
@@ -445,7 +449,7 @@ async def call_tool(
 ```python
 async def call_tool(
     self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-) -> CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]:
+) -> ToolResult:
 ```
 
 ### Registering lowlevel handlers on `MCPServer` (workaround)

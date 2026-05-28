@@ -22,6 +22,8 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -1516,3 +1518,41 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+async def test_handle_call_tool_populates_content_and_structured_content():
+    """A tool with an output schema flows through the tuple branch of `_handle_call_tool`.
+
+    The resulting `CallToolResult` must have both `content` and `structured_content`
+    populated. This pins the reachable tuple path: the converter never returns a raw
+    dict, so the `isinstance(result, dict)` branch removed in #2695 is dead. If that
+    dead branch is ever reintroduced and starts intercepting this path, the structured
+    content would be dropped and this test fails.
+    """
+
+    class Point(BaseModel):
+        x: int
+        y: int
+
+    def make_point(x: int, y: int) -> Point:
+        return Point(x=x, y=y)
+
+    mcp = MCPServer()
+    mcp.add_tool(make_point)
+
+    request_context = ServerRequestContext(
+        session=AsyncMock(),
+        lifespan_context=None,
+        experimental=Experimental(),
+    )
+
+    result = await mcp._handle_call_tool(
+        request_context,
+        CallToolRequestParams(name="make_point", arguments={"x": 1, "y": 2}),
+    )
+
+    assert isinstance(result, CallToolResult)
+    assert result.is_error is False
+    assert result.structured_content == {"x": 1, "y": 2}
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)

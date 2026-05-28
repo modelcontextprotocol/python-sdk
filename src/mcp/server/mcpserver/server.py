@@ -7,7 +7,7 @@ import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -74,6 +74,15 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+
+ToolResult: TypeAlias = CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]
+"""Result of invoking a tool via `MCPServer.call_tool`. One of:
+
+- `CallToolResult`: the tool returned a `CallToolResult` directly.
+- `Sequence[ContentBlock]`: unstructured content from a tool with no output schema.
+- `tuple[Sequence[ContentBlock], dict[str, Any]]`: unstructured content paired with
+  structured content from a tool that has an output schema.
+"""
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -308,7 +317,7 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            result: ToolResult = await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
@@ -390,14 +399,14 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]:
+    ) -> ToolResult:
         """Call a tool by name with arguments.
 
         Returns:
-            CallToolResult: If the tool returned a CallToolResult directly.
-            Sequence[ContentBlock]: If the tool returned unstructured content and has no output schema.
-            tuple[Sequence[ContentBlock], dict[str, Any]]: If the tool has an output schema,
-                returning both unstructured content and structured content.
+            ToolResult: One of a `CallToolResult` (returned directly by the tool), a
+                `Sequence[ContentBlock]` (unstructured content from a tool with no output schema),
+                or a `tuple[Sequence[ContentBlock], dict[str, Any]]` (unstructured content paired
+                with structured content from a tool that has an output schema).
         """
         if context is None:
             context = Context(mcp_server=self)
