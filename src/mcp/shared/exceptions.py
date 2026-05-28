@@ -17,6 +17,14 @@ class McpError(Exception):
         super().__init__(error.message)
         self.error = error
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        # `Exception.__init__(error.message)` stores a plain string in
+        # ``self.args``, so the default pickle path reconstructs by calling
+        # ``McpError(message_str)`` and crashes because ``__init__`` expects
+        # ``ErrorData``. Reconstruct from ``self.error`` instead so the typed
+        # payload survives a pickle round-trip.
+        return (self.__class__, (self.error,))
+
 
 class UrlElicitationRequiredError(McpError):
     """
@@ -69,3 +77,12 @@ class UrlElicitationRequiredError(McpError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # ``McpError.__init__`` stores the message string in ``self.args``, so
+        # the default pickle path reconstructs by calling
+        # ``UrlElicitationRequiredError(message_str)`` — the string ends up
+        # bound to the ``elicitations`` parameter and unpickling crashes.
+        # Reconstruct from the typed elicitations and message so the round-trip
+        # preserves the high-level fields rather than the wire-format dict.
+        return (self.__class__, (self._elicitations, self.error.message))

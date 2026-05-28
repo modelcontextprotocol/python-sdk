@@ -1,5 +1,7 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
@@ -157,3 +159,79 @@ class TestUrlElicitationRequiredError:
 
         # The exception's string representation should match the message
         assert str(error) == "URL elicitation required"
+
+    def test_pickle_roundtrip_preserves_elicitations_and_message(self) -> None:
+        """Pickling a single-elicitation error reconstructs the typed payload."""
+        original = UrlElicitationRequiredError(
+            [
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth required",
+                    url="https://example.com/auth",
+                    elicitationId="test-123",
+                )
+            ],
+            message="Custom auth message",
+        )
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert isinstance(restored, UrlElicitationRequiredError)
+        assert isinstance(restored, McpError)
+        assert restored.error.code == URL_ELICITATION_REQUIRED
+        assert restored.error.message == "Custom auth message"
+        assert str(restored) == "Custom auth message"
+        assert len(restored.elicitations) == 1
+        assert restored.elicitations[0].elicitationId == "test-123"
+        assert restored.elicitations[0].url == "https://example.com/auth"
+
+    def test_pickle_roundtrip_preserves_multiple_elicitations(self) -> None:
+        """Pickling a multi-elicitation error keeps the typed list intact."""
+        original = UrlElicitationRequiredError(
+            [
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth 1",
+                    url="https://example.com/auth1",
+                    elicitationId="test-1",
+                ),
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth 2",
+                    url="https://example.com/auth2",
+                    elicitationId="test-2",
+                ),
+            ]
+        )
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert restored.error.message == "URL elicitations required"
+        assert [e.elicitationId for e in restored.elicitations] == ["test-1", "test-2"]
+        assert all(isinstance(e, ElicitRequestURLParams) for e in restored.elicitations)
+
+
+class TestMcpErrorPickle:
+    """Pickle round-trip coverage for McpError."""
+
+    def test_pickle_roundtrip_preserves_error_data(self) -> None:
+        """The ErrorData payload should survive a pickle round-trip intact."""
+        original = McpError(ErrorData(code=-32600, message="Invalid Request", data={"path": "/foo"}))
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert isinstance(restored, McpError)
+        assert restored.error.code == -32600
+        assert restored.error.message == "Invalid Request"
+        assert restored.error.data == {"path": "/foo"}
+        assert str(restored) == "Invalid Request"
+
+    def test_pickle_roundtrip_without_data_field(self) -> None:
+        """An ErrorData with no `data` field should round-trip cleanly."""
+        original = McpError(ErrorData(code=-32601, message="Method not found"))
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert restored.error.code == -32601
+        assert restored.error.message == "Method not found"
+        assert restored.error.data is None
