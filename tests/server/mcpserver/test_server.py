@@ -292,6 +292,43 @@ class TestServerTools:
             assert "Test error" in content.text
             assert result.is_error is True
 
+    async def test_tool_error_with_content(self):
+        """Test that ToolError with custom content returns is_error=True."""
+
+        def tool_fn() -> None:
+            raise ToolError(
+                "Something went wrong",
+                content=[
+                    TextContent(type="text", text="Custom error"),
+                    ImageContent(type="image", data="base64...", mimeType="image/png"),
+                ],
+            )
+
+        mcp = MCPServer()
+        mcp.add_tool(tool_fn)
+        async with Client(mcp) as client:
+            result = await client.call_tool("tool_fn", {})
+            assert result.is_error is True
+            assert len(result.content) == 2
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Custom error"
+            assert isinstance(result.content[1], ImageContent)
+
+    async def test_tool_error_default_content(self):
+        """Test that ToolError without custom content falls back to the error message."""
+
+        def tool_fn() -> None:
+            raise ToolError("Default error message")
+
+        mcp = MCPServer()
+        mcp.add_tool(tool_fn)
+        async with Client(mcp) as client:
+            result = await client.call_tool("tool_fn", {})
+            assert result.is_error is True
+            assert len(result.content) == 1
+            assert isinstance(result.content[0], TextContent)
+            assert "Default error message" in result.content[0].text
+
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)

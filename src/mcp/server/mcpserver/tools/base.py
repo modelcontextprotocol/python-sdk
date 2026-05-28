@@ -111,6 +111,9 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
+        except ToolError:
+            # Re-raise ToolError so custom content and is_error propagate
+            raise
         except UrlElicitationRequiredError:
             # Re-raise UrlElicitationRequiredError so it can be properly handled
             # as an MCP error response with code -32042
