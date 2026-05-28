@@ -1,9 +1,7 @@
-"""Common test utilities for MCP server tests."""
-
+import multiprocessing
 import socket
 import threading
-import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -58,28 +56,27 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
         thread.join(timeout=_SERVER_SHUTDOWN_TIMEOUT_S)
 
 
-def wait_for_server(port: int, timeout: float = 20.0) -> None:
-    """Wait for server to be ready to accept connections.
+@contextmanager
+def running_server(target: Callable[..., None], **server_kwargs: Any) -> Generator[str, None, None]:
+    """Start `target` in a subprocess and yield the running server's base URL.
 
-    Polls the server port until it accepts connections or timeout is reached.
-    This eliminates race conditions without arbitrary sleeps.
-
-    Args:
-        port: The port number to check
-        timeout: Maximum time to wait in seconds (default 5.0)
-
-    Raises:
-        TimeoutError: If server doesn't start within the timeout period
+    The child binds its own listening socket and reports the actual port back
+    through a pipe, so the parent never has to pick (and momentarily free) a
+    port — eliminating the cross-worker port race under `pytest -n auto`.
     """
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.1)
-                s.connect(("127.0.0.1", port))
-                # Server is ready
-                return
-        except (ConnectionRefusedError, OSError):
-            # Server not ready yet, retry quickly
-            time.sleep(0.01)
-    raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")  # pragma: no cover
+    reader, writer = multiprocessing.Pipe(duplex=False)
+    proc = multiprocessing.Process(target=target, kwargs={"port_writer": writer, **server_kwargs}, daemon=True)
+    proc.start()
+    # Drop the parent's writer copy so reader.recv() raises EOFError (instead of
+    # blocking forever) if the child dies before reporting its port.
+    writer.close()
+    try:
+        port = reader.recv()
+    finally:
+        reader.close()
+
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        proc.kill()
+        proc.join(timeout=2)

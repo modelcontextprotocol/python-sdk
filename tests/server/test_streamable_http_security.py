@@ -4,6 +4,7 @@ import multiprocessing
 import socket
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from multiprocessing.connection import Connection
 
 import httpx
 import pytest
@@ -16,21 +17,8 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
-from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_streamable_http_security_server"
-
-
-@pytest.fixture
-def server_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def server_url(server_port: int) -> str:  # pragma: no cover
-    return f"http://127.0.0.1:{server_port}"
 
 
 class SecurityTestServer(Server):  # pragma: no cover
@@ -41,7 +29,9 @@ class SecurityTestServer(Server):  # pragma: no cover
         return []
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
+def run_server_with_settings(
+    port_writer: Connection, security_settings: TransportSecuritySettings | None = None
+):  # pragma: no cover
     """Run the StreamableHTTP server with specified security settings."""
     app = SecurityTestServer()
 
@@ -68,29 +58,47 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
     ]
 
     starlette_app = Starlette(routes=routes, lifespan=lifespan)
-    uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen()
+    port = sock.getsockname()[1]
+    port_writer.send(port)
+    port_writer.close()
+
+    server = uvicorn.Server(config=uvicorn.Config(app=starlette_app, log_level="error"))
+    server.run(sockets=[sock])
 
 
-def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
+def start_server_process(
+    security_settings: TransportSecuritySettings | None = None,
+) -> tuple[multiprocessing.Process, int]:
     """Start server in a separate process."""
-    process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
+    reader, writer = multiprocessing.Pipe(duplex=False)
+    process = multiprocessing.Process(
+        target=run_server_with_settings,
+        kwargs={"port_writer": writer, "security_settings": security_settings},
+    )
     process.start()
-    # Wait for server to be ready to accept connections
-    wait_for_server(port)
-    return process
+    writer.close()
+    try:
+        port = reader.recv()
+    finally:
+        reader.close()
+    return process, port
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_default_settings(server_port: int):
+async def test_streamable_http_security_default_settings():
     """Test StreamableHTTP with default security settings (protection enabled)."""
-    process = start_server_process(server_port)
+    process, port = start_server_process()
 
     try:
         # Test with valid localhost headers
         async with httpx.AsyncClient(timeout=5.0) as client:
             # POST request to initialize session
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers={
                     "Accept": "application/json, text/event-stream",
@@ -106,10 +114,10 @@ async def test_streamable_http_security_default_settings(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_host_header(server_port: int):
+async def test_streamable_http_security_invalid_host_header():
     """Test StreamableHTTP with invalid Host header."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True)
-    process = start_server_process(server_port, security_settings)
+    process, port = start_server_process(security_settings)
 
     try:
         # Test with invalid host header
@@ -121,7 +129,7 @@ async def test_streamable_http_security_invalid_host_header(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers=headers,
             )
@@ -134,10 +142,10 @@ async def test_streamable_http_security_invalid_host_header(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_origin_header(server_port: int):
+async def test_streamable_http_security_invalid_origin_header():
     """Test StreamableHTTP with invalid Origin header."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"])
-    process = start_server_process(server_port, security_settings)
+    process, port = start_server_process(security_settings)
 
     try:
         # Test with invalid origin header
@@ -149,7 +157,7 @@ async def test_streamable_http_security_invalid_origin_header(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers=headers,
             )
@@ -162,15 +170,15 @@ async def test_streamable_http_security_invalid_origin_header(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_content_type(server_port: int):
+async def test_streamable_http_security_invalid_content_type():
     """Test StreamableHTTP POST with invalid Content-Type header."""
-    process = start_server_process(server_port)
+    process, port = start_server_process()
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Test POST with invalid content type
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 headers={
                     "Content-Type": "text/plain",
                     "Accept": "application/json, text/event-stream",
@@ -182,7 +190,7 @@ async def test_streamable_http_security_invalid_content_type(server_port: int):
 
             # Test POST with missing content type
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 headers={"Accept": "application/json, text/event-stream"},
                 content="test",
             )
@@ -195,10 +203,10 @@ async def test_streamable_http_security_invalid_content_type(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_disabled(server_port: int):
+async def test_streamable_http_security_disabled():
     """Test StreamableHTTP with security disabled."""
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    process = start_server_process(server_port, settings)
+    process, port = start_server_process(settings)
 
     try:
         # Test with invalid host header - should still work
@@ -210,7 +218,7 @@ async def test_streamable_http_security_disabled(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers=headers,
             )
@@ -223,14 +231,14 @@ async def test_streamable_http_security_disabled(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
+async def test_streamable_http_security_custom_allowed_hosts():
     """Test StreamableHTTP with custom allowed hosts."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["localhost", "127.0.0.1", "custom.host"],
         allowed_origins=["http://localhost", "http://127.0.0.1", "http://custom.host"],
     )
-    process = start_server_process(server_port, settings)
+    process, port = start_server_process(settings)
 
     try:
         # Test with custom allowed host
@@ -242,7 +250,7 @@ async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
+                f"http://127.0.0.1:{port}/",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                 headers=headers,
             )
@@ -254,10 +262,10 @@ async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_get_request(server_port: int):
+async def test_streamable_http_security_get_request():
     """Test StreamableHTTP GET request with security."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"])
-    process = start_server_process(server_port, security_settings)
+    process, port = start_server_process(security_settings)
 
     try:
         # Test GET request with invalid host header
@@ -267,7 +275,7 @@ async def test_streamable_http_security_get_request(server_port: int):
         }
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"http://127.0.0.1:{server_port}/", headers=headers)
+            response = await client.get(f"http://127.0.0.1:{port}/", headers=headers)
             assert response.status_code == 421
             assert response.text == "Invalid Host header"
 
@@ -280,7 +288,7 @@ async def test_streamable_http_security_get_request(server_port: int):
         async with httpx.AsyncClient(timeout=5.0) as client:
             # GET requests need a session ID in StreamableHTTP
             # So it will fail with "Missing session ID" not security error
-            response = await client.get(f"http://127.0.0.1:{server_port}/", headers=headers)
+            response = await client.get(f"http://127.0.0.1:{port}/", headers=headers)
             # This should pass security but fail on session validation
             assert response.status_code == 400
             body = response.json()

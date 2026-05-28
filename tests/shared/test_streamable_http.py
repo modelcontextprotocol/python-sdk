@@ -6,13 +6,13 @@ Contains tests for both server and client sides of the StreamableHTTP transport.
 from __future__ import annotations as _annotations
 
 import json
-import multiprocessing
 import socket
 import time
 import traceback
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from multiprocessing.connection import Connection
 from typing import Any
 from unittest.mock import MagicMock
 from urllib.parse import urlparse
@@ -66,7 +66,7 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import running_server
 
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
@@ -433,73 +433,62 @@ def create_app(
 
 
 def run_server(
-    port: int,
+    port_writer: Connection,
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
 ) -> None:  # pragma: no cover
-    """Run the test server.
+    """Run the test server in a subprocess.
+
+    Binds an ephemeral listening socket, reports the chosen port back to the
+    parent through `port_writer`, then serves on that same socket. Binding in
+    the child (instead of picking a port in the parent, closing it, and
+    rebinding here) closes the window where another pytest-xdist worker could
+    grab the port in between.
 
     Args:
-        port: Port to listen on.
+        port_writer: Pipe end used to send the bound port back to the parent.
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
         retry_interval: Retry interval in milliseconds for SSE polling.
     """
-
     app = create_app(is_json_response_enabled, event_store, retry_interval)
-    # Configure server
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen()
+    port_writer.send(sock.getsockname()[1])
+    port_writer.close()
+
     config = uvicorn.Config(
         app=app,
-        host="127.0.0.1",
-        port=port,
         log_level="info",
         limit_concurrency=10,
         timeout_keep_alive=5,
         access_log=False,
     )
-
-    # Start the server
     server = uvicorn.Server(config=config)
 
     # This is important to catch exceptions and prevent test hangs
     try:
-        server.run()
+        server.run(sockets=[sock])
     except Exception:
         traceback.print_exc()
 
 
-# Test fixtures - using same approach as SSE tests
+# Test fixtures - each server runs in a subprocess that binds its own port
+# (see `running_server`), so parallel test workers can't collide on a port.
 @pytest.fixture
-def basic_server_port() -> int:
-    """Find an available port for the basic server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def json_server_port() -> int:
-    """Find an available port for the JSON response server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def basic_server() -> Generator[str, None, None]:
+    """Start a basic server; yields its base URL."""
+    with running_server(run_server) as url:
+        yield url
 
 
 @pytest.fixture
-def basic_server(basic_server_port: int) -> Generator[None, None, None]:
-    """Start a basic server."""
-    proc = multiprocessing.Process(target=run_server, kwargs={"port": basic_server_port}, daemon=True)
-    proc.start()
-
-    # Wait for server to be running
-    wait_for_server(basic_server_port)
-
-    yield
-
-    # Clean up
-    proc.kill()
-    proc.join(timeout=2)
+def basic_server_url(basic_server: str) -> str:
+    """Get the URL for the basic test server."""
+    return basic_server
 
 
 @pytest.fixture
@@ -509,65 +498,23 @@ def event_store() -> SimpleEventStore:
 
 
 @pytest.fixture
-def event_server_port() -> int:
-    """Find an available port for the event store server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def event_server(event_store: SimpleEventStore) -> Generator[tuple[SimpleEventStore, str], None, None]:
+    """Start a server with event store and retry_interval enabled; yields (store, url)."""
+    with running_server(run_server, event_store=event_store, retry_interval=500) as url:
+        yield event_store, url
 
 
 @pytest.fixture
-def event_server(
-    event_server_port: int, event_store: SimpleEventStore
-) -> Generator[tuple[SimpleEventStore, str], None, None]:
-    """Start a server with event store and retry_interval enabled."""
-    proc = multiprocessing.Process(
-        target=run_server,
-        kwargs={"port": event_server_port, "event_store": event_store, "retry_interval": 500},
-        daemon=True,
-    )
-    proc.start()
-
-    # Wait for server to be running
-    wait_for_server(event_server_port)
-
-    yield event_store, f"http://127.0.0.1:{event_server_port}"
-
-    # Clean up
-    proc.kill()
-    proc.join(timeout=2)
+def json_response_server() -> Generator[str, None, None]:
+    """Start a server with JSON responses enabled; yields its base URL."""
+    with running_server(run_server, is_json_response_enabled=True) as url:
+        yield url
 
 
 @pytest.fixture
-def json_response_server(json_server_port: int) -> Generator[None, None, None]:
-    """Start a server with JSON response enabled."""
-    proc = multiprocessing.Process(
-        target=run_server,
-        kwargs={"port": json_server_port, "is_json_response_enabled": True},
-        daemon=True,
-    )
-    proc.start()
-
-    # Wait for server to be running
-    wait_for_server(json_server_port)
-
-    yield
-
-    # Clean up
-    proc.kill()
-    proc.join(timeout=2)
-
-
-@pytest.fixture
-def basic_server_url(basic_server_port: int) -> str:
-    """Get the URL for the basic test server."""
-    return f"http://127.0.0.1:{basic_server_port}"
-
-
-@pytest.fixture
-def json_server_url(json_server_port: int) -> str:
+def json_server_url(json_response_server: str) -> str:
     """Get the URL for the JSON response test server."""
-    return f"http://127.0.0.1:{json_server_port}"
+    return json_response_server
 
 
 # Basic request validation tests
@@ -1518,8 +1465,8 @@ async def _handle_context_call_tool(  # pragma: no cover
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int):  # pragma: no cover
-    """Run the context-aware test server."""
+def run_context_aware_server(port_writer: Connection) -> None:  # pragma: no cover
+    """Run the context-aware test server in a subprocess (see `run_server`)."""
     server = Server(
         "ContextAwareServer",
         on_list_tools=_handle_context_list_tools,
@@ -1540,36 +1487,25 @@ def run_context_aware_server(port: int):  # pragma: no cover
         lifespan=lambda app: session_manager.run(),
     )
 
-    server_instance = uvicorn.Server(
-        config=uvicorn.Config(
-            app=app,
-            host="127.0.0.1",
-            port=port,
-            log_level="error",
-        )
-    )
-    server_instance.run()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen()
+    port_writer.send(sock.getsockname()[1])
+    port_writer.close()
+
+    uvicorn.Server(config=uvicorn.Config(app=app, log_level="error")).run(sockets=[sock])
 
 
 @pytest.fixture
-def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
-    """Start the context-aware server in a separate process."""
-    proc = multiprocessing.Process(target=run_context_aware_server, args=(basic_server_port,), daemon=True)
-    proc.start()
-
-    # Wait for server to be running
-    wait_for_server(basic_server_port)
-
-    yield
-
-    proc.kill()
-    proc.join(timeout=2)
-    if proc.is_alive():  # pragma: no cover
-        print("Context-aware server process failed to terminate")
+def context_aware_server() -> Generator[str, None, None]:
+    """Start the context-aware server in a subprocess; yields its base URL."""
+    with running_server(run_context_aware_server) as url:
+        yield url
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_request_context_propagation(context_aware_server: None, basic_server_url: str) -> None:
+async def test_streamablehttp_request_context_propagation(context_aware_server: str) -> None:
     """Test that request context is properly propagated through StreamableHTTP."""
     custom_headers = {
         "Authorization": "Bearer test-token",
@@ -1578,7 +1514,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
     }
 
     async with create_mcp_http_client(headers=custom_headers) as httpx_client:
-        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+        async with streamable_http_client(f"{context_aware_server}/mcp", http_client=httpx_client) as (
             read_stream,
             write_stream,
         ):
@@ -1602,7 +1538,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_request_context_isolation(context_aware_server: None, basic_server_url: str) -> None:
+async def test_streamablehttp_request_context_isolation(context_aware_server: str) -> None:
     """Test that request contexts are isolated between StreamableHTTP clients."""
     contexts: list[dict[str, Any]] = []
 
@@ -1615,7 +1551,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
         }
 
         async with create_mcp_http_client(headers=headers) as httpx_client:
-            async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            async with streamable_http_client(f"{context_aware_server}/mcp", http_client=httpx_client) as (
                 read_stream,
                 write_stream,
             ):
@@ -1640,9 +1576,9 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 
 
 @pytest.mark.anyio
-async def test_client_includes_protocol_version_header_after_init(context_aware_server: None, basic_server_url: str):
+async def test_client_includes_protocol_version_header_after_init(context_aware_server: str):
     """Test that client includes mcp-protocol-version header after initialization."""
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+    async with streamable_http_client(f"{context_aware_server}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize and get the negotiated version
             init_result = await session.initialize()
@@ -2254,9 +2190,7 @@ async def test_streamable_http_client_does_not_mutate_provided_client(
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_mcp_headers_override_defaults(
-    context_aware_server: None, basic_server_url: str
-) -> None:
+async def test_streamable_http_client_mcp_headers_override_defaults(context_aware_server: str) -> None:
     """Test that MCP protocol headers override httpx.AsyncClient default headers."""
     # httpx.AsyncClient has default "accept: */*" header
     # We need to verify that our MCP accept header overrides it in actual requests
@@ -2265,7 +2199,10 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
         # Verify client has default accept header
         assert client.headers.get("accept") == "*/*"
 
-        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (read_stream, write_stream):
+        async with streamable_http_client(f"{context_aware_server}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+        ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
@@ -2285,9 +2222,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_preserves_custom_with_mcp_headers(
-    context_aware_server: None, basic_server_url: str
-) -> None:
+async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_aware_server: str) -> None:
     """Test that both custom headers and MCP protocol headers are sent in requests."""
     custom_headers = {
         "X-Custom-Header": "custom-value",
@@ -2296,7 +2231,10 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
     }
 
     async with httpx.AsyncClient(headers=custom_headers, follow_redirects=True) as client:
-        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (read_stream, write_stream):
+        async with streamable_http_client(f"{context_aware_server}/mcp", http_client=client) as (
+            read_stream,
+            write_stream,
+        ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
