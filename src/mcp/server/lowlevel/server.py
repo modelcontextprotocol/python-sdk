@@ -349,12 +349,12 @@ class Server(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:  # pragma: no cover
-            raise RuntimeError(
+        if self._session_manager is None:
+            raise RuntimeError(  # pragma: no cover
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     async def run(
         self,
@@ -513,7 +513,7 @@ class Server(Generic[LifespanResultT]):
                     if raise_exceptions:  # pragma: no cover
                         raise err
                     response = types.ErrorData(code=0, message=str(err))
-            else:  # pragma: no cover
+            else:
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
 
             if isinstance(response, types.ErrorData) and span is not None:
@@ -603,7 +603,7 @@ class Server(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if auth:  # pragma: no cover
+        if auth:
             required_scopes = auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -629,10 +629,10 @@ class Server(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if token_verifier:  # pragma: no cover
+        if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:
+            if auth and auth.resource_server_url:  # pragma: no branch
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 
@@ -652,7 +652,7 @@ class Server(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if auth and auth.resource_server_url:  # pragma: no cover
+        if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,

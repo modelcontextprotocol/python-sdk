@@ -223,7 +223,7 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: no cover
+    async def send_resource_updated(self, uri: str | AnyUrl) -> None:
         """Send a resource updated notification."""
         await self.send_notification(
             types.ResourceUpdatedNotification(
@@ -447,7 +447,7 @@ class ServerSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
-    async def send_ping(self) -> types.EmptyResult:  # pragma: no cover
+    async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
         return await self.send_request(
             types.PingRequest(),
@@ -479,11 +479,11 @@ class ServerSession(
         """Send a resource list changed notification."""
         await self.send_notification(types.ResourceListChangedNotification())
 
-    async def send_tool_list_changed(self) -> None:  # pragma: no cover
+    async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
         await self.send_notification(types.ToolListChangedNotification())
 
-    async def send_prompt_list_changed(self) -> None:  # pragma: no cover
+    async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
         await self.send_notification(types.PromptListChangedNotification())
 
