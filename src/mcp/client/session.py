@@ -74,7 +74,7 @@ async def _default_elicitation_callback(
     context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
-    return types.ErrorData(  # pragma: no cover
+    return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Elicitation not supported",
     )
@@ -337,9 +337,7 @@ class ClientSession(
             from jsonschema import SchemaError, ValidationError, validate
 
             if result.structured_content is None:
-                raise RuntimeError(
-                    f"Tool {name} has an output schema but did not return structured content"
-                )  # pragma: no cover
+                raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             try:
                 validate(result.structured_content, output_schema)
             except ValidationError as e:
@@ -408,7 +406,7 @@ class ClientSession(
 
         return result
 
-    async def send_roots_list_changed(self) -> None:  # pragma: no cover
+    async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())
 
@@ -449,7 +447,7 @@ class ClientSession(
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
-            case types.PingRequest():  # pragma: no cover
+            case types.PingRequest():
                 with responder:
                     return await responder.respond(types.EmptyResult())
 

@@ -78,7 +78,7 @@ dev = [
     # We add mcp[cli,ws] so `uv sync` considers the extras.
     "mcp[cli,ws]",
     "pyright>=1.1.400",
-    "pytest>=8.3.4",
+    "pytest>=8.4.0",
     "ruff>=0.8.5",
     "trio>=0.26.2",
     "pytest-flakefinder>=1.1.0",
@@ -193,6 +193,9 @@ strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 [tool.pytest.ini_options]
 log_cli = true
 xfail_strict = true
+markers = [
+    "requirement(id): links a test to the entry in tests/interaction/_requirements.py it exercises",
+]
 addopts = """
     --color=yes
     --capture=fd

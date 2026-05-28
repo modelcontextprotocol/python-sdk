@@ -185,5 +185,5 @@ class Prompt(BaseModel):
                     raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")
