@@ -1556,3 +1556,74 @@ async def test_handle_call_tool_populates_content_and_structured_content():
     assert result.structured_content == {"x": 1, "y": 2}
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
+
+
+async def test_handle_call_tool_returns_direct_call_tool_result():
+    """A tool that returns `CallToolResult` directly should be returned unchanged.
+
+    This pins the `isinstance(result, CallToolResult)` branch of `_handle_call_tool`.
+    """
+
+    def direct_result_tool() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="Direct content")],
+            is_error=False,
+            structured_content={"custom": "metadata"},
+        )
+
+    mcp = MCPServer()
+    mcp.add_tool(direct_result_tool)
+
+    request_context = ServerRequestContext(
+        session=AsyncMock(),
+        lifespan_context=None,
+        experimental=Experimental(),
+    )
+
+    result = await mcp._handle_call_tool(
+        request_context,
+        CallToolRequestParams(name="direct_result_tool", arguments={}),
+    )
+
+    assert isinstance(result, CallToolResult)
+    assert result.is_error is False
+    assert result.structured_content == {"custom": "metadata"}
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Direct content"
+
+
+async def test_handle_call_tool_returns_unstructured_sequence():
+    """A tool with no output schema returning a sequence of content blocks flows
+
+    through the fallback branch of `_handle_call_tool` and is wrapped in a CallToolResult.
+    """
+
+    def unstructured_tool() -> list[ContentBlock]:
+        return [
+            TextContent(type="text", text="Hello"),
+            ImageContent(type="image", data="abc", mime_type="image/png"),
+        ]
+
+    mcp = MCPServer()
+    mcp.add_tool(unstructured_tool, structured_output=False)
+
+    request_context = ServerRequestContext(
+        session=AsyncMock(),
+        lifespan_context=None,
+        experimental=Experimental(),
+    )
+
+    result = await mcp._handle_call_tool(
+        request_context,
+        CallToolRequestParams(name="unstructured_tool", arguments={}),
+    )
+
+    assert isinstance(result, CallToolResult)
+    assert result.is_error is False
+    assert result.structured_content is None
+    assert len(result.content) == 2
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Hello"
+    assert isinstance(result.content[1], ImageContent)
+    assert result.content[1].data == "abc"
