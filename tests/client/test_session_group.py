@@ -308,7 +308,7 @@ async def test_client_session_group_streamable_http_connection_error_surfaces() 
 
     with mock.patch("mcp.client.session_group.create_mcp_http_client", return_value=http_client):
         async with ClientSessionGroup() as group:
-            with pytest.raises(MCPError) as excinfo:
+            with pytest.raises(MCPError) as excinfo:  # pragma: no branch
                 await group.connect_to_server(
                     StreamableHttpParameters(url="http://example.test/mcp"),
                     ClientSessionParameters(read_timeout_seconds=2),
