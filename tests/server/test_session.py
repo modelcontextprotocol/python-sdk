@@ -28,7 +28,7 @@ async def test_server_session_initialize():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
+    async def message_callback(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -63,7 +63,7 @@ async def test_server_session_initialize():
             ClientSession(
                 server_to_client_receive,
                 client_to_server_send,
-                message_handler=message_handler,
+                message_callback=message_callback,
             ) as client_session,
             anyio.create_task_group() as tg,
         ):

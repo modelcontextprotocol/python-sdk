@@ -54,7 +54,7 @@ async def test_logging_callback():
         return True
 
     # Create a message handler to catch exceptions
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):  # pragma: no cover
@@ -63,7 +63,7 @@ async def test_logging_callback():
     async with Client(
         server,
         logging_callback=logging_collector,
-        message_handler=message_handler,
+        message_callback=message_callback,
     ) as client:
         # First verify our test tool works
         result = await client.call_tool("test_tool", {})

@@ -305,7 +305,7 @@ async def test_connection_closed():
 
 
 @pytest.mark.anyio
-async def test_null_id_error_surfaced_via_message_handler():
+async def test_null_id_error_surfaced_via_message_callback():
     """Test that a JSONRPCError with id=None is surfaced to the message handler.
 
     Per JSON-RPC 2.0, error responses use id=null when the request id could not
@@ -338,7 +338,7 @@ async def test_null_id_error_surfaced_via_message_handler():
             ClientSession(
                 read_stream=client_read,
                 write_stream=client_write,
-                message_handler=capture_errors,
+                message_callback=capture_errors,
             ) as _client_session,
         ):
             tg.start_soon(mock_server)
@@ -399,7 +399,7 @@ async def test_null_id_error_does_not_affect_pending_request():
             ClientSession(
                 read_stream=client_read,
                 write_stream=client_write,
-                message_handler=capture_errors,
+                message_callback=capture_errors,
             ) as client_session,
         ):
             tg.start_soon(mock_server)

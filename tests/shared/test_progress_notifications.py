@@ -139,7 +139,7 @@ async def test_bidirectional_progress_notifications():
         ClientSession(
             server_to_client_receive,
             client_to_server_send,
-            message_handler=handle_client_message,
+            message_callback=handle_client_message,
         ) as client_session,
         anyio.create_task_group() as tg,
     ):

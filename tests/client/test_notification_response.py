@@ -81,7 +81,7 @@ async def test_non_compliant_notification_response() -> None:
     """
     returned_exception = None
 
-    async def message_handler(  # pragma: no cover
+    async def message_callback(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         nonlocal returned_exception
@@ -90,7 +90,7 @@ async def test_non_compliant_notification_response() -> None:
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_non_sdk_server_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
                 await session.initialize()
 
                 # The test server returns a 204 instead of the expected 202

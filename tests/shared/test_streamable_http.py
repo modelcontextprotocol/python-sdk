@@ -1153,14 +1153,14 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
     notifications_received: list[types.ServerNotification] = []
 
     # Define message handler to capture notifications
-    async def message_handler(  # pragma: no branch
+    async def message_callback(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             notifications_received.append(message)
 
     async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
             # Initialize the session - this triggers the GET stream setup
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -1304,7 +1304,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
     captured_notifications: list[types.ServerNotification] = []
     first_notification_received = False
 
-    async def message_handler(  # pragma: no branch
+    async def message_callback(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, types.ServerNotification):  # pragma: no branch
@@ -1329,7 +1329,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             write_stream,
         ):
             async with ClientSession(  # pragma: no branch
-                read_stream, write_stream, message_handler=message_handler
+                read_stream, write_stream, message_callback=message_callback
             ) as session:
                 # Initialize the session
                 result = await session.initialize()
@@ -1367,7 +1367,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                         await anyio.sleep(0.1)
 
                     # The while loop only exits after first_notification_received=True,
-                    # which is set by message_handler immediately after appending to
+                    # which is set by message_callback immediately after appending to
                     # captured_notifications. The server tool is blocked on its lock,
                     # so nothing else can arrive before we cancel.
                     assert len(captured_notifications) == 1
@@ -1385,7 +1385,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             write_stream,
         ):
             async with ClientSession(
-                read_stream, write_stream, message_handler=message_handler
+                read_stream, write_stream, message_callback=message_callback
             ) as session:  # pragma: no branch
                 result = await session.send_request(
                     types.CallToolRequest(params=types.CallToolRequestParams(name="release_lock", arguments={})),
@@ -1982,7 +1982,7 @@ async def test_streamable_http_client_auto_reconnects(
     _, server_url = event_server
     captured_notifications: list[str] = []
 
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):  # pragma: no branch
@@ -1992,7 +1992,7 @@ async def test_streamable_http_client_auto_reconnects(
                 captured_notifications.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
             await session.initialize()
 
             # Call tool that:
@@ -2046,7 +2046,7 @@ async def test_streamable_http_sse_polling_full_cycle(
     _, server_url = event_server
     all_notifications: list[str] = []
 
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):  # pragma: no branch
@@ -2056,7 +2056,7 @@ async def test_streamable_http_sse_polling_full_cycle(
                 all_notifications.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
             await session.initialize()
 
             # Call tool that simulates polling pattern:
@@ -2086,7 +2086,7 @@ async def test_streamable_http_events_replayed_after_disconnect(
     _, server_url = event_server
     notification_data: list[str] = []
 
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):  # pragma: no branch
@@ -2096,7 +2096,7 @@ async def test_streamable_http_events_replayed_after_disconnect(
                 notification_data.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
             await session.initialize()
 
             # Tool sends: notification1, close_stream, notification2, notification3, response
@@ -2186,7 +2186,7 @@ async def test_standalone_get_stream_reconnection(event_server: tuple[SimpleEven
     _, server_url = event_server
     received_notifications: list[str] = []
 
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -2196,7 +2196,7 @@ async def test_standalone_get_stream_reconnection(event_server: tuple[SimpleEven
                 received_notifications.append(str(message.params.uri))
 
     async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+        async with ClientSession(read_stream, write_stream, message_callback=message_callback) as session:
             await session.initialize()
 
             # Call tool that:

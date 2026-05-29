@@ -184,12 +184,12 @@ async def test_tool_progress() -> None:
     """Test tool progress reporting."""
     collector = NotificationCollector()
 
-    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
+    async def message_callback(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-    async with Client(tool_progress.mcp, message_handler=message_handler) as client:
+    async with Client(tool_progress.mcp, message_callback=message_callback) as client:
         # Test progress callback
         progress_updates = []
 
@@ -263,12 +263,12 @@ async def test_notifications() -> None:
     """Test notifications and logging functionality."""
     collector = NotificationCollector()
 
-    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
+    async def message_callback(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-    async with Client(notifications.mcp, message_handler=message_handler) as client:
+    async with Client(notifications.mcp, message_callback=message_callback) as client:
         # Call tool that generates notifications
         tool_result = await client.call_tool("process_data", {"data": "test_data"})
         assert len(tool_result.content) == 1
