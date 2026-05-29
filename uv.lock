@@ -807,6 +807,7 @@ dev = [
     { name = "pytest-pretty" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "sse-starlette" },
     { name = "trio" },
 ]
 docs = [
@@ -845,12 +846,13 @@ dev = [
     { name = "dirty-equals", specifier = ">=0.9.0" },
     { name = "inline-snapshot", specifier = ">=0.23.0" },
     { name = "pyright", specifier = ">=1.1.400" },
-    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest", specifier = ">=8.4.0" },
     { name = "pytest-examples", specifier = ">=0.0.14" },
     { name = "pytest-flakefinder", specifier = ">=1.1.0" },
     { name = "pytest-pretty", specifier = ">=1.2.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.8.5" },
+    { name = "sse-starlette", specifier = ">=2.1.0" },
     { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [
