@@ -1,14 +1,16 @@
 """Transport-parametrized connection factories for the interaction suite.
 
 The `connect` fixture (see conftest.py) hands tests one of these factories so the same test body
-runs over each transport without naming any of them: the factory is a drop-in replacement for
-constructing `Client(server, ...)` and yields the connected client. The HTTP factories drive the
-server's real Starlette app through the in-process streaming bridge, so the full transport layer
-(session ids, SSE encoding, session management) runs with no sockets, threads, or subprocesses.
+runs over each transport without naming any of them: the factory yields an initialized
+`ClientSession` connected to the given server. v1 has no high-level `Client` class —
+`ClientSession` *is* the client. The HTTP factories drive the server's real Starlette app through
+the in-process streaming bridge, so the full transport layer (session ids, SSE encoding, session
+management) runs with no sockets, threads, or subprocesses.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import timedelta
 from typing import Any, Protocol
 
 import httpx
@@ -18,14 +20,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
-from mcp.client.client import Client
-from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.mcpserver import MCPServer
+from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -38,7 +39,6 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
-    jsonrpc_message_adapter,
 )
 from tests.interaction.transports._bridge import StreamingASGITransport
 
@@ -52,40 +52,50 @@ BASE_URL = "http://127.0.0.1:8000"
 NO_DNS_REBINDING_PROTECTION = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
-class Connect(Protocol):
-    """Connect a Client to a server over the transport selected by the `connect` fixture.
+def _lowlevel(server: Server[Any] | FastMCP) -> Server[Any]:
+    """Return the lowlevel `Server` for either flavour.
 
-    Accepts the same keyword arguments as `Client` and yields the connected client.
+    Reaching `FastMCP._mcp_server` is the v1 idiom — `mcp.shared.memory` itself does exactly
+    this (with the same `# type: ignore`).
+    """
+    return server._mcp_server if isinstance(server, FastMCP) else server  # type: ignore[reportPrivateUsage]
+
+
+class Connect(Protocol):
+    """Connect a `ClientSession` to a server over the transport selected by the `connect` fixture.
+
+    Accepts the same callback keyword arguments as `ClientSession` and yields the connected,
+    initialized session.
     """
 
     def __call__(
         self,
-        server: Server | MCPServer,
+        server: Server[Any] | FastMCP,
         *,
-        read_timeout_seconds: float | None = None,
+        read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
-        elicitation_callback: ElicitationFnT | None = None,
-    ) -> AbstractAsyncContextManager[Client]: ...
+    ) -> AbstractAsyncContextManager[ClientSession]: ...
 
 
 @asynccontextmanager
 async def connect_in_memory(
-    server: Server | MCPServer,
+    server: Server[Any] | FastMCP,
     *,
-    read_timeout_seconds: float | None = None,
+    read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
+    elicitation_callback: ElicitationFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
-    elicitation_callback: ElicitationFnT | None = None,
-) -> AsyncIterator[Client]:
-    """Yield a Client connected to the server over the in-memory transport."""
-    async with Client(
+) -> AsyncIterator[ClientSession]:
+    """Yield an initialized `ClientSession` connected to the server over the in-memory transport."""
+    async with Client(  # noqa: F821  -- body rewritten in H3
         server,
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
@@ -100,21 +110,21 @@ async def connect_in_memory(
 
 @asynccontextmanager
 async def connect_over_streamable_http(
-    server: Server | MCPServer,
+    server: Server[Any] | FastMCP,
     *,
     stateless_http: bool = False,
     json_response: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-    read_timeout_seconds: float | None = None,
+    read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
+    elicitation_callback: ElicitationFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
-    elicitation_callback: ElicitationFnT | None = None,
-) -> AsyncIterator[Client]:
-    """Yield a Client connected to the server's streamable HTTP app, entirely in process.
+) -> AsyncIterator[ClientSession]:
+    """Yield an initialized `ClientSession` over the server's streamable HTTP app, entirely in process.
 
     With the defaults this is the matrix leg (stateful sessions, SSE responses); the
     transport-specific tests pass `stateless_http` or `json_response` to select the other
@@ -131,7 +141,7 @@ async def connect_over_streamable_http(
     async with (
         server.session_manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
-        Client(
+        Client(  # noqa: F821  -- body rewritten in H4
             streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=sampling_callback,
@@ -147,7 +157,7 @@ async def connect_over_streamable_http(
 
 @asynccontextmanager
 async def mounted_app(
-    server: Server | MCPServer,
+    server: Server[Any] | FastMCP,
     *,
     stateless_http: bool = False,
     json_response: bool = False,
@@ -172,7 +182,7 @@ async def mounted_app(
     DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
     localhost auto-enable behaviour) to test the protection itself.
     """
-    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
+    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server  # noqa: F821  -- body rewritten in H5
     app = lowlevel.streamable_http_app(
         stateless_http=stateless_http,
         json_response=json_response,
@@ -200,15 +210,15 @@ async def client_via_http(
     logging_callback: LoggingFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-) -> AsyncIterator[Client]:
-    """Connect a `Client` over an already-mounted streamable HTTP app.
+) -> AsyncIterator[ClientSession]:
+    """Connect a `ClientSession` over an already-mounted streamable HTTP app.
 
     Use with `mounted_app(...)` so several `Client`s share the one session manager, or so a
     client-driven assertion can sit alongside raw-httpx assertions in the same test. The
     underlying `httpx.AsyncClient` is left open when the `Client` exits.
     """
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-    async with Client(
+    async with Client(  # noqa: F821  -- body rewritten in H4
         transport,
         logging_callback=logging_callback,
         message_handler=message_handler,
@@ -219,7 +229,7 @@ async def client_via_http(
 
 def parse_sse_messages(events: Iterable[ServerSentEvent]) -> list[JSONRPCMessage]:
     """Decode SSE events into JSON-RPC messages, skipping priming events that carry no data."""
-    return [jsonrpc_message_adapter.validate_json(event.data) for event in events if event.data]
+    return [jsonrpc_message_adapter.validate_json(event.data) for event in events if event.data]  # noqa: F821  -- body rewritten in H3
 
 
 async def post_jsonrpc(
@@ -289,7 +299,7 @@ async def initialize_via_http(http: httpx.AsyncClient) -> str:
     return session_id
 
 
-def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTransport]:
+def build_sse_app(server: Server[Any] | FastMCP) -> tuple[Starlette, SseServerTransport]:
     """Mount a server on a Starlette app exposing the legacy SSE transport at /sse and /messages/.
 
     `MCPServer.sse_app()` exists but does not expose the underlying `SseServerTransport`, which
@@ -299,7 +309,7 @@ def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTrans
     sse = SseServerTransport(
         "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
-    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
+    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server  # noqa: F821  -- body rewritten in H3
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
@@ -317,17 +327,17 @@ def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTrans
 
 @asynccontextmanager
 async def connect_over_sse(
-    server: Server | MCPServer,
+    server: Server[Any] | FastMCP,
     *,
-    read_timeout_seconds: float | None = None,
+    read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
+    elicitation_callback: ElicitationFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
-    elicitation_callback: ElicitationFnT | None = None,
-) -> AsyncIterator[Client]:
-    """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
+) -> AsyncIterator[ClientSession]:
+    """Yield an initialized `ClientSession` over the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)
 
     def httpx_client_factory(
@@ -347,7 +357,7 @@ async def connect_over_sse(
         )
 
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
-    async with Client(
+    async with Client(  # noqa: F821  -- body rewritten in H3
         transport,
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,

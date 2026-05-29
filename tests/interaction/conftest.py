@@ -4,6 +4,13 @@ import pytest
 
 from tests.interaction._connect import Connect, connect_in_memory, connect_over_sse, connect_over_streamable_http
 
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "requirement(id): tag a test as covering an entry in tests/interaction/_requirements.py"
+    )
+
+
 _FACTORIES: dict[str, Connect] = {
     "in-memory": connect_in_memory,
     "streamable-http": connect_over_streamable_http,
