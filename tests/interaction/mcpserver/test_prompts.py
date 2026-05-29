@@ -1,10 +1,10 @@
-"""Prompt interactions against MCPServer, driven through the public Client API."""
+"""Prompt interactions against FastMCP, driven through the public client API."""
 
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError
-from mcp.server.mcpserver import MCPServer
+from mcp import McpError
+from mcp.server.fastmcp import FastMCP
 from mcp.types import (
     ErrorData,
     GetPromptResult,
@@ -26,7 +26,7 @@ async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -
 
     Parameters without a default are required; the description comes from the docstring.
     """
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def code_review(code: str, style_guide: str = "pep8") -> str:
@@ -55,7 +55,7 @@ async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -
 @requirement("mcpserver:prompt:decorated")
 async def test_get_prompt_renders_function_return(connect: Connect) -> None:
     """The decorated function's string return value is rendered as a single user message."""
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def greet(name: str) -> str:
@@ -80,7 +80,7 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
     The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
     the requirement).
     """
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def greet(name: str) -> str:
@@ -88,7 +88,7 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
         raise NotImplementedError
 
     async with connect(mcp) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.get_prompt("nope")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown prompt: nope"))
@@ -102,7 +102,7 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
     Invalid params is reported as error code 0 with the bare exception text (see the divergence
     note on the requirement).
     """
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def greet(name: str) -> str:
@@ -110,7 +110,7 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
         raise NotImplementedError
 
     async with connect(mcp) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.get_prompt("greet")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Missing required arguments: {'name'}"))
@@ -125,7 +125,7 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
     raises NotImplementedError to prove it never ran. The error is wrapped in the SDK's stable
     rendering-error prefix; the body of the message is raw pydantic output and is not asserted.
     """
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def repeat(phrase: str, count: int) -> str:
@@ -133,7 +133,7 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
         raise NotImplementedError
 
     async with connect(mcp) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.get_prompt("repeat", {"phrase": "hi", "count": "many"})
 
     assert exc_info.value.error.code == 0
@@ -143,7 +143,7 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
 @requirement("mcpserver:prompt:optional-args")
 async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(connect: Connect) -> None:
     """A prompt rendered without one of its optional arguments uses that parameter's default value."""
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def review(code: str, style: str = "pep8") -> str:
@@ -165,12 +165,12 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
 async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(connect: Connect) -> None:
     """Registering a second prompt with an already-used name keeps the first registration.
 
-    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
+    The intended behaviour is rejection at registration time; FastMCP instead logs a warning
     and discards the second registration (see the divergence note on the requirement). The
     second function is registered via the decorator with an explicit name so the test does not
     redefine the same function name in this scope.
     """
-    mcp = MCPServer("prompter")
+    mcp = FastMCP("prompter")
 
     @mcp.prompt()
     def greet() -> str:

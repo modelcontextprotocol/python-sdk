@@ -1,26 +1,32 @@
-"""Cancellation interactions against the low-level Server, driven through the public Client API.
+"""Cancellation interactions against the low-level Server, driven through the public client API.
 
 There is no client-side cancellation API: cancelling means sending a CancelledNotification
-carrying the request id, which only the server-side handler can observe (`ctx.request_id`), so
-these tests capture the id from inside the blocked handler before cancelling. The handler blocks
-on an Event rather than a sleep, and every wait is bounded by `anyio.fail_after`.
+carrying the request id, which only the server-side handler can observe (via
+`server.request_context.request_id`), so these tests capture the id from inside the blocked
+handler before cancelling. The handler blocks on an Event rather than a sleep, and every wait
+is bounded by `anyio.fail_after`.
 """
+
+from typing import Any
 
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.client import ClientSession
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolResult,
+    ClientNotification,
+    ClientRequest,
     EmptyResult,
     ErrorData,
     Implementation,
     InitializeResult,
+    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -49,8 +55,12 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
     request_ids: list[types.RequestId] = []
     errors: list[ErrorData] = []
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "block"
+    server: Server[Any] = Server("blocker")
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "block"
+        ctx = server.request_context
         assert ctx.request_id is not None
         request_ids.append(ctx.request_id)
         started.set()
@@ -61,22 +71,22 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
             raise
         raise NotImplementedError  # unreachable: the wait above never completes normally
 
-    server = Server("blocker", on_call_tool=call_tool)
-
     async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
 
                 async def call_and_capture_error() -> None:
-                    with pytest.raises(MCPError) as exc_info:
+                    with pytest.raises(McpError) as exc_info:
                         await client.call_tool("block", {})
                     errors.append(exc_info.value.error)
 
                 task_group.start_soon(call_and_capture_error)
                 await started.wait()
-                await client.session.send_notification(
-                    types.CancelledNotification(
-                        params=types.CancelledNotificationParams(requestId=request_ids[0], reason="user aborted")
+                await client.send_notification(
+                    ClientNotification(
+                        types.CancelledNotification(
+                            params=types.CancelledNotificationParams(requestId=request_ids[0], reason="user aborted")
+                        )
                     )
                 )
 
@@ -91,39 +101,40 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
     started = anyio.Event()
     request_ids: list[types.RequestId] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[
-                types.Tool(name="block", inputSchema={"type": "object"}),
-                types.Tool(name="echo", inputSchema={"type": "object"}),
-            ]
-        )
+    server: Server[Any] = Server("blocker")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        if params.name == "echo":
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(name="block", inputSchema={"type": "object"}),
+            types.Tool(name="echo", inputSchema={"type": "object"}),
+        ]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        if name == "echo":
             return CallToolResult(content=[TextContent(type="text", text="still alive")])
+        ctx = server.request_context
         assert ctx.request_id is not None
         request_ids.append(ctx.request_id)
         started.set()
         await anyio.Event().wait()  # blocks until cancelled
         raise NotImplementedError  # unreachable
 
-    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
 
                 async def call_and_swallow_cancellation_error() -> None:
-                    with pytest.raises(MCPError):
+                    with pytest.raises(McpError):
                         await client.call_tool("block", {})
 
                 task_group.start_soon(call_and_swallow_cancellation_error)
                 await started.wait()
-                await client.session.send_notification(
-                    types.CancelledNotification(params=types.CancelledNotificationParams(requestId=request_ids[0]))
+                await client.send_notification(
+                    ClientNotification(
+                        types.CancelledNotification(params=types.CancelledNotificationParams(requestId=request_ids[0]))
+                    )
                 )
 
             result = await client.call_tool("echo", {})
@@ -135,20 +146,20 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
 async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> None:
     """A cancellation referencing a request id that is not in flight is ignored without error."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="echo", inputSchema={"type": "object"})])
+    server: Server[Any] = Server("calm")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "echo"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="echo", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "echo"
         return CallToolResult(content=[TextContent(type="text", text="unbothered")])
 
-    server = Server("calm", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async with connect(server) as client:
-        await client.session.send_notification(
-            types.CancelledNotification(params=types.CancelledNotificationParams(requestId=9999))
+        await client.send_notification(
+            ClientNotification(types.CancelledNotification(params=types.CancelledNotificationParams(requestId=9999)))
         )
         result = await client.call_tool("echo", {})
 
@@ -176,21 +187,23 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
 
         def respond(request_id: types.RequestId, result: types.Result) -> SessionMessage:
             return SessionMessage(
-                JSONRPCResponse(
-                    jsonrpc="2.0",
-                    id=request_id,
-                    # Serialized exactly as a real server serializes results onto the wire.
-                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=request_id,
+                        # Serialized exactly as a real server serializes results onto the wire.
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
                 )
             )
 
         init = await server_read.receive()
         assert isinstance(init, SessionMessage)
-        assert isinstance(init.message, JSONRPCRequest)
-        assert init.message.method == "initialize"
+        assert isinstance(init.message.root, JSONRPCRequest)
+        assert init.message.root.method == "initialize"
         await server_write.send(
             respond(
-                init.message.id,
+                init.message.root.id,
                 InitializeResult(
                     protocolVersion="2025-11-25",
                     capabilities=ServerCapabilities(),
@@ -201,16 +214,16 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
 
         initialized = await server_read.receive()
         assert isinstance(initialized, SessionMessage)
-        assert isinstance(initialized.message, JSONRPCNotification)
-        assert initialized.message.method == "notifications/initialized"
+        assert isinstance(initialized.message.root, JSONRPCNotification)
+        assert initialized.message.root.method == "notifications/initialized"
 
         ping = await server_read.receive()
         assert isinstance(ping, SessionMessage)
-        assert isinstance(ping.message, JSONRPCRequest)
-        assert ping.message.method == "ping"
+        assert isinstance(ping.message.root, JSONRPCRequest)
+        assert ping.message.root.method == "ping"
         # First answer with a fabricated id that matches nothing in flight, then the real id.
         await server_write.send(respond(9999, EmptyResult()))
-        await server_write.send(respond(ping.message.id, EmptyResult()))
+        await server_write.send(respond(ping.message.root.id, EmptyResult()))
 
     incoming: list[IncomingMessage] = []
 
@@ -225,7 +238,7 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
         task_group.start_soon(scripted_server, server_streams)
         with anyio.fail_after(5):
             await session.initialize()
-            pong = await session.send_request(PingRequest(), EmptyResult)
+            pong = await session.send_request(ClientRequest(PingRequest()), EmptyResult)
 
         assert pong == snapshot(EmptyResult())
         assert len(incoming) == 1

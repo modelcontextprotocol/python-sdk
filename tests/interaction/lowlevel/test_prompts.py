@@ -3,8 +3,8 @@
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError
+from mcp.server.lowlevel import Server
 from mcp.types import (
     INVALID_PARAMS,
     AudioContent,
@@ -29,24 +29,22 @@ pytestmark = pytest.mark.anyio
 @requirement("prompts:list:basic")
 async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None:
     """The prompts returned by the handler reach the client with their argument declarations intact."""
+    server = Server("prompter")
 
-    async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
-        return ListPromptsResult(
-            prompts=[
-                Prompt(
-                    name="code_review",
-                    description="Review a piece of code.",
-                    arguments=[
-                        PromptArgument(name="code", description="The code to review.", required=True),
-                        PromptArgument(name="style_guide", description="Optional style guide to apply."),
-                    ],
-                    icons=[Icon(src="https://example.com/review.png", mimeType="image/png", sizes=["48x48"])],
-                ),
-                Prompt(name="daily_standup"),
-            ]
-        )
-
-    server = Server("prompter", on_list_prompts=list_prompts)
+    @server.list_prompts()
+    async def list_prompts() -> list[Prompt]:
+        return [
+            Prompt(
+                name="code_review",
+                description="Review a piece of code.",
+                arguments=[
+                    PromptArgument(name="code", description="The code to review.", required=True),
+                    PromptArgument(name="style_guide", description="Optional style guide to apply."),
+                ],
+                icons=[Icon(src="https://example.com/review.png", mimeType="image/png", sizes=["48x48"])],
+            ),
+            Prompt(name="daily_standup"),
+        ]
 
     async with connect(server) as client:
         result = await client.list_prompts()
@@ -72,18 +70,18 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
 @requirement("prompts:get:with-args")
 async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
     """Arguments supplied by the client reach the prompt handler; the templated message comes back."""
+    server = Server("prompter")
 
-    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
-        assert params.name == "greet"
-        assert params.arguments is not None
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
+        assert name == "greet"
+        assert arguments is not None
         return GetPromptResult(
             description="A personalised greeting.",
             messages=[
-                PromptMessage(role="user", content=TextContent(type="text", text=f"Hello, {params.arguments['name']}!"))
+                PromptMessage(role="user", content=TextContent(type="text", text=f"Hello, {arguments['name']}!"))
             ],
         )
-
-    server = Server("prompter", on_get_prompt=get_prompt)
 
     async with connect(server) as client:
         result = await client.get_prompt("greet", {"name": "Ada"})
@@ -99,9 +97,11 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
 @requirement("prompts:get:multi-message")
 async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Connect) -> None:
     """A prompt returning a user/assistant conversation reaches the client with roles and order intact."""
+    server = Server("prompter")
 
-    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
-        assert params.name == "geography_quiz"
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
+        assert name == "geography_quiz"
         return GetPromptResult(
             messages=[
                 PromptMessage(role="user", content=TextContent(type="text", text="What is the capital of France?")),
@@ -111,8 +111,6 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
                 PromptMessage(role="user", content=TextContent(type="text", text="And of Italy?")),
             ]
         )
-
-    server = Server("prompter", on_get_prompt=get_prompt)
 
     async with connect(server) as client:
         result = await client.get_prompt("geography_quiz")
@@ -133,15 +131,15 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
 @requirement("prompts:get:no-args")
 async def test_get_prompt_without_arguments_returns_the_messages(connect: Connect) -> None:
     """A prompt fetched with no arguments delivers None as the handler's arguments and returns its messages."""
+    server = Server("prompter")
 
-    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
-        assert params.name == "static"
-        assert params.arguments is None
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
+        assert name == "static"
+        assert arguments is None
         return GetPromptResult(
             messages=[PromptMessage(role="user", content=TextContent(type="text", text="Say hello."))]
         )
-
-    server = Server("prompter", on_get_prompt=get_prompt)
 
     async with connect(server) as client:
         result = await client.get_prompt("static")
@@ -161,9 +159,11 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
     is one of the three behaviours under test. Tiny fixed base64 payloads ("aW1n" is b"img", "YXVk"
     is b"aud") so the snapshot pins the exact bytes.
     """
+    server = Server("prompter")
 
-    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
-        assert params.name == "media"
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
+        assert name == "media"
         return GetPromptResult(
             messages=[
                 PromptMessage(role="user", content=ImageContent(type="image", data="aW1n", mimeType="image/png")),
@@ -177,8 +177,6 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
                 ),
             ]
         )
-
-    server = Server("prompter", on_get_prompt=get_prompt)
 
     async with connect(server) as client:
         result = await client.get_prompt("media", {})
@@ -202,18 +200,18 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
 
 @requirement("prompts:get:unknown-name")
 async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised prompt name with MCPError produces a JSON-RPC error.
+    """A handler that rejects an unrecognised prompt name with McpError produces a JSON-RPC error.
 
     The error's code and message chosen by the handler reach the client verbatim.
     """
+    server = Server("prompter")
 
-    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
-        raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {params.name}")
-
-    server = Server("prompter", on_get_prompt=get_prompt)
+    @server.get_prompt()
+    async def get_prompt(name: str, arguments: dict[str, str] | None) -> GetPromptResult:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown prompt: {name}"))
 
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.get_prompt("nope")
 
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_PARAMS, message="Unknown prompt: nope"))

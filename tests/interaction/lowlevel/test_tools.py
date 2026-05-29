@@ -6,7 +6,7 @@ import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import McpError, types
+from mcp import McpError
 from mcp.server.lowlevel import Server
 from mcp.types import (
     INVALID_PARAMS,
@@ -185,21 +185,23 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
         "additionalProperties": False,
     }
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(tools=[Tool(name="typed", inputSchema=schema)])
+    server = Server("typed")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "typed"
-        assert params.arguments == {"count": 3, "options": {"verbose": True}}
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="typed", inputSchema=schema)]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "typed"
+        assert arguments == {"count": 3, "options": {"verbose": True}}
         return CallToolResult(content=[TextContent(type="text", text="ok")])
-
-    server = Server("typed", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         listed = await client.list_tools()
         called = await client.call_tool("typed", {"count": 3, "options": {"verbose": True}})
 
-    assert listed.tools[0].input_schema == schema
+    assert listed.tools[0].inputSchema == schema
     assert called == snapshot(CallToolResult(content=[TextContent(type="text", text="ok")]))
 
 
@@ -218,10 +220,11 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
         _meta={"example.com/source": "interaction-suite"},
     )
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(tools=[tool])
+    server = Server("annotated")
 
-    server = Server("annotated", on_list_tools=list_tools)
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [tool]
 
     async with connect(server) as client:
         result = await client.list_tools()
@@ -256,11 +259,15 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     snapshot pins the exact bytes the client receives.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(tools=[Tool(name="render", inputSchema={"type": "object"})])
+    server = Server("renderer")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "render"
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="render", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "render"
         return CallToolResult(
             content=[
                 TextContent(type="text", text="all five content block types"),
@@ -275,8 +282,6 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
                 ),
             ]
         )
-
-    server = Server("renderer", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("render", {})
@@ -303,14 +308,16 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
 async def test_call_tool_structured_content(connect: Connect) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(tools=[Tool(name="sum", inputSchema={"type": "object"})])
+    server = Server("calculator")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "sum"
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="sum", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "sum"
         return CallToolResult(content=[TextContent(type="text", text="the sum is 5")], structuredContent={"sum": 5})
-
-    server = Server("calculator", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("sum", {})
@@ -333,20 +340,21 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
     release = anyio.Event()
     results: dict[str, CallToolResult] = {}
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+    server = Server("echoer")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "echo"
-        assert params.arguments is not None
-        tag = params.arguments["tag"]
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="echo", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "echo"
+        tag = arguments["tag"]
         assert isinstance(tag, str)
         started.append(tag)
         started_events[tag].set()
         await release.wait()
         return CallToolResult(content=[TextContent(type="text", text=tag)])
-
-    server = Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         with anyio.fail_after(5):
@@ -376,30 +384,34 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
 async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client(connect: Connect) -> None:
     """A result whose structured content does not conform to the tool's declared output schema never
     reaches the caller: the client validates it against the schema cached from tools/list and raises.
+
+    The handler returns a full `CallToolResult`, which the v1 lowlevel `@server.call_tool()` decorator
+    passes through unchanged (the decorator's own output-schema validation only runs when the handler
+    returns a bare dict/tuple/iterable), so the malformed structured content reaches the client and the
+    client-side check is what raises.
     """
+    server = Server("weather")
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="forecast",
-                    inputSchema={"type": "object"},
-                    outputSchema={
-                        "type": "object",
-                        "properties": {"temperature": {"type": "number"}},
-                        "required": ["temperature"],
-                    },
-                )
-            ]
-        )
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="forecast",
+                inputSchema={"type": "object"},
+                outputSchema={
+                    "type": "object",
+                    "properties": {"temperature": {"type": "number"}},
+                    "required": ["temperature"],
+                },
+            )
+        ]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "forecast"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "forecast"
         return CallToolResult(
             content=[TextContent(type="text", text="warm")], structuredContent={"temperature": "warm"}
         )
-
-    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.list_tools()
@@ -417,29 +429,28 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
     The schema is cached up front so the client could validate, proving the bypass is specifically the
     isError flag and not an empty cache.
     """
+    server = Server("weather")
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="forecast",
-                    inputSchema={"type": "object"},
-                    outputSchema={
-                        "type": "object",
-                        "properties": {"temperature": {"type": "number"}},
-                        "required": ["temperature"],
-                    },
-                )
-            ]
-        )
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="forecast",
+                inputSchema={"type": "object"},
+                outputSchema={
+                    "type": "object",
+                    "properties": {"temperature": {"type": "number"}},
+                    "required": ["temperature"],
+                },
+            )
+        ]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "forecast"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "forecast"
         return CallToolResult(
             content=[TextContent(type="text", text="boom")], structuredContent={"temperature": "warm"}, isError=True
         )
-
-    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.list_tools()
@@ -458,23 +469,22 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
 
     The error is the SDK's own message, so the full text is snapshotted.
     """
+    server = Server("weather")
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="forecast",
-                    inputSchema={"type": "object"},
-                    outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
-                )
-            ]
-        )
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="forecast",
+                inputSchema={"type": "object"},
+                outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+            )
+        ]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "forecast"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "forecast"
         return CallToolResult(content=[TextContent(type="text", text="warm")])
-
-    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.list_tools()
@@ -486,39 +496,41 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
 
 @requirement("client:output-schema:auto-list")
 async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(connect: Connect) -> None:
-    """Calling a tool whose schema is not cached issues exactly one implicit tools/list to populate it.
+    """Calling a tool whose schema is not cached issues an implicit tools/list to populate it.
 
     The first call_tool of an uncached tool triggers a tools/list the caller never asked for; the
-    second call hits the cache and does not. This is the SDK's chosen cache strategy and the cause of
-    the surprising behaviour where a server with only on_call_tool sees a successful call answered
-    with METHOD_NOT_FOUND from a request the caller never made; see the divergence on the requirement.
+    second call hits the cache and does not. On v1 the server-side `@server.call_tool()` decorator
+    also primes its own cache by invoking the registered list_tools handler internally on a miss, so
+    the first call records the handler running twice (server-side priming + the client's implicit
+    tools/list request) rather than once. The second call hits both caches and records nothing
+    further, which is what proves the client's behaviour. See the divergence on the requirement.
     """
     list_calls: list[str] = []
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
+    server = Server("weather")
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
         list_calls.append("called")
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="forecast",
-                    inputSchema={"type": "object"},
-                    outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
-                )
-            ]
-        )
+        return [
+            Tool(
+                name="forecast",
+                inputSchema={"type": "object"},
+                outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+            )
+        ]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
-        assert params.name == "forecast"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "forecast"
         return CallToolResult(content=[TextContent(type="text", text="21 C")], structuredContent={"temperature": 21})
-
-    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         first = await client.call_tool("forecast", {})
-        assert list_calls == ["called"]
+        assert list_calls == ["called", "called"]
         second = await client.call_tool("forecast", {})
 
-    assert list_calls == ["called"]
+    assert list_calls == ["called", "called"]
     assert first == snapshot(
         CallToolResult(content=[TextContent(type="text", text="21 C")], structuredContent={"temperature": 21})
     )

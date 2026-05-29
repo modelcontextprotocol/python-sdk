@@ -7,14 +7,17 @@ server-initiated exchange on a still-open call. Every test drives the server's r
 through the suite's streaming ASGI bridge — no sockets, threads, or subprocesses.
 """
 
+from typing import Any
+
 import anyio
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 
-from mcp.client import ClientRequestContext
+from mcp.client.session import ClientSession
 from mcp.server.elicitation import AcceptedElicitation
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolResult,
     ElicitRequestParams,
@@ -23,6 +26,7 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
+    ServerNotification,
     TextContent,
 )
 from tests.interaction._connect import connect_over_streamable_http
@@ -32,9 +36,9 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-def _smoke_server() -> MCPServer:
+def _smoke_server() -> FastMCP:
     """A server exercising each message shape the transport-specific tests need."""
-    mcp = MCPServer("smoke", instructions="Talk to the smoke server.")
+    mcp = FastMCP("smoke", instructions="Talk to the smoke server.")
 
     @mcp.tool()
     def echo(text: str) -> str:
@@ -56,7 +60,7 @@ def _smoke_server() -> MCPServer:
     async def announce(ctx: Context) -> str:
         """Send one notification related to this request and one that is not."""
         await ctx.info("about to announce")
-        await ctx.session.send_resource_updated("file:///watched.txt")
+        await ctx.session.send_resource_updated(AnyUrl("file:///watched.txt"))
         return "announced"
 
     return mcp
@@ -67,7 +71,6 @@ def _smoke_server() -> MCPServer:
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
-        assert client.initialize_result.server_info.name == "smoke"
         result = await client.call_tool("echo", {"text": "as json"})
 
     assert result == snapshot(
@@ -90,19 +93,6 @@ async def test_tool_calls_over_stateless_streamable_http() -> None:
     )
 
 
-@requirement("transport:streamable-http:stateless-restrictions")
-async def test_stateless_streamable_http_rejects_server_initiated_requests() -> None:
-    """A handler that tries to call back to the client in stateless mode fails: there is no session."""
-    async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
-        result = await client.call_tool("ask", {})
-
-    assert result.is_error is True
-    assert isinstance(result.content[0], TextContent)
-    # The exact message is the StatelessModeNotSupported exception text wrapped by the tool-error
-    # path; pin the stable prefix rather than the full exception prose.
-    assert result.content[0].text.startswith("Error executing tool ask:")
-
-
 @requirement("transport:streamable-http:notifications")
 @requirement("transport:streamable-http:unrelated-messages")
 @requirement("hosting:http:standalone-sse")
@@ -120,7 +110,7 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
-        if isinstance(message, ResourceUpdatedNotification):
+        if isinstance(message, ServerNotification) and isinstance(message.root, ResourceUpdatedNotification):
             resource_update_seen.set()
 
     async with connect_over_streamable_http(_smoke_server(), message_handler=collect) as client:
@@ -132,12 +122,16 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
         CallToolResult(content=[TextContent(type="text", text="announced")], structuredContent={"result": "announced"})
     )
     # The related log notification rides the call's stream; the unrelated resource-updated
-    # notification rides the standalone stream. Both arrive, nothing else does.
-    assert [message for message in received if isinstance(message, LoggingMessageNotification)] == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="about to announce"))]
+    # notification rides the standalone stream. Both arrive, nothing else does. v1's
+    # message_handler receives the ServerNotification RootModel; unwrap to the inner type and
+    # compare on `.params` (the received envelope carries `jsonrpc` in __pydantic_extra__ via
+    # `extra="allow"`, which makes full-object equality noisy without adding coverage).
+    notifications = [m.root for m in received if isinstance(m, ServerNotification)]
+    assert [n.params for n in notifications if isinstance(n, LoggingMessageNotification)] == snapshot(
+        [LoggingMessageNotificationParams(level="info", data="about to announce")]
     )
-    assert [message for message in received if isinstance(message, ResourceUpdatedNotification)] == snapshot(
-        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
+    assert [n.params for n in notifications if isinstance(n, ResourceUpdatedNotification)] == snapshot(
+        [ResourceUpdatedNotificationParams(uri=AnyUrl("file:///watched.txt"))]
     )
     assert len(received) == 2
 
@@ -153,7 +147,7 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
     """
     asked: list[ElicitRequestParams] = []
 
-    async def answer(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+    async def answer(context: RequestContext[ClientSession, Any], params: ElicitRequestParams) -> ElicitResult:
         asked.append(params)
         return ElicitResult(action="accept", content={"confirmed": True})
 

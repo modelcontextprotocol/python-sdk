@@ -6,16 +6,19 @@ a chain of elicitations inside one tool call; the full URL-elicitation-required 
 individual features are pinned by their own tests; these prove they compose.
 """
 
-from collections.abc import Awaitable, Callable
+from typing import Any
 
 import anyio
 import pytest
 from inline_snapshot import snapshot
+from pydantic import AnyUrl
 
-from mcp import MCPError, UrlElicitationRequiredError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, UrlElicitationRequiredError, types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
@@ -23,10 +26,11 @@ from mcp.types import (
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
-    EmptyResult,
-    ListToolsResult,
+    ErrorData,
+    LoggingLevel,
     ReadResourceResult,
     ResourceLink,
+    ServerNotification,
     TextContent,
     TextResourceContents,
     Tool,
@@ -37,18 +41,13 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-ListToolsHandler = Callable[
-    [ServerRequestContext, types.PaginatedRequestParams | None], Awaitable[types.ListToolsResult]
-]
 
+def _register_list_tools(server: Server, *names: str) -> None:
+    """Register a list_tools handler advertising the named tools, so call_tool's cache lookup succeeds."""
 
-def _list_tools(*names: str) -> ListToolsHandler:
-    """A list_tools handler advertising the named tools, so call_tool's implicit list succeeds."""
-
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name=name, inputSchema={"type": "object"}) for name in names])
-
-    return list_tools
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name=name, inputSchema={"type": "object"}) for name in names]
 
 
 @requirement("flow:tool-result:resource-link-follow")
@@ -58,18 +57,18 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
     Steps: (1) call the tool, (2) extract the link from its content, (3) read_resource on the
     link's URI, (4) the read result carries the linked contents.
     """
+    server = Server("linker")
+    _register_list_tools(server, "generate")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "generate"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "generate"
         return CallToolResult(content=[ResourceLink(type="resource_link", uri="file:///report.txt", name="report")])
 
-    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
-        assert str(params.uri) == "file:///report.txt"
-        return ReadResourceResult(contents=[TextResourceContents(uri="file:///report.txt", text="generated")])
-
-    server = Server(
-        "linker", on_list_tools=_list_tools("generate"), on_call_tool=call_tool, on_read_resource=read_resource
-    )
+    @server.read_resource()
+    async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+        assert str(uri) == "file:///report.txt"
+        return [ReadResourceContents(content="generated", mime_type="text/plain")]
 
     async with connect(server) as client:
         called = await client.call_tool("generate", {})
@@ -81,7 +80,9 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
         CallToolResult(content=[ResourceLink(type="resource_link", name="report", uri="file:///report.txt")])
     )
     assert read == snapshot(
-        ReadResourceResult(contents=[TextResourceContents(uri="file:///report.txt", text="generated")])
+        ReadResourceResult(
+            contents=[TextResourceContents(uri="file:///report.txt", mimeType="text/plain", text="generated")]
+        )
     )
 
 
@@ -99,13 +100,18 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
     received: list[ElicitRequestFormParams] = []
     answers: list[dict[str, str | int | float | bool | list[str] | None]] = [{"name": "ada"}, {"age": 37}]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "onboard"
-        first = await ctx.session.elicit_form(
+    server = Server("onboarder")
+    _register_list_tools(server, "onboard")
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "onboard"
+        session = server.request_context.session
+        first = await session.elicit_form(
             "Step 1: choose a username.", {"type": "object", "properties": {"name": {"type": "string"}}}
         )
         assert first.action == "accept" and first.content is not None
-        second = await ctx.session.elicit_form(
+        second = await session.elicit_form(
             f"Step 2: confirm age for {first.content['name']}.",
             {"type": "object", "properties": {"age": {"type": "integer"}}},
         )
@@ -114,9 +120,9 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
             content=[TextContent(type="text", text=f"{first.content['name']} is {second.content['age']}")]
         )
 
-    server = Server("onboarder", on_list_tools=_list_tools("onboard"), on_call_tool=call_tool)
-
-    async def answer(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+    async def answer(
+        context: RequestContext[ClientSession, Any], params: types.ElicitRequestParams
+    ) -> ElicitResult | ErrorData:
         assert isinstance(params, ElicitRequestFormParams)
         received.append(params)
         return ElicitResult(action="accept", content=answers[len(received) - 1])
@@ -125,7 +131,7 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
         result = await client.call_tool("onboard", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="ada is 37")]))
-    assert [(p.message, p.requested_schema) for p in received] == snapshot(
+    assert [(p.message, p.requestedSchema) for p in received] == snapshot(
         [
             ("Step 1: choose a username.", {"type": "object", "properties": {"name": {"type": "string"}}}),
             ("Step 2: confirm age for ada.", {"type": "object", "properties": {"age": {"type": "integer"}}}),
@@ -147,6 +153,9 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
     succeeds. The handler distinguishes the two calls by a closure flag the test flips between
     them; the test waits on the completion notification with an event so the retry only happens
     after the announcement has arrived.
+
+    The handler reaches its session via ``server.request_context.session`` and stores it for
+    out-of-band use — a v1-public pattern for callbacks that fire after the request returns.
     """
     elicitation_id = "auth-001"
     authorised: list[bool] = [False]
@@ -154,13 +163,18 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
     completed = anyio.Event()
     notifications: list[ElicitCompleteNotification] = []
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "read_files"
-        captured.append(ctx.session)
+    server = Server("gatekeeper")
+    _register_list_tools(server, "read_files")
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "read_files"
+        session = server.request_context.session
+        captured.append(session)
         if not authorised[0]:
             # The log line gives the message handler a non-completion notification, so the test's
             # filtering branch is exercised in both directions and the wait remains specific.
-            await ctx.session.send_log_message(level="warning", data="authorisation required", logger="gate")
+            await session.send_log_message(level="warning", data="authorisation required", logger="gate")
             raise UrlElicitationRequiredError(
                 [
                     ElicitRequestURLParams(
@@ -172,34 +186,28 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
             )
         return CallToolResult(content=[TextContent(type="text", text="contents")])
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    @server.set_logging_level()
+    async def set_logging_level(level: LoggingLevel) -> None:
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server(
-        "gatekeeper",
-        on_list_tools=_list_tools("read_files"),
-        on_call_tool=call_tool,
-        on_set_logging_level=set_logging_level,
-    )
-
     async def collect(message: IncomingMessage) -> None:
-        if isinstance(message, ElicitCompleteNotification):
-            notifications.append(message)
+        if isinstance(message, ServerNotification) and isinstance(message.root, ElicitCompleteNotification):
+            notifications.append(message.root)
             completed.set()
 
     async with connect(server, message_handler=collect) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.call_tool("read_files", {})
         assert exc_info.value.error.code == URL_ELICITATION_REQUIRED
         required = UrlElicitationRequiredError.from_error(exc_info.value.error)
-        assert [e.elicitation_id for e in required.elicitations] == [elicitation_id]
+        assert [e.elicitationId for e in required.elicitations] == [elicitation_id]
 
         # The out-of-band interaction completes; the server announces it on the same session.
         await captured[0].send_elicit_complete(elicitation_id)
         with anyio.fail_after(5):
             await completed.wait()
-        assert notifications[0].params.elicitation_id == elicitation_id
+        assert notifications[0].params.elicitationId == elicitation_id
 
         authorised[0] = True
         result = await client.call_tool("read_files", {})

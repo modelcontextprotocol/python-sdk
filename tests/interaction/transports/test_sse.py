@@ -14,7 +14,7 @@ import httpx
 import pytest
 from inline_snapshot import snapshot
 
-from mcp.client.client import Client
+from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.server import Server
 from mcp.types import EmptyResult
@@ -29,8 +29,11 @@ pytestmark = pytest.mark.anyio
 @requirement("transport:sse:endpoint-event")
 async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id() -> None:
     """Connecting opens a GET stream whose first event names the POST endpoint and a fresh
-    session id; messages POSTed there are answered on that stream, and disconnecting releases the
-    server's session entry."""
+    session id; messages POSTed there are answered on that stream.
+
+    On v1 the server's session entry is not removed on disconnect (`SseServerTransport` never
+    pops `_read_stream_writers[session_id]`); the final assertion pins that behaviour.
+    """
     app, sse = build_sse_app(Server("legacy"))
     captured_session_id: list[str] = []
 
@@ -47,16 +50,17 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
             auth=auth,
         )
 
-    transport = sse_client(
-        f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory, on_session_created=captured_session_id.append
-    )
     with anyio.fail_after(5):
-        async with Client(transport) as client:
-            assert len(captured_session_id) == 1
-            assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
-            assert await client.send_ping() == snapshot(EmptyResult())
+        async with sse_client(
+            f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory, on_session_created=captured_session_id.append
+        ) as (read, write):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                assert len(captured_session_id) == 1
+                assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
+                assert await client.send_ping() == snapshot(EmptyResult())
 
-    assert sse._read_stream_writers == {}
+    assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
 
 
 @requirement("transport:sse:post:session-routing")

@@ -646,8 +646,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "Design concern rather than spec violation: the implicit request is invisible to the "
-                "caller, and against a server that registers only on_call_tool a successful call surfaces "
-                "as METHOD_NOT_FOUND from a tools/list the caller never asked for."
+                "caller, and against a server that registers only a call_tool handler a successful call "
+                "surfaces as METHOD_NOT_FOUND from a tools/list the caller never asked for. On v1 the "
+                "lowlevel server's call_tool decorator also primes its own tool cache by invoking the "
+                "registered list_tools handler internally on a miss, so the first uncached call observes "
+                "the handler running twice (server-side priming + the client's implicit request); the test "
+                "pins that count."
             ),
         ),
     ),

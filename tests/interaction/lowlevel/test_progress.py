@@ -9,15 +9,17 @@ standalone notification with no response to await, so that test waits on an even
 server's handler.
 """
 
+from typing import Any
+
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
 from mcp import types
-from mcp.server import Server, ServerRequestContext
+from mcp.server.lowlevel import Server
 from mcp.server.session import ServerSession
 from mcp.shared.session import ProgressFnT
-from mcp.types import CallToolResult, ProgressNotification, ProgressNotificationParams, ProgressToken, TextContent
+from mcp.types import CallToolResult, ProgressNotification, ProgressToken, ServerNotification, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -34,15 +36,18 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
     async def collect(progress: float, total: float | None, message: str | None) -> None:
         received.append((progress, total, message))
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="download", inputSchema={"type": "object"})])
+    server = Server("downloader")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "download"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="download", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "download"
+        ctx = server.request_context
         assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
+        token = ctx.meta.progressToken
         assert token is not None
         await ctx.session.send_progress_notification(
             token, 1.0, total=3.0, message="first chunk", related_request_id=str(ctx.request_id)
@@ -55,8 +60,6 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
         )
         return CallToolResult(content=[TextContent(type="text", text="downloaded")])
 
-    server = Server("downloader", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async with connect(server) as client:
         result = await client.call_tool("download", {}, progress_callback=collect)
 
@@ -67,18 +70,18 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
 @requirement("protocol:progress:token-injected")
 async def test_progress_token_visible_to_handler(connect: Connect) -> None:
     """Supplying a progress callback attaches a progress token that the handler can read from the request meta."""
+    server = Server("introspector")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="inspect", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="inspect", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "inspect"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "inspect"
+        ctx = server.request_context
         assert ctx.meta is not None
-        return CallToolResult(content=[TextContent(type="text", text=str(ctx.meta.get("progress_token")))])
-
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+        return CallToolResult(content=[TextContent(type="text", text=str(ctx.meta.progressToken))])
 
     async def ignore(progress: float, total: float | None, message: str | None) -> None:
         """A progress callback that is never invoked; the tool only inspects the token."""
@@ -98,18 +101,18 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
     The low-level API has no way to report request-scoped progress without a token, so a handler
     that sees no token has nothing to send progress against.
     """
+    server = Server("introspector")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="inspect", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="inspect", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "inspect"
-        assert ctx.meta is not None
-        return CallToolResult(content=[TextContent(type="text", text=str(ctx.meta.get("progress_token")))])
-
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "inspect"
+        ctx = server.request_context
+        token = ctx.meta.progressToken if ctx.meta is not None else None
+        return CallToolResult(content=[TextContent(type="text", text=str(token))])
 
     async with connect(server) as client:
         result = await client.call_tool("inspect", {})
@@ -120,23 +123,22 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
 @requirement("protocol:progress:client-to-server")
 async def test_client_progress_notification_reaches_server_handler(connect: Connect) -> None:
     """A progress notification sent by the client is delivered to the server's progress handler."""
-    received: list[ProgressNotificationParams] = []
+    received: list[tuple[str | int, float, float | None, str | None]] = []
     delivered = anyio.Event()
 
-    async def on_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
-        received.append(params)
-        delivered.set()
+    server = Server("observer")
 
-    server = Server("observer", on_progress=on_progress)
+    @server.progress_notification()
+    async def on_progress(token: str | int, progress: float, total: float | None, message: str | None) -> None:
+        received.append((token, progress, total, message))
+        delivered.set()
 
     async with connect(server) as client:
         await client.send_progress_notification("upload-1", 0.5, total=1.0, message="halfway")
         with anyio.fail_after(5):
             await delivered.wait()
 
-    assert received == snapshot(
-        [ProgressNotificationParams(progressToken="upload-1", progress=0.5, total=1.0, message="halfway")]
-    )
+    assert received == snapshot([("upload-1", 0.5, 1.0, "halfway")])
 
 
 @requirement("protocol:progress:token-unique")
@@ -157,18 +159,20 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
     # turns[n] is set to release the nth emission; each emission releases the next.
     turns = [anyio.Event() for _ in range(4)]
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="report", inputSchema={"type": "object"})])
+    server = Server("reporter")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "report"
-        assert params.arguments is not None
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="report", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "report"
+        ctx = server.request_context
         assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
+        token = ctx.meta.progressToken
         assert token is not None
-        label = params.arguments["label"]
+        label = arguments["label"]
         tokens[label] = token
         entered[label].set()
         # The two handlers interleave by waiting on alternating turns: a takes 0 and 2, b takes 1 and 3.
@@ -185,8 +189,6 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
         if second + 1 < len(turns):
             turns[second + 1].set()
         return CallToolResult(content=[TextContent(type="text", text="done")])
-
-    server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
 
     received_a: list[float] = []
     received_b: list[float] = []
@@ -228,21 +230,22 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
     """
     captured: list[tuple[ServerSession, ProgressToken]] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="report", inputSchema={"type": "object"})])
+    server = Server("reporter")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "report"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="report", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "report"
+        ctx = server.request_context
         assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
+        token = ctx.meta.progressToken
         assert token is not None
         captured.append((ctx.session, token))
         await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
         return CallToolResult(content=[TextContent(type="text", text="done")])
-
-    server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
 
     received: list[float] = []
     late_progress_arrived = anyio.Event()
@@ -251,7 +254,11 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
         received.append(progress)
 
     async def message_handler(message: IncomingMessage) -> None:
-        if isinstance(message, ProgressNotification) and message.params.progress == 1.0:
+        if (
+            isinstance(message, ServerNotification)
+            and isinstance(message.root, ProgressNotification)
+            and message.root.params.progress == 1.0
+        ):
             late_progress_arrived.set()
 
     async with connect(server, message_handler=message_handler) as client:
@@ -278,22 +285,23 @@ async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: C
     async def collect(progress: float, total: float | None, message: str | None) -> None:
         received.append(progress)
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="zigzag", inputSchema={"type": "object"})])
+    server = Server("zigzagger")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "zigzag"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="zigzag", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "zigzag"
+        ctx = server.request_context
         assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
+        token = ctx.meta.progressToken
         assert token is not None
         await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
         await ctx.session.send_progress_notification(token, 0.3, related_request_id=str(ctx.request_id))
         await ctx.session.send_progress_notification(token, 0.9, related_request_id=str(ctx.request_id))
         return CallToolResult(content=[TextContent(type="text", text="done")])
-
-    server = Server("zigzagger", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.call_tool("zigzag", {}, progress_callback=collect)

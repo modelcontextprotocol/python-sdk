@@ -5,11 +5,13 @@ rather than snapshotting a literal: the expected value and the sent value are th
 which also proves the SDK injected nothing alongside it.
 """
 
+from typing import Any
+
 import pytest
 
 from mcp import types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, RequestParamsMeta, TextContent
+from mcp.server.lowlevel import Server
+from mcp.types import CallToolResult, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -19,26 +21,27 @@ pytestmark = pytest.mark.anyio
 @requirement("meta:request-to-handler")
 async def test_request_meta_reaches_handler(connect: Connect) -> None:
     """The _meta object the client attaches to a request arrives at the tool handler unchanged."""
-    request_meta: RequestParamsMeta = {"example.com/trace": "abc-123"}
-    observed_metas: list[dict[str, object]] = []
+    request_meta = {"example.com/trace": "abc-123"}
+    observed_metas: list[dict[str, Any]] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="traced", inputSchema={"type": "object"})])
+    server = Server("observability")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "traced"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="traced", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "traced"
+        ctx = server.request_context
         assert ctx.meta is not None
-        observed_metas.append(dict(ctx.meta))
-        return CallToolResult(content=[TextContent(type="text", text="traced")])
-
-    server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
+        observed_metas.append(ctx.meta.model_dump(exclude_none=True))
+        return [TextContent(type="text", text="traced")]
 
     async with connect(server) as client:
         await client.call_tool("traced", {}, meta=request_meta)
 
-    assert observed_metas == [dict(request_meta)]
+    assert observed_metas == [request_meta]
 
 
 @requirement("meta:result-to-client")
@@ -46,16 +49,16 @@ async def test_result_meta_reaches_client(connect: Connect) -> None:
     """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="metered", inputSchema={"type": "object"})])
+    server = Server("observability")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "metered"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="metered", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "metered"
         return CallToolResult(content=[TextContent(type="text", text="done")], _meta=result_meta)
-
-    server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("metered", {})
