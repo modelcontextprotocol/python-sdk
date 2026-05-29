@@ -43,7 +43,9 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="5")], structuredContent={"result": "5"})
+    )
 
 
 @requirement("mcpserver:tool:schema-variants")
@@ -69,7 +71,8 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
 
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="fast at (3, 4) x5")], structured_content={"result": "fast at (3, 4) x5"}
+            content=[TextContent(type="text", text="fast at (3, 4) x5")],
+            structuredContent={"result": "fast at (3, 4) x5"},
         )
     )
 
@@ -93,7 +96,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
         result = await client.call_tool("explode", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
+        CallToolResult(content=[TextContent(type="text", text="Error executing tool explode: boom")], isError=True)
     )
 
 
@@ -110,7 +113,9 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> No
         result = await client.call_tool("flux", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool flux: flux capacitor offline")], is_error=True)
+        CallToolResult(
+            content=[TextContent(type="text", text="Error executing tool flux: flux capacitor offline")], isError=True
+        )
     )
 
 
@@ -130,7 +135,9 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
     async with connect(mcp) as client:
         result = await client.call_tool("nope", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="Unknown tool: nope")], isError=True)
+    )
 
 
 @requirement("mcpserver:tool:output-schema:model")
@@ -168,15 +175,16 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
         CallToolResult(
             content=[
                 TextContent(
+                    type="text",
                     text="""\
 {
   "temperature": 22.5,
   "conditions": "sunny"
 }\
-"""
+""",
                 )
             ],
-            structured_content={"temperature": 22.5, "conditions": "sunny"},
+            structuredContent={"temperature": 22.5, "conditions": "sunny"},
         )
     )
 
@@ -206,8 +214,12 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
     )
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="2"), TextContent(text="3"), TextContent(text="5")],
-            structured_content={"result": [2, 3, 5]},
+            content=[
+                TextContent(type="text", text="2"),
+                TextContent(type="text", text="3"),
+                TextContent(type="text", text="5"),
+            ],
+            structuredContent={"result": [2, 3, 5]},
         )
     )
 
@@ -256,11 +268,11 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
 
     @mcp.tool()
     def mismatched() -> Annotated[CallToolResult, Weather]:
-        return CallToolResult(content=[TextContent(text="oops")], structured_content={"nope": True})
+        return CallToolResult(content=[TextContent(type="text", text="oops")], structuredContent={"nope": True})
 
     @mcp.tool()
     def missing() -> Annotated[CallToolResult, Weather]:
-        return CallToolResult(content=[TextContent(text="oops")])
+        return CallToolResult(content=[TextContent(type="text", text="oops")])
 
     async with connect(mcp) as client:
         mismatched_result = await client.call_tool("mismatched", {})
@@ -305,7 +317,7 @@ async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(conne
 
     assert [tool.name for tool in listed.tools] == ["echo"]
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="first")], structured_content={"result": "first"})
+        CallToolResult(content=[TextContent(type="text", text="first")], structuredContent={"result": "first"})
     )
 
 
@@ -340,7 +352,9 @@ async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_re
         result = await client.call_tool("bad name!", {})
 
     assert [tool.name for tool in listed.tools] == ["bad name!"]
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="ok")], structuredContent={"result": "ok"})
+    )
 
 
 @requirement("mcpserver:tool:url-elicitation-error")
@@ -360,7 +374,7 @@ async def test_decorated_tool_raising_url_elicitation_required_surfaces_as_error
                 ElicitRequestURLParams(
                     message="Authorization required for your files.",
                     url="https://example.com/oauth/authorize",
-                    elicitation_id="auth-001",
+                    elicitationId="auth-001",
                 )
             ]
         )

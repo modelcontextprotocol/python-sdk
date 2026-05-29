@@ -54,7 +54,7 @@ def _server() -> Server:
         assert params.name == "narrate"
         await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)
         await ctx.session.send_resource_updated("file:///watched.txt")
-        return CallToolResult(content=[TextContent(text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
     async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
         """Registered so the logging capability is advertised; the client never sets a level."""

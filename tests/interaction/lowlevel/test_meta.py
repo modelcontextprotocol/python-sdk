@@ -25,13 +25,13 @@ async def test_request_meta_reaches_handler(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="traced", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="traced", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "traced"
         assert ctx.meta is not None
         observed_metas.append(dict(ctx.meta))
-        return CallToolResult(content=[TextContent(text="traced")])
+        return CallToolResult(content=[TextContent(type="text", text="traced")])
 
     server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -49,15 +49,15 @@ async def test_result_meta_reaches_client(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="metered", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="metered", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "metered"
-        return CallToolResult(content=[TextContent(text="done")], _meta=result_meta)
+        return CallToolResult(content=[TextContent(type="text", text="done")], _meta=result_meta)
 
     server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("metered", {})
 
-    assert result == CallToolResult(content=[TextContent(text="done")], _meta=result_meta)
+    assert result == CallToolResult(content=[TextContent(type="text", text="done")], _meta=result_meta)

@@ -37,7 +37,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="download", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="download", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "download"
@@ -53,14 +53,14 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
         await ctx.session.send_progress_notification(
             token, 3.0, total=3.0, message="done", related_request_id=str(ctx.request_id)
         )
-        return CallToolResult(content=[TextContent(text="downloaded")])
+        return CallToolResult(content=[TextContent(type="text", text="downloaded")])
 
     server = Server("downloader", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("download", {}, progress_callback=collect)
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="downloaded")]))
     assert received == snapshot([(1.0, 3.0, "first chunk"), (2.0, 3.0, "second chunk"), (3.0, 3.0, "done")])
 
 
@@ -71,12 +71,12 @@ async def test_progress_token_visible_to_handler(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="inspect", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="inspect", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "inspect"
         assert ctx.meta is not None
-        return CallToolResult(content=[TextContent(text=str(ctx.meta.get("progress_token")))])
+        return CallToolResult(content=[TextContent(type="text", text=str(ctx.meta.get("progress_token")))])
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -88,7 +88,7 @@ async def test_progress_token_visible_to_handler(connect: Connect) -> None:
         result = await client.call_tool("inspect", {}, progress_callback=ignore)
 
     # The token is the request id of the tools/call request itself (initialize is request 0).
-    assert result == snapshot(CallToolResult(content=[TextContent(text="1")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="1")]))
 
 
 @requirement("protocol:progress:no-token")
@@ -102,19 +102,19 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="inspect", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="inspect", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "inspect"
         assert ctx.meta is not None
-        return CallToolResult(content=[TextContent(text=str(ctx.meta.get("progress_token")))])
+        return CallToolResult(content=[TextContent(type="text", text=str(ctx.meta.get("progress_token")))])
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("inspect", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="None")]))
 
 
 @requirement("protocol:progress:client-to-server")
@@ -135,7 +135,7 @@ async def test_client_progress_notification_reaches_server_handler(connect: Conn
             await delivered.wait()
 
     assert received == snapshot(
-        [ProgressNotificationParams(progress_token="upload-1", progress=0.5, total=1.0, message="halfway")]
+        [ProgressNotificationParams(progressToken="upload-1", progress=0.5, total=1.0, message="halfway")]
     )
 
 
@@ -160,7 +160,7 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="report", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="report", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "report"
@@ -184,7 +184,7 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
         )
         if second + 1 < len(turns):
             turns[second + 1].set()
-        return CallToolResult(content=[TextContent(text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
     server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -231,7 +231,7 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="report", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="report", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "report"
@@ -240,7 +240,7 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
         assert token is not None
         captured.append((ctx.session, token))
         await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
-        return CallToolResult(content=[TextContent(text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
     server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -281,7 +281,7 @@ async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: C
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="zigzag", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="zigzag", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "zigzag"
@@ -291,7 +291,7 @@ async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: C
         await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
         await ctx.session.send_progress_notification(token, 0.3, related_request_id=str(ctx.request_id))
         await ctx.session.send_progress_notification(token, 0.9, related_request_id=str(ctx.request_id))
-        return CallToolResult(content=[TextContent(text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
     server = Server("zigzagger", on_list_tools=list_tools, on_call_tool=call_tool)
 

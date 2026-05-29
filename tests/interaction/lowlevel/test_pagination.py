@@ -40,10 +40,10 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
         seen_cursors.append(params.cursor)
         if params.cursor is None:
             return ListToolsResult(
-                tools=[Tool(name="alpha", input_schema={"type": "object"})],
-                next_cursor=cursor,
+                tools=[Tool(name="alpha", inputSchema={"type": "object"})],
+                nextCursor=cursor,
             )
-        return ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="beta", inputSchema={"type": "object"})])
 
     server = Server("paginated", on_list_tools=list_tools)
 
@@ -54,7 +54,7 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]
     assert [tool.name for tool in first_page.tools] == ["alpha"]
-    assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
+    assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", inputSchema={"type": "object"})]))
 
 
 @requirement("pagination:exhaustion")
@@ -70,7 +70,7 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect:
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         assert params is not None
         tool_name, next_cursor = pages[params.cursor]
-        return ListToolsResult(tools=[Tool(name=tool_name, input_schema={"type": "object"})], next_cursor=next_cursor)
+        return ListToolsResult(tools=[Tool(name=tool_name, inputSchema={"type": "object"})], nextCursor=next_cursor)
 
     server = Server("paginated", on_list_tools=list_tools)
 
@@ -113,7 +113,7 @@ async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(
         received_cursors.append(params.cursor)
         names, next_cursor = pages[params.cursor]
         return ListToolsResult(
-            tools=[Tool(name=name, input_schema={"type": "object"}) for name in names], next_cursor=next_cursor
+            tools=[Tool(name=name, inputSchema={"type": "object"}) for name in names], nextCursor=next_cursor
         )
 
     server = Server("paginated", on_list_tools=list_tools)
@@ -167,7 +167,7 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
         assert params is not None
         seen_cursors.append(params.cursor)
         if params.cursor is None:
-            return ListResourcesResult(resources=[Resource(uri="memo://1", name="first")], next_cursor=cursor)
+            return ListResourcesResult(resources=[Resource(uri="memo://1", name="first")], nextCursor=cursor)
         return ListResourcesResult(resources=[Resource(uri="memo://2", name="second")])
 
     server = Server("paginated", on_list_resources=list_resources)
@@ -196,11 +196,11 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
         seen_cursors.append(params.cursor)
         if params.cursor is None:
             return ListResourceTemplatesResult(
-                resource_templates=[ResourceTemplate(name="first", uri_template="users://{id}")],
-                next_cursor=cursor,
+                resourceTemplates=[ResourceTemplate(name="first", uriTemplate="users://{id}")],
+                nextCursor=cursor,
             )
         return ListResourceTemplatesResult(
-            resource_templates=[ResourceTemplate(name="second", uri_template="teams://{id}")]
+            resourceTemplates=[ResourceTemplate(name="second", uriTemplate="teams://{id}")]
         )
 
     server = Server("paginated", on_list_resource_templates=list_resource_templates)
@@ -226,7 +226,7 @@ async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None
         assert params is not None
         seen_cursors.append(params.cursor)
         if params.cursor is None:
-            return ListPromptsResult(prompts=[Prompt(name="first")], next_cursor=cursor)
+            return ListPromptsResult(prompts=[Prompt(name="first")], nextCursor=cursor)
         return ListPromptsResult(prompts=[Prompt(name="second")])
 
     server = Server("paginated", on_list_prompts=list_prompts)

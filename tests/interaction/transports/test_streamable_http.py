@@ -71,7 +71,7 @@ async def test_tool_call_over_streamable_http_with_json_responses() -> None:
         result = await client.call_tool("echo", {"text": "as json"})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="as json")], structured_content={"result": "as json"})
+        CallToolResult(content=[TextContent(type="text", text="as json")], structuredContent={"result": "as json"})
     )
 
 
@@ -83,10 +83,10 @@ async def test_tool_calls_over_stateless_streamable_http() -> None:
         second = await client.call_tool("echo", {"text": "second"})
 
     assert first == snapshot(
-        CallToolResult(content=[TextContent(text="first")], structured_content={"result": "first"})
+        CallToolResult(content=[TextContent(type="text", text="first")], structuredContent={"result": "first"})
     )
     assert second == snapshot(
-        CallToolResult(content=[TextContent(text="second")], structured_content={"result": "second"})
+        CallToolResult(content=[TextContent(type="text", text="second")], structuredContent={"result": "second"})
     )
 
 
@@ -129,7 +129,7 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
             await resource_update_seen.wait()
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="announced")], structured_content={"result": "announced"})
+        CallToolResult(content=[TextContent(type="text", text="announced")], structuredContent={"result": "announced"})
     )
     # The related log notification rides the call's stream; the unrelated resource-updated
     # notification rides the standalone stream. Both arrive, nothing else does.
@@ -163,6 +163,8 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
             result = await client.call_tool("ask", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="confirmed=True")], structured_content={"result": "confirmed=True"})
+        CallToolResult(
+            content=[TextContent(type="text", text="confirmed=True")], structuredContent={"result": "confirmed=True"}
+        )
     )
     assert [params.message for params in asked] == snapshot(["Proceed?"])

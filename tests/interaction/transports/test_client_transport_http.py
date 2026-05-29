@@ -31,12 +31,12 @@ def _tooled_server() -> Server:
     """A low-level server with one echo tool, used by every test in this file."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="echo", description="Echo text.", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="echo", description="Echo text.", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
         assert params.arguments is not None
-        return CallToolResult(content=[TextContent(text=str(params.arguments["text"]))])
+        return CallToolResult(content=[TextContent(type="text", text=str(params.arguments["text"]))])
 
     return Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -147,9 +147,9 @@ async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_o
 
     assert results == snapshot(
         {
-            1: CallToolResult(content=[TextContent(text="1")]),
-            2: CallToolResult(content=[TextContent(text="2")]),
-            3: CallToolResult(content=[TextContent(text="3")]),
+            1: CallToolResult(content=[TextContent(type="text", text="1")]),
+            2: CallToolResult(content=[TextContent(type="text", text="2")]),
+            3: CallToolResult(content=[TextContent(type="text", text="3")]),
         }
     )
     tools_call_posts = [r for r in requests if r.method == "POST" and b'"tools/call"' in r.content]

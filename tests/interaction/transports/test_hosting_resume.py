@@ -291,7 +291,7 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
                 await done.wait()
 
     assert result == snapshot(
-        [CallToolResult(content=[TextContent(text="resumed")], structured_content={"result": "resumed"})]
+        [CallToolResult(content=[TextContent(type="text", text="resumed")], structuredContent={"result": "resumed"})]
     )
     assert received == snapshot(["before close", "after close"])
 
@@ -368,5 +368,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 result = await second.send_request(
                     call, CallToolResult, metadata=ClientMessageMetadata(resumption_token=captured[-1])
                 )
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="done")], structuredContent={"result": "done"})
+    )
     assert received == snapshot(["first", "second"])

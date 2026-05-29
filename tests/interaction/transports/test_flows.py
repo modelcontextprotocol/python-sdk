@@ -89,7 +89,7 @@ async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_op
 
     assert {tool.name for tool in first_result.tools} == {"echo"}
     assert second_result == snapshot(
-        CallToolResult(content=[TextContent(text="again")], structured_content={"result": "again"})
+        CallToolResult(content=[TextContent(type="text", text="again")], structuredContent={"result": "again"})
     )
     distinct = set(session_ids)
     assert len(distinct) == 2, f"expected two distinct session ids across the two connections, saw {distinct}"
@@ -122,8 +122,8 @@ async def test_one_server_serves_streamable_http_and_sse_clients_concurrently() 
             sse_result = await sse_client.call_tool("echo", {"text": "via sse"})
 
     assert shttp_result == snapshot(
-        CallToolResult(content=[TextContent(text="via http")], structured_content={"result": "via http"})
+        CallToolResult(content=[TextContent(type="text", text="via http")], structuredContent={"result": "via http"})
     )
     assert sse_result == snapshot(
-        CallToolResult(content=[TextContent(text="via sse")], structured_content={"result": "via sse"})
+        CallToolResult(content=[TextContent(type="text", text="via sse")], structuredContent={"result": "via sse"})
     )

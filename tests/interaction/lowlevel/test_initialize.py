@@ -56,7 +56,7 @@ async def test_initialize_returns_server_info(connect: Connect) -> None:
         title="Greeter",
         description="Greets people.",
         website_url="https://example.com/greeter",
-        icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])],
+        icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48"])],
     )
 
     async with connect(server) as client:
@@ -68,8 +68,8 @@ async def test_initialize_returns_server_info(connect: Connect) -> None:
             title="Greeter",
             description="Greets people.",
             version="1.2.3",
-            website_url="https://example.com/greeter",
-            icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])],
+            websiteUrl="https://example.com/greeter",
+            icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48"])],
         )
     )
 
@@ -143,9 +143,9 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
         ServerCapabilities(
             experimental={},
             logging=LoggingCapability(),
-            prompts=PromptsCapability(list_changed=False),
-            resources=ResourcesCapability(subscribe=True, list_changed=False),
-            tools=ToolsCapability(list_changed=False),
+            prompts=PromptsCapability(listChanged=False),
+            resources=ResourcesCapability(subscribe=True, listChanged=False),
+            tools=ToolsCapability(listChanged=False),
             completions=CompletionsCapability(),
         )
     )
@@ -168,20 +168,20 @@ async def test_initialize_server_sees_client_info(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="whoami", description="Report the caller.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="whoami", description="Report the caller.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "whoami"
         assert ctx.session.client_params is not None
         client_info = ctx.session.client_params.client_info
-        return CallToolResult(content=[TextContent(text=f"{client_info.name} {client_info.version}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{client_info.name} {client_info.version}")])
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
     async with connect(server, client_info=Implementation(name="acme-agent", version="9.9.9")) as client:
         result = await client.call_tool("whoami", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="acme-agent 9.9.9")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="acme-agent 9.9.9")]))
 
 
 @requirement("lifecycle:initialize:client-capabilities")
@@ -192,7 +192,7 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="abilities", description="Report capabilities.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="abilities", description="Report capabilities.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -209,7 +209,7 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
         ]
         if capabilities.roots is not None:
             declared.append(f"roots(list_changed={capabilities.roots.list_changed})")
-        return CallToolResult(content=[TextContent(text=",".join(declared) or "none")])
+        return CallToolResult(content=[TextContent(type="text", text=",".join(declared) or "none")])
 
     async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
         """Registered only so the client declares the roots capability; never called."""
@@ -219,11 +219,11 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
 
     async with connect(server) as client:
         result = await client.call_tool("abilities", {})
-    assert result == snapshot(CallToolResult(content=[TextContent(text="none")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="none")]))
 
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("abilities", {})
-    assert result == snapshot(CallToolResult(content=[TextContent(text="roots(list_changed=True)")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="roots(list_changed=True)")]))
 
 
 @requirement("lifecycle:requests-before-initialized")
@@ -271,9 +271,9 @@ async def test_initialize_negotiates_protocol_version() -> None:
     def initialize_request(protocol_version: str) -> InitializeRequest:
         return InitializeRequest(
             params=InitializeRequestParams(
-                protocol_version=protocol_version,
+                protocolVersion=protocol_version,
                 capabilities=ClientCapabilities(),
-                client_info=Implementation(name="time-traveller", version="0.0.1"),
+                clientInfo=Implementation(name="time-traveller", version="0.0.1"),
             )
         )
 
@@ -312,9 +312,9 @@ async def test_unsupported_server_protocol_version_fails_initialization() -> Non
         assert isinstance(request, JSONRPCRequest)
         assert request.method == "initialize"
         result = InitializeResult(
-            protocol_version="1991-08-06",
+            protocolVersion="1991-08-06",
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="relic", version="0.0.1"),
+            serverInfo=Implementation(name="relic", version="0.0.1"),
         )
         await server_write.send(
             SessionMessage(
@@ -357,9 +357,9 @@ async def test_an_older_supported_protocol_version_from_the_server_is_accepted()
         assert isinstance(request, JSONRPCRequest)
         assert request.method == "initialize"
         result = InitializeResult(
-            protocol_version="2025-06-18",
+            protocolVersion="2025-06-18",
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="conservative", version="0.0.1"),
+            serverInfo=Implementation(name="conservative", version="0.0.1"),
         )
         await server_write.send(
             SessionMessage(

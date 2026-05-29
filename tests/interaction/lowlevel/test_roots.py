@@ -25,13 +25,13 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         result = await ctx.session.list_roots()
         lines = [f"{root.uri} name={root.name}" for root in result.roots]
-        return CallToolResult(content=[TextContent(text="\n".join(lines))])
+        return CallToolResult(content=[TextContent(type="text", text="\n".join(lines))])
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -48,7 +48,11 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="file:///home/alice/project name=project\nfile:///home/alice/scratch name=None")]
+            content=[
+                TextContent(
+                    type="text", text="file:///home/alice/project name=project\nfile:///home/alice/scratch name=None"
+                )
+            ]
         )
     )
 
@@ -60,12 +64,12 @@ async def test_list_roots_empty(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="count_roots", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="count_roots", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "count_roots"
         result = await ctx.session.list_roots()
-        return CallToolResult(content=[TextContent(text=str(len(result.roots)))])
+        return CallToolResult(content=[TextContent(type="text", text=str(len(result.roots)))])
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -75,7 +79,7 @@ async def test_list_roots_empty(connect: Connect) -> None:
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("count_roots", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="0")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="0")]))
 
 
 @requirement("roots:list:not-supported")
@@ -89,14 +93,14 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         try:
             await ctx.session.list_roots()
         except MCPError as exc:
-            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # list_roots cannot succeed without a client callback
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -104,7 +108,9 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("show_roots", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: List roots not supported")]))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="-32600: List roots not supported")])
+    )
 
 
 @requirement("roots:list:client-error")
@@ -117,14 +123,14 @@ async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connec
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         try:
             await ctx.session.list_roots()
         except MCPError as exc:
-            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # the callback always answers with an error
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -135,7 +141,7 @@ async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connec
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("show_roots", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="-32603: roots provider crashed")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="-32603: roots provider crashed")]))
 
 
 @requirement("roots:list-changed")

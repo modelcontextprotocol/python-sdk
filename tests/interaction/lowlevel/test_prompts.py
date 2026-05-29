@@ -40,7 +40,7 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
                         PromptArgument(name="code", description="The code to review.", required=True),
                         PromptArgument(name="style_guide", description="Optional style guide to apply."),
                     ],
-                    icons=[Icon(src="https://example.com/review.png", mime_type="image/png", sizes=["48x48"])],
+                    icons=[Icon(src="https://example.com/review.png", mimeType="image/png", sizes=["48x48"])],
                 ),
                 Prompt(name="daily_standup"),
             ]
@@ -61,7 +61,7 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
                         PromptArgument(name="code", description="The code to review.", required=True),
                         PromptArgument(name="style_guide", description="Optional style guide to apply."),
                     ],
-                    icons=[Icon(src="https://example.com/review.png", mime_type="image/png", sizes=["48x48"])],
+                    icons=[Icon(src="https://example.com/review.png", mimeType="image/png", sizes=["48x48"])],
                 ),
                 Prompt(name="daily_standup"),
             ]
@@ -78,7 +78,9 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
         assert params.arguments is not None
         return GetPromptResult(
             description="A personalised greeting.",
-            messages=[PromptMessage(role="user", content=TextContent(text=f"Hello, {params.arguments['name']}!"))],
+            messages=[
+                PromptMessage(role="user", content=TextContent(type="text", text=f"Hello, {params.arguments['name']}!"))
+            ],
         )
 
     server = Server("prompter", on_get_prompt=get_prompt)
@@ -89,7 +91,7 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
     assert result == snapshot(
         GetPromptResult(
             description="A personalised greeting.",
-            messages=[PromptMessage(role="user", content=TextContent(text="Hello, Ada!"))],
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="Hello, Ada!"))],
         )
     )
 
@@ -102,9 +104,11 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
         assert params.name == "geography_quiz"
         return GetPromptResult(
             messages=[
-                PromptMessage(role="user", content=TextContent(text="What is the capital of France?")),
-                PromptMessage(role="assistant", content=TextContent(text="The capital of France is Paris.")),
-                PromptMessage(role="user", content=TextContent(text="And of Italy?")),
+                PromptMessage(role="user", content=TextContent(type="text", text="What is the capital of France?")),
+                PromptMessage(
+                    role="assistant", content=TextContent(type="text", text="The capital of France is Paris.")
+                ),
+                PromptMessage(role="user", content=TextContent(type="text", text="And of Italy?")),
             ]
         )
 
@@ -116,9 +120,11 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
     assert result == snapshot(
         GetPromptResult(
             messages=[
-                PromptMessage(role="user", content=TextContent(text="What is the capital of France?")),
-                PromptMessage(role="assistant", content=TextContent(text="The capital of France is Paris.")),
-                PromptMessage(role="user", content=TextContent(text="And of Italy?")),
+                PromptMessage(role="user", content=TextContent(type="text", text="What is the capital of France?")),
+                PromptMessage(
+                    role="assistant", content=TextContent(type="text", text="The capital of France is Paris.")
+                ),
+                PromptMessage(role="user", content=TextContent(type="text", text="And of Italy?")),
             ]
         )
     )
@@ -131,7 +137,9 @@ async def test_get_prompt_without_arguments_returns_the_messages(connect: Connec
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "static"
         assert params.arguments is None
-        return GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))])
+        return GetPromptResult(
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="Say hello."))]
+        )
 
     server = Server("prompter", on_get_prompt=get_prompt)
 
@@ -139,7 +147,7 @@ async def test_get_prompt_without_arguments_returns_the_messages(connect: Connec
         result = await client.get_prompt("static")
 
     assert result == snapshot(
-        GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))])
+        GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(type="text", text="Say hello."))])
     )
 
 
@@ -158,12 +166,13 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
         assert params.name == "media"
         return GetPromptResult(
             messages=[
-                PromptMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png")),
-                PromptMessage(role="assistant", content=AudioContent(data="YXVk", mime_type="audio/wav")),
+                PromptMessage(role="user", content=ImageContent(type="image", data="aW1n", mimeType="image/png")),
+                PromptMessage(role="assistant", content=AudioContent(type="audio", data="YXVk", mimeType="audio/wav")),
                 PromptMessage(
                     role="user",
                     content=EmbeddedResource(
-                        resource=TextResourceContents(uri="resource://notes/1", mime_type="text/plain", text="attached")
+                        type="resource",
+                        resource=TextResourceContents(uri="resource://notes/1", mimeType="text/plain", text="attached"),
                     ),
                 ),
             ]
@@ -177,12 +186,13 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
     assert result == snapshot(
         GetPromptResult(
             messages=[
-                PromptMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png")),
-                PromptMessage(role="assistant", content=AudioContent(data="YXVk", mime_type="audio/wav")),
+                PromptMessage(role="user", content=ImageContent(type="image", data="aW1n", mimeType="image/png")),
+                PromptMessage(role="assistant", content=AudioContent(type="audio", data="YXVk", mimeType="audio/wav")),
                 PromptMessage(
                     role="user",
                     content=EmbeddedResource(
-                        resource=TextResourceContents(uri="resource://notes/1", mime_type="text/plain", text="attached")
+                        type="resource",
+                        resource=TextResourceContents(uri="resource://notes/1", mimeType="text/plain", text="attached"),
                     ),
                 ),
             ]

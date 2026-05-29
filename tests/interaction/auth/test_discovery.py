@@ -43,7 +43,7 @@ OIDC_ROOT = "/.well-known/openid-configuration"
 
 
 async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="probe", input_schema={"type": "object"})])
+    return ListToolsResult(tools=[Tool(name="probe", inputSchema={"type": "object"})])
 
 
 def discovery_gets(recorded: list[RecordedRequest]) -> list[str]:

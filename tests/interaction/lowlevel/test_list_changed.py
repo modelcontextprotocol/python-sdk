@@ -47,12 +47,12 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="install", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="install", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "install"
         await ctx.session.send_tool_list_changed()
-        return CallToolResult(content=[TextContent(text="installed")])
+        return CallToolResult(content=[TextContent(type="text", text="installed")])
 
     server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -77,12 +77,12 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="mount", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="mount", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "mount"
         await ctx.session.send_resource_list_changed()
-        return CallToolResult(content=[TextContent(text="mounted")])
+        return CallToolResult(content=[TextContent(type="text", text="mounted")])
 
     async def list_resources(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -113,12 +113,12 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="learn", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="learn", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "learn"
         await ctx.session.send_prompt_list_changed()
-        return CallToolResult(content=[TextContent(text="learned")])
+        return CallToolResult(content=[TextContent(type="text", text="learned")])
 
     async def list_prompts(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None

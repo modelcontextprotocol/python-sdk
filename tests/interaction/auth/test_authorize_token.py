@@ -51,7 +51,7 @@ ASM_PATH = "/.well-known/oauth-authorization-server"
 
 
 async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
+    return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
 
 
 def authorize_params(authorize_url: str) -> dict[str, str]:

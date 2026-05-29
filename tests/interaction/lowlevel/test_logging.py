@@ -64,7 +64,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="chatty", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="chatty", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "chatty"
@@ -74,7 +74,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
         await ctx.session.send_log_message(
             level="error", data={"code": 502, "retryable": True}, related_request_id=ctx.request_id
         )
-        return CallToolResult(content=[TextContent(text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
         """Registered so the logging capability is advertised; the client never sets a level."""
@@ -85,7 +85,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
     async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="done")]))
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="info", logger="app.lifecycle", data="starting up"),
@@ -105,7 +105,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="siren", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="siren", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
@@ -113,7 +113,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
             await ctx.session.send_log_message(
                 level=level, data=f"a {level} message", related_request_id=ctx.request_id
             )
-        return CallToolResult(content=[TextContent(text="logged")])
+        return CallToolResult(content=[TextContent(type="text", text="logged")])
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
         """Registered so the logging capability is advertised; the client never sets a level."""

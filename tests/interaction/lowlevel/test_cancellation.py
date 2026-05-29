@@ -76,7 +76,7 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(
-                        params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
+                        params=types.CancelledNotificationParams(requestId=request_ids[0], reason="user aborted")
                     )
                 )
 
@@ -96,14 +96,14 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
             tools=[
-                types.Tool(name="block", input_schema={"type": "object"}),
-                types.Tool(name="echo", input_schema={"type": "object"}),
+                types.Tool(name="block", inputSchema={"type": "object"}),
+                types.Tool(name="echo", inputSchema={"type": "object"}),
             ]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         if params.name == "echo":
-            return CallToolResult(content=[TextContent(text="still alive")])
+            return CallToolResult(content=[TextContent(type="text", text="still alive")])
         assert ctx.request_id is not None
         request_ids.append(ctx.request_id)
         started.set()
@@ -123,12 +123,12 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
                 task_group.start_soon(call_and_swallow_cancellation_error)
                 await started.wait()
                 await client.session.send_notification(
-                    types.CancelledNotification(params=types.CancelledNotificationParams(request_id=request_ids[0]))
+                    types.CancelledNotification(params=types.CancelledNotificationParams(requestId=request_ids[0]))
                 )
 
             result = await client.call_tool("echo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="still alive")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="still alive")]))
 
 
 @requirement("protocol:cancel:unknown-id-ignored")
@@ -138,21 +138,21 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="echo", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="echo", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
-        return CallToolResult(content=[TextContent(text="unbothered")])
+        return CallToolResult(content=[TextContent(type="text", text="unbothered")])
 
     server = Server("calm", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         await client.session.send_notification(
-            types.CancelledNotification(params=types.CancelledNotificationParams(request_id=9999))
+            types.CancelledNotification(params=types.CancelledNotificationParams(requestId=9999))
         )
         result = await client.call_tool("echo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="unbothered")]))
 
 
 @requirement("protocol:cancel:late-response-ignored")
@@ -192,9 +192,9 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
             respond(
                 init.message.id,
                 InitializeResult(
-                    protocol_version="2025-11-25",
+                    protocolVersion="2025-11-25",
                     capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="scripted", version="0.0.1"),
+                    serverInfo=Implementation(name="scripted", version="0.0.1"),
                 ),
             )
         )

@@ -32,7 +32,7 @@ def _server() -> Server:
     """A minimal low-level server with one tool, so subsequent-request routing can be observed."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="noop", description="Does nothing.", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="noop", description="Does nothing.", inputSchema={"type": "object"})])
 
     return Server("hosted", on_list_tools=list_tools)
 

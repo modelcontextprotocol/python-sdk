@@ -63,14 +63,14 @@ async def test_session_serves_requests_after_timeout() -> None:
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
             tools=[
-                types.Tool(name="block", input_schema={"type": "object"}),
-                types.Tool(name="echo", input_schema={"type": "object"}),
+                types.Tool(name="block", inputSchema={"type": "object"}),
+                types.Tool(name="echo", inputSchema={"type": "object"}),
             ]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         if params.name == "echo":
-            return CallToolResult(content=[TextContent(text="still alive")])
+            return CallToolResult(content=[TextContent(type="text", text="still alive")])
         await anyio.Event().wait()  # blocks until the session is torn down
         raise NotImplementedError  # unreachable
 
@@ -82,7 +82,7 @@ async def test_session_serves_requests_after_timeout() -> None:
 
         result = await client.call_tool("echo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="still alive")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="still alive")]))
 
 
 @requirement("protocol:timeout:session-default")

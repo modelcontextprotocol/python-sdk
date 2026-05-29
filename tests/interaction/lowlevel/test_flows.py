@@ -46,7 +46,7 @@ def _list_tools(*names: str) -> ListToolsHandler:
     """A list_tools handler advertising the named tools, so call_tool's implicit list succeeds."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in names])
+        return ListToolsResult(tools=[Tool(name=name, inputSchema={"type": "object"}) for name in names])
 
     return list_tools
 
@@ -61,7 +61,7 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "generate"
-        return CallToolResult(content=[ResourceLink(uri="file:///report.txt", name="report")])
+        return CallToolResult(content=[ResourceLink(type="resource_link", uri="file:///report.txt", name="report")])
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         assert str(params.uri) == "file:///report.txt"
@@ -77,7 +77,9 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
         assert isinstance(link, ResourceLink)
         read = await client.read_resource(link.uri)
 
-    assert called == snapshot(CallToolResult(content=[ResourceLink(name="report", uri="file:///report.txt")]))
+    assert called == snapshot(
+        CallToolResult(content=[ResourceLink(type="resource_link", name="report", uri="file:///report.txt")])
+    )
     assert read == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="file:///report.txt", text="generated")])
     )
@@ -108,7 +110,9 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
             {"type": "object", "properties": {"age": {"type": "integer"}}},
         )
         assert second.action == "accept" and second.content is not None
-        return CallToolResult(content=[TextContent(text=f"{first.content['name']} is {second.content['age']}")])
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"{first.content['name']} is {second.content['age']}")]
+        )
 
     server = Server("onboarder", on_list_tools=_list_tools("onboard"), on_call_tool=call_tool)
 
@@ -120,7 +124,7 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
     async with connect(server, elicitation_callback=answer) as client:
         result = await client.call_tool("onboard", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ada is 37")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="ada is 37")]))
     assert [(p.message, p.requested_schema) for p in received] == snapshot(
         [
             ("Step 1: choose a username.", {"type": "object", "properties": {"name": {"type": "string"}}}),
@@ -162,11 +166,11 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
                     ElicitRequestURLParams(
                         message="Authorize file access.",
                         url="https://example.com/oauth/authorize",
-                        elicitation_id=elicitation_id,
+                        elicitationId=elicitation_id,
                     )
                 ]
             )
-        return CallToolResult(content=[TextContent(text="contents")])
+        return CallToolResult(content=[TextContent(type="text", text="contents")])
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
         """Registered so the logging capability is advertised; the client never sets a level."""
@@ -200,4 +204,4 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
         authorised[0] = True
         result = await client.call_tool("read_files", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="contents")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="contents")]))

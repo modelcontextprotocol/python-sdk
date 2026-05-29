@@ -62,13 +62,13 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="signup", description="Register the user.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="signup", description="Register the user.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "signup"
         answer = await ctx.session.elicit_form("Choose a username.", REQUESTED_SCHEMA)
-        return CallToolResult(content=[TextContent(text=answer.action)], structured_content=answer.content)
+        return CallToolResult(content=[TextContent(type="text", text=answer.action)], structuredContent=answer.content)
 
     server = Server("registrar", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -84,7 +84,7 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
             ElicitRequestFormParams(
                 _meta={},
                 message="Choose a username.",
-                requested_schema={
+                requestedSchema={
                     "type": "object",
                     "properties": {
                         "username": {"type": "string"},
@@ -97,8 +97,8 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
     )
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="accept")],
-            structured_content={"username": "ada", "newsletter": True},
+            content=[TextContent(type="text", text="accept")],
+            structuredContent={"username": "ada", "newsletter": True},
         )
     )
 
@@ -111,13 +111,13 @@ async def test_elicit_form_decline_returns_no_content(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="confirm", description="Ask for confirmation.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="confirm", description="Ask for confirmation.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "confirm"
         answer = await ctx.session.elicit_form("Proceed?", {"type": "object", "properties": {}})
-        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{answer.action} content={answer.content}")])
 
     server = Server("confirmer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -127,7 +127,7 @@ async def test_elicit_form_decline_returns_no_content(connect: Connect) -> None:
     async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="decline content=None")]))
 
 
 @requirement("elicitation:form:action:cancel")
@@ -138,13 +138,13 @@ async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="confirm", description="Ask for confirmation.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="confirm", description="Ask for confirmation.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "confirm"
         answer = await ctx.session.elicit_form("Proceed?", {"type": "object", "properties": {}})
-        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{answer.action} content={answer.content}")])
 
     server = Server("confirmer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -154,7 +154,7 @@ async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
     async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="cancel content=None")]))
 
 
 @requirement("elicitation:form:not-supported")
@@ -173,7 +173,7 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="ask", description="Ask the user.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="ask", description="Ask the user.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -181,7 +181,7 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
         try:
             await ctx.session.elicit_form("Anyone there?", {"type": "object", "properties": {}})
         except MCPError as exc:
-            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # elicit_form cannot succeed without a client callback
 
     server = Server("asker", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -189,7 +189,9 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("ask", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Elicitation not supported")]))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="-32600: Elicitation not supported")])
+    )
 
 
 @requirement("elicitation:url:action:accept-no-content")
@@ -207,7 +209,7 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="authorize", description="Link an account.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="authorize", description="Link an account.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -215,7 +217,7 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
         answer = await ctx.session.elicit_url(
             "Authorize access to your calendar.", "https://example.com/oauth/authorize", "auth-001"
         )
-        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{answer.action} content={answer.content}")])
 
     server = Server("authorizer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -232,11 +234,11 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
                 _meta={},
                 message="Authorize access to your calendar.",
                 url="https://example.com/oauth/authorize",
-                elicitation_id="auth-001",
+                elicitationId="auth-001",
             )
         ]
     )
-    assert result == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="accept content=None")]))
 
 
 @requirement("elicitation:url:decline")
@@ -247,7 +249,7 @@ async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="authorize", description="Link an account.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="authorize", description="Link an account.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -255,7 +257,7 @@ async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
         answer = await ctx.session.elicit_url(
             "Authorize access to your calendar.", "https://example.com/oauth/authorize", "auth-001"
         )
-        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{answer.action} content={answer.content}")])
 
     server = Server("authorizer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -265,7 +267,7 @@ async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
     async with connect(server, elicitation_callback=answer_url) as client:
         result = await client.call_tool("authorize", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="decline content=None")]))
 
 
 @requirement("elicitation:url:cancel")
@@ -276,7 +278,7 @@ async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="authorize", description="Link an account.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="authorize", description="Link an account.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -284,7 +286,7 @@ async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
         answer = await ctx.session.elicit_url(
             "Authorize access to your calendar.", "https://example.com/oauth/authorize", "auth-001"
         )
-        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+        return CallToolResult(content=[TextContent(type="text", text=f"{answer.action} content={answer.content}")])
 
     server = Server("authorizer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -294,7 +296,7 @@ async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
     async with connect(server, elicitation_callback=answer_url) as client:
         result = await client.call_tool("authorize", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="cancel content=None")]))
 
 
 @requirement("elicitation:url:complete-notification")
@@ -319,7 +321,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="link_account", description="Link an account.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="link_account", description="Link an account.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -329,7 +331,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
         )
         assert answer.action == "accept"
         await ctx.session.send_elicit_complete(elicitation_id, related_request_id=ctx.request_id)
-        return CallToolResult(content=[TextContent(text="linked")])
+        return CallToolResult(content=[TextContent(type="text", text="linked")])
 
     server = Server("authorizer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -344,7 +346,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
     # The completion notification refers to the same elicitation the client accepted.
     assert elicited_ids == [elicitation_id]
     assert received == snapshot(
-        [ElicitCompleteNotification(params=ElicitCompleteNotificationParams(elicitation_id="auth-001"))]
+        [ElicitCompleteNotification(params=ElicitCompleteNotificationParams(elicitationId="auth-001"))]
     )
 
 
@@ -365,7 +367,7 @@ async def test_url_elicitation_required_error_carries_pending_elicitations(conne
                 ElicitRequestURLParams(
                     message="Authorization required for your files.",
                     url="https://example.com/oauth/authorize",
-                    elicitation_id="auth-001",
+                    elicitationId="auth-001",
                 )
             ]
         )
@@ -429,13 +431,13 @@ async def test_elicit_form_schema_with_every_primitive_and_enum_type_reaches_the
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="onboard", description="Onboard the user.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="onboard", description="Onboard the user.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "onboard"
         answer = await ctx.session.elicit_form("Tell us about yourself.", schema)
-        return CallToolResult(content=[TextContent(text=answer.action)])
+        return CallToolResult(content=[TextContent(type="text", text=answer.action)])
 
     server = Server("onboarder", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -479,13 +481,13 @@ async def test_elicit_form_with_a_nested_schema_is_forwarded_unchanged(connect: 
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="profile", description="Collect a profile.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="profile", description="Collect a profile.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "profile"
         answer = await ctx.session.elicit_form("Profile details.", schema)
-        return CallToolResult(content=[TextContent(text=answer.action)])
+        return CallToolResult(content=[TextContent(type="text", text=answer.action)])
 
     server = Server("profiler", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -518,7 +520,7 @@ async def test_accepted_elicitation_content_that_violates_the_schema_reaches_the
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="signup", description="Register the user.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="signup", description="Register the user.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -527,7 +529,7 @@ async def test_accepted_elicitation_content_that_violates_the_schema_reaches_the
             "Choose a name.",
             {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
         )
-        return CallToolResult(content=[TextContent(text=answer.action)], structured_content=answer.content)
+        return CallToolResult(content=[TextContent(type="text", text=answer.action)], structuredContent=answer.content)
 
     server = Server("registrar", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -538,7 +540,9 @@ async def test_accepted_elicitation_content_that_violates_the_schema_reaches_the
         result = await client.call_tool("signup", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="accept")], structured_content={"name": 42, "extra": "field"})
+        CallToolResult(
+            content=[TextContent(type="text", text="accept")], structuredContent={"name": 42, "extra": "field"}
+        )
     )
 
 
@@ -555,13 +559,13 @@ async def test_elicitation_complete_for_an_unknown_id_is_received_without_error(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="noop", description="Send a stray complete.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="noop", description="Send a stray complete.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "noop"
         await ctx.session.send_elicit_complete("never-elicited", related_request_id=ctx.request_id)
-        return CallToolResult(content=[TextContent(text="ok")])
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     server = Server("notifier", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -573,9 +577,9 @@ async def test_elicitation_complete_for_an_unknown_id_is_received_without_error(
     async with connect(server, message_handler=collect) as client:
         result = await client.call_tool("noop", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="ok")]))
     assert received == snapshot(
-        [ElicitCompleteNotification(params=ElicitCompleteNotificationParams(elicitation_id="never-elicited"))]
+        [ElicitCompleteNotification(params=ElicitCompleteNotificationParams(elicitationId="never-elicited"))]
     )
 
 
@@ -603,9 +607,9 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
         assert isinstance(request, JSONRPCRequest)
         assert request.method == "initialize"
         result = InitializeResult(
-            protocol_version="2025-11-25",
+            protocolVersion="2025-11-25",
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="legacy", version="0.0.1"),
+            serverInfo=Implementation(name="legacy", version="0.0.1"),
         )
         await server_write.send(
             SessionMessage(
@@ -651,7 +655,7 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
             ElicitRequestFormParams(
                 _meta=None,
                 message="Legacy ask.",
-                requested_schema={"type": "object", "properties": {}},
+                requestedSchema={"type": "object", "properties": {}},
             )
         ]
     )

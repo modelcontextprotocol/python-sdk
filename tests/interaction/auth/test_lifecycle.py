@@ -44,7 +44,7 @@ CIMD_URL = "https://client.example/.well-known/mcp-client"
 
 
 async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
+    return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
 
 
 def form_body(request: RecordedRequest) -> dict[str, str]:

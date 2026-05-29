@@ -35,7 +35,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
     assert result == snapshot(
         ReadResourceResult(
-            contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
+            contents=[TextResourceContents(uri="config://app", mimeType="text/plain", text="theme = dark")]
         )
     )
 
@@ -70,19 +70,19 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
                     name="app_config",
                     uri="config://app",
                     description="The application configuration.",
-                    mime_type="text/plain",
+                    mimeType="text/plain",
                 )
             ]
         )
     )
     assert templates == snapshot(
         ListResourceTemplatesResult(
-            resource_templates=[
+            resourceTemplates=[
                 ResourceTemplate(
                     name="user_profile",
-                    uri_template="users://{user_id}/profile",
+                    uriTemplate="users://{user_id}/profile",
                     description="A user's profile.",
-                    mime_type="text/plain",
+                    mimeType="text/plain",
                 )
             ]
         )
@@ -105,7 +105,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
 
     assert result == snapshot(
         ReadResourceResult(
-            contents=[TextResourceContents(uri="users://42/profile", mime_type="text/plain", text="profile for 42")]
+            contents=[TextResourceContents(uri="users://42/profile", mimeType="text/plain", text="profile for 42")]
         )
     )
 
@@ -179,5 +179,5 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(co
     assert [resource.uri for resource in listed.resources] == ["config://app"]
     assert listed.resources[0].name == "config_first"
     assert result == snapshot(
-        ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
+        ReadResourceResult(contents=[TextResourceContents(uri="config://app", mimeType="text/plain", text="first")])
     )

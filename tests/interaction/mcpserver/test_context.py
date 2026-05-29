@@ -54,7 +54,9 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
         result = await client.call_tool("narrate", {})
         advertised_logging = client.initialize_result.capabilities.logging
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="done")], structuredContent={"result": "done"})
+    )
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="debug", data="d"),
@@ -89,7 +91,7 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
         result = await client.call_tool("crunch", {}, progress_callback=on_progress)
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
+        CallToolResult(content=[TextContent(type="text", text="crunched")], structuredContent={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
 
@@ -145,7 +147,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
         result = await client.call_tool("mill", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
+        CallToolResult(content=[TextContent(type="text", text="milled")], structuredContent={"result": "milled"})
     )
     assert received == snapshot(
         [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="milling done"))]
@@ -185,7 +187,7 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
             ElicitRequestFormParams(
                 _meta={},
                 message="Where to?",
-                requested_schema={
+                requestedSchema={
                     "properties": {
                         "destination": {"title": "Destination", "type": "string"},
                         "window_seat": {"title": "Window Seat", "type": "boolean"},
@@ -199,8 +201,8 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     )
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="accept: Lisbon window=True")],
-            structured_content={"result": "accept: Lisbon window=True"},
+            content=[TextContent(type="text", text="accept: Lisbon window=True")],
+            structuredContent={"result": "accept: Lisbon window=True"},
         )
     )
 
@@ -229,8 +231,8 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
 
     assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="text/plain: 'theme = dark'")],
-            structured_content={"result": "text/plain: 'theme = dark'"},
+            content=[TextContent(type="text", text="text/plain: 'theme = dark'")],
+            structuredContent={"result": "text/plain: 'theme = dark'"},
         )
     )
 

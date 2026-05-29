@@ -29,7 +29,7 @@ async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams |
         tools=[
             Tool(
                 name="echo",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
             )
         ]
     )
@@ -40,7 +40,7 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     assert params.arguments is not None
     text = params.arguments["text"]
     await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
-    return CallToolResult(content=[TextContent(text=text)])
+    return CallToolResult(content=[TextContent(type="text", text=text)])
 
 
 async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:

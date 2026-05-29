@@ -35,20 +35,22 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="add", description="Add two integers.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="add", description="Add two integers.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "add"
         assert params.arguments is not None
-        return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
+        return CallToolResult(
+            content=[TextContent(type="text", text=str(params.arguments["a"] + params.arguments["b"]))]
+        )
 
     server = Server("adder", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="5")]))
 
 
 @requirement("tools:call:is-error")
@@ -61,7 +63,7 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "flux"
-        return CallToolResult(content=[TextContent(text="the flux capacitor is offline")], is_error=True)
+        return CallToolResult(content=[TextContent(type="text", text="the flux capacitor is offline")], isError=True)
 
     server = Server("errors", on_call_tool=call_tool)
 
@@ -69,7 +71,7 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
         result = await client.call_tool("flux", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="the flux capacitor is offline")], is_error=True)
+        CallToolResult(content=[TextContent(type="text", text="the flux capacitor is offline")], isError=True)
     )
 
 
@@ -125,13 +127,13 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
                 Tool(
                     name="add",
                     description="Add two integers.",
-                    input_schema={
+                    inputSchema={
                         "type": "object",
                         "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
                         "required": ["a", "b"],
                     },
                 ),
-                Tool(name="reset", description="Reset the calculator.", input_schema={"type": "object"}),
+                Tool(name="reset", description="Reset the calculator.", inputSchema={"type": "object"}),
             ]
         )
 
@@ -146,13 +148,13 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
                 Tool(
                     name="add",
                     description="Add two integers.",
-                    input_schema={
+                    inputSchema={
                         "type": "object",
                         "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
                         "required": ["a", "b"],
                     },
                 ),
-                Tool(name="reset", description="Reset the calculator.", input_schema={"type": "object"}),
+                Tool(name="reset", description="Reset the calculator.", inputSchema={"type": "object"}),
             ]
         )
     )
@@ -187,12 +189,12 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
     }
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="typed", input_schema=schema)])
+        return ListToolsResult(tools=[Tool(name="typed", inputSchema=schema)])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "typed"
         assert params.arguments == {"count": 3, "options": {"verbose": True}}
-        return CallToolResult(content=[TextContent(text="ok")])
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     server = Server("typed", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -201,7 +203,7 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
         called = await client.call_tool("typed", {"count": 3, "options": {"verbose": True}})
 
     assert listed.tools[0].input_schema == schema
-    assert called == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert called == snapshot(CallToolResult(content=[TextContent(type="text", text="ok")]))
 
 
 @requirement("tools:list:metadata")
@@ -212,10 +214,10 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
         name="annotated",
         title="Annotated tool",
         description="A tool carrying every optional field.",
-        input_schema={"type": "object"},
-        output_schema={"type": "object", "properties": {"answer": {"type": "integer"}}},
-        icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])],
-        annotations=ToolAnnotations(title="Display title", read_only_hint=True, idempotent_hint=True),
+        inputSchema={"type": "object"},
+        outputSchema={"type": "object", "properties": {"answer": {"type": "integer"}}},
+        icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48"])],
+        annotations=ToolAnnotations(title="Display title", readOnlyHint=True, idempotentHint=True),
         _meta={"example.com/source": "interaction-suite"},
     )
 
@@ -234,10 +236,10 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
                     name="annotated",
                     title="Annotated tool",
                     description="A tool carrying every optional field.",
-                    input_schema={"type": "object"},
-                    output_schema={"type": "object", "properties": {"answer": {"type": "integer"}}},
-                    icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])],
-                    annotations=ToolAnnotations(title="Display title", read_only_hint=True, idempotent_hint=True),
+                    inputSchema={"type": "object"},
+                    outputSchema={"type": "object", "properties": {"answer": {"type": "integer"}}},
+                    icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48"])],
+                    annotations=ToolAnnotations(title="Display title", readOnlyHint=True, idempotentHint=True),
                     _meta={"example.com/source": "interaction-suite"},
                 )
             ]
@@ -258,18 +260,21 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     """
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="render", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="render", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "render"
         return CallToolResult(
             content=[
-                TextContent(text="all five content block types"),
-                ImageContent(data="aW1n", mime_type="image/png"),
-                AudioContent(data="YXVk", mime_type="audio/wav"),
-                ResourceLink(name="report", uri="resource://reports/1", description="The full report"),
+                TextContent(type="text", text="all five content block types"),
+                ImageContent(type="image", data="aW1n", mimeType="image/png"),
+                AudioContent(type="audio", data="YXVk", mimeType="audio/wav"),
+                ResourceLink(
+                    type="resource_link", name="report", uri="resource://reports/1", description="The full report"
+                ),
                 EmbeddedResource(
-                    resource=TextResourceContents(uri="resource://reports/1", mime_type="text/plain", text="contents")
+                    type="resource",
+                    resource=TextResourceContents(uri="resource://reports/1", mimeType="text/plain", text="contents"),
                 ),
             ]
         )
@@ -282,12 +287,15 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     assert result == snapshot(
         CallToolResult(
             content=[
-                TextContent(text="all five content block types"),
-                ImageContent(data="aW1n", mime_type="image/png"),
-                AudioContent(data="YXVk", mime_type="audio/wav"),
-                ResourceLink(name="report", uri="resource://reports/1", description="The full report"),
+                TextContent(type="text", text="all five content block types"),
+                ImageContent(type="image", data="aW1n", mimeType="image/png"),
+                AudioContent(type="audio", data="YXVk", mimeType="audio/wav"),
+                ResourceLink(
+                    type="resource_link", name="report", uri="resource://reports/1", description="The full report"
+                ),
                 EmbeddedResource(
-                    resource=TextResourceContents(uri="resource://reports/1", mime_type="text/plain", text="contents")
+                    type="resource",
+                    resource=TextResourceContents(uri="resource://reports/1", mimeType="text/plain", text="contents"),
                 ),
             ]
         )
@@ -299,18 +307,20 @@ async def test_call_tool_structured_content(connect: Connect) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="sum", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="sum", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "sum"
-        return CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5})
+        return CallToolResult(content=[TextContent(type="text", text="the sum is 5")], structuredContent={"sum": 5})
 
     server = Server("calculator", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("sum", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5}))
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="the sum is 5")], structuredContent={"sum": 5})
+    )
 
 
 @requirement("tools:call:concurrent")
@@ -327,7 +337,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
     results: dict[str, CallToolResult] = {}
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
+        return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
@@ -337,7 +347,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
         started.append(tag)
         started_events[tag].set()
         await release.wait()
-        return CallToolResult(content=[TextContent(text=tag)])
+        return CallToolResult(content=[TextContent(type="text", text=tag)])
 
     server = Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -359,8 +369,8 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
     assert sorted(started) == ["first", "second"]
     assert results == snapshot(
         {
-            "first": CallToolResult(content=[TextContent(text="first")]),
-            "second": CallToolResult(content=[TextContent(text="second")]),
+            "first": CallToolResult(content=[TextContent(type="text", text="first")]),
+            "second": CallToolResult(content=[TextContent(type="text", text="second")]),
         }
     )
 
@@ -376,8 +386,8 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
             tools=[
                 Tool(
                     name="forecast",
-                    input_schema={"type": "object"},
-                    output_schema={
+                    inputSchema={"type": "object"},
+                    outputSchema={
                         "type": "object",
                         "properties": {"temperature": {"type": "number"}},
                         "required": ["temperature"],
@@ -388,7 +398,9 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "forecast"
-        return CallToolResult(content=[TextContent(text="warm")], structured_content={"temperature": "warm"})
+        return CallToolResult(
+            content=[TextContent(type="text", text="warm")], structuredContent={"temperature": "warm"}
+        )
 
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -414,8 +426,8 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
             tools=[
                 Tool(
                     name="forecast",
-                    input_schema={"type": "object"},
-                    output_schema={
+                    inputSchema={"type": "object"},
+                    outputSchema={
                         "type": "object",
                         "properties": {"temperature": {"type": "number"}},
                         "required": ["temperature"],
@@ -427,7 +439,7 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "forecast"
         return CallToolResult(
-            content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True
+            content=[TextContent(type="text", text="boom")], structuredContent={"temperature": "warm"}, isError=True
         )
 
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -437,7 +449,9 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
         result = await client.call_tool("forecast", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True)
+        CallToolResult(
+            content=[TextContent(type="text", text="boom")], structuredContent={"temperature": "warm"}, isError=True
+        )
     )
 
 
@@ -453,15 +467,15 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
             tools=[
                 Tool(
                     name="forecast",
-                    input_schema={"type": "object"},
-                    output_schema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+                    inputSchema={"type": "object"},
+                    outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
                 )
             ]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "forecast"
-        return CallToolResult(content=[TextContent(text="warm")])
+        return CallToolResult(content=[TextContent(type="text", text="warm")])
 
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -490,15 +504,15 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
             tools=[
                 Tool(
                     name="forecast",
-                    input_schema={"type": "object"},
-                    output_schema={"type": "object", "properties": {"temperature": {"type": "number"}}},
+                    inputSchema={"type": "object"},
+                    outputSchema={"type": "object", "properties": {"temperature": {"type": "number"}}},
                 )
             ]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "forecast"
-        return CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21})
+        return CallToolResult(content=[TextContent(type="text", text="21 C")], structuredContent={"temperature": 21})
 
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
@@ -508,5 +522,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
         second = await client.call_tool("forecast", {})
 
     assert list_calls == ["called"]
-    assert first == snapshot(CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21}))
+    assert first == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="21 C")], structuredContent={"temperature": 21})
+    )
     assert second == first

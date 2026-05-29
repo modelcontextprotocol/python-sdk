@@ -37,17 +37,17 @@ async def test_server_ping_returns_empty_result(connect: Connect) -> None:
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
         return types.ListToolsResult(
-            tools=[types.Tool(name="ping_back", description="Ping the client.", input_schema={"type": "object"})]
+            tools=[types.Tool(name="ping_back", description="Ping the client.", inputSchema={"type": "object"})]
         )
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ping_back"
         pong = await ctx.session.send_ping()
-        return CallToolResult(content=[TextContent(text=type(pong).__name__)])
+        return CallToolResult(content=[TextContent(type="text", text=type(pong).__name__)])
 
     server = Server("pinger", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("ping_back", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="EmptyResult")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="EmptyResult")]))

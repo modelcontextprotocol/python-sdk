@@ -55,12 +55,12 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
                     name="readme",
                     title="Project README",
                     description="The project's front page.",
-                    mime_type="text/markdown",
+                    mimeType="text/markdown",
                     size=1024,
                     annotations=Annotations.model_validate(
                         {"audience": ["user", "assistant"], "priority": 0.8, "lastModified": "2025-01-01T00:00:00Z"}
                     ),
-                    icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
+                    icons=[Icon(src="https://example.com/readme.png", mimeType="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -79,10 +79,10 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
                     name="readme",
                     title="Project README",
                     description="The project's front page.",
-                    mime_type="text/markdown",
+                    mimeType="text/markdown",
                     size=1024,
                     annotations=Annotations(audience=["user", "assistant"], priority=0.8),
-                    icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
+                    icons=[Icon(src="https://example.com/readme.png", mimeType="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -95,7 +95,7 @@ async def test_read_resource_text(connect: Connect) -> None:
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         return ReadResourceResult(
-            contents=[TextResourceContents(uri=params.uri, mime_type="text/plain", text="Hello, world!")]
+            contents=[TextResourceContents(uri=params.uri, mimeType="text/plain", text="Hello, world!")]
         )
 
     server = Server("library", on_read_resource=read_resource)
@@ -105,7 +105,7 @@ async def test_read_resource_text(connect: Connect) -> None:
 
     assert result == snapshot(
         ReadResourceResult(
-            contents=[TextResourceContents(uri="file:///greeting.txt", mime_type="text/plain", text="Hello, world!")]
+            contents=[TextResourceContents(uri="file:///greeting.txt", mimeType="text/plain", text="Hello, world!")]
         )
     )
 
@@ -119,7 +119,7 @@ async def test_read_resource_binary(connect: Connect) -> None:
             contents=[
                 BlobResourceContents(
                     uri=params.uri,
-                    mime_type="image/png",
+                    mimeType="image/png",
                     blob=base64.b64encode(b"\x89PNG").decode(),
                 )
             ]
@@ -132,7 +132,7 @@ async def test_read_resource_binary(connect: Connect) -> None:
 
     assert result == snapshot(
         ReadResourceResult(
-            contents=[BlobResourceContents(uri="file:///pixel.png", mime_type="image/png", blob="iVBORw==")]
+            contents=[BlobResourceContents(uri="file:///pixel.png", mimeType="image/png", blob="iVBORw==")]
         )
     )
 
@@ -165,15 +165,15 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> ListResourceTemplatesResult:
         return ListResourceTemplatesResult(
-            resource_templates=[
-                ResourceTemplate(uri_template="users://{user_id}", name="user"),
+            resourceTemplates=[
+                ResourceTemplate(uriTemplate="users://{user_id}", name="user"),
                 ResourceTemplate(
-                    uri_template="logs://{service}/{date}",
+                    uriTemplate="logs://{service}/{date}",
                     name="service_logs",
                     title="Service logs",
                     description="One day of logs for one service.",
-                    mime_type="text/plain",
-                    icons=[Icon(src="https://example.com/logs.png", mime_type="image/png", sizes=["48x48"])],
+                    mimeType="text/plain",
+                    icons=[Icon(src="https://example.com/logs.png", mimeType="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -185,15 +185,15 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
 
     assert result == snapshot(
         ListResourceTemplatesResult(
-            resource_templates=[
-                ResourceTemplate(uri_template="users://{user_id}", name="user"),
+            resourceTemplates=[
+                ResourceTemplate(uriTemplate="users://{user_id}", name="user"),
                 ResourceTemplate(
-                    uri_template="logs://{service}/{date}",
+                    uriTemplate="logs://{service}/{date}",
                     name="service_logs",
                     title="Service logs",
                     description="One day of logs for one service.",
-                    mime_type="text/plain",
-                    icons=[Icon(src="https://example.com/logs.png", mime_type="image/png", sizes=["48x48"])],
+                    mimeType="text/plain",
+                    icons=[Icon(src="https://example.com/logs.png", mimeType="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -274,12 +274,12 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="touch", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="touch", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "touch"
         await ctx.session.send_resource_updated("file:///watched.txt")
-        return CallToolResult(content=[TextContent(text="touched")])
+        return CallToolResult(content=[TextContent(type="text", text="touched")])
 
     async def list_resources(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None

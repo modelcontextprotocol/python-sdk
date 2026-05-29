@@ -68,7 +68,7 @@ async def test_get_prompt_renders_function_return(connect: Connect) -> None:
     assert result == snapshot(
         GetPromptResult(
             description="A personalised greeting.",
-            messages=[PromptMessage(role="user", content=TextContent(text="Say hello to Ada."))],
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="Say hello to Ada."))],
         )
     )
 
@@ -156,7 +156,7 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
     assert result == snapshot(
         GetPromptResult(
             description="Review a snippet of code against a style guide.",
-            messages=[PromptMessage(role="user", content=TextContent(text="Review x = 1 per pep8."))],
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="Review x = 1 per pep8."))],
         )
     )
 
@@ -190,6 +190,6 @@ async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(con
     assert result == snapshot(
         GetPromptResult(
             description="The first registration; this is the one that wins.",
-            messages=[PromptMessage(role="user", content=TextContent(text="first"))],
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="first"))],
         )
     )

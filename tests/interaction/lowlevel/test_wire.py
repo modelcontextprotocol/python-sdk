@@ -48,11 +48,11 @@ def _echo_server() -> Server:
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="echo", input_schema={"type": "object"})])
+        return types.ListToolsResult(tools=[types.Tool(name="echo", inputSchema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "echo"
-        return CallToolResult(content=[TextContent(text="ok")])
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     return Server("wire", on_list_tools=list_tools, on_call_tool=call_tool)
 

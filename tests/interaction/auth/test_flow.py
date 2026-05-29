@@ -40,7 +40,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="whoami", input_schema={"type": "object"})])
+    return ListToolsResult(tools=[Tool(name="whoami", inputSchema={"type": "object"})])
 
 
 @requirement("flow:oauth:authorization-code-roundtrip")
@@ -76,7 +76,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
         ):
             result = await client.list_tools()
 
-    assert result == snapshot(ListToolsResult(tools=[Tool(name="whoami", input_schema={"type": "object"})]))
+    assert result == snapshot(ListToolsResult(tools=[Tool(name="whoami", inputSchema={"type": "object"})]))
     assert headless.authorize_url is not None
 
     paths = [(r.method, r.url.path) for r in requests]
@@ -126,7 +126,7 @@ async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() 
         assert params.name == "whoami"
         token = get_access_token()
         assert token is not None
-        return CallToolResult(content=[TextContent(text=" ".join(token.scopes))])
+        return CallToolResult(content=[TextContent(type="text", text=" ".join(token.scopes))])
 
     server = Server("guarded", on_list_tools=list_tools, on_call_tool=call_tool)
     provider = InMemoryAuthorizationServerProvider()
@@ -135,7 +135,7 @@ async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() 
         async with connect_with_oauth(server, provider=provider) as (client, _):
             result = await client.call_tool("whoami", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="mcp")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="mcp")]))
 
 
 @requirement("client-auth:pre-registration")

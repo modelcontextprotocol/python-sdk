@@ -82,7 +82,7 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -
         errlog.seek(0)
         captured_stderr = errlog.read()
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="across\nprocesses")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="across\nprocesses")]))
     # stdio carries one ordered server→client stream, so the same notification-before-response
     # guarantee holds here as for the in-memory transport.
     assert received == snapshot(

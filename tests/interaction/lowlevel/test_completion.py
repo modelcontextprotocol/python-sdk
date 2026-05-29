@@ -34,17 +34,17 @@ async def test_complete_prompt_argument(connect: Connect) -> None:
         assert params.argument.name == "language"
         candidates = ["python", "pytorch", "ruby"]
         matches = [candidate for candidate in candidates if candidate.startswith(params.argument.value)]
-        return CompleteResult(completion=Completion(values=matches, total=len(matches), has_more=False))
+        return CompleteResult(completion=Completion(values=matches, total=len(matches), hasMore=False))
 
     server = Server("completer", on_completion=completion)
 
     async with connect(server) as client:
         result = await client.complete(
-            PromptReference(name="code_review"), argument={"name": "language", "value": "py"}
+            PromptReference(type="ref/prompt", name="code_review"), argument={"name": "language", "value": "py"}
         )
 
     assert result == snapshot(
-        CompleteResult(completion=Completion(values=["python", "pytorch"], total=2, has_more=False))
+        CompleteResult(completion=Completion(values=["python", "pytorch"], total=2, hasMore=False))
     )
 
 
@@ -62,7 +62,7 @@ async def test_complete_resource_template_variable(connect: Connect) -> None:
 
     async with connect(server) as client:
         result = await client.complete(
-            ResourceTemplateReference(uri="github://repos/{owner}/{repo}"),
+            ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
             argument={"name": "owner", "value": "model"},
         )
 
@@ -86,7 +86,7 @@ async def test_complete_receives_context_arguments(connect: Connect) -> None:
 
     async with connect(server) as client:
         result = await client.complete(
-            ResourceTemplateReference(uri="github://repos/{owner}/{repo}"),
+            ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
             argument={"name": "repo", "value": ""},
             context_arguments={"owner": "modelcontextprotocol"},
         )
@@ -111,7 +111,7 @@ async def test_completion_against_an_unknown_ref_is_rejected_with_invalid_params
 
     async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
-            await client.complete(PromptReference(name="ghost"), argument={"name": "x", "value": ""})
+            await client.complete(PromptReference(type="ref/prompt", name="ghost"), argument={"name": "x", "value": ""})
 
     assert exc_info.value.error.code == INVALID_PARAMS
 
@@ -126,6 +126,8 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
         assert client.initialize_result.capabilities.completions is None
 
         with pytest.raises(MCPError) as exc_info:
-            await client.complete(PromptReference(name="anything"), argument={"name": "topic", "value": ""})
+            await client.complete(
+                PromptReference(type="ref/prompt", name="anything"), argument={"name": "topic", "value": ""}
+            )
 
     assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
