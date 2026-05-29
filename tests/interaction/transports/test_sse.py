@@ -29,11 +29,8 @@ pytestmark = pytest.mark.anyio
 @requirement("transport:sse:endpoint-event")
 async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id() -> None:
     """Connecting opens a GET stream whose first event names the POST endpoint and a fresh
-    session id; messages POSTed there are answered on that stream.
-
-    On v1 the server's session entry is not removed on disconnect (`SseServerTransport` never
-    pops `_read_stream_writers[session_id]`); the final assertion pins that behaviour.
-    """
+    session id; messages POSTed there are answered on that stream, and disconnecting releases the
+    server's session entry."""
     app, sse = build_sse_app(Server("legacy"))
     captured_session_id: list[str] = []
 
@@ -60,7 +57,13 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
                 assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
                 assert await client.send_ping() == snapshot(EmptyResult())
 
-    assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers  # pragma: lax no cover
+    # `connect_sse` drops the session entry in a `finally` once the GET request has unwound; the
+    # bridge lets that unwinding finish after the client has gone, so wait for the cleanup instead
+    # of racing it. How many iterations that takes is a scheduling accident (usually zero), and on
+    # 3.11 these post-unwind lines are invisible to the line tracer, hence the coverage exclusion.
+    with anyio.fail_after(5):  # pragma: lax no cover
+        while sse._read_stream_writers:
+            await anyio.sleep(0.01)
 
 
 @requirement("transport:sse:post:session-routing")
