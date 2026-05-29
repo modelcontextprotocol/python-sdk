@@ -121,9 +121,9 @@ async def test_one_server_serves_streamable_http_and_sse_clients_concurrently() 
             shttp_result = await shttp_client.call_tool("echo", {"text": "via http"})
             sse_result = await sse_client.call_tool("echo", {"text": "via sse"})
 
-    assert shttp_result == snapshot(
+    assert shttp_result == snapshot(  # pragma: lax no cover
         CallToolResult(content=[TextContent(type="text", text="via http")], structuredContent={"result": "via http"})
     )
-    assert sse_result == snapshot(
+    assert sse_result == snapshot(  # pragma: lax no cover
         CallToolResult(content=[TextContent(type="text", text="via sse")], structuredContent={"result": "via sse"})
     )

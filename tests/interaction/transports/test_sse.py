@@ -60,7 +60,7 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
                 assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
                 assert await client.send_ping() == snapshot(EmptyResult())
 
-    assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
+    assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers  # pragma: lax no cover
 
 
 @requirement("transport:sse:post:session-routing")
