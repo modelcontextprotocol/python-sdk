@@ -1,7 +1,7 @@
 """Shared helpers for the interaction suite.
 
 Keep this module small: it exists only for (a) types that every test would otherwise have to
-assemble from the SDK's internals to annotate a client callback, and (b) the recording transport
+assemble from the SDK's internals to annotate a client callback, and (b) the recording wrapper
 used by the wire-level tests. Server fixtures and assertion helpers belong in the test that uses
 them.
 """
@@ -9,9 +9,9 @@ them.
 from types import TracebackType
 
 import anyio
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from typing_extensions import Self
 
-from mcp.client._transport import ReadStream, Transport, TransportStreams, WriteStream
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import ClientResult, ServerNotification, ServerRequest
@@ -24,11 +24,17 @@ from mcp.types import ClientResult, ServerNotification, ServerRequest
 IncomingMessage = RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
 """Everything a client message handler can receive."""
 
+ReadStream = MemoryObjectReceiveStream[SessionMessage | Exception]
+WriteStream = MemoryObjectSendStream[SessionMessage]
+"""Local aliases for the v1 SDK's session-stream types (v1 has no exported `ReadStream`/
+`WriteStream` names); exported so wire-level / scripted-peer tests can annotate without
+reaching into anyio."""
+
 
 class _RecordingReadStream:
     """Delegates to a read stream, appending every received message to a log."""
 
-    def __init__(self, inner: ReadStream[SessionMessage | Exception], log: list[SessionMessage | Exception]) -> None:
+    def __init__(self, inner: ReadStream, log: list[SessionMessage | Exception]) -> None:
         self._inner = inner
         self._log = log
 
@@ -62,7 +68,7 @@ class _RecordingReadStream:
 class _RecordingWriteStream:
     """Delegates to a write stream, appending every sent message to a log."""
 
-    def __init__(self, inner: WriteStream[SessionMessage], log: list[SessionMessage]) -> None:
+    def __init__(self, inner: WriteStream, log: list[SessionMessage]) -> None:
         self._inner = inner
         self._log = log
 
@@ -83,25 +89,22 @@ class _RecordingWriteStream:
         return None
 
 
-class RecordingTransport:
-    """Wraps a Transport and records every message crossing the client's transport boundary.
+class Recording:
+    """Wraps a (read, write) stream pair and records every message crossing it.
 
     `sent` holds everything the client wrote towards the server; `received` holds everything the
     server delivered to the client. The recording sits at the transport seam -- the exact payloads
     a real transport would serialise -- and never touches the session, so wire-level assertions
     written against it survive changes to the receive path.
+
+    v1 has no `Transport` abstraction; tests insert this between
+    `create_client_server_memory_streams()` and `ClientSession`.
     """
 
-    def __init__(self, inner: Transport) -> None:
-        self.inner = inner
+    def __init__(self, read: ReadStream, write: WriteStream) -> None:
         self.sent: list[SessionMessage] = []
         self.received: list[SessionMessage | Exception] = []
-
-    async def __aenter__(self) -> TransportStreams:
-        read_stream, write_stream = await self.inner.__aenter__()
-        return _RecordingReadStream(read_stream, self.received), _RecordingWriteStream(write_stream, self.sent)
-
-    async def __aexit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
-    ) -> bool | None:
-        return await self.inner.__aexit__(exc_type, exc_val, exc_tb)
+        # Duck-typed stand-ins for the anyio stream classes; ClientSession only calls
+        # .receive()/.send()/.aclose() so the runtime contract holds.
+        self.read: ReadStream = _RecordingReadStream(read, self.received)  # type: ignore[assignment]
+        self.write: WriteStream = _RecordingWriteStream(write, self.sent)  # type: ignore[assignment]
