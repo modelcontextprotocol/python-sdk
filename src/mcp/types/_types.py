@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
 from pydantic.alias_generators import to_camel
@@ -30,11 +29,6 @@ Role = Literal["user", "assistant"]
 
 IconTheme = Literal["light", "dark"]
 
-TaskExecutionMode = Literal["forbidden", "optional", "required"]
-TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
-TASK_OPTIONAL: Final[Literal["optional"]] = "optional"
-TASK_REQUIRED: Final[Literal["required"]] = "required"
-
 
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types."""
@@ -55,27 +49,7 @@ class RequestParamsMeta(TypedDict, extra_items=Any):
     """
 
 
-class TaskMetadata(MCPModel):
-    """Metadata for augmenting a request with task execution.
-
-    Include this in the `task` field of the request parameters.
-    """
-
-    ttl: Annotated[int, Field(strict=True)] | None = None
-    """Requested duration in milliseconds to retain task from creation."""
-
-
 class RequestParams(MCPModel):
-    task: TaskMetadata | None = None
-    """
-    If specified, the caller is requesting task-augmented execution for this request.
-    The request will return a CreateTaskResult immediately, and the actual result can be
-    retrieved later via tasks/result.
-
-    Task augmentation is subject to capability negotiation - receivers MUST declare support
-    for task augmentation of specific request types in their capabilities.
-    """
-
     meta: RequestParamsMeta | None = Field(alias="_meta", default=None)
 
 
@@ -258,55 +232,6 @@ class SamplingCapability(MCPModel):
     """
 
 
-class TasksListCapability(MCPModel):
-    """Capability for tasks listing operations."""
-
-
-class TasksCancelCapability(MCPModel):
-    """Capability for tasks cancel operations."""
-
-
-class TasksCreateMessageCapability(MCPModel):
-    """Capability for tasks create messages."""
-
-
-class TasksSamplingCapability(MCPModel):
-    """Capability for tasks sampling operations."""
-
-    create_message: TasksCreateMessageCapability | None = None
-
-
-class TasksCreateElicitationCapability(MCPModel):
-    """Capability for tasks create elicitation operations."""
-
-
-class TasksElicitationCapability(MCPModel):
-    """Capability for tasks elicitation operations."""
-
-    create: TasksCreateElicitationCapability | None = None
-
-
-class ClientTasksRequestsCapability(MCPModel):
-    """Capability for tasks requests operations."""
-
-    sampling: TasksSamplingCapability | None = None
-
-    elicitation: TasksElicitationCapability | None = None
-
-
-class ClientTasksCapability(MCPModel):
-    """Capability for client tasks operations."""
-
-    list: TasksListCapability | None = None
-    """Whether this client supports tasks/list."""
-
-    cancel: TasksCancelCapability | None = None
-    """Whether this client supports tasks/cancel."""
-
-    requests: ClientTasksRequestsCapability | None = None
-    """Specifies which request types can be augmented with tasks."""
-
-
 class ClientCapabilities(MCPModel):
     """Capabilities a client may support."""
 
@@ -321,8 +246,6 @@ class ClientCapabilities(MCPModel):
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
-    tasks: ClientTasksCapability | None = None
-    """Present if the client supports task-augmented requests."""
 
 
 class PromptsCapability(MCPModel):
@@ -356,30 +279,6 @@ class CompletionsCapability(MCPModel):
     """Capability for completions operations."""
 
 
-class TasksCallCapability(MCPModel):
-    """Capability for tasks call operations."""
-
-
-class TasksToolsCapability(MCPModel):
-    """Capability for tasks tools operations."""
-
-    call: TasksCallCapability | None = None
-
-
-class ServerTasksRequestsCapability(MCPModel):
-    """Capability for tasks requests operations."""
-
-    tools: TasksToolsCapability | None = None
-
-
-class ServerTasksCapability(MCPModel):
-    """Capability for server tasks operations."""
-
-    list: TasksListCapability | None = None
-    cancel: TasksCancelCapability | None = None
-    requests: ServerTasksRequestsCapability | None = None
-
-
 class ServerCapabilities(MCPModel):
     """Capabilities that a server may support."""
 
@@ -400,146 +299,6 @@ class ServerCapabilities(MCPModel):
 
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
-
-    tasks: ServerTasksCapability | None = None
-    """Present if the server supports task-augmented requests."""
-
-
-TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
-
-# Task status constants
-TASK_STATUS_WORKING: Final[Literal["working"]] = "working"
-TASK_STATUS_INPUT_REQUIRED: Final[Literal["input_required"]] = "input_required"
-TASK_STATUS_COMPLETED: Final[Literal["completed"]] = "completed"
-TASK_STATUS_FAILED: Final[Literal["failed"]] = "failed"
-TASK_STATUS_CANCELLED: Final[Literal["cancelled"]] = "cancelled"
-
-
-class RelatedTaskMetadata(MCPModel):
-    """Metadata for associating messages with a task.
-
-    Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
-    """
-
-    task_id: str
-    """The task identifier this message is associated with."""
-
-
-class Task(MCPModel):
-    """Data associated with a task."""
-
-    task_id: str
-    """The task identifier."""
-
-    status: TaskStatus
-    """Current task state."""
-
-    status_message: str | None = None
-    """Optional human-readable message describing the current task state.
-
-    This can provide context for any status, including:
-    - Reasons for "cancelled" status
-    - Summaries for "completed" status
-    - Diagnostic information for "failed" status (e.g., error details, what went wrong)
-    """
-
-    created_at: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
-    """ISO 8601 timestamp when the task was created."""
-
-    last_updated_at: datetime
-    """ISO 8601 timestamp when the task was last updated."""
-
-    ttl: Annotated[int, Field(strict=True)] | None
-    """Actual retention duration from creation in milliseconds, null for unlimited."""
-
-    poll_interval: Annotated[int, Field(strict=True)] | None = None
-    """Suggested polling interval in milliseconds."""
-
-
-class CreateTaskResult(Result):
-    """A response to a task-augmented request."""
-
-    task: Task
-
-
-class GetTaskRequestParams(RequestParams):
-    task_id: str
-    """The task identifier to query."""
-
-
-class GetTaskRequest(Request[GetTaskRequestParams, Literal["tasks/get"]]):
-    """A request to retrieve the state of a task."""
-
-    method: Literal["tasks/get"] = "tasks/get"
-
-    params: GetTaskRequestParams
-
-
-class GetTaskResult(Result, Task):
-    """The response to a tasks/get request."""
-
-
-class GetTaskPayloadRequestParams(RequestParams):
-    task_id: str
-    """The task identifier to retrieve results for."""
-
-
-class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/result"]]):
-    """A request to retrieve the result of a completed task."""
-
-    method: Literal["tasks/result"] = "tasks/result"
-    params: GetTaskPayloadRequestParams
-
-
-class GetTaskPayloadResult(Result):
-    """The response to a tasks/result request.
-
-    The structure matches the result type of the original request.
-    For example, a tools/call task would return the CallToolResult structure.
-    """
-
-    model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
-
-
-class CancelTaskRequestParams(RequestParams):
-    task_id: str
-    """The task identifier to cancel."""
-
-
-class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
-    """A request to cancel a task."""
-
-    method: Literal["tasks/cancel"] = "tasks/cancel"
-    params: CancelTaskRequestParams
-
-
-class CancelTaskResult(Result, Task):
-    """The response to a tasks/cancel request."""
-
-
-class ListTasksRequest(PaginatedRequest[Literal["tasks/list"]]):
-    """A request to retrieve a list of tasks."""
-
-    method: Literal["tasks/list"] = "tasks/list"
-
-
-class ListTasksResult(PaginatedResult):
-    """The response to a tasks/list request."""
-
-    tasks: list[Task]
-
-
-class TaskStatusNotificationParams(NotificationParams, Task):
-    """Parameters for a `notifications/tasks/status` notification."""
-
-
-class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
-    """An optional notification from the receiver to the requestor, informing them that a task's status has changed.
-    Receivers are not required to send these notifications.
-    """
-
-    method: Literal["notifications/tasks/status"] = "notifications/tasks/status"
-    params: TaskStatusNotificationParams
 
 
 class InitializeRequestParams(RequestParams):
@@ -1133,23 +892,6 @@ class ToolAnnotations(MCPModel):
     """
 
 
-class ToolExecution(MCPModel):
-    """Execution-related properties for a tool."""
-
-    task_support: TaskExecutionMode | None = None
-    """
-    Indicates whether this tool supports task-augmented execution.
-    This allows clients to handle long-running operations through polling
-    the task system.
-
-    - "forbidden": Tool does not support task-augmented execution (default when absent)
-    - "optional": Tool may support task-augmented execution
-    - "required": Tool requires task-augmented execution
-
-    Default: "forbidden"
-    """
-
-
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
@@ -1171,8 +913,6 @@ class Tool(BaseMetadata):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
-
-    execution: ToolExecution | None = None
 
 
 class ListToolsResult(PaginatedResult):
@@ -1554,8 +1294,6 @@ class CancelledNotificationParams(NotificationParams):
     The ID of the request to cancel.
 
     This MUST correspond to the ID of a request previously issued in the same direction.
-    This MUST be provided for cancelling non-task requests.
-    This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).
     """
     reason: str | None = None
     """An optional string describing the reason for the cancellation."""
@@ -1607,20 +1345,12 @@ ClientRequest = (
     | UnsubscribeRequest
     | CallToolRequest
     | ListToolsRequest
-    | GetTaskRequest
-    | GetTaskPayloadRequest
-    | ListTasksRequest
-    | CancelTaskRequest
 )
 client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
 
 
 ClientNotification = (
-    CancelledNotification
-    | ProgressNotification
-    | InitializedNotification
-    | RootsListChangedNotification
-    | TaskStatusNotification
+    CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification
 )
 client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
 
@@ -1716,31 +1446,11 @@ class ElicitationRequiredErrorData(MCPModel):
     """List of URL mode elicitations that must be completed."""
 
 
-ClientResult = (
-    EmptyResult
-    | CreateMessageResult
-    | CreateMessageResultWithTools
-    | ListRootsResult
-    | ElicitResult
-    | GetTaskResult
-    | GetTaskPayloadResult
-    | ListTasksResult
-    | CancelTaskResult
-    | CreateTaskResult
-)
+ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
 client_result_adapter = TypeAdapter[ClientResult](ClientResult)
 
 
-ServerRequest = (
-    PingRequest
-    | CreateMessageRequest
-    | ListRootsRequest
-    | ElicitRequest
-    | GetTaskRequest
-    | GetTaskPayloadRequest
-    | ListTasksRequest
-    | CancelTaskRequest
-)
+ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest
 server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
 
 
@@ -1753,7 +1463,6 @@ ServerNotification = (
     | ToolListChangedNotification
     | PromptListChangedNotification
     | ElicitCompleteNotification
-    | TaskStatusNotification
 )
 server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification)
 
@@ -1769,10 +1478,5 @@ ServerResult = (
     | ReadResourceResult
     | CallToolResult
     | ListToolsResult
-    | GetTaskResult
-    | GetTaskPayloadResult
-    | ListTasksResult
-    | CancelTaskResult
-    | CreateTaskResult
 )
 server_result_adapter = TypeAdapter[ServerResult](ServerResult)

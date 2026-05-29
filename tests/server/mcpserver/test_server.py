@@ -11,7 +11,6 @@ from starlette.routing import Mount, Route
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
@@ -1502,7 +1501,6 @@ async def test_report_progress_passes_related_request_id():
         session=mock_session,
         meta={"progress_token": "tok-1"},
         lifespan_context=None,
-        experimental=Experimental(),
     )
 
     ctx = Context(request_context=request_context, mcp_server=MagicMock())
