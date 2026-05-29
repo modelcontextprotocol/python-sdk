@@ -16,6 +16,8 @@ from typing import Any, Protocol
 import httpx
 from httpx_sse import ServerSentEvent, aconnect_sse
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
@@ -24,7 +26,10 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp
@@ -139,6 +144,9 @@ def build_streamable_http_app(
     `/mcp` is mounted via `Route(path, endpoint=<class instance>)` with no `methods=`, exactly
     as FastMCP does — Starlette treats a class-instance endpoint as raw ASGI and matches all
     verbs, which is what the transport requires.
+
+    Unlike `FastMCP.__init__`, this does not enforce `auth_server_provider` XOR
+    `token_verifier`; the AS-handler tests pass both.
     """
     manager = StreamableHTTPSessionManager(
         app=_lowlevel(server),
@@ -150,14 +158,55 @@ def build_streamable_http_app(
     )
     asgi = StreamableHTTPASGIApp(manager)
 
-    routes: list[Route] = []
-    # Auth routing (middleware, AS routes, RequireAuthMiddleware wrap, PRM routes) is added in
-    # H5; until then `auth` / `token_verifier` / `auth_server_provider` are accepted but ignored
-    # so callers that don't pass them work today.
-    assert auth is None and token_verifier is None and auth_server_provider is None, "auth branch lands in H5"
-    routes.append(Route("/mcp", endpoint=asgi))
+    # FastMCP derives a verifier from the provider at construction time when no explicit verifier
+    # is given (mcp/server/fastmcp/server.py:230); the harness has no construction step, so the
+    # same derivation runs here so the gating below sees the same verifier FastMCP would.
+    verifier = token_verifier
+    if auth_server_provider is not None and token_verifier is None:
+        verifier = ProviderTokenVerifier(auth_server_provider)
 
-    return Starlette(routes=routes), manager
+    routes: list[Route] = []
+    middleware: list[Middleware] = []
+    required_scopes: list[str] = []
+
+    if auth is not None:
+        required_scopes = auth.required_scopes or []
+        if verifier is not None:
+            middleware = [
+                Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(verifier)),
+                Middleware(AuthContextMiddleware),
+            ]
+        if auth_server_provider is not None:
+            routes.extend(
+                create_auth_routes(
+                    provider=auth_server_provider,
+                    issuer_url=auth.issuer_url,
+                    service_documentation_url=auth.service_documentation_url,
+                    client_registration_options=auth.client_registration_options,
+                    revocation_options=auth.revocation_options,
+                )
+            )
+
+    if verifier is not None:
+        resource_metadata_url = (
+            build_resource_metadata_url(auth.resource_server_url)
+            if auth is not None and auth.resource_server_url
+            else None
+        )
+        routes.append(Route("/mcp", endpoint=RequireAuthMiddleware(asgi, required_scopes, resource_metadata_url)))
+    else:
+        routes.append(Route("/mcp", endpoint=asgi))
+
+    if auth is not None and auth.resource_server_url:
+        routes.extend(
+            create_protected_resource_routes(
+                resource_url=auth.resource_server_url,
+                authorization_servers=[auth.issuer_url],
+                scopes_supported=auth.required_scopes,
+            )
+        )
+
+    return Starlette(routes=routes, middleware=middleware), manager
 
 
 @asynccontextmanager
@@ -230,15 +279,15 @@ async def mounted_app(
     Yields the httpx client (rooted at the in-process origin) and the live session manager. Tests
     use this in two ways: for raw-httpx assertions (status codes, headers, SSE bytes) the test
     speaks HTTP through the yielded client directly; for client-driven assertions the test wraps
-    that client in `client_via_http(http)`, which lets several `Client`s share the one mounted
-    session manager. `on_request` records every outgoing HTTP request before it leaves the
+    that client in `client_via_http(http)`, which lets several `ClientSession`s share the one
+    mounted session manager. `on_request` records every outgoing HTTP request before it leaves the
     yielded client.
 
     DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
     localhost auto-enable behaviour) to test the protection itself.
     """
-    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server  # noqa: F821  -- body rewritten in H5
-    app = lowlevel.streamable_http_app(
+    app, manager = build_streamable_http_app(
+        server,
         stateless_http=stateless_http,
         json_response=json_response,
         event_store=event_store,
@@ -250,12 +299,12 @@ async def mounted_app(
     )
     event_hooks = {"request": [on_request]} if on_request is not None else None
     async with (
-        server.session_manager.run(),
+        manager.run(),
         httpx.AsyncClient(
             transport=StreamingASGITransport(app), base_url=BASE_URL, event_hooks=event_hooks, headers=headers
         ) as http_client,
     ):
-        yield http_client, server.session_manager
+        yield http_client, manager
 
 
 @asynccontextmanager
