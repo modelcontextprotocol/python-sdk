@@ -667,7 +667,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             # Configure task support for this session if enabled
             task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
             if task_support is not None:
-                task_support.configure_session(session)
+                task_support.configure_session(session, stateless=stateless)
                 await stack.enter_async_context(task_support.run())
 
             async with anyio.create_task_group() as tg:

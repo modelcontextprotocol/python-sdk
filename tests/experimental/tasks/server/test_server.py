@@ -506,13 +506,14 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             # Create a task directly in the store for testing
             task = await store.create_task(TaskMetadata(ttl=60000))
 
-            # Test list_tasks (default handler)
+            # Test list_tasks (default handler). Tasks created directly in the
+            # store have no session scope, so they are reachable by ID but not
+            # included in tasks/list (see test_task_scope.py).
             list_result = await client_session.send_request(
                 ClientRequest(ListTasksRequest()),
                 ListTasksResult,
             )
-            assert len(list_result.tasks) == 1
-            assert list_result.tasks[0].taskId == task.taskId
+            assert list_result.tasks == []
 
             # Test get_task (default handler - found)
             get_result = await client_session.send_request(

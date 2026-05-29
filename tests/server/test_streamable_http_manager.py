@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock, patch
 
 import anyio
 import pytest
-from starlette.types import Message
+from starlette.types import Message, Scope
 
 from mcp.server import streamable_http_manager
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -390,3 +392,166 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+def _user(client_id: str, subject: str | None = None, issuer: str | None = None) -> AuthenticatedUser:
+    """Build the scope["user"] value that AuthenticationMiddleware would set for this principal."""
+    claims = {"iss": issuer} if issuer is not None else None
+    return AuthenticatedUser(AccessToken(token="token", client_id=client_id, scopes=[], subject=subject, claims=claims))
+
+
+def _request_scope(
+    *, session_id: str | None = None, user: AuthenticatedUser | None = None, method: str = "POST"
+) -> Scope:
+    """Build an ASGI scope for a request to the MCP endpoint."""
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"accept", b"application/json, text/event-stream"),
+    ]
+    if session_id is not None:
+        headers.append((b"mcp-session-id", session_id.encode()))
+    scope: Scope = {
+        "type": "http",
+        "method": method,
+        "path": "/mcp",
+        "headers": headers,
+    }
+    if user is not None:
+        scope["user"] = user
+    return scope
+
+
+async def _open_session(manager: StreamableHTTPSessionManager, user: AuthenticatedUser | None) -> str:
+    """Create a new session as `user` and return its session ID."""
+    sent_messages: list[Message] = []
+
+    async def mock_send(message: Message) -> None:
+        sent_messages.append(message)
+
+    async def mock_receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    await manager.handle_request(_request_scope(user=user), mock_receive, mock_send)
+
+    response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+    headers = dict(response_start.get("headers", []))
+    return headers[MCP_SESSION_ID_HEADER.encode()].decode()
+
+
+async def _request_session(
+    manager: StreamableHTTPSessionManager, session_id: str, user: AuthenticatedUser | None, method: str = "POST"
+) -> int:
+    """Send a request for an existing session as `user` and return the response status."""
+    sent_messages: list[Message] = []
+
+    async def mock_send(message: Message) -> None:
+        sent_messages.append(message)
+
+    async def mock_receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    await manager.handle_request(
+        _request_scope(session_id=session_id, user=user, method=method), mock_receive, mock_send
+    )
+
+    response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+    return response_start["status"]
+
+
+@pytest.fixture
+async def manager_with_live_session():
+    """A running manager around a real `Server`. Sessions remain registered until
+    `manager.run()` exits because `Server.run` blocks waiting for an initialize message."""
+    manager = StreamableHTTPSessionManager(app=Server("test-session-credentials"))
+    async with manager.run():
+        yield manager
+
+
+@pytest.mark.anyio
+async def test_session_accepts_requests_from_the_credential_that_created_it(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """Requests presenting the same credential as the one that created the session are served."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, _user("client-a"))
+
+    status = await _request_session(manager, session_id, _user("client-a"))
+
+    # The request passes the manager's credential check and reaches the
+    # session's transport, instead of being answered with 404 by the manager.
+    assert status != 404
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["POST", "GET", "DELETE"])
+async def test_session_rejects_requests_from_a_different_credential(
+    manager_with_live_session: StreamableHTTPSessionManager, method: str
+) -> None:
+    """A session created by one credential cannot be used with another credential, whatever the method."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, _user("client-a"))
+
+    assert await _request_session(manager, session_id, _user("client-b"), method) == 404
+    # The session is still registered and still serves its creator.
+    assert await _request_session(manager, session_id, _user("client-a")) != 404
+
+
+@pytest.mark.anyio
+async def test_session_rejects_requests_from_a_different_subject_of_the_same_client(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """Two end-users that share an OAuth client cannot use each other's sessions."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, _user("client-a", subject="alice"))
+
+    assert await _request_session(manager, session_id, _user("client-a", subject="bob")) == 404
+    assert await _request_session(manager, session_id, _user("client-a", subject=None)) == 404
+    assert await _request_session(manager, session_id, _user("client-a", subject="alice")) != 404
+
+
+@pytest.mark.anyio
+async def test_session_rejects_requests_with_the_same_subject_from_a_different_issuer(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """A subject is unique only per issuer, so a colliding subject from a different issuer is not the same principal."""
+    manager = manager_with_live_session
+    creator = _user("client-a", subject="alice", issuer="https://issuer.one")
+    session_id = await _open_session(manager, creator)
+
+    other_issuer = _user("client-a", subject="alice", issuer="https://issuer.two")
+    assert await _request_session(manager, session_id, other_issuer) == 404
+    assert await _request_session(manager, session_id, _user("client-a", subject="alice")) == 404
+    assert await _request_session(manager, session_id, creator) != 404
+
+
+@pytest.mark.anyio
+async def test_session_rejects_unauthenticated_requests_for_an_authenticated_session(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """A session created with a credential cannot be used without one."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, _user("client-a"))
+
+    assert await _request_session(manager, session_id, None) == 404
+
+
+@pytest.mark.anyio
+async def test_session_rejects_authenticated_requests_for_an_anonymous_session(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """A session created without a credential cannot be used with one."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, None)
+
+    assert await _request_session(manager, session_id, _user("client-a")) == 404
+
+
+@pytest.mark.anyio
+async def test_anonymous_session_accepts_anonymous_requests(
+    manager_with_live_session: StreamableHTTPSessionManager,
+) -> None:
+    """Servers without authentication keep working: no credential on either side."""
+    manager = manager_with_live_session
+    session_id = await _open_session(manager, None)
+
+    assert await _request_session(manager, session_id, None) != 404
