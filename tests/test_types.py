@@ -8,6 +8,8 @@ from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    ElicitRequestFormParams,
+    FileInputDescriptor,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
@@ -360,3 +362,77 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_file_input_descriptor_roundtrip():
+    """FileInputDescriptor serializes maxSize camelCase and accepts MIME + extension patterns."""
+    wire: dict[str, Any] = {"accept": ["image/png", "image/*", ".pdf"], "maxSize": 1048576}
+    desc = FileInputDescriptor.model_validate(wire)
+    assert desc.accept == ["image/png", "image/*", ".pdf"]
+    assert desc.max_size == 1048576
+
+    dumped = desc.model_dump(by_alias=True, exclude_none=True)
+    assert dumped == {"accept": ["image/png", "image/*", ".pdf"], "maxSize": 1048576}
+
+    # Both fields are optional; empty descriptor is valid
+    empty = FileInputDescriptor.model_validate({})
+    assert empty.accept is None
+    assert empty.max_size is None
+    assert empty.model_dump(by_alias=True, exclude_none=True) == {}
+
+
+def test_tool_input_schema_mcpfile_roundtrip():
+    """mcpFile keyword in Tool.input_schema survives roundtrip and parses as FileInputDescriptor."""
+    wire: dict[str, Any] = {
+        "name": "describe_image",
+        "description": "Describe the contents of an image.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image": {
+                    "type": "string",
+                    "format": "uri",
+                    "mcpFile": {"accept": ["image/png", "image/jpeg"], "maxSize": 5242880},
+                },
+            },
+            "required": ["image"],
+        },
+    }
+    tool = Tool.model_validate(wire)
+    image_prop = tool.input_schema["properties"]["image"]
+    assert image_prop["mcpFile"] == {"accept": ["image/png", "image/jpeg"], "maxSize": 5242880}
+
+    desc = FileInputDescriptor.model_validate(image_prop["mcpFile"])
+    assert desc.accept == ["image/png", "image/jpeg"]
+    assert desc.max_size == 5242880
+
+    dumped = tool.model_dump(by_alias=True, exclude_none=True)
+    assert dumped["inputSchema"]["properties"]["image"]["mcpFile"]["maxSize"] == 5242880
+
+
+def test_elicit_form_params_mcpfile_roundtrip():
+    """mcpFile keyword in requested_schema survives roundtrip and parses as FileInputDescriptor."""
+    wire: dict[str, Any] = {
+        "mode": "form",
+        "message": "Please select a profile photo.",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {
+                "photo": {
+                    "type": "string",
+                    "format": "uri",
+                    "title": "Profile photo",
+                    "mcpFile": {"accept": ["image/*"], "maxSize": 2097152},
+                },
+            },
+            "required": ["photo"],
+        },
+    }
+    params = ElicitRequestFormParams.model_validate(wire)
+    photo_prop = params.requested_schema["properties"]["photo"]
+    desc = FileInputDescriptor.model_validate(photo_prop["mcpFile"])
+    assert desc.accept == ["image/*"]
+    assert desc.max_size == 2097152
+
+    dumped = params.model_dump(by_alias=True, exclude_none=True)
+    assert dumped["requestedSchema"]["properties"]["photo"]["mcpFile"]["maxSize"] == 2097152

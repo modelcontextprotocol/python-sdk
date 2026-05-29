@@ -1150,6 +1150,38 @@ class ToolExecution(MCPModel):
     """
 
 
+class FileInputDescriptor(MCPModel):
+    """Value of the ``mcpFile`` JSON Schema extension keyword.
+
+    When present on a ``{"type": "string", "format": "uri"}`` property in a
+    :class:`Tool` ``input_schema`` or an elicitation ``requested_schema``, it
+    marks that property as a file input that clients SHOULD render as a native
+    file picker. Selected files are encoded as RFC 2397 data URIs.
+
+    Both fields are advisory; servers MUST still validate inputs independently.
+    """
+
+    accept: list[str] | None = None
+    """Media type patterns and/or file extensions the client SHOULD filter the
+    picker to.
+
+    Supports exact MIME types (``"image/png"``), wildcard subtypes
+    (``"image/*"``), and dot-prefixed extensions (``".pdf"``) following the same
+    grammar as the HTML ``accept`` attribute. Extension entries are picker hints
+    only; server-side validation compares MIME types. If omitted, any file type
+    is accepted.
+    """
+
+    max_size: int | None = None
+    """Maximum decoded file size in bytes that the server will accept inline as
+    a data URI.
+
+    Servers MUST reject larger payloads with the ``"file_too_large"`` structured
+    error reason. For files larger than this, servers obtain the file via
+    URL-mode elicitation instead of this property.
+    """
+
+
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
