@@ -14,9 +14,13 @@ def pytest_configure(config: pytest.Config) -> None:
     # session manager's per-session task-group cancel can race the per-request cleanup). v1's own
     # tests run the transport in a separate process and so never observe these `__del__`-time
     # ResourceWarnings; running in-process via the streaming bridge does. The fixes live in `src/`
-    # on `main` and are out of scope for this tests-only backport, so suppress here.
-    config.addinivalue_line("filterwarnings", "ignore::pytest.PytestUnraisableExceptionWarning")
-    config.addinivalue_line("filterwarnings", "ignore::ResourceWarning")
+    # on `main` and are out of scope for this tests-only backport — tracked in
+    # `notes/backport/issues.md`. The filters below are scoped to anyio's `MemoryObject*Stream`
+    # leak signature so an unrelated leak still fails the suite.
+    config.addinivalue_line(
+        "filterwarnings", "ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"
+    )
+    config.addinivalue_line("filterwarnings", "ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning")
 
 
 _FACTORIES: dict[str, Connect] = {

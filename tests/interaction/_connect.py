@@ -21,6 +21,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
@@ -32,7 +33,6 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderT
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -57,6 +57,23 @@ BASE_URL = "http://127.0.0.1:8000"
 # protection itself pass explicit settings (or transport_security=None to get the localhost
 # auto-enable behaviour).
 NO_DNS_REBINDING_PROTECTION = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
+class StreamableHTTPASGIApp:
+    """Thin ASGI wrapper around `StreamableHTTPSessionManager.handle_request`.
+
+    Starlette's `Route(path, endpoint=...)` treats a *class instance* as a raw ASGI callable
+    (matching all HTTP verbs), whereas a coroutine function is wrapped via `request_response`
+    and defaults to GET/HEAD only. v1's `FastMCP.streamable_http_app()` relies on this same
+    distinction; we inline the wrapper here rather than deep-importing the (non-`__all__`)
+    `mcp.server.fastmcp.server.StreamableHTTPASGIApp`.
+    """
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager) -> None:
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
 
 
 def _lowlevel(server: Server[Any] | FastMCP) -> Server[Any]:

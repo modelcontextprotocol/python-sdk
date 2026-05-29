@@ -1450,10 +1450,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "roots:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
         behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
-        deferred=(
-            "Not expressible via the v1 public API: the low-level Server exposes no decorator for "
-            "notifications/roots/list_changed, so a server handler cannot be registered to observe delivery."
-        ),
     ),
     "roots:list-changed:client-emits": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",

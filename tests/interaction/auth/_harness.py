@@ -34,10 +34,9 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import AccessToken, ProviderTokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
-from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION
+from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION, StreamableHTTPASGIApp
 from tests.interaction.auth._provider import InMemoryAuthorizationServerProvider
 from tests.interaction.transports._bridge import StreamingASGITransport
 
