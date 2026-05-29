@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -44,11 +45,8 @@ def _get_npx_command():
     if sys.platform == "win32":
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
-            try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
-                return cmd
-            except subprocess.CalledProcessError:
-                continue
+            if resolved := shutil.which(cmd):
+                return resolved
         return None
     return "npx"  # On Unix-like systems, just use npx
 
@@ -241,7 +239,7 @@ def dev(
             help="Additional packages to install",
         ),
     ] = [],
-) -> None:  # pragma: no cover
+) -> None:
     """Run an MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
 
@@ -271,12 +269,10 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
+        # Run the MCP Inspector command.
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
         )
         sys.exit(process.returncode)
