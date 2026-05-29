@@ -31,6 +31,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -94,8 +95,13 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
 ) -> AsyncIterator[ClientSession]:
-    """Yield an initialized `ClientSession` connected to the server over the in-memory transport."""
-    async with Client(  # noqa: F821  -- body rewritten in H3
+    """Yield an initialized `ClientSession` connected to the server over the in-memory transport.
+
+    This is exactly `mcp.shared.memory.create_connected_server_and_client_session` — the
+    canonical v1 in-memory idiom — re-exported under the suite's `Connect` shape so the
+    transport matrix can parametrize over it.
+    """
+    async with create_connected_server_and_client_session(
         server,
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
@@ -104,8 +110,8 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
-    ) as client:
-        yield client
+    ) as session:
+        yield session
 
 
 @asynccontextmanager
@@ -229,7 +235,7 @@ async def client_via_http(
 
 def parse_sse_messages(events: Iterable[ServerSentEvent]) -> list[JSONRPCMessage]:
     """Decode SSE events into JSON-RPC messages, skipping priming events that carry no data."""
-    return [jsonrpc_message_adapter.validate_json(event.data) for event in events if event.data]  # noqa: F821  -- body rewritten in H3
+    return [JSONRPCMessage.model_validate_json(event.data) for event in events if event.data]
 
 
 async def post_jsonrpc(
@@ -268,9 +274,9 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
 def initialize_body(request_id: int = 1) -> dict[str, object]:
     """A wire-level initialize JSON-RPC request body, exactly as an SDK client would send it."""
     params = InitializeRequestParams(
-        protocol_version=LATEST_PROTOCOL_VERSION,
+        protocolVersion=LATEST_PROTOCOL_VERSION,
         capabilities=ClientCapabilities(),
-        client_info=Implementation(name="raw", version="0.0.0"),
+        clientInfo=Implementation(name="raw", version="0.0.0"),
     )
     return JSONRPCRequest(
         jsonrpc="2.0", id=request_id, method="initialize", params=params.model_dump(by_alias=True, exclude_none=True)
@@ -302,17 +308,15 @@ async def initialize_via_http(http: httpx.AsyncClient) -> str:
 def build_sse_app(server: Server[Any] | FastMCP) -> tuple[Starlette, SseServerTransport]:
     """Mount a server on a Starlette app exposing the legacy SSE transport at /sse and /messages/.
 
-    `MCPServer.sse_app()` exists but does not expose the underlying `SseServerTransport`, which
+    `FastMCP.sse_app()` exists but does not expose the underlying `SseServerTransport`, which
     the SSE-specific tests need; building the app explicitly here gives both server flavours the
     same routing while keeping that handle.
     """
-    sse = SseServerTransport(
-        "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    )
-    lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server  # noqa: F821  -- body rewritten in H3
+    sse = SseServerTransport("/messages/", security_settings=NO_DNS_REBINDING_PROTECTION)
+    lowlevel = _lowlevel(server)
 
     async def handle_sse(request: Request) -> Response:
-        async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):  # type: ignore[reportPrivateUsage]
             await lowlevel.run(read, write, lowlevel.create_initialization_options())
         return Response()
 
@@ -356,15 +360,19 @@ async def connect_over_sse(
             auth=auth,
         )
 
-    transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
-    async with Client(  # noqa: F821  -- body rewritten in H3
-        transport,
-        read_timeout_seconds=read_timeout_seconds,
-        sampling_callback=sampling_callback,
-        list_roots_callback=list_roots_callback,
-        logging_callback=logging_callback,
-        message_handler=message_handler,
-        client_info=client_info,
-        elicitation_callback=elicitation_callback,
-    ) as client:
-        yield client
+    async with (
+        sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory) as (read, write),
+        ClientSession(
+            read,
+            write,
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            client_info=client_info,
+            elicitation_callback=elicitation_callback,
+        ) as session,
+    ):
+        await session.initialize()
+        yield session
