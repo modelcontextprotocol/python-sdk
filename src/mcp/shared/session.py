@@ -13,7 +13,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._otel import build_client_span_attributes, inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -276,7 +276,11 @@ class BaseSession(
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+                attributes=build_client_span_attributes(
+                    method=request.method,
+                    request_id=request_id,
+                    params=request_data.get("params"),
+                ),
             ):
                 # Inject W3C trace context into _meta (SEP-414).
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
