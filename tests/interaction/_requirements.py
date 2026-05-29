@@ -1798,6 +1798,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "result, because there is no session to call back through."
         ),
         transports=("streamable-http",),
+        deferred=(
+            "Not expressible via the v1 public API: v1 stateless mode has no guard on server-initiated "
+            "requests; the request is sent, the response arrives at a fresh stateless transport instance "
+            "and is dropped as an unknown request id, and the handler waits forever. The only observable "
+            "outcome is a hang, which is not pinnable without a time-based wait."
+        ),
     ),
     "transport:streamable-http:unrelated-messages": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
