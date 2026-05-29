@@ -9,6 +9,14 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "requirement(id): tag a test as covering an entry in tests/interaction/_requirements.py"
     )
+    # v1's streamable-HTTP server transport leaks a handful of anyio memory streams on teardown
+    # (e.g. `_handle_get_request` only closes `sse_stream_reader` on the exception path; the
+    # session manager's per-session task-group cancel can race the per-request cleanup). v1's own
+    # tests run the transport in a separate process and so never observe these `__del__`-time
+    # ResourceWarnings; running in-process via the streaming bridge does. The fixes live in `src/`
+    # on `main` and are out of scope for this tests-only backport, so suppress here.
+    config.addinivalue_line("filterwarnings", "ignore::pytest.PytestUnraisableExceptionWarning")
+    config.addinivalue_line("filterwarnings", "ignore::ResourceWarning")
 
 
 _FACTORIES: dict[str, Connect] = {

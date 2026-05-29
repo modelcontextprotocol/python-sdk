@@ -155,6 +155,11 @@ members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 [tool.uv.sources]
 mcp = { workspace = true }
 
+[tool.inline-snapshot]
+# `snapshot(x)` becomes the identity (plain `==`); regenerate with `--inline-snapshot=fix`.
+default-flags = ["disable"]
+format-command = "ruff format --stdin-filename {filename}"
+
 [tool.pytest.ini_options]
 log_cli = true
 xfail_strict = true

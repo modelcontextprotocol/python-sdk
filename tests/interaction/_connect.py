@@ -27,6 +27,7 @@ from mcp.server import Server
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -114,6 +115,51 @@ async def connect_in_memory(
         yield session
 
 
+def build_streamable_http_app(
+    server: Server[Any] | FastMCP,
+    *,
+    stateless_http: bool = False,
+    json_response: bool = False,
+    event_store: EventStore | None = None,
+    retry_interval: int | None = None,
+    transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
+    auth: AuthSettings | None = None,
+    token_verifier: TokenVerifier | None = None,
+    auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+) -> tuple[Starlette, StreamableHTTPSessionManager]:
+    """Assemble a streamable-HTTP Starlette app for either server flavour.
+
+    v1's lowlevel `Server` has no `streamable_http_app()`; this follows
+    `FastMCP.streamable_http_app()` (`mcp/server/fastmcp/server.py`) so behaviour matches what a
+    v1 user would get from `FastMCP(..., **knobs).streamable_http_app()`. Returns the live
+    `StreamableHTTPSessionManager` alongside the app so the caller can enter `manager.run()`
+    (the in-process bridge does not drive Starlette lifespan) and so tests can reach
+    `manager._server_instances`.
+
+    `/mcp` is mounted via `Route(path, endpoint=<class instance>)` with no `methods=`, exactly
+    as FastMCP does — Starlette treats a class-instance endpoint as raw ASGI and matches all
+    verbs, which is what the transport requires.
+    """
+    manager = StreamableHTTPSessionManager(
+        app=_lowlevel(server),
+        event_store=event_store,
+        json_response=json_response,
+        stateless=stateless_http,
+        security_settings=transport_security,
+        retry_interval=retry_interval,
+    )
+    asgi = StreamableHTTPASGIApp(manager)
+
+    routes: list[Route] = []
+    # Auth routing (middleware, AS routes, RequireAuthMiddleware wrap, PRM routes) is added in
+    # H5; until then `auth` / `token_verifier` / `auth_server_provider` are accepted but ignored
+    # so callers that don't pass them work today.
+    assert auth is None and token_verifier is None and auth_server_provider is None, "auth branch lands in H5"
+    routes.append(Route("/mcp", endpoint=asgi))
+
+    return Starlette(routes=routes), manager
+
+
 @asynccontextmanager
 async def connect_over_streamable_http(
     server: Server[Any] | FastMCP,
@@ -137,18 +183,20 @@ async def connect_over_streamable_http(
     server modes, and the resumability tests pass an `event_store` (with `retry_interval=0` so
     the client's reconnection wait is a no-op).
     """
-    app = server.streamable_http_app(
+    app, manager = build_streamable_http_app(
+        server,
         stateless_http=stateless_http,
         json_response=json_response,
         event_store=event_store,
         retry_interval=retry_interval,
-        transport_security=NO_DNS_REBINDING_PROTECTION,
     )
     async with (
-        server.session_manager.run(),
+        manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
-        Client(  # noqa: F821  -- body rewritten in H4
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+        streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read, write, _get_session_id),
+        ClientSession(
+            read,
+            write,
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=sampling_callback,
             list_roots_callback=list_roots_callback,
@@ -156,9 +204,10 @@ async def connect_over_streamable_http(
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
-        ) as client,
+        ) as session,
     ):
-        yield client
+        await session.initialize()
+        yield session
 
 
 @asynccontextmanager
@@ -219,18 +268,22 @@ async def client_via_http(
 ) -> AsyncIterator[ClientSession]:
     """Connect a `ClientSession` over an already-mounted streamable HTTP app.
 
-    Use with `mounted_app(...)` so several `Client`s share the one session manager, or so a
-    client-driven assertion can sit alongside raw-httpx assertions in the same test. The
-    underlying `httpx.AsyncClient` is left open when the `Client` exits.
+    Use with `mounted_app(...)` so several `ClientSession`s share the one session manager, or
+    so a client-driven assertion can sit alongside raw-httpx assertions in the same test. The
+    underlying `httpx.AsyncClient` is left open when the session exits.
     """
-    transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
-    async with Client(  # noqa: F821  -- body rewritten in H4
-        transport,
-        logging_callback=logging_callback,
-        message_handler=message_handler,
-        elicitation_callback=elicitation_callback,
-    ) as client:
-        yield client
+    async with (
+        streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read, write, _get_session_id),
+        ClientSession(
+            read,
+            write,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            elicitation_callback=elicitation_callback,
+        ) as session,
+    ):
+        await session.initialize()
+        yield session
 
 
 def parse_sse_messages(events: Iterable[ServerSentEvent]) -> list[JSONRPCMessage]:
