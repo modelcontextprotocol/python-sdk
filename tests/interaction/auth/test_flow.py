@@ -23,7 +23,7 @@ from mcp.server import Server
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.shared.auth import OAuthClientInformationFull
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
-from tests.interaction._connect import BASE_URL
+from tests.interaction._connect import BASE_URL, build_streamable_http_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
     REDIRECT_URI,
@@ -229,11 +229,11 @@ async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_w
     own routing; provided here so the discovery tests can rely on the shim without each adding
     their own contract test.
     """
-    server = Server("bare")
+    server: Server[object] = Server("bare")
     provider = InMemoryAuthorizationServerProvider()
-    real_app = server.streamable_http_app(auth=auth_settings(), auth_server_provider=provider)
+    real_app, manager = build_streamable_http_app(server, auth=auth_settings(), auth_server_provider=provider)
     app = shimmed_app(real_app, not_found=frozenset({"/missing"}), serve={"/override": b'{"shimmed": true}'})
-    async with server.session_manager.run():
+    async with manager.run():
         async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
             served = await http.get("/override")
             assert served.status_code == 200

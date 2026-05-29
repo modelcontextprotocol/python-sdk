@@ -1,11 +1,13 @@
 """Tool interactions against the low-level Server, driven through the public Client API."""
 
+from typing import Any
+
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, types
+from mcp.server.lowlevel import Server
 from mcp.types import (
     INVALID_PARAMS,
     AudioContent,
@@ -30,22 +32,16 @@ pytestmark = pytest.mark.anyio
 @requirement("tools:call:content:text")
 async def test_call_tool_returns_text_content(connect: Connect) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
+    server = Server("adder")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[types.Tool(name="add", description="Add two integers.", inputSchema={"type": "object"})]
-        )
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="add", description="Add two integers.", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "add"
-        assert params.arguments is not None
-        return CallToolResult(
-            content=[TextContent(type="text", text=str(params.arguments["a"] + params.arguments["b"]))]
-        )
-
-    server = Server("adder", on_list_tools=list_tools, on_call_tool=call_tool)
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "add"
+        return CallToolResult(content=[TextContent(type="text", text=str(arguments["a"] + arguments["b"]))])
 
     async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
@@ -55,17 +51,17 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
 
 @requirement("tools:call:is-error")
 async def test_call_tool_execution_error_is_returned_as_result(connect: Connect) -> None:
-    """A tool reporting its own failure with is_error=True reaches the client as a result, not an exception.
+    """A tool reporting its own failure with isError=True reaches the client as a result, not an exception.
 
     Tool execution errors are part of the result so the caller (typically a model) can see
     them; only protocol-level failures become JSON-RPC errors.
     """
+    server = Server("errors")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "flux"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "flux"
         return CallToolResult(content=[TextContent(type="text", text="the flux capacitor is offline")], isError=True)
-
-    server = Server("errors", on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("flux", {})
@@ -77,67 +73,68 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
 
 @requirement("tools:call:unknown-name")
 async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised tool name with MCPError produces a JSON-RPC error.
+    """A handler that rejects an unrecognised tool name with McpError is swallowed into an isError result.
 
-    The error's code, message, and data chosen by the handler reach the client verbatim.
+    On v1 the lowlevel `@server.call_tool()` decorator catches every handler exception (including
+    `McpError`) and converts it to `CallToolResult(isError=True, content=[TextContent(text=str(exc))])`,
+    so the handler cannot produce a protocol-level JSON-RPC error for this method. See the
+    divergence note on the requirement.
     """
+    server = Server("errors")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        raise MCPError(code=INVALID_PARAMS, message=f"Unknown tool: {params.name}", data={"requested": params.name})
-
-    server = Server("errors", on_call_tool=call_tool)
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown tool: {name}", data={"requested": name}))
 
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.call_tool("nope", {})
+        result = await client.call_tool("nope", {})
 
-    assert exc_info.value.error == snapshot(
-        ErrorData(code=INVALID_PARAMS, message="Unknown tool: nope", data={"requested": "nope"})
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(type="text", text="Unknown tool: nope")], isError=True)
     )
 
 
 @requirement("protocol:error:internal-error")
 async def test_call_tool_uncaught_exception_becomes_error_response(connect: Connect) -> None:
-    """An uncaught exception in the tool handler surfaces to the client as a JSON-RPC error.
+    """An uncaught exception in a tool handler is swallowed into an isError=True result.
 
-    The low-level server reports it with code 0 and the exception text as the message; see the
-    divergence note on the requirement.
+    On v1 the lowlevel `@server.call_tool()` decorator wraps the handler in a broad try/except
+    that converts every `Exception` to `CallToolResult(isError=True, content=[TextContent(text=str(exc))])`,
+    so the dispatcher's JSON-RPC error path is never reached for tool calls. See the divergence
+    note on the requirement.
     """
+    server = Server("errors")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "explode"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "explode"
         raise ValueError("boom")
 
-    server = Server("errors", on_call_tool=call_tool)
-
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.call_tool("explode", {})
+        result = await client.call_tool("explode", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="boom"))
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="boom")], isError=True))
 
 
 @requirement("tools:list:basic")
 async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
     """The tools advertised by the server's list handler arrive at the client unchanged."""
+    server = Server("calculator")
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="add",
-                    description="Add two integers.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
-                        "required": ["a", "b"],
-                    },
-                ),
-                Tool(name="reset", description="Reset the calculator.", inputSchema={"type": "object"}),
-            ]
-        )
-
-    server = Server("calculator", on_list_tools=list_tools)
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="add",
+                description="Add two integers.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+                    "required": ["a", "b"],
+                },
+            ),
+            Tool(name="reset", description="Reset the calculator.", inputSchema={"type": "object"}),
+        ]
 
     async with connect(server) as client:
         result = await client.list_tools()
@@ -188,10 +185,10 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
         "additionalProperties": False,
     }
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(tools=[Tool(name="typed", inputSchema=schema)])
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "typed"
         assert params.arguments == {"count": 3, "options": {"verbose": True}}
         return CallToolResult(content=[TextContent(type="text", text="ok")])
@@ -221,7 +218,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
         _meta={"example.com/source": "interaction-suite"},
     )
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(tools=[tool])
 
     server = Server("annotated", on_list_tools=list_tools)
@@ -259,10 +256,10 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     snapshot pins the exact bytes the client receives.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(tools=[Tool(name="render", inputSchema={"type": "object"})])
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "render"
         return CallToolResult(
             content=[
@@ -306,10 +303,10 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
 async def test_call_tool_structured_content(connect: Connect) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(tools=[Tool(name="sum", inputSchema={"type": "object"})])
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "sum"
         return CallToolResult(content=[TextContent(type="text", text="the sum is 5")], structuredContent={"sum": 5})
 
@@ -336,10 +333,10 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
     release = anyio.Event()
     results: dict[str, CallToolResult] = {}
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "echo"
         assert params.arguments is not None
         tag = params.arguments["tag"]
@@ -381,7 +378,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
     reaches the caller: the client validates it against the schema cached from tools/list and raises.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(
             tools=[
                 Tool(
@@ -396,7 +393,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
             ]
         )
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "forecast"
         return CallToolResult(
             content=[TextContent(type="text", text="warm")], structuredContent={"temperature": "warm"}
@@ -421,7 +418,7 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
     isError flag and not an empty cache.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(
             tools=[
                 Tool(
@@ -436,7 +433,7 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
             ]
         )
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "forecast"
         return CallToolResult(
             content=[TextContent(type="text", text="boom")], structuredContent={"temperature": "warm"}, isError=True
@@ -462,7 +459,7 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
     The error is the SDK's own message, so the full text is snapshotted.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         return ListToolsResult(
             tools=[
                 Tool(
@@ -473,7 +470,7 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
             ]
         )
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "forecast"
         return CallToolResult(content=[TextContent(type="text", text="warm")])
 
@@ -498,7 +495,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
     """
     list_calls: list[str] = []
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:  # noqa: F821 -- batch 2/3 rewrites this body
         list_calls.append("called")
         return ListToolsResult(
             tools=[
@@ -510,7 +507,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
             ]
         )
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:  # noqa: F821 -- batch 2/3 rewrites this body
         assert params.name == "forecast"
         return CallToolResult(content=[TextContent(type="text", text="21 C")], structuredContent={"temperature": 21})
 

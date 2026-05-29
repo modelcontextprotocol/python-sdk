@@ -7,48 +7,39 @@ test-only-functions convention.
 """
 
 import sys
+from typing import Any
 
 import anyio
 
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import (
-    CallToolRequestParams,
-    CallToolResult,
-    EmptyResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-    SetLevelRequestParams,
-    TextContent,
-    Tool,
-)
+from mcp.types import LoggingLevel, TextContent, Tool
+
+server = Server("stdio-echo")
 
 
-async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(
-        tools=[
-            Tool(
-                name="echo",
-                inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-            )
-        ]
-    )
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="echo",
+            inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+        )
+    ]
 
 
-async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-    assert params.name == "echo"
-    assert params.arguments is not None
-    text = params.arguments["text"]
-    await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
-    return CallToolResult(content=[TextContent(type="text", text=text)])
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    assert name == "echo"
+    text = arguments["text"]
+    await server.request_context.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
+    return [TextContent(type="text", text=text)]
 
 
-async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+@server.set_logging_level()
+async def set_logging_level(level: LoggingLevel) -> None:
     """Registered so the logging capability is advertised; the client never sets a level."""
     raise NotImplementedError
-
-
-server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
 
 
 async def main() -> None:

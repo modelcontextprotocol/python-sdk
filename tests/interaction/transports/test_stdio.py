@@ -26,19 +26,19 @@ import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp.client.client import Client
+from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolResult,
+    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     LoggingMessageNotificationParams,
     TextContent,
 )
-from mcp.types.jsonrpc import jsonrpc_message_adapter
 from tests.interaction._connect import initialize_body
 from tests.interaction._requirements import requirement
 from tests.interaction.transports import _stdio_server
@@ -52,7 +52,7 @@ _REPO_ROOT = Path(__file__).parents[3]
 @requirement("transport:stdio:clean-shutdown")
 @requirement("transport:stdio:stderr-passthrough")
 async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -> None:
-    """A Client connected over stdio initializes, calls a tool with arguments, receives the
+    """A ClientSession connected over stdio initializes, calls a tool with arguments, receives the
     server's log notification before the call returns, and the server exits when the transport
     closes its stdin."""
     received: list[LoggingMessageNotificationParams] = []
@@ -61,22 +61,24 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -
         received.append(params)
 
     with tempfile.TemporaryFile(mode="w+") as errlog:
-        transport = stdio_client(
-            StdioServerParameters(
-                command=sys.executable,
-                args=["-m", _stdio_server.__name__],
-                cwd=str(_REPO_ROOT),
-                # stdio_client deliberately filters the inherited environment to a safe minimum,
-                # which drops the variables coverage.py's subprocess support uses; pass them through
-                # so the server module is measured. Empty when not running under coverage.
-                env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")},
-            ),
-            errlog=errlog,
-        )
-
         with anyio.fail_after(10):
-            async with Client(transport, logging_callback=collect) as client:
-                assert client.initialize_result.server_info.name == "stdio-echo"
+            async with (
+                stdio_client(
+                    StdioServerParameters(
+                        command=sys.executable,
+                        args=["-m", _stdio_server.__name__],
+                        cwd=str(_REPO_ROOT),
+                        # stdio_client deliberately filters the inherited environment to a safe minimum,
+                        # which drops the variables coverage.py's subprocess support uses; pass them through
+                        # so the server module is measured. Empty when not running under coverage.
+                        env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")},
+                    ),
+                    errlog=errlog,
+                ) as (read, write),
+                ClientSession(read, write, logging_callback=collect) as client,
+            ):
+                initialize_result = await client.initialize()
+                assert initialize_result.serverInfo.name == "stdio-echo"
                 result = await client.call_tool("echo", {"text": "across\nprocesses"})
 
         errlog.seek(0)
@@ -121,21 +123,21 @@ async def test_stdio_server_writes_one_jsonrpc_message_per_line() -> None:
         ):
             received = await read_stream.receive()
             assert isinstance(received, SessionMessage)
-            assert isinstance(received.message, JSONRPCRequest)
-            assert received.message.method == "initialize"
+            assert isinstance(received.message.root, JSONRPCRequest)
+            assert received.message.root.method == "initialize"
 
             response = JSONRPCResponse(jsonrpc="2.0", id=1, result={"text": "line\nbreak"})
             notification = JSONRPCNotification(
                 jsonrpc="2.0", method="notifications/message", params={"level": "info", "data": "two\nlines"}
             )
-            await write_stream.send(SessionMessage(response))
-            await write_stream.send(SessionMessage(notification))
+            await write_stream.send(SessionMessage(JSONRPCMessage(response)))
+            await write_stream.send(SessionMessage(JSONRPCMessage(notification)))
 
     output = captured.getvalue()
     assert output.endswith("\n")
     lines = output.removesuffix("\n").split("\n")
     assert len(lines) == 2
-    messages = [jsonrpc_message_adapter.validate_json(line) for line in lines]
+    messages = [JSONRPCMessage.model_validate_json(line).root for line in lines]
     assert [type(message).__name__ for message in messages] == snapshot(["JSONRPCResponse", "JSONRPCNotification"])
     # The newline inside the payload is JSON-escaped on the wire, not a literal newline that would
     # break the one-message-per-line framing.

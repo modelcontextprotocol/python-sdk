@@ -1,8 +1,8 @@
-"""Completion behaviour against MCPServer, driven through the public Client API."""
+"""Completion behaviour against FastMCP, driven through the public client API."""
 
 import pytest
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.fastmcp import FastMCP
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -19,8 +19,8 @@ pytestmark = pytest.mark.anyio
 
 @requirement("mcpserver:completion:capability-auto")
 async def test_completion_capability_is_advertised_only_when_a_handler_is_registered(connect: Connect) -> None:
-    """An MCPServer with a registered completion handler advertises the completions capability; one without does not."""
-    with_handler = MCPServer("completer")
+    """A FastMCP with a registered completion handler advertises the completions capability; one without does not."""
+    with_handler = FastMCP("completer")
 
     @with_handler.completion()
     async def complete(
@@ -32,7 +32,11 @@ async def test_completion_capability_is_advertised_only_when_a_handler_is_regist
         raise NotImplementedError
 
     async with connect(with_handler) as client:
-        assert client.initialize_result.capabilities.completions == CompletionsCapability()
+        capabilities = client.get_server_capabilities()
+        assert capabilities is not None
+        assert capabilities.completions == CompletionsCapability()
 
-    async with connect(MCPServer("plain")) as client:
-        assert client.initialize_result.capabilities.completions is None
+    async with connect(FastMCP("plain")) as client:
+        capabilities = client.get_server_capabilities()
+        assert capabilities is not None
+        assert capabilities.completions is None

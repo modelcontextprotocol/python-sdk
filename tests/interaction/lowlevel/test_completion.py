@@ -1,15 +1,17 @@
-"""Completion interactions against the low-level Server, driven through the public Client API."""
+"""Completion interactions against the low-level Server, driven through the public client API."""
 
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError
+from mcp.server.lowlevel import Server
 from mcp.types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     CompleteResult,
     Completion,
+    CompletionArgument,
+    CompletionContext,
     ErrorData,
     PromptReference,
     ResourceTemplateReference,
@@ -27,16 +29,20 @@ async def test_complete_prompt_argument(connect: Connect) -> None:
 
     The returned values are filtered by the argument's value, proving the value reached the handler.
     """
+    server = Server("completer")
 
-    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
-        assert isinstance(params.ref, PromptReference)
-        assert params.ref.name == "code_review"
-        assert params.argument.name == "language"
+    @server.completion()
+    async def completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        assert isinstance(ref, PromptReference)
+        assert ref.name == "code_review"
+        assert argument.name == "language"
         candidates = ["python", "pytorch", "ruby"]
-        matches = [candidate for candidate in candidates if candidate.startswith(params.argument.value)]
-        return CompleteResult(completion=Completion(values=matches, total=len(matches), hasMore=False))
-
-    server = Server("completer", on_completion=completion)
+        matches = [candidate for candidate in candidates if candidate.startswith(argument.value)]
+        return Completion(values=matches, total=len(matches), hasMore=False)
 
     async with connect(server) as client:
         result = await client.complete(
@@ -51,14 +57,18 @@ async def test_complete_prompt_argument(connect: Connect) -> None:
 @requirement("completion:resource-template-arg")
 async def test_complete_resource_template_variable(connect: Connect) -> None:
     """Completing a URI template variable delivers the template URI and variable name to the handler."""
+    server = Server("completer")
 
-    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
-        assert isinstance(params.ref, ResourceTemplateReference)
-        assert params.ref.uri == "github://repos/{owner}/{repo}"
-        assert params.argument.name == "owner"
-        return CompleteResult(completion=Completion(values=[f"{params.argument.value}contextprotocol"]))
-
-    server = Server("completer", on_completion=completion)
+    @server.completion()
+    async def completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        assert isinstance(ref, ResourceTemplateReference)
+        assert ref.uri == "github://repos/{owner}/{repo}"
+        assert argument.name == "owner"
+        return Completion(values=[f"{argument.value}contextprotocol"])
 
     async with connect(server) as client:
         result = await client.complete(
@@ -75,14 +85,18 @@ async def test_complete_receives_context_arguments(connect: Connect) -> None:
 
     The returned value is derived from the context, proving it arrived.
     """
+    server = Server("completer")
 
-    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
-        assert params.argument.name == "repo"
-        assert params.context is not None
-        assert params.context.arguments is not None
-        return CompleteResult(completion=Completion(values=[f"{params.context.arguments['owner']}/python-sdk"]))
-
-    server = Server("completer", on_completion=completion)
+    @server.completion()
+    async def completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        assert argument.name == "repo"
+        assert context is not None
+        assert context.arguments is not None
+        return Completion(values=[f"{context.arguments['owner']}/python-sdk"])
 
     async with connect(server) as client:
         result = await client.complete(
@@ -102,15 +116,19 @@ async def test_completion_against_an_unknown_ref_is_rejected_with_invalid_params
     against); rejecting an unknown ref is the handler's job, and this test pins the spec-recommended
     way to do it.
     """
+    server = Server("completer")
 
-    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
-        assert isinstance(params.ref, PromptReference)
-        raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {params.ref.name!r}")
-
-    server = Server("completer", on_completion=completion)
+    @server.completion()
+    async def completion(
+        ref: PromptReference | ResourceTemplateReference,
+        argument: CompletionArgument,
+        context: CompletionContext | None,
+    ) -> Completion | None:
+        assert isinstance(ref, PromptReference)
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown prompt: {ref.name!r}"))
 
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.complete(PromptReference(type="ref/prompt", name="ghost"), argument={"name": "x", "value": ""})
 
     assert exc_info.value.error.code == INVALID_PARAMS
@@ -123,9 +141,11 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
     server = Server("incomplete")
 
     async with connect(server) as client:
-        assert client.initialize_result.capabilities.completions is None
+        capabilities = client.get_server_capabilities()
+        assert capabilities is not None
+        assert capabilities.completions is None
 
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.complete(
                 PromptReference(type="ref/prompt", name="anything"), argument={"name": "topic", "value": ""}
             )

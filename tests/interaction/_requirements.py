@@ -349,8 +349,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The low-level Server returns code 0 (not a defined JSON-RPC code) instead of -32603 and "
-                "leaks str(exc) as the error message."
+                "For tools/call the lowlevel @server.call_tool() decorator wraps the handler in a broad "
+                "try/except that converts every Exception to CallToolResult(isError=True, "
+                "content=[TextContent(text=str(exc))]), so the dispatcher's JSON-RPC error path is never "
+                "reached for tool calls and the test pins the isError=True result. For other request "
+                "handlers the dispatcher returns code 0 (not -32603) with str(exc) as the message."
             ),
         ),
     ),
@@ -559,6 +562,14 @@ REQUIREMENTS: dict[str, Requirement] = {
     "tools:call:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior="tools/call for a name the server does not recognise returns a JSON-RPC error.",
+        divergence=Divergence(
+            note=(
+                "The lowlevel @server.call_tool() decorator catches every handler exception (including "
+                "McpError) and converts it to CallToolResult(isError=True, content=[TextContent(text=str(exc))]), "
+                "so a handler cannot produce a protocol-level JSON-RPC error for tools/call; the test pins "
+                "the isError=True result instead."
+            ),
+        ),
     ),
     "tools:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#capabilities",
