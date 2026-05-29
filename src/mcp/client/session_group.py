@@ -345,33 +345,38 @@ class ClientSessionGroup:
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query the server for its prompts and aggregate to list.
+        # Only query if the server advertised the capability (spec compliance).
+        caps = session.initialize_result.capabilities if session.initialize_result else None
         try:
-            prompts = (await session.list_prompts()).prompts
-            for prompt in prompts:
-                name = self._component_name(prompt.name, server_info)
-                prompts_temp[name] = prompt
-                component_names.prompts.add(name)
+            if caps and caps.prompts is not None:
+                prompts = (await session.list_prompts()).prompts
+                for prompt in prompts:
+                    name = self._component_name(prompt.name, server_info)
+                    prompts_temp[name] = prompt
+                    component_names.prompts.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
         try:
-            resources = (await session.list_resources()).resources
-            for resource in resources:
-                name = self._component_name(resource.name, server_info)
-                resources_temp[name] = resource
-                component_names.resources.add(name)
+            if caps and caps.resources is not None:
+                resources = (await session.list_resources()).resources
+                for resource in resources:
+                    name = self._component_name(resource.name, server_info)
+                    resources_temp[name] = resource
+                    component_names.resources.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
         try:
-            tools = (await session.list_tools()).tools
-            for tool in tools:
-                name = self._component_name(tool.name, server_info)
-                tools_temp[name] = tool
-                tool_to_session_temp[name] = session
-                component_names.tools.add(name)
+            if caps and caps.tools is not None:
+                tools = (await session.list_tools()).tools
+                for tool in tools:
+                    name = self._component_name(tool.name, server_info)
+                    tools_temp[name] = tool
+                    tool_to_session_temp[name] = session
+                    component_names.tools.add(name)
         except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
 
