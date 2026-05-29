@@ -2,7 +2,8 @@
 
 import json
 import logging
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import anyio
@@ -62,6 +63,50 @@ async def test_run_prevents_concurrent_calls():
     # One should succeed, one should fail
     assert len(errors) == 1
     assert "StreamableHTTPSessionManager .run() can only be called once per instance" in str(errors[0])
+
+
+@pytest.mark.anyio
+async def test_run_terminates_active_streaming_session_before_shutdown():
+    """run() should close active SSE transports before task cancellation."""
+    app = Server("test-shutdown-cleanup")
+    manager = StreamableHTTPSessionManager(app=app)
+    transport = StreamableHTTPServerTransport(mcp_session_id="session-id")
+    sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](1)
+
+    try:
+        transport._sse_stream_writers["request-id"] = sse_stream_writer
+
+        async with manager.run():
+            manager._server_instances["session-id"] = transport
+
+        assert transport.is_terminated
+        assert transport._sse_stream_writers == {}
+        assert manager._server_instances == {}
+        with pytest.raises(anyio.ClosedResourceError):
+            await sse_stream_writer.send({"data": "still-open"})
+    finally:
+        await sse_stream_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_run_terminates_remaining_sessions_if_one_shutdown_fails(caplog: pytest.LogCaptureFixture):
+    """One failed transport shutdown should not skip later active sessions."""
+    app = Server("test-shutdown-cleanup-error")
+    manager = StreamableHTTPSessionManager(app=app)
+    failing_terminate = AsyncMock(side_effect=RuntimeError("terminate failed"))
+    healthy_terminate = AsyncMock()
+    failing_transport = cast(StreamableHTTPServerTransport, SimpleNamespace(terminate=failing_terminate))
+    healthy_transport = cast(StreamableHTTPServerTransport, SimpleNamespace(terminate=healthy_terminate))
+
+    with caplog.at_level(logging.ERROR):
+        async with manager.run():
+            manager._server_instances["bad-session"] = failing_transport
+            manager._server_instances["healthy-session"] = healthy_transport
+
+    failing_terminate.assert_awaited_once_with()
+    healthy_terminate.assert_awaited_once_with()
+    assert "Error terminating StreamableHTTP session during shutdown" in caplog.text
+    assert manager._server_instances == {}
 
 
 @pytest.mark.anyio
@@ -269,6 +314,43 @@ async def test_stateless_requests_memory_cleanup():
 
             # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+
+
+@pytest.mark.anyio
+async def test_transport_terminate_closes_sse_stream_writers():
+    """terminate() should close active SSE writers so streaming responses can finish."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="test-session")
+    sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](1)
+
+    try:
+        transport._sse_stream_writers["request-id"] = sse_stream_writer
+
+        await transport.terminate()
+
+        assert transport._sse_stream_writers == {}
+        with pytest.raises(anyio.ClosedResourceError):
+            await sse_stream_writer.send({"data": "still-open"})
+
+        await transport.terminate()
+    finally:
+        await sse_stream_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_transport_connect_cleans_request_streams_on_exit():
+    """connect() should close registered request streams when the transport exits."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="test-session")
+    request_stream_writer, request_stream_reader = anyio.create_memory_object_stream[Any](1)
+
+    transport._request_streams["request-id"] = (request_stream_writer, request_stream_reader)
+
+    async with transport.connect():
+        assert "request-id" in transport._request_streams
+        transport._terminated = True
+
+    assert transport._request_streams == {}
+    with pytest.raises(anyio.ClosedResourceError):
+        await request_stream_writer.send(cast(Any, object()))
 
 
 @pytest.mark.anyio

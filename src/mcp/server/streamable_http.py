@@ -767,9 +767,18 @@ class StreamableHTTPServerTransport:
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
         """
+        if self._terminated:
+            return
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # Close active SSE responses so ASGI response tasks can finish before
+        # the session manager cancels the owning task group.
+        sse_stream_writers = list(self._sse_stream_writers.values())
+        self._sse_stream_writers.clear()
+        for writer in sse_stream_writers:
+            writer.close()
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())

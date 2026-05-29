@@ -133,12 +133,23 @@ class StreamableHTTPSessionManager:
                 yield  # Let the application run
             finally:
                 logger.info("StreamableHTTP session manager shutting down")
-                # Cancel task group to stop all spawned tasks
-                tg.cancel_scope.cancel()
-                self._task_group = None
-                # Clear any remaining server instances
-                self._server_instances.clear()
-                self._session_owners.clear()
+                try:
+                    await self._terminate_active_sessions()
+                finally:
+                    # Cancel task group to stop all spawned tasks
+                    tg.cancel_scope.cancel()
+                    self._task_group = None
+                    # Clear any remaining server instances
+                    self._server_instances.clear()
+                    self._session_owners.clear()
+
+    async def _terminate_active_sessions(self) -> None:
+        """Terminate tracked transports before cancelling their task group."""
+        for transport in list(self._server_instances.values()):
+            try:
+                await transport.terminate()
+            except Exception:
+                logger.exception("Error terminating StreamableHTTP session during shutdown")
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
