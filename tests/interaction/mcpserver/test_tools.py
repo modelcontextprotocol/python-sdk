@@ -1,4 +1,4 @@
-"""Tool interactions against MCPServer, driven through the public Client API."""
+"""Tool interactions against FastMCP, driven through the public Client API."""
 
 import logging
 from typing import Annotated, Literal
@@ -7,17 +7,17 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 
-from mcp import MCPError
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp import McpError
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitRequestURLParams,
     ErrorData,
-    LoggingMessageNotification,
     LoggingMessageNotificationParams,
+    ServerNotification,
     TextContent,
 )
 from tests.interaction._connect import Connect
@@ -31,10 +31,10 @@ pytestmark = pytest.mark.anyio
 async def test_call_tool_returns_text_content(connect: Connect) -> None:
     """Arguments reach the tool function; its return value comes back as text content.
 
-    MCPServer also derives an output schema from the return annotation and attaches the
+    FastMCP also derives an output schema from the return annotation and attaches the
     matching structuredContent to the result.
     """
-    mcp = MCPServer("adder")
+    mcp = FastMCP("adder")
 
     @mcp.tool()
     def add(a: int, b: int) -> str:
@@ -55,7 +55,7 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
     The string "3" is coerced to `int` and the `point` dict to a `Point` instance before the function
     body sees them, proving the generated input schema and validation pipeline cover non-trivial types.
     """
-    mcp = MCPServer("typed")
+    mcp = FastMCP("typed")
 
     class Point(BaseModel):
         x: int
@@ -86,7 +86,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
     result is built before any schema validation runs, so no validation failure is layered on
     top of the original exception.
     """
-    mcp = MCPServer("errors")
+    mcp = FastMCP("errors")
 
     @mcp.tool()
     def explode() -> str:
@@ -103,7 +103,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
 @requirement("mcpserver:tool:handler-throws")
 async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> None:
     """A ToolError raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
-    mcp = MCPServer("errors")
+    mcp = FastMCP("errors")
 
     @mcp.tool()
     def flux() -> str:
@@ -126,7 +126,7 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
     The spec classifies unknown tools as a protocol error; see the divergence note on the
     requirement.
     """
-    mcp = MCPServer("errors")
+    mcp = FastMCP("errors")
 
     @mcp.tool()
     def add() -> None:
@@ -146,7 +146,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
     """A tool returning a pydantic model advertises the model's schema as the tool's output schema
     and returns the model's fields as structured content alongside a serialised text block.
     """
-    mcp = MCPServer("weather")
+    mcp = FastMCP("weather")
 
     class Weather(BaseModel):
         temperature: float
@@ -160,7 +160,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
         listed = await client.list_tools()
         result = await client.call_tool("get_weather", {})
 
-    assert listed.tools[0].output_schema == snapshot(
+    assert listed.tools[0].outputSchema == snapshot(
         {
             "properties": {
                 "temperature": {"title": "Temperature", "type": "number"},
@@ -194,7 +194,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
     """A tool returning a list wraps the value under a "result" key in both the generated output
     schema and the structured content.
     """
-    mcp = MCPServer("primes")
+    mcp = FastMCP("primes")
 
     @mcp.tool()
     def primes() -> list[int]:
@@ -204,7 +204,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
         listed = await client.list_tools()
         result = await client.call_tool("primes", {})
 
-    assert listed.tools[0].output_schema == snapshot(
+    assert listed.tools[0].outputSchema == snapshot(
         {
             "properties": {"result": {"items": {"type": "integer"}, "title": "Result", "type": "array"}},
             "required": ["result"],
@@ -229,7 +229,7 @@ async def test_call_tool_invalid_arguments_become_error_result(connect: Connect)
     """Arguments that fail validation against the tool's signature are reported as an is_error
     result describing the failure, not as a protocol error.
     """
-    mcp = MCPServer("adder")
+    mcp = FastMCP("adder")
 
     @mcp.tool()
     def add(a: int, b: int) -> str:
@@ -242,7 +242,7 @@ async def test_call_tool_invalid_arguments_become_error_result(connect: Connect)
     # The description is raw pydantic output -- it embeds a pydantic-version-specific
     # errors.pydantic.dev URL and the internal `addArguments` model name -- so only the stable
     # prefix is asserted; a full snapshot would break on every pydantic upgrade.
-    assert result.is_error is True
+    assert result.isError is True
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text.startswith("Error executing tool add: 1 validation error")
 
@@ -255,12 +255,12 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
     """Structured content that fails the tool's own output schema is rejected on the server side.
 
     A tool annotated `Annotated[CallToolResult, Model]` returns a hand-built CallToolResult while
-    declaring `Model` as its output schema; MCPServer validates the supplied structured_content
+    declaring `Model` as its output schema; FastMCP validates the supplied structured_content
     against that schema before returning. The two cases -- a content shape that does not match,
     and no structured content at all -- both fail that validation and are reported as is_error
     results carrying the (raw pydantic) validation error wrapped in the SDK's stable prefix.
     """
-    mcp = MCPServer("forecaster")
+    mcp = FastMCP("forecaster")
 
     class Weather(BaseModel):
         temperature: float
@@ -281,11 +281,11 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
     # The body of each message is raw pydantic ValidationError output (model name, field paths,
     # an errors.pydantic.dev URL) and changes across pydantic versions, so only the SDK's stable
     # prefix is asserted.
-    assert mismatched_result.is_error is True
+    assert mismatched_result.isError is True
     assert isinstance(mismatched_result.content[0], TextContent)
     assert mismatched_result.content[0].text.startswith("Error executing tool mismatched: 2 validation errors")
 
-    assert missing_result.is_error is True
+    assert missing_result.isError is True
     assert isinstance(missing_result.content[0], TextContent)
     assert missing_result.content[0].text.startswith("Error executing tool missing: 1 validation error")
 
@@ -294,12 +294,12 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
 async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(connect: Connect) -> None:
     """Registering a second tool with an already-used name keeps the first registration.
 
-    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
+    The intended behaviour is rejection at registration time; FastMCP instead logs a warning
     and discards the second registration (see the divergence note on the requirement). The
     second function is registered via add_tool with an explicit name so the test does not
     redefine the same function name in this scope.
     """
-    mcp = MCPServer("duplicates")
+    mcp = FastMCP("duplicates")
 
     @mcp.tool()
     def echo() -> str:
@@ -327,12 +327,12 @@ async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_re
 ) -> None:
     """A tool name that violates the SEP-986 rules logs a warning at registration but is still registered.
 
-    The intended behaviour is rejection at registration time; MCPServer instead logs the
+    The intended behaviour is rejection at registration time; FastMCP instead logs the
     naming-rule violation and proceeds (see the divergence note on the requirement). The warning
     spans several SDK-authored log records, so only the stable prefix and inclusion of the
     offending name are asserted.
     """
-    mcp = MCPServer("naming")
+    mcp = FastMCP("naming")
 
     with caplog.at_level(logging.WARNING, logger="mcp.shared.tool_name_validation"):
 
@@ -361,11 +361,11 @@ async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_re
 async def test_decorated_tool_raising_url_elicitation_required_surfaces_as_error_32042(connect: Connect) -> None:
     """A decorated tool raising the URL-elicitation-required error reaches the client as error -32042.
 
-    MCPServer wraps every other tool exception as an is_error result; this error is special-cased
+    FastMCP wraps every other tool exception as an is_error result; this error is special-cased
     so it propagates as the JSON-RPC error the client needs in order to present the listed URL
     interactions and retry the call.
     """
-    mcp = MCPServer("authorizer")
+    mcp = FastMCP("authorizer")
 
     @mcp.tool()
     def read_files() -> str:
@@ -380,7 +380,7 @@ async def test_decorated_tool_raising_url_elicitation_required_surfaces_as_error
         )
 
     async with connect(mcp) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.call_tool("read_files", {})
 
     assert exc_info.value.error.code == URL_ELICITATION_REQUIRED
@@ -408,12 +408,12 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     add_tool and remove_tool only update the registry: a connected client that listed the tools
     before the mutation has no way to learn it should list them again. The spec provides
-    notifications/tools/list_changed for exactly this; MCPServer never sends it. The tool emits
+    notifications/tools/list_changed for exactly this; FastMCP never sends it. The tool emits
     one log message as a sentinel so the test proves notifications do reach the collector -- the
     log message arrives, a list_changed does not.
     """
     received: list[IncomingMessage] = []
-    mcp = MCPServer("mutable")
+    mcp = FastMCP("mutable")
 
     def extra() -> str:
         """A tool registered at runtime; never called."""
@@ -441,6 +441,12 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     assert [tool.name for tool in before.tools] == ["doomed", "grow"]
     assert [tool.name for tool in after.tools] == ["grow", "extra"]
-    assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
+    # In v1 the message_handler receives ServerNotification RootModel envelopes whose inner
+    # Notification carries jsonrpc as an extra field, so the full object can't be compared to a
+    # constructed literal; unwrap and assert on (method, params) to prove only the log sentinel
+    # arrived and no tools/list_changed notification was sent.
+    notifications = [m.root for m in received if isinstance(m, ServerNotification)]
+    assert len(notifications) == len(received)
+    assert [(n.method, n.params) for n in notifications] == snapshot(
+        [("notifications/message", LoggingMessageNotificationParams(level="info", data="tool set changed"))]
     )

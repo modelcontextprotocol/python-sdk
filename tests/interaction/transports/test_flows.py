@@ -1,8 +1,8 @@
 """Transport-level composed flows: multi-client isolation, reconnection, and dual-transport hosting.
 
 These scenarios are about how the transport layer holds together across more than one connection
-or more than one transport, so they connect real `Client`s against one mounted server rather than
-running over the matrix.
+or more than one transport, so they connect real `ClientSession`s against one mounted server rather
+than running over the matrix.
 """
 
 import anyio
@@ -11,7 +11,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp.client.session import LoggingFnT
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import CallToolResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import client_via_http, connect_over_sse, mounted_app
 from tests.interaction._requirements import requirement
@@ -27,7 +27,7 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
     independence under termination) with the notification-isolation dimension: a notification
     emitted by one session's handler does not leak to another session's client.
     """
-    mcp = MCPServer("multi")
+    mcp = FastMCP("multi")
 
     @mcp.tool()
     async def announce(label: str, ctx: Context) -> str:
@@ -67,7 +67,7 @@ async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_op
     (3) connect a second client to the same mounted app, (4) the second client's call_tool
     succeeds and the recorded session ids show two distinct sessions were issued.
     """
-    mcp = MCPServer("reconnectable")
+    mcp = FastMCP("reconnectable")
 
     @mcp.tool()
     def echo(text: str) -> str:
@@ -97,15 +97,15 @@ async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_op
 
 @requirement("flow:compat:dual-transport-server")
 async def test_one_server_serves_streamable_http_and_sse_clients_concurrently() -> None:
-    """One MCPServer instance serves a streamable-HTTP client and a legacy-SSE client at the same time.
+    """One FastMCP instance serves a streamable-HTTP client and a legacy-SSE client at the same time.
 
     The two transports have independent connection management (the streamable-HTTP session manager
     versus a per-connection SSE handler), but both dispatch into the same server's request
     handlers. The test connects one client over each transport against the same instance and
-    proves both reach the same tool. Uses MCPServer because the low-level Server has no SSE
+    proves both reach the same tool. Uses FastMCP because the low-level Server has no SSE
     convenience; the entry is about hosting composition, not the low-level API.
     """
-    mcp = MCPServer("dual")
+    mcp = FastMCP("dual")
 
     @mcp.tool()
     def echo(text: str) -> str:

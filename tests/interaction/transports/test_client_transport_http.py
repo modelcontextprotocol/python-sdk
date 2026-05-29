@@ -7,6 +7,7 @@ wire-level instrument; the SDK client never exposes these details.
 """
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import anyio
 import httpx
@@ -14,12 +15,18 @@ import pytest
 from inline_snapshot import snapshot
 from starlette.types import Receive, Scope, Send
 
-from mcp import MCPError, types
-from mcp.client.client import Client
+from mcp import McpError
+from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
-from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION, client_via_http, mounted_app
+from mcp.server.lowlevel import Server
+from mcp.types import CallToolResult, ErrorData, TextContent, Tool
+from tests.interaction._connect import (
+    BASE_URL,
+    NO_DNS_REBINDING_PROTECTION,
+    build_streamable_http_app,
+    client_via_http,
+    mounted_app,
+)
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport
 from tests.interaction.transports._event_store import SequencedEventStore
@@ -29,16 +36,18 @@ pytestmark = pytest.mark.anyio
 
 def _tooled_server() -> Server:
     """A low-level server with one echo tool, used by every test in this file."""
+    server = Server("echoer")
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="echo", description="Echo text.", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="echo", description="Echo text.", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "echo"
-        assert params.arguments is not None
-        return CallToolResult(content=[TextContent(type="text", text=str(params.arguments["text"]))])
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        assert name == "echo"
+        return [TextContent(type="text", text=str(arguments["text"]))]
 
-    return Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
+    return server
 
 
 @pytest.fixture
@@ -166,7 +175,7 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
     Neither surfaces to the caller.
     """
     server = _tooled_server()
-    real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
+    real_app, manager = build_streamable_http_app(server, transport_security=NO_DNS_REBINDING_PROTECTION)
 
     async def filter_methods(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and scope["method"] in ("GET", "DELETE"):
@@ -176,12 +185,15 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
         await real_app(scope, receive, send)
 
     async with (
-        server.session_manager.run(),
+        manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(filter_methods), base_url=BASE_URL) as http_client,
     ):
-        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
-            async with Client(transport) as client:  # pragma: no branch
+            async with (  # pragma: no branch
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read, write, _),
+                ClientSession(read, write) as client,
+            ):
+                await client.initialize()
                 result = await client.list_tools()
 
     assert [tool.name for tool in result.tools] == ["echo"]
@@ -222,7 +234,7 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
     client-transport:http:session-404-reinitialize; this test pins the SDK's current behaviour.
     """
     server = _tooled_server()
-    real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
+    real_app, manager = build_streamable_http_app(server, transport_security=NO_DNS_REBINDING_PROTECTION)
     initialize_seen = anyio.Event()
 
     async def first_post_then_404(scope: Scope, receive: Receive, send: Send) -> None:
@@ -235,13 +247,16 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
         await real_app(scope, receive, send)
 
     async with (
-        server.session_manager.run(),
+        manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL) as http_client,
     ):
-        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
-            async with Client(transport) as client:  # pragma: no branch
-                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+            async with (  # pragma: no branch
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read, write, _),
+                ClientSession(read, write) as client,
+            ):
+                await client.initialize()
+                with pytest.raises(McpError) as exc_info:  # pragma: no branch
                     await client.list_tools()
 
-    assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))
+    assert exc_info.value.error == snapshot(ErrorData(code=32600, message="Session terminated"))

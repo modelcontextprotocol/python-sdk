@@ -794,6 +794,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server with resource handlers advertises the resources capability, including the subscribe "
             "sub-flag when a subscribe handler is registered."
         ),
+        divergence=Divergence(
+            note=(
+                "The low-level Server hard-codes subscribe=False in get_capabilities() regardless of "
+                "whether a subscribe_resource handler is registered."
+            ),
+        ),
     ),
     "resources:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#list-changed-notification",
@@ -857,6 +863,11 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:templates:pagination": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
         behavior="resources/templates/list supports cursor pagination.",
+        deferred=(
+            "Not expressible via the v1 public API: Server.list_resource_templates() only accepts a nullary "
+            "() -> list[ResourceTemplate] handler with no dual-signature dispatch, so the inbound cursor is "
+            "unreadable and the handler cannot return a nextCursor."
+        ),
     ),
     "resources:unsubscribe": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -1439,6 +1450,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "roots:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
         behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
+        deferred=(
+            "Not expressible via the v1 public API: the low-level Server exposes no decorator for "
+            "notifications/roots/list_changed, so a server handler cannot be registered to observe delivery."
+        ),
     ),
     "roots:list-changed:client-emits": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
@@ -2483,6 +2498,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and prompt=consent is added to the authorize request."
         ),
         transports=("streamable-http",),
+        deferred=(
+            "Not expressible via the v1 public API: v1's OAuthClientProvider has no SEP-2207 "
+            "offline_access auto-append or prompt=consent logic."
+        ),
     ),
     "client-auth:bearer-header:every-request": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-requirements",

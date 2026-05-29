@@ -8,17 +8,20 @@ pagination scheme.
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError
+from mcp.server import Server
 from mcp.types import (
     INVALID_PARAMS,
+    ErrorData,
+    ListPromptsRequest,
     ListPromptsResult,
+    ListResourcesRequest,
     ListResourcesResult,
-    ListResourceTemplatesResult,
+    ListToolsRequest,
     ListToolsResult,
+    PaginatedRequestParams,
     Prompt,
     Resource,
-    ResourceTemplate,
     Tool,
 )
 from tests.interaction._connect import Connect
@@ -35,23 +38,24 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        assert params is not None  # the client always sends params, even without a cursor
-        seen_cursors.append(params.cursor)
-        if params.cursor is None:
+    server = Server("paginated")
+
+    @server.list_tools()
+    async def list_tools(request: ListToolsRequest) -> ListToolsResult:
+        received = request.params.cursor if request.params is not None else None
+        seen_cursors.append(received)
+        if received is None:
             return ListToolsResult(
                 tools=[Tool(name="alpha", inputSchema={"type": "object"})],
                 nextCursor=cursor,
             )
         return ListToolsResult(tools=[Tool(name="beta", inputSchema={"type": "object"})])
 
-    server = Server("paginated", on_list_tools=list_tools)
-
     async with connect(server) as client:
         first_page = await client.list_tools()
-        second_page = await client.list_tools(cursor=first_page.next_cursor)
+        second_page = await client.list_tools(params=PaginatedRequestParams(cursor=first_page.nextCursor))
 
-    assert first_page.next_cursor == cursor
+    assert first_page.nextCursor == cursor
     assert seen_cursors == [None, cursor]
     assert [tool.name for tool in first_page.tools] == ["alpha"]
     assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", inputSchema={"type": "object"})]))
@@ -67,25 +71,26 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect:
         "page-3": ("gamma", None),
     }
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        assert params is not None
-        tool_name, next_cursor = pages[params.cursor]
-        return ListToolsResult(tools=[Tool(name=tool_name, inputSchema={"type": "object"})], nextCursor=next_cursor)
+    server = Server("paginated")
 
-    server = Server("paginated", on_list_tools=list_tools)
+    @server.list_tools()
+    async def list_tools(request: ListToolsRequest) -> ListToolsResult:
+        received = request.params.cursor if request.params is not None else None
+        tool_name, next_cursor = pages[received]
+        return ListToolsResult(tools=[Tool(name=tool_name, inputSchema={"type": "object"})], nextCursor=next_cursor)
 
     collected: list[str] = []
     cursor: str | None = None
     requests_made = 0
     async with connect(server) as client:
         while True:
-            result = await client.list_tools(cursor=cursor)
+            result = await client.list_tools(params=PaginatedRequestParams(cursor=cursor))
             requests_made += 1
             assert requests_made <= len(pages), "the server kept returning next_cursor past the last page"
             collected.extend(tool.name for tool in result.tools)
-            if result.next_cursor is None:
+            if result.nextCursor is None:
                 break
-            cursor = result.next_cursor
+            cursor = result.nextCursor
 
     assert collected == snapshot(["alpha", "beta", "gamma"])
     assert requests_made == len(pages)
@@ -108,25 +113,26 @@ async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(
     }
     received_cursors: list[str | None] = []
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        assert params is not None
-        received_cursors.append(params.cursor)
-        names, next_cursor = pages[params.cursor]
+    server = Server("paginated")
+
+    @server.list_tools()
+    async def list_tools(request: ListToolsRequest) -> ListToolsResult:
+        received = request.params.cursor if request.params is not None else None
+        received_cursors.append(received)
+        names, next_cursor = pages[received]
         return ListToolsResult(
             tools=[Tool(name=name, inputSchema={"type": "object"}) for name in names], nextCursor=next_cursor
         )
-
-    server = Server("paginated", on_list_tools=list_tools)
 
     page_sizes: list[int] = []
     cursor: str | None = None
     async with connect(server) as client:
         while True:
-            result = await client.list_tools(cursor=cursor)
+            result = await client.list_tools(params=PaginatedRequestParams(cursor=cursor))
             page_sizes.append(len(result.tools))
-            if result.next_cursor is None:
+            if result.nextCursor is None:
                 break
-            cursor = result.next_cursor
+            cursor = result.nextCursor
 
     # Identity, not a snapshot: what arrived at the handler is exactly what the handler issued.
     assert received_cursors == [None, cursor_to_page_2, cursor_to_page_3]
@@ -141,16 +147,17 @@ async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params
     unrecognized cursor is the handler's job, and this test pins the spec-recommended way to do it.
     """
 
-    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-        assert params is not None
-        assert params.cursor == "never-issued"
-        raise MCPError(code=INVALID_PARAMS, message=f"Unknown cursor: {params.cursor!r}")
+    server = Server("paginated")
 
-    server = Server("paginated", on_list_tools=list_tools)
+    @server.list_tools()
+    async def list_tools(request: ListToolsRequest) -> ListToolsResult:
+        assert request.params is not None
+        assert request.params.cursor == "never-issued"
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown cursor: {request.params.cursor!r}"))
 
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.list_tools(cursor="never-issued")
+        with pytest.raises(McpError) as exc_info:
+            await client.list_tools(params=PaginatedRequestParams(cursor="never-issued"))
 
     assert exc_info.value.error.code == INVALID_PARAMS
 
@@ -161,59 +168,25 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
-    async def list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourcesResult:
-        assert params is not None
-        seen_cursors.append(params.cursor)
-        if params.cursor is None:
+    server = Server("paginated")
+
+    @server.list_resources()
+    async def list_resources(request: ListResourcesRequest) -> ListResourcesResult:
+        received = request.params.cursor if request.params is not None else None
+        seen_cursors.append(received)
+        if received is None:
             return ListResourcesResult(resources=[Resource(uri="memo://1", name="first")], nextCursor=cursor)
         return ListResourcesResult(resources=[Resource(uri="memo://2", name="second")])
 
-    server = Server("paginated", on_list_resources=list_resources)
-
     async with connect(server) as client:
         first_page = await client.list_resources()
-        second_page = await client.list_resources(cursor=first_page.next_cursor)
+        second_page = await client.list_resources(params=PaginatedRequestParams(cursor=first_page.nextCursor))
 
-    assert first_page.next_cursor == cursor
+    assert first_page.nextCursor == cursor
     assert seen_cursors == [None, cursor]
     assert [resource.name for resource in first_page.resources] == ["first"]
     assert [resource.name for resource in second_page.resources] == ["second"]
-    assert second_page.next_cursor is None
-
-
-@requirement("resources:templates:pagination")
-async def test_resource_templates_list_supports_cursor_pagination(connect: Connect) -> None:
-    """resources/templates/list round-trips the cursor like every other list operation."""
-    cursor = "page-2"
-    seen_cursors: list[str | None] = []
-
-    async def list_resource_templates(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourceTemplatesResult:
-        assert params is not None
-        seen_cursors.append(params.cursor)
-        if params.cursor is None:
-            return ListResourceTemplatesResult(
-                resourceTemplates=[ResourceTemplate(name="first", uriTemplate="users://{id}")],
-                nextCursor=cursor,
-            )
-        return ListResourceTemplatesResult(
-            resourceTemplates=[ResourceTemplate(name="second", uriTemplate="teams://{id}")]
-        )
-
-    server = Server("paginated", on_list_resource_templates=list_resource_templates)
-
-    async with connect(server) as client:
-        first_page = await client.list_resource_templates()
-        second_page = await client.list_resource_templates(cursor=first_page.next_cursor)
-
-    assert first_page.next_cursor == cursor
-    assert seen_cursors == [None, cursor]
-    assert [template.name for template in first_page.resource_templates] == ["first"]
-    assert [template.name for template in second_page.resource_templates] == ["second"]
-    assert second_page.next_cursor is None
+    assert second_page.nextCursor is None
 
 
 @requirement("prompts:list:pagination")
@@ -222,21 +195,22 @@ async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
-    async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
-        assert params is not None
-        seen_cursors.append(params.cursor)
-        if params.cursor is None:
+    server = Server("paginated")
+
+    @server.list_prompts()
+    async def list_prompts(request: ListPromptsRequest) -> ListPromptsResult:
+        received = request.params.cursor if request.params is not None else None
+        seen_cursors.append(received)
+        if received is None:
             return ListPromptsResult(prompts=[Prompt(name="first")], nextCursor=cursor)
         return ListPromptsResult(prompts=[Prompt(name="second")])
 
-    server = Server("paginated", on_list_prompts=list_prompts)
-
     async with connect(server) as client:
         first_page = await client.list_prompts()
-        second_page = await client.list_prompts(cursor=first_page.next_cursor)
+        second_page = await client.list_prompts(params=PaginatedRequestParams(cursor=first_page.nextCursor))
 
-    assert first_page.next_cursor == cursor
+    assert first_page.nextCursor == cursor
     assert seen_cursors == [None, cursor]
     assert [prompt.name for prompt in first_page.prompts] == ["first"]
     assert [prompt.name for prompt in second_page.prompts] == ["second"]
-    assert second_page.next_cursor is None
+    assert second_page.nextCursor is None

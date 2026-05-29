@@ -11,15 +11,15 @@ from collections import Counter
 from urllib.parse import parse_qsl, urlsplit
 
 import anyio
+import httpx
 import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import MCPError, types
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import INTERNAL_ERROR, ListToolsResult, Tool
+from mcp.types import Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -43,8 +43,15 @@ ASM_PATH = "/.well-known/oauth-authorization-server"
 CIMD_URL = "https://client.example/.well-known/mcp-client"
 
 
-async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+def _guarded_server() -> Server[object]:
+    """Build a lowlevel server exposing a single `echo` tool, in the v1 decorator style."""
+    server: Server[object] = Server("guarded")
+
+    @server.list_tools()
+    async def _list_tools() -> list[Tool]:
+        return [Tool(name="echo", inputSchema={"type": "object"})]
+
+    return server
 
 
 def form_body(request: RecordedRequest) -> dict[str, str]:
@@ -110,7 +117,7 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
@@ -149,7 +156,7 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
     settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
     challenge = 'Bearer error="insufficient_scope", scope="mcp write"'
 
@@ -184,20 +191,21 @@ async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_loopin
 
     The provider rejects every token at verification, so the full flow runs once and the retry
     is 401'd. The auth-flow generator ends after that retry, so the 401 propagates and the
-    transport converts it to an INTERNAL_ERROR result, raising during connect. Discovery,
-    registration, authorize, and token each ran exactly once: no loop.
+    transport raises it as an `httpx.HTTPStatusError` during connect. Discovery, registration,
+    authorize, and token each ran exactly once: no loop.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(reject_all_tokens=True)
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
-    def is_internal_error(error: MCPError) -> bool:
-        return error.error.code == INTERNAL_ERROR
+    def is_unauthorized(error: httpx.HTTPStatusError) -> bool:
+        return error.response.status_code == 401
 
     with anyio.fail_after(5):
-        with pytest.RaisesGroup(pytest.RaisesExc(MCPError, check=is_internal_error), flatten_subgroups=True):
-            # Entering the connect raises during the OAuth handshake (inside `Client.__aenter__`),
-            # so an `async with` body would be unreachable; entering explicitly avoids dead code.
+        with pytest.RaisesGroup(pytest.RaisesExc(httpx.HTTPStatusError, check=is_unauthorized), flatten_subgroups=True):
+            # Entering the connect raises during the OAuth handshake (the harness calls
+            # `session.initialize()` before yielding), so an `async with` body would be
+            # unreachable; entering explicitly avoids dead code.
             await connect_with_oauth(server, provider=provider, on_request=on_request).__aenter__()
 
     counts = path_counts(recorded)
@@ -224,7 +232,7 @@ async def test_cimd_is_selected_when_the_as_advertises_support_and_a_metadata_ur
     provider = InMemoryAuthorizationServerProvider()
     seeded_client(provider, client_id=CIMD_URL)
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(
@@ -266,7 +274,7 @@ async def test_a_failed_refresh_clears_stored_tokens_and_restarts_the_full_flow(
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True, fail_next_refresh=True)
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
@@ -301,7 +309,7 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     auth = ClientCredentialsOAuthProvider(
         server_url=f"{BASE_URL}/mcp",
@@ -346,7 +354,7 @@ async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     audiences: list[str] = []
 
@@ -408,7 +416,7 @@ async def test_registration_priority_prefers_preregistered_then_cimd_then_dcr(
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
     storage = InMemoryTokenStorage()
 
     expected_client_id: str

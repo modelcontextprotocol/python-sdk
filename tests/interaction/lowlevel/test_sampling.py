@@ -5,13 +5,16 @@ ctx.session.create_message(), the client's sampling callback answers it, and the
 round-trips what it received back to the test through its tool result.
 """
 
+from typing import Any
+
 import pydantic
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
 from mcp.types import (
     AudioContent,
     CallToolResult,
@@ -42,27 +45,25 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
+        result = await server.request_context.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello."))],
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"{result.model}/{result.stop_reason}: {result.content.text}")]
-        )
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=f"{result.model}/{result.stopReason}: {result.content.text}")]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         received.append(params)
         return CreateMessageResult(
             role="assistant",
@@ -80,7 +81,6 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello."))],
                 maxTokens=100,
             )
@@ -101,14 +101,16 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
+        result = await server.request_context.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Pick a model."))],
             max_tokens=50,
             system_prompt="You are terse.",
@@ -123,13 +125,11 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
             ),
         )
         assert isinstance(result.content, TextContent)
-        return CallToolResult(content=[TextContent(type="text", text=result.content.text)])
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=result.content.text)]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         received.append(params)
         return CreateMessageResult(role="assistant", content=TextContent(type="text", text="ok"), model="mock-llm-1")
 
@@ -140,7 +140,6 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Pick a model."))],
                 modelPreferences=ModelPreferences(
                     hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
@@ -152,7 +151,13 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
                 includeContext="thisServer",
                 temperature=0.7,
                 maxTokens=50,
-                stopSequences=["\n\n", "END"],
+                stopSequences=[
+                    """\
+
+
+""",
+                    "END",
+                ],
             )
         ]
     )
@@ -167,33 +172,33 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="describe_image", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "describe_image"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="describe_image", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "describe_image"
+        result = await server.request_context.session.create_message(
             messages=[
                 SamplingMessage(role="user", content=ImageContent(type="image", data="aW1n", mimeType="image/png"))
             ],
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
-        return CallToolResult(content=[TextContent(type="text", text=result.content.text)])
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=result.content.text)]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         received.append(params)
         image = params.messages[0].content
         assert isinstance(image, ImageContent)
         return CreateMessageResult(
             role="assistant",
-            content=TextContent(type="text", text=f"described {image.mime_type} ({image.data})"),
+            content=TextContent(type="text", text=f"described {image.mimeType} ({image.data})"),
             model="mock-vision-1",
         )
 
@@ -204,7 +209,6 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[
                     SamplingMessage(role="user", content=ImageContent(type="image", data="aW1n", mimeType="image/png"))
                 ],
@@ -221,28 +225,26 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
     This is the client-to-server direction: the model's response is an image rather than text.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="draw", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "draw"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="draw", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "draw"
+        result = await server.request_context.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Draw a cat."))],
             max_tokens=100,
         )
         image = result.content
         assert isinstance(image, ImageContent)
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"{result.model}: {image.mime_type} {image.data}")]
-        )
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=f"{result.model}: {image.mimeType} {image.data}")]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         return CreateMessageResult(
             role="assistant",
             content=ImageContent(type="image", data="Y2F0", mimeType="image/png"),
@@ -257,31 +259,33 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
 
 @requirement("sampling:error:user-rejected")
 async def test_create_message_callback_error(connect: Connect) -> None:
-    """A sampling callback that answers with an error surfaces to the requesting handler as an MCPError.
+    """A sampling callback that answers with an error surfaces to the requesting handler as a McpError.
 
     The error here is the spec's own example for a user rejecting a sampling request (code -1);
     the callback's code and message reach the handler verbatim, whatever they are.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello."))],
                 max_tokens=100,
             )
-        except MCPError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
+        except McpError as exc:
+            return [TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")]
         raise NotImplementedError  # the callback always answers with an error
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
-
-    async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> ErrorData:
+    async def sampling_callback(
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         return ErrorData(code=-1, message="User rejected sampling request")
 
     async with connect(server, sampling_callback=sampling_callback) as client:
@@ -296,23 +300,23 @@ async def test_create_message_callback_error(connect: Connect) -> None:
 async def test_create_message_without_callback_is_error(connect: Connect) -> None:
     """A sampling request to a client with no sampling callback fails with the SDK's default error."""
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello."))],
                 max_tokens=100,
             )
-        except MCPError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
+        except McpError as exc:
+            return [TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")]
         raise NotImplementedError  # create_message cannot succeed without a client callback
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("ask_model", {})
@@ -324,32 +328,33 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
-    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
-    expose it), so the server-side validator rejects the request before anything reaches the wire.
+    The client supports plain sampling but has not declared the tools sub-capability (the connect
+    helper does not pass sampling_capabilities through), so the server-side validator rejects the
+    request before anything reaches the wire.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="What is the weather?"))],
                 max_tokens=100,
                 tools=[types.Tool(name="get_weather", inputSchema={"type": "object"})],
             )
-        except MCPError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
+        except McpError as exc:
+            return [TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")]
         raise NotImplementedError  # the validator rejects every tool-enabled request
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         """Declares the plain sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -372,15 +377,17 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
     ValueError directly.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="summarise_tools", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "summarise_tools"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="summarise_tools", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "summarise_tools"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[
                     SamplingMessage(
                         role="user",
@@ -395,14 +402,12 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
                 max_tokens=100,
             )
         except ValueError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{type(exc).__name__}: {exc}")])
+            return [TextContent(type="text", text=f"{type(exc).__name__}: {exc}")]
         raise NotImplementedError  # the validator rejects the malformed messages before sending
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         """Declares the sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -425,27 +430,28 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 async def test_a_client_with_a_sampling_callback_declares_the_sampling_capability(connect: Connect) -> None:
     """A client connecting with a sampling callback advertises the sampling capability to the server.
 
-    Client cannot declare any sub-capabilities (it does not expose ClientSession's
-    sampling_capabilities parameter), so the snapshot pins an empty SamplingCapability.
+    The connect helper does not pass sampling_capabilities through to ClientSession, so the
+    snapshot pins an empty SamplingCapability with no sub-capabilities.
     """
     captured: list[SamplingCapability | None] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="capabilities", inputSchema={"type": "object"})])
+    server = Server("introspector")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "capabilities"
-        assert ctx.session.client_params is not None
-        captured.append(ctx.session.client_params.capabilities.sampling)
-        return CallToolResult(content=[TextContent(type="text", text="ok")])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="capabilities", inputSchema={"type": "object"})]
 
-    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "capabilities"
+        session = server.request_context.session
+        assert session.client_params is not None
+        captured.append(session.client_params.capabilities.sampling)
+        return [TextContent(type="text", text="ok")]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         """Registered only so the sampling capability is advertised; never called."""
         raise NotImplementedError
 
@@ -464,33 +470,33 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     """
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="transcribe", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "transcribe"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="transcribe", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "transcribe"
+        result = await server.request_context.session.create_message(
             messages=[
                 SamplingMessage(role="user", content=AudioContent(type="audio", data="c25k", mimeType="audio/wav"))
             ],
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
-        return CallToolResult(content=[TextContent(type="text", text=result.content.text)])
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=result.content.text)]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         received.append(params)
         audio = params.messages[0].content
         assert isinstance(audio, AudioContent)
         return CreateMessageResult(
             role="assistant",
-            content=TextContent(type="text", text=f"transcribed {audio.mime_type} ({audio.data})"),
+            content=TextContent(type="text", text=f"transcribed {audio.mimeType} ({audio.data})"),
             model="mock-audio-1",
         )
 
@@ -501,7 +507,6 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[
                     SamplingMessage(role="user", content=AudioContent(type="audio", data="c25k", mimeType="audio/wav"))
                 ],
@@ -518,28 +523,26 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
     This is the client-to-server direction: the model's response is audio rather than text.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="speak", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "speak"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="speak", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "speak"
+        result = await server.request_context.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello, aloud."))],
             max_tokens=100,
         )
         audio = result.content
         assert isinstance(audio, AudioContent)
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"{result.model}: {audio.mime_type} {audio.data}")]
-        )
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=f"{result.model}: {audio.mimeType} {audio.data}")]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         return CreateMessageResult(
             role="assistant",
             content=AudioContent(type="audio", data="aGVsbG8=", mimeType="audio/wav"),
@@ -559,14 +562,16 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     """A sampling message whose content is a list of blocks arrives at the client callback as a list."""
     received: list[CreateMessageRequestParams] = []
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="caption", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "caption"
-        result = await ctx.session.create_message(
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="caption", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "caption"
+        result = await server.request_context.session.create_message(
             messages=[
                 SamplingMessage(
                     role="user",
@@ -579,13 +584,11 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
-        return CallToolResult(content=[TextContent(type="text", text=result.content.text)])
-
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+        return [TextContent(type="text", text=result.content.text)]
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         received.append(params)
         content = params.messages[0].content
         assert isinstance(content, list)
@@ -600,7 +603,6 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     assert received == snapshot(
         [
             CreateMessageRequestParams(
-                _meta={},
                 messages=[
                     SamplingMessage(
                         role="user",
@@ -625,15 +627,17 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
     client-side -32602 check is tracked separately at sampling:tool-use:result-balance.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="continue_tools", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "continue_tools"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="continue_tools", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "continue_tools"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[
                     SamplingMessage(
                         role="assistant",
@@ -653,14 +657,12 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
                 max_tokens=100,
             )
         except ValueError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{type(exc).__name__}: {exc}")])
+            return [TextContent(type="text", text=f"{type(exc).__name__}: {exc}")]
         raise NotImplementedError  # the validator rejects the malformed messages before sending
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | ErrorData:
         """Declares the sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -688,27 +690,27 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
     the result; instead the client accepts it and the server's response parsing raises.
     """
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="ask_model", inputSchema={"type": "object"})])
+    server = Server("sampler")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask_model"
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="ask_model", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await server.request_context.session.create_message(
                 messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Two thoughts, please."))],
                 max_tokens=100,
             )
         except pydantic.ValidationError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=type(exc).__name__)])
+            return [TextContent(type="text", text=type(exc).__name__)]
         raise NotImplementedError  # the array-content result fails server-side parsing every time
 
-    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
-
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResultWithTools:
+        context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    ) -> CreateMessageResult | CreateMessageResultWithTools | ErrorData:
         return CreateMessageResultWithTools(
             role="assistant",
             content=[TextContent(type="text", text="First thought."), TextContent(type="text", text="Second thought.")],

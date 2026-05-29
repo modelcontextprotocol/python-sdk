@@ -16,22 +16,24 @@ import httpx
 import pytest
 from httpx_sse import EventSource, ServerSentEvent
 from inline_snapshot import snapshot
+from pydantic import AnyUrl
 
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.shared.message import ClientMessageMetadata
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ClientRequest,
+    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     LoggingMessageNotificationParams,
     TextContent,
-    jsonrpc_message_adapter,
 )
 from tests.interaction._connect import (
     BASE_URL,
@@ -47,16 +49,16 @@ from tests.interaction.transports._event_store import SequencedEventStore
 pytestmark = pytest.mark.anyio
 
 
-def _counting_server() -> MCPServer:
+def _counting_server() -> FastMCP:
     """A server with one tool that emits related notifications and one unrelated notification."""
-    mcp = MCPServer("resumable")
+    mcp = FastMCP("resumable")
 
     @mcp.tool()
     async def count(ctx: Context, n: int) -> str:
         """Emit n log notifications related to this call, plus one unrelated resource update."""
         for i in range(1, n + 1):
             await ctx.info(f"tick {i}")
-        await ctx.session.send_resource_updated("file:///elsewhere.txt")
+        await ctx.session.send_resource_updated(AnyUrl("file:///elsewhere.txt"))
         return f"counted to {n}"
 
     return mcp
@@ -100,7 +102,7 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
     assert [json.loads(event.data)["method"] for event in (first, second)] == snapshot(
         ["notifications/message", "notifications/message"]
     )
-    assert jsonrpc_message_adapter.validate_json(result.data) == snapshot(
+    assert JSONRPCMessage.model_validate_json(result.data).root == snapshot(
         JSONRPCResponse(
             jsonrpc="2.0",
             id=1,
@@ -133,7 +135,7 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
     release = anyio.Event()
     store = SequencedEventStore()
 
-    mcp = MCPServer("resumable")
+    mcp = FastMCP("resumable")
 
     @mcp.tool()
     async def count(ctx: Context) -> str:
@@ -142,7 +144,7 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
         await release.wait()
         await ctx.info("tick 2")
         await ctx.info("tick 3")
-        await ctx.session.send_resource_updated("file:///elsewhere.txt")
+        await ctx.session.send_resource_updated(AnyUrl("file:///elsewhere.txt"))
         return "counted"
 
     async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, _):
@@ -166,7 +168,7 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
                 assert replay.status_code == 200
                 missed = await _read_events(replay, 3)
 
-    decoded = parse_sse_messages(missed)
+    decoded = [envelope.root for envelope in parse_sse_messages(missed)]
     # Exactly the two remaining related notifications and the response, with their original IDs.
     assert [event.id for event in missed] == snapshot(["5", "6", "8"])
     assert [type(message).__name__ for message in decoded] == snapshot(
@@ -212,7 +214,7 @@ async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler()
     release = anyio.Event()
     finished = anyio.Event()
 
-    mcp = MCPServer("resumable")
+    mcp = FastMCP("resumable")
 
     @mcp.tool()
     async def hold(ctx: Context) -> str:
@@ -258,7 +260,7 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
     gate = anyio.Event()
     done = anyio.Event()
 
-    mcp = MCPServer("resumable")
+    mcp = FastMCP("resumable")
 
     @mcp.tool()
     async def interrupt(ctx: Context) -> str:
@@ -304,9 +306,9 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
     This is the explicit ClientMessageMetadata API, distinct from the automatic reconnection the
     previous test covers: the transport dispatches a resumption_token request as a GET with
     Last-Event-ID instead of POSTing the body, and remaps the replayed response onto the new
-    request's id. Client.call_tool does not expose ClientMessageMetadata, so the test drives a
-    bare ClientSession via session.send_request -- the sanctioned drop-down for behaviour Client
-    cannot express. The second connection carries the original session id but does not initialize
+    request's id. ClientSession.call_tool does not expose ClientMessageMetadata, so the test drives
+    session.send_request directly. The second connection carries the original session id but does
+    not initialize
     (the server-side session already is), modelling a caller that resumes after a process restart.
     """
     captured: list[str] = []
@@ -316,7 +318,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
     release = anyio.Event()
     store = SequencedEventStore()
 
-    mcp = MCPServer("resumable")
+    mcp = FastMCP("resumable")
 
     @mcp.tool()
     async def hold(ctx: Context) -> str:
@@ -335,13 +337,17 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
         received.append(params.data)
         first_seen.set()
 
-    call = CallToolRequest(params=CallToolRequestParams(name="hold", arguments={}))
+    call = ClientRequest(CallToolRequest(params=CallToolRequestParams(name="hold", arguments={})))
     capture = ClientMessageMetadata(on_resumption_token_update=on_token)
 
-    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, manager):
+    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, _):
         with anyio.fail_after(5):  # pragma: no branch
             async with (  # pragma: no branch
-                streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r1, w1),
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (
+                    r1,
+                    w1,
+                    get_session_id,
+                ),
                 ClientSession(r1, w1, logging_callback=collect) as first,
                 anyio.create_task_group() as tg,
             ):
@@ -351,8 +357,8 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 await token_seen.wait()
                 assert captured == snapshot(["3", "4"])
                 assert received == snapshot(["first"])
-                # The session id is only observable via the manager (the client transport does not expose it).
-                (session_id,) = manager._server_instances
+                session_id = get_session_id()
+                assert session_id is not None
                 http.headers["mcp-session-id"] = session_id
                 http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
                 tg.cancel_scope.cancel()
@@ -362,7 +368,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
             # init priming + init response + call priming + "first" + "second" + result = 6 stored events.
             await store.wait_until_stored(6)
             async with (  # pragma: no branch
-                streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (r2, w2),
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (r2, w2, _),
                 ClientSession(r2, w2, logging_callback=collect) as second,
             ):
                 result = await second.send_request(

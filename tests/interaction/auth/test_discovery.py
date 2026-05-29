@@ -1,13 +1,13 @@
 """Protected-resource and authorization-server metadata discovery, end to end.
 
-Every client-side test connects a real `Client` via `connect_with_oauth` and asserts on the
-recorded request paths the discovery probes produced; the discovery URL ordering is a wire
-detail `Client` cannot observe directly but the recording can. Tests that need a metadata
+Every client-side test connects a real `ClientSession` via `connect_with_oauth` and asserts on
+the recorded request paths the discovery probes produced; the discovery URL ordering is a wire
+detail the session cannot observe directly but the recording can. Tests that need a metadata
 endpoint to 404 or return alternate content wrap the SDK's app in `shimmed_app` while leaving
 the real authorize and token endpoints behind it, so the rest of the flow runs unaltered.
 
-The two server-side tests (#5, #6) drive raw httpx against `mounted_app` because their
-assertions are the metadata response bodies and headers, which `Client` does not surface.
+The two server-side tests drive raw httpx against `mounted_app` because their assertions are
+the metadata response bodies and headers, which `ClientSession` does not surface.
 """
 
 import json
@@ -17,11 +17,10 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
-from mcp import types
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
-from mcp.types import ListToolsResult, Tool
+from mcp.types import Tool
 from tests.interaction._connect import BASE_URL, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -42,8 +41,15 @@ ASM_ROOT = "/.well-known/oauth-authorization-server"
 OIDC_ROOT = "/.well-known/openid-configuration"
 
 
-async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="probe", inputSchema={"type": "object"})])
+def guarded_server() -> Server:
+    """Build a lowlevel `Server` exposing a single `probe` tool via `list_tools`."""
+    server = Server("guarded")
+
+    @server.list_tools()
+    async def _list_tools() -> list[Tool]:
+        return [Tool(name="probe", inputSchema={"type": "object"})]
+
+    return server
 
 
 def discovery_gets(recorded: list[RecordedRequest]) -> list[str]:
@@ -74,7 +80,7 @@ async def test_prm_discovery_uses_the_resource_metadata_url_from_www_authenticat
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(server, provider=provider, on_request=on_request) as (client, _):
@@ -97,7 +103,7 @@ async def test_prm_discovery_falls_back_from_path_well_known_to_root_on_404() ->
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
 
     prm = ProtectedResourceMetadata(
         resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(BASE_URL)]
@@ -132,7 +138,7 @@ async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_th
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
     app_shim = shim(not_found=frozenset({PRM_PATH_SUFFIXED, PRM_ROOT}))
 
     with anyio.fail_after(5):
@@ -160,7 +166,7 @@ async def test_a_400_from_the_registration_endpoint_surfaces_as_a_registration_e
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
     error_body = json.dumps({"error": "invalid_client_metadata", "error_description": "no"}).encode()
     app_shim = shim(serve={"/register": (400, error_body)})
 
@@ -185,7 +191,7 @@ async def test_prm_with_a_mismatched_resource_aborts_the_flow_before_authorize()
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
 
     prm = ProtectedResourceMetadata(
         resource=AnyHttpUrl(f"{BASE_URL}/other"), authorization_servers=[AnyHttpUrl(BASE_URL)]
@@ -237,7 +243,7 @@ async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
 
     prm = ProtectedResourceMetadata(
         resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(authorization_server)]
@@ -320,7 +326,7 @@ async def test_as_metadata_with_a_mismatched_issuer_is_accepted_and_the_flow_pro
     unknown-field tolerance.
     """
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = guarded_server()
 
     metadata = real_asm()
     metadata.issuer = AnyHttpUrl(f"{BASE_URL}/wrong-issuer")

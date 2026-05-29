@@ -1,13 +1,15 @@
-"""Roots interactions against the low-level Server, driven through the public Client API."""
+"""Roots interactions against the low-level Server, driven through the public ClientSession API."""
 
-import anyio
+from typing import Any
+
 import pytest
 from inline_snapshot import snapshot
 from pydantic import FileUrl
 
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
 from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
@@ -21,21 +23,20 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 
     The tool reports the URIs and names it received, proving the client's roots reached the server.
     """
+    server = Server("rooted")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="show_roots", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "show_roots"
-        result = await ctx.session.list_roots()
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "show_roots"
+        result = await server.request_context.session.list_roots()
         lines = [f"{root.uri} name={root.name}" for root in result.roots]
-        return CallToolResult(content=[TextContent(type="text", text="\n".join(lines))])
+        return [TextContent(type="text", text="\n".join(lines))]
 
-    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
-
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+    async def list_roots(context: RequestContext[ClientSession, Any]) -> ListRootsResult | ErrorData:
         return ListRootsResult(
             roots=[
                 Root(uri=FileUrl("file:///home/alice/project"), name="project"),
@@ -60,20 +61,19 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 @requirement("roots:list:empty")
 async def test_list_roots_empty(connect: Connect) -> None:
     """A client with no roots to offer answers roots/list with an empty list, not an error."""
+    server = Server("rooted")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="count_roots", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="count_roots", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "count_roots"
-        result = await ctx.session.list_roots()
-        return CallToolResult(content=[TextContent(type="text", text=str(len(result.roots)))])
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "count_roots"
+        result = await server.request_context.session.list_roots()
+        return [TextContent(type="text", text=str(len(result.roots)))]
 
-    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
-
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+    async def list_roots(context: RequestContext[ClientSession, Any]) -> ListRootsResult | ErrorData:
         return ListRootsResult(roots=[])
 
     async with connect(server, list_roots_callback=list_roots) as client:
@@ -89,21 +89,20 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     The client's default callback answers with INVALID_REQUEST rather than leaving the server
     hanging; the spec names -32601 for this case (see the divergence note on the requirement).
     """
+    server = Server("rooted")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="show_roots", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "show_roots"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "show_roots"
         try:
-            await ctx.session.list_roots()
-        except MCPError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
+            await server.request_context.session.list_roots()
+        except McpError as exc:
+            return [TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")]
         raise NotImplementedError  # list_roots cannot succeed without a client callback
-
-    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
         result = await client.call_tool("show_roots", {})
@@ -117,56 +116,27 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
 async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connect) -> None:
     """A roots callback that answers with an error fails the roots/list request with that exact error.
 
-    The callback's code and message reach the requesting handler verbatim as an MCPError.
+    The callback's code and message reach the requesting handler verbatim as a McpError.
     """
+    server = Server("rooted")
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="show_roots", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="show_roots", inputSchema={"type": "object"})]
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "show_roots"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "show_roots"
         try:
-            await ctx.session.list_roots()
-        except MCPError as exc:
-            return CallToolResult(content=[TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")])
+            await server.request_context.session.list_roots()
+        except McpError as exc:
+            return [TextContent(type="text", text=f"{exc.error.code}: {exc.error.message}")]
         raise NotImplementedError  # the callback always answers with an error
 
-    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
-
-    async def list_roots(context: ClientRequestContext) -> ErrorData:
+    async def list_roots(context: RequestContext[ClientSession, Any]) -> ListRootsResult | ErrorData:
         return ErrorData(code=INTERNAL_ERROR, message="roots provider crashed")
 
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("show_roots", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="-32603: roots provider crashed")]))
-
-
-@requirement("roots:list-changed")
-async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> None:
-    """A roots/list_changed notification from the client is delivered to the server's handler.
-
-    Unlike a request, a notification has no response to await: the handler sets an event and the
-    test waits on it, which is the only synchronisation point proving delivery.
-    """
-    delivered = anyio.Event()
-    received: list[types.NotificationParams | None] = []
-
-    async def roots_list_changed(ctx: ServerRequestContext, params: types.NotificationParams | None) -> None:
-        received.append(params)
-        delivered.set()
-
-    server = Server("rooted", on_roots_list_changed=roots_list_changed)
-
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
-        """Registered so the client declares the roots capability; the server never asks for roots."""
-        raise NotImplementedError
-
-    async with connect(server, list_roots_callback=list_roots) as client:
-        await client.send_roots_list_changed()
-        with anyio.fail_after(5):
-            await delivered.wait()
-
-    assert received == snapshot([None])

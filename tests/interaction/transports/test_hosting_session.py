@@ -13,8 +13,8 @@ import httpx
 import pytest
 from inline_snapshot import snapshot
 
-from mcp.server import Server, ServerRequestContext
-from mcp.types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
+from mcp.server import Server
+from mcp.types import JSONRPCResponse, ListToolsResult, Tool
 from tests.interaction._connect import (
     base_headers,
     client_via_http,
@@ -30,11 +30,13 @@ pytestmark = pytest.mark.anyio
 
 def _server() -> Server:
     """A minimal low-level server with one tool, so subsequent-request routing can be observed."""
+    server = Server("hosted")
 
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="noop", description="Does nothing.", inputSchema={"type": "object"})])
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [Tool(name="noop", description="Does nothing.", inputSchema={"type": "object"})]
 
-    return Server("hosted", on_list_tools=list_tools)
+    return server
 
 
 @requirement("hosting:session:create")
@@ -49,8 +51,8 @@ async def test_initialize_issues_a_visible_ascii_session_id() -> None:
     assert session_id is not None
     # The spec requires the session ID to consist only of visible ASCII (0x21-0x7E).
     assert re.fullmatch(r"[\x21-\x7E]+", session_id)
-    assert isinstance(messages[0], JSONRPCResponse)
-    assert messages[0].id == 1
+    assert isinstance(messages[0].root, JSONRPCResponse)
+    assert messages[0].root.id == 1
 
 
 @requirement("hosting:session:reuse")
@@ -78,7 +80,7 @@ async def test_requests_with_an_unknown_session_id_return_404() -> None:
         delete = await http.delete("/mcp", headers=base_headers(session_id="not-a-session"))
 
     assert (post.status_code, post.json()) == snapshot(
-        (404, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Session not found"}})
+        (404, {"jsonrpc": "2.0", "id": "server-error", "error": {"code": -32600, "message": "Session not found"}})
     )
     assert (get.status_code, delete.status_code) == (404, 404)
 
@@ -93,7 +95,14 @@ async def test_non_initialize_post_without_a_session_id_returns_400() -> None:
         )
 
     assert (response.status_code, response.json()) == snapshot(
-        (400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Bad Request: Missing session ID"}})
+        (
+            400,
+            {
+                "jsonrpc": "2.0",
+                "id": "server-error",
+                "error": {"code": -32600, "message": "Bad Request: Missing session ID"},
+            },
+        )
     )
 
 
@@ -120,7 +129,7 @@ async def test_delete_terminates_the_session_and_subsequent_requests_return_404(
                 404,
                 {
                     "jsonrpc": "2.0",
-                    "id": None,
+                    "id": "server-error",
                     "error": {"code": -32600, "message": "Not Found: Session has been terminated"},
                 },
             )
@@ -154,8 +163,8 @@ async def test_second_initialize_on_an_existing_session_is_accepted() -> None:
         assert len(manager._server_instances) == 1
 
     assert response.status_code == snapshot(200)
-    assert isinstance(messages[0], JSONRPCResponse)
-    assert messages[0].id == 2
+    assert isinstance(messages[0].root, JSONRPCResponse)
+    assert messages[0].root.id == 2
 
 
 @requirement("hosting:stateless:no-session-id")

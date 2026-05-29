@@ -6,30 +6,30 @@ travels on -- that the SDK client never exposes. Transport-agnostic behaviour is
 `connect`-fixture matrix.
 """
 
+from typing import Any
+
 import anyio
 import pytest
 from anyio.lowlevel import checkpoint
 from httpx_sse import ServerSentEvent, aconnect_sse
 from inline_snapshot import snapshot
+from pydantic import AnyUrl
 
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
     INVALID_PARAMS,
     PARSE_ERROR,
     CallToolRequestParams,
-    CallToolResult,
-    EmptyResult,
+    ContentBlock,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    ListResourcesResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-    SetLevelRequestParams,
-    SubscribeRequestParams,
+    LoggingLevel,
+    Resource,
     TextContent,
+    Tool,
 )
 from tests.interaction._connect import (
     base_headers,
@@ -45,37 +45,37 @@ pytestmark = pytest.mark.anyio
 
 def _server() -> Server:
     """A low-level server with one tool that emits a related and an unrelated notification."""
+    server = Server("hosted")
 
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        """Registered only so the tools capability is advertised; never called."""
-        raise NotImplementedError
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        """Registered so the tools capability is advertised; v1 also calls it from call_tool for schema caching."""
+        return []
 
-    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        assert params.name == "narrate"
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[ContentBlock]:
+        assert name == "narrate"
+        ctx = server.request_context
         await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)
-        await ctx.session.send_resource_updated("file:///watched.txt")
-        return CallToolResult(content=[TextContent(type="text", text="done")])
+        await ctx.session.send_resource_updated(AnyUrl("file:///watched.txt"))
+        return [TextContent(type="text", text="done")]
 
-    async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+    @server.set_logging_level()
+    async def set_logging_level(level: LoggingLevel) -> None:
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    async def list_resources(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListResourcesResult:
+    @server.list_resources()
+    async def list_resources() -> list[Resource]:
         """Registered so the resources capability is advertised; the client never lists resources."""
         raise NotImplementedError
 
-    async def subscribe_resource(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
+    @server.subscribe_resource()
+    async def subscribe_resource(uri: AnyUrl) -> None:
         """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
         raise NotImplementedError
 
-    return Server(
-        "hosted",
-        on_list_tools=list_tools,
-        on_call_tool=call_tool,
-        on_set_logging_level=set_logging_level,
-        on_list_resources=list_resources,
-        on_subscribe_resource=subscribe_resource,
-    )
+    return server
 
 
 @requirement("hosting:http:method-405")
@@ -289,8 +289,8 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
                 await seen_on_standalone.wait()
                 tg.cancel_scope.cancel()
 
-    post_messages = parse_sse_messages(post_events)
-    get_messages = parse_sse_messages(get_events)
+    post_messages = [m.root for m in parse_sse_messages(post_events)]
+    get_messages = [m.root for m in parse_sse_messages(get_events)]
 
     # POST stream: the related log notification, then the response, then the iterator ends (close).
     assert [type(m).__name__ for m in post_messages] == snapshot(["JSONRPCNotification", "JSONRPCResponse"])
@@ -313,12 +313,12 @@ async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> No
     """A disallowed Origin returns 403 (and Host 421) with protection enabled; disabled lets both through.
 
     See the divergence on hosting:http:dns-rebinding: the spec's Origin validation is an
-    unconditional MUST, but the SDK enables it only when the host is localhost (or settings are
-    passed explicitly) and additionally checks the Host header (returning 421), which the spec
-    does not require.
+    unconditional MUST, but the v1 SDK enables it only when settings are passed explicitly
+    (no auto-enable on localhost) and additionally checks the Host header (returning 421),
+    which the spec does not require.
     """
-    # transport_security=None triggers the localhost auto-enable behaviour.
-    async with mounted_app(Server("guarded"), transport_security=None) as (http, _):
+    guarded = TransportSecuritySettings(allowed_hosts=["127.0.0.1:8000"], allowed_origins=["http://127.0.0.1:8000"])
+    async with mounted_app(Server("guarded"), transport_security=guarded) as (http, _):
         bad_origin = await http.post(
             "/mcp", json=initialize_body(), headers=base_headers() | {"origin": "http://evil.example"}
         )

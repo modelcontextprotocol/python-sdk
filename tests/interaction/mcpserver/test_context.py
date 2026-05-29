@@ -1,13 +1,16 @@
-"""The Context convenience methods MCPServer injects into tool functions, observed from the client."""
+"""The Context convenience methods FastMCP injects into tool functions, observed from the client."""
+
+from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel
 
-from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp import McpError
+from mcp.client.session import ClientSession
 from mcp.server.elicitation import AcceptedElicitation
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.context import RequestContext
 from mcp.types import (
     METHOD_NOT_FOUND,
     CallToolResult,
@@ -16,8 +19,8 @@ from mcp.types import (
     ElicitResult,
     ErrorData,
     Implementation,
-    LoggingMessageNotification,
     LoggingMessageNotificationParams,
+    ServerNotification,
     TextContent,
 )
 from tests.interaction._connect import Connect
@@ -37,7 +40,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
     advertising the logging capability (see the divergence note on logging:capability).
     """
     received: list[LoggingMessageNotificationParams] = []
-    mcp = MCPServer("chatty")
+    mcp = FastMCP("chatty")
 
     @mcp.tool()
     async def narrate(ctx: Context) -> str:
@@ -52,7 +55,9 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
     async with connect(mcp, logging_callback=collect) as client:
         result = await client.call_tool("narrate", {})
-        advertised_logging = client.initialize_result.capabilities.logging
+        capabilities = client.get_server_capabilities()
+        assert capabilities is not None
+        advertised_logging = capabilities.logging
 
     assert result == snapshot(
         CallToolResult(content=[TextContent(type="text", text="done")], structuredContent={"result": "done"})
@@ -76,7 +81,7 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
     The caller's progress callback receives each report, in order, before the tool call returns.
     """
     received: list[tuple[float, float | None, str | None]] = []
-    mcp = MCPServer("worker")
+    mcp = FastMCP("worker")
 
     @mcp.tool()
     async def crunch(ctx: Context) -> str:
@@ -104,13 +109,13 @@ async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Con
     test asserts the value the tool saw is the one returned, rather than pinning the literal); the
     client info reflects what the caller passed to `Client`.
     """
-    mcp = MCPServer("introspector")
+    mcp = FastMCP("introspector")
 
     @mcp.tool()
     async def whoami(ctx: Context) -> str:
-        client_params = ctx.session.client_params
+        client_params = ctx.request_context.session.client_params
         assert client_params is not None
-        return f"request {ctx.request_id} from {client_params.client_info.name} {client_params.client_info.version}"
+        return f"request {ctx.request_id} from {client_params.clientInfo.name} {client_params.clientInfo.version}"
 
     async with connect(mcp, client_info=Implementation(name="acme-agent", version="9.9.9")) as client:
         result = await client.call_tool("whoami", {})
@@ -132,7 +137,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     token-less request.
     """
     received: list[IncomingMessage] = []
-    mcp = MCPServer("quiet")
+    mcp = FastMCP("quiet")
 
     @mcp.tool()
     async def mill(ctx: Context) -> str:
@@ -149,9 +154,9 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     assert result == snapshot(
         CallToolResult(content=[TextContent(type="text", text="milled")], structuredContent={"result": "milled"})
     )
-    assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="milling done"))]
-    )
+    notification_params = [msg.root.params for msg in received if isinstance(msg, ServerNotification)]
+    assert len(notification_params) == len(received)
+    assert notification_params == snapshot([LoggingMessageNotificationParams(level="info", data="milling done")])
 
 
 @requirement("mcpserver:context:elicit")
@@ -163,19 +168,20 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     back into the model and handed to the tool as result.data.
     """
     received: list[ElicitRequestParams] = []
-    mcp = MCPServer("travel")
+    mcp = FastMCP("travel")
 
     class TravelPreferences(BaseModel):
         destination: str
         window_seat: bool
 
     @mcp.tool()
-    async def book_flight(ctx: Context) -> str:
+    async def book_flight() -> str:
+        ctx = mcp.get_context()
         answer = await ctx.elicit("Where to?", TravelPreferences)
         assert isinstance(answer, AcceptedElicitation)
         return f"{answer.action}: {answer.data.destination} window={answer.data.window_seat}"
 
-    async def answer_form(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+    async def answer_form(context: RequestContext[ClientSession, Any], params: ElicitRequestParams) -> ElicitResult:
         received.append(params)
         return ElicitResult(action="accept", content={"destination": "Lisbon", "window_seat": True})
 
@@ -185,7 +191,6 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     assert received == snapshot(
         [
             ElicitRequestFormParams(
-                _meta={},
                 message="Where to?",
                 requestedSchema={
                     "properties": {
@@ -214,7 +219,7 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
     The tool reports the MIME type and content it read, proving the resource function ran and its
     return value came back through the context.
     """
-    mcp = MCPServer("library")
+    mcp = FastMCP("library")
 
     @mcp.resource("config://app")
     def app_config() -> str:
@@ -239,15 +244,15 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
 
 @requirement("logging:message:filtered")
 async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(connect: Connect) -> None:
-    """MCPServer does not support logging/setLevel, so log messages are never filtered by severity.
+    """FastMCP does not support logging/setLevel, so log messages are never filtered by severity.
 
-    The request is rejected with METHOD_NOT_FOUND because MCPServer registers no handler for it,
+    The request is rejected with METHOD_NOT_FOUND because FastMCP registers no handler for it,
     and every message a tool emits is delivered regardless of level. The spec says the server
     should only send messages at or above the configured level; with no way to configure one,
     everything is sent.
     """
     received: list[LoggingMessageNotificationParams] = []
-    mcp = MCPServer("unfilterable")
+    mcp = FastMCP("unfilterable")
 
     @mcp.tool()
     async def chatter(ctx: Context) -> str:
@@ -259,7 +264,7 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
         received.append(params)
 
     async with connect(mcp, logging_callback=collect) as client:
-        with pytest.raises(MCPError) as exc_info:
+        with pytest.raises(McpError) as exc_info:
             await client.set_logging_level("error")
 
         await client.call_tool("chatter", {})

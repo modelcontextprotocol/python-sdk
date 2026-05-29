@@ -4,8 +4,8 @@
 notification routes to the standalone GET stream and is not guaranteed to arrive before the tool
 result on its POST stream. Tests therefore wait on an event the collector sets, the same pattern
 as ``transports/test_streamable_http.py::test_unrelated_server_messages_arrive_on_the_standalone_stream``.
-The collector still records every message it receives, so the snapshot also proves nothing else
-was delivered.
+The collector still records every message it receives, so the length assertion also proves nothing
+else was delivered.
 
 The servers register the parent capability (resources/prompts) so that part of the spec's
 precondition holds, but the ``listChanged`` sub-capability stays ``False``: ``NotificationOptions``
@@ -14,16 +14,17 @@ recorded ``lifecycle:capability:server-not-advertised`` divergence and will need
 alongside the fix that introduces capability gating.
 """
 
+from typing import Any
+
 import anyio
 import pytest
-from inline_snapshot import snapshot
 
 from mcp import types
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.types import (
-    CallToolResult,
     PromptListChangedNotification,
     ResourceListChangedNotification,
+    ServerNotification,
     TextContent,
     ToolListChangedNotification,
 )
@@ -44,24 +45,26 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="install", inputSchema={"type": "object"})])
+    server = Server("registry")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "install"
-        await ctx.session.send_tool_list_changed()
-        return CallToolResult(content=[TextContent(type="text", text="installed")])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="install", inputSchema={"type": "object"})]
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool)
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "install"
+        await server.request_context.session.send_tool_list_changed()
+        return [TextContent(type="text", text="installed")]
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("install", {})
         with anyio.fail_after(5):
             await seen.wait()
 
-    assert received == snapshot([ToolListChangedNotification()])
+    assert len(received) == 1
+    assert isinstance(received[0], ServerNotification)
+    assert isinstance(received[0].root, ToolListChangedNotification)
 
 
 @requirement("resources:list-changed")
@@ -74,30 +77,31 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="mount", inputSchema={"type": "object"})])
+    server = Server("registry")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "mount"
-        await ctx.session.send_resource_list_changed()
-        return CallToolResult(content=[TextContent(type="text", text="mounted")])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="mount", inputSchema={"type": "object"})]
 
-    async def list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListResourcesResult:
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "mount"
+        await server.request_context.session.send_resource_list_changed()
+        return [TextContent(type="text", text="mounted")]
+
+    @server.list_resources()
+    async def list_resources() -> list[types.Resource]:
         """Registered so the resources capability is advertised; the client never lists resources."""
         raise NotImplementedError
-
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_resources=list_resources)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("mount", {})
         with anyio.fail_after(5):
             await seen.wait()
 
-    assert received == snapshot([ResourceListChangedNotification()])
+    assert len(received) == 1
+    assert isinstance(received[0], ServerNotification)
+    assert isinstance(received[0].root, ResourceListChangedNotification)
 
 
 @requirement("prompts:list-changed")
@@ -110,27 +114,28 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="learn", inputSchema={"type": "object"})])
+    server = Server("registry")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "learn"
-        await ctx.session.send_prompt_list_changed()
-        return CallToolResult(content=[TextContent(type="text", text="learned")])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="learn", inputSchema={"type": "object"})]
 
-    async def list_prompts(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListPromptsResult:
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "learn"
+        await server.request_context.session.send_prompt_list_changed()
+        return [TextContent(type="text", text="learned")]
+
+    @server.list_prompts()
+    async def list_prompts() -> list[types.Prompt]:
         """Registered so the prompts capability is advertised; the client never lists prompts."""
         raise NotImplementedError
-
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_prompts=list_prompts)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("learn", {})
         with anyio.fail_after(5):
             await seen.wait()
 
-    assert received == snapshot([PromptListChangedNotification()])
+    assert len(received) == 1
+    assert isinstance(received[0], ServerNotification)
+    assert isinstance(received[0].root, PromptListChangedNotification)

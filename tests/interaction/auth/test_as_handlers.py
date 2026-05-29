@@ -234,7 +234,10 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
     no_auth_code = await http.post("/register", json=body | {"grant_types": ["refresh_token"]})
     assert no_auth_code.status_code == 400
     assert no_auth_code.json() == snapshot(
-        {"error": "invalid_client_metadata", "error_description": "grant_types must include 'authorization_code'"}
+        {
+            "error": "invalid_client_metadata",
+            "error_description": "grant_types must be authorization_code and refresh_token",
+        }
     )
 
     bad_scope = await http.post("/register", json=body | {"scope": "forbidden"})

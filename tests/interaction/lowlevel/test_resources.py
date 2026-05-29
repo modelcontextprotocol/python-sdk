@@ -1,28 +1,29 @@
 """Resource interactions against the low-level Server, driven through the public Client API."""
 
-import base64
+from typing import Any
 
 import anyio
 import pytest
 from inline_snapshot import snapshot
+from pydantic import AnyUrl
 
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
+from mcp import McpError, types
+from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import (
     METHOD_NOT_FOUND,
     Annotations,
     BlobResourceContents,
-    CallToolResult,
     EmptyResult,
     ErrorData,
     Icon,
-    ListResourcesResult,
     ListResourceTemplatesResult,
     ReadResourceResult,
     Resource,
     ResourceTemplate,
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
+    ServerNotification,
     TextContent,
     TextResourceContents,
 )
@@ -40,68 +41,66 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
 
     The fully-populated entry includes annotations, so the snapshot also proves they round-trip.
     The SDK's Annotations model omits the schema's lastModified field (see the divergence on
-    resources:annotations); the input is built via model_validate with lastModified set so the
-    snapshot pins the drop and will fail once the SDK adds the field.
+    resources:annotations) but allows extra fields, so lastModified round-trips as an undeclared
+    extra; the snapshot compares the serialised dict so the extra key is visible and pinned.
     """
+    server = Server("library")
 
-    async def list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourcesResult:
-        return ListResourcesResult(
-            resources=[
-                Resource(uri="memo://minimal", name="minimal"),
-                Resource(
-                    uri="file:///project/README.md",
-                    name="readme",
-                    title="Project README",
-                    description="The project's front page.",
-                    mimeType="text/markdown",
-                    size=1024,
-                    annotations=Annotations.model_validate(
-                        {"audience": ["user", "assistant"], "priority": 0.8, "lastModified": "2025-01-01T00:00:00Z"}
-                    ),
-                    icons=[Icon(src="https://example.com/readme.png", mimeType="image/png", sizes=["48x48"])],
+    @server.list_resources()
+    async def list_resources() -> list[Resource]:
+        return [
+            Resource(uri="memo://minimal", name="minimal"),
+            Resource(
+                uri="file:///project/README.md",
+                name="readme",
+                title="Project README",
+                description="The project's front page.",
+                mimeType="text/markdown",
+                size=1024,
+                annotations=Annotations.model_validate(
+                    {"audience": ["user", "assistant"], "priority": 0.8, "lastModified": "2025-01-01T00:00:00Z"}
                 ),
-            ]
-        )
-
-    server = Server("library", on_list_resources=list_resources)
+                icons=[Icon(src="https://example.com/readme.png", mimeType="image/png", sizes=["48x48"])],
+            ),
+        ]
 
     async with connect(server) as client:
         result = await client.list_resources()
 
-    assert result == snapshot(
-        ListResourcesResult(
-            resources=[
-                Resource(uri="memo://minimal", name="minimal"),
-                Resource(
-                    uri="file:///project/README.md",
-                    name="readme",
-                    title="Project README",
-                    description="The project's front page.",
-                    mimeType="text/markdown",
-                    size=1024,
-                    annotations=Annotations(audience=["user", "assistant"], priority=0.8),
-                    icons=[Icon(src="https://example.com/readme.png", mimeType="image/png", sizes=["48x48"])],
-                ),
+    assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+        {
+            "resources": [
+                {"name": "minimal", "uri": AnyUrl("memo://minimal")},
+                {
+                    "name": "readme",
+                    "title": "Project README",
+                    "uri": AnyUrl("file:///project/README.md"),
+                    "description": "The project's front page.",
+                    "mimeType": "text/markdown",
+                    "size": 1024,
+                    "icons": [{"src": "https://example.com/readme.png", "mimeType": "image/png", "sizes": ["48x48"]}],
+                    "annotations": {
+                        "audience": ["user", "assistant"],
+                        "priority": 0.8,
+                        "lastModified": "2025-01-01T00:00:00Z",
+                    },
+                },
             ]
-        )
+        }
     )
 
 
 @requirement("resources:read:text")
 async def test_read_resource_text(connect: Connect) -> None:
     """Reading a text resource returns its contents with the URI, MIME type, and text supplied by the handler."""
+    server = Server("library")
 
-    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
-        return ReadResourceResult(
-            contents=[TextResourceContents(uri=params.uri, mimeType="text/plain", text="Hello, world!")]
-        )
-
-    server = Server("library", on_read_resource=read_resource)
+    @server.read_resource()
+    async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+        return [ReadResourceContents(content="Hello, world!", mime_type="text/plain")]
 
     async with connect(server) as client:
-        result = await client.read_resource("file:///greeting.txt")
+        result = await client.read_resource(AnyUrl("file:///greeting.txt"))
 
     assert result == snapshot(
         ReadResourceResult(
@@ -112,23 +111,18 @@ async def test_read_resource_text(connect: Connect) -> None:
 
 @requirement("resources:read:blob")
 async def test_read_resource_binary(connect: Connect) -> None:
-    """Reading a binary resource returns its contents base64-encoded in the blob field."""
+    """Reading a binary resource returns its contents base64-encoded in the blob field.
 
-    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
-        return ReadResourceResult(
-            contents=[
-                BlobResourceContents(
-                    uri=params.uri,
-                    mimeType="image/png",
-                    blob=base64.b64encode(b"\x89PNG").decode(),
-                )
-            ]
-        )
+    The low-level decorator base64-encodes the bytes returned via ``ReadResourceContents``.
+    """
+    server = Server("library")
 
-    server = Server("library", on_read_resource=read_resource)
+    @server.read_resource()
+    async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+        return [ReadResourceContents(content=b"\x89PNG", mime_type="image/png")]
 
     async with connect(server) as client:
-        result = await client.read_resource("file:///pixel.png")
+        result = await client.read_resource(AnyUrl("file:///pixel.png"))
 
     assert result == snapshot(
         ReadResourceResult(
@@ -139,20 +133,20 @@ async def test_read_resource_binary(connect: Connect) -> None:
 
 @requirement("resources:read:unknown-uri")
 async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
+    """A handler that rejects an unrecognised URI with McpError produces a JSON-RPC error.
 
     The spec reserves -32002 for resource-not-found; the code is the handler's choice and reaches
     the client verbatim.
     """
+    server = Server("library")
 
-    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
-        raise MCPError(code=-32002, message=f"Resource not found: {params.uri}")
-
-    server = Server("library", on_read_resource=read_resource)
+    @server.read_resource()
+    async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+        raise McpError(ErrorData(code=-32002, message=f"Resource not found: {uri}"))
 
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.read_resource("file:///missing.txt")
+        with pytest.raises(McpError) as exc_info:
+            await client.read_resource(AnyUrl("file:///missing.txt"))
 
     assert exc_info.value.error == snapshot(ErrorData(code=-32002, message="Resource not found: file:///missing.txt"))
 
@@ -160,25 +154,21 @@ async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> 
 @requirement("resources:templates:list")
 async def test_list_resource_templates_returns_registered_templates(connect: Connect) -> None:
     """Listed resource templates reach the client with their URI templates and descriptive fields intact."""
+    server = Server("library")
 
-    async def list_resource_templates(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourceTemplatesResult:
-        return ListResourceTemplatesResult(
-            resourceTemplates=[
-                ResourceTemplate(uriTemplate="users://{user_id}", name="user"),
-                ResourceTemplate(
-                    uriTemplate="logs://{service}/{date}",
-                    name="service_logs",
-                    title="Service logs",
-                    description="One day of logs for one service.",
-                    mimeType="text/plain",
-                    icons=[Icon(src="https://example.com/logs.png", mimeType="image/png", sizes=["48x48"])],
-                ),
-            ]
-        )
-
-    server = Server("library", on_list_resource_templates=list_resource_templates)
+    @server.list_resource_templates()
+    async def list_resource_templates() -> list[ResourceTemplate]:
+        return [
+            ResourceTemplate(uriTemplate="users://{user_id}", name="user"),
+            ResourceTemplate(
+                uriTemplate="logs://{service}/{date}",
+                name="service_logs",
+                title="Service logs",
+                description="One day of logs for one service.",
+                mimeType="text/plain",
+                icons=[Icon(src="https://example.com/logs.png", mimeType="image/png", sizes=["48x48"])],
+            ),
+        ]
 
     async with connect(server) as client:
         result = await client.list_resource_templates()
@@ -203,15 +193,14 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
 @requirement("resources:subscribe")
 async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Subscribing to a resource delivers the URI to the server's subscribe handler and returns an empty result."""
+    server = Server("library")
 
-    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
-        assert params.uri == "file:///watched.txt"
-        return EmptyResult()
-
-    server = Server("library", on_subscribe_resource=subscribe_resource)
+    @server.subscribe_resource()
+    async def subscribe_resource(uri: AnyUrl) -> None:
+        assert uri == AnyUrl("file:///watched.txt")
 
     async with connect(server) as client:
-        result = await client.subscribe_resource("file:///watched.txt")
+        result = await client.subscribe_resource(AnyUrl("file:///watched.txt"))
 
     assert result == snapshot(EmptyResult())
 
@@ -224,17 +213,16 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
     divergence on lifecycle:capability:server-not-advertised.
     """
 
-    async def list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourcesResult:
+    server = Server("library")
+
+    @server.list_resources()
+    async def list_resources() -> list[Resource]:
         """Registered only so the resources capability is advertised; never called."""
         raise NotImplementedError
 
-    server = Server("library", on_list_resources=list_resources)
-
     async with connect(server) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.subscribe_resource("file:///watched.txt")
+        with pytest.raises(McpError) as exc_info:
+            await client.subscribe_resource(AnyUrl("file:///watched.txt"))
 
     assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
 
@@ -242,15 +230,14 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
 @requirement("resources:unsubscribe")
 async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Unsubscribing from a resource delivers the URI to the server's unsubscribe handler."""
+    server = Server("library")
 
-    async def unsubscribe_resource(ctx: ServerRequestContext, params: types.UnsubscribeRequestParams) -> EmptyResult:
-        assert params.uri == "file:///watched.txt"
-        return EmptyResult()
-
-    server = Server("library", on_unsubscribe_resource=unsubscribe_resource)
+    @server.unsubscribe_resource()
+    async def unsubscribe_resource(uri: AnyUrl) -> None:
+        assert uri == AnyUrl("file:///watched.txt")
 
     async with connect(server) as client:
-        result = await client.unsubscribe_resource("file:///watched.txt")
+        result = await client.unsubscribe_resource(AnyUrl("file:///watched.txt"))
 
     assert result == snapshot(EmptyResult())
 
@@ -271,39 +258,34 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
         received.append(message)
         seen.set()
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="touch", inputSchema={"type": "object"})])
+    server = Server("library")
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "touch"
-        await ctx.session.send_resource_updated("file:///watched.txt")
-        return CallToolResult(content=[TextContent(type="text", text="touched")])
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="touch", inputSchema={"type": "object"})]
 
-    async def list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> ListResourcesResult:
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
+        assert name == "touch"
+        await server.request_context.session.send_resource_updated(AnyUrl("file:///watched.txt"))
+        return [TextContent(type="text", text="touched")]
+
+    @server.list_resources()
+    async def list_resources() -> list[Resource]:
         """Registered so the resources capability is advertised; the client never lists resources."""
         raise NotImplementedError
 
-    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
+    @server.subscribe_resource()
+    async def subscribe_resource(uri: AnyUrl) -> None:
         """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
         raise NotImplementedError
-
-    server = Server(
-        "library",
-        on_list_tools=list_tools,
-        on_call_tool=call_tool,
-        on_list_resources=list_resources,
-        on_subscribe_resource=subscribe_resource,
-    )
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("touch", {})
         with anyio.fail_after(5):
             await seen.wait()
 
-    assert received == snapshot(
-        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
-    )
+    assert len(received) == 1
+    assert isinstance(received[0], ServerNotification)
+    assert isinstance(received[0].root, ResourceUpdatedNotification)
+    assert received[0].root.params == snapshot(ResourceUpdatedNotificationParams(uri=AnyUrl("file:///watched.txt")))

@@ -1,8 +1,9 @@
 """Authorization-request, token-request, and PKCE wire-level invariants of the SDK's OAuth client.
 
-Every test connects a real `Client` end to end via `connect_with_oauth`; the assertions are on
-the parsed authorize URL and the recorded `/token` form body, because those wire shapes are what
-the spec mandates and `Client` cannot observe them. The recording uses `record_requests`, which
+Every test connects a real `ClientSession` end to end via `connect_with_oauth`; the assertions
+are on the parsed authorize URL and the recorded `/token` form body, because those wire shapes
+are what the spec mandates and the session cannot observe them. The recording uses
+`record_requests`, which
 snapshots each request at send time so the auth flow's in-place header mutation on retry never
 affects what was captured for the first attempt.
 
@@ -24,11 +25,10 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import types
 from mcp.client.auth import OAuthFlowError
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import ListToolsResult, Tool
+from mcp.types import Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -50,8 +50,15 @@ PRM_PATH = "/.well-known/oauth-protected-resource/mcp"
 ASM_PATH = "/.well-known/oauth-authorization-server"
 
 
-async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+def make_guarded_server() -> Server:
+    """Build a lowlevel `Server` exposing one `echo` tool, to mount behind the OAuth-gated MCP endpoint."""
+    server = Server("guarded")
+
+    @server.list_tools()
+    async def _list_tools() -> list[Tool]:
+        return [Tool(name="echo", inputSchema={"type": "object"})]
+
+    return server
 
 
 def authorize_params(authorize_url: str) -> dict[str, str]:
@@ -91,13 +98,12 @@ class RecordedFlow:
 async def recorded_oauth_flow() -> AsyncIterator[RecordedFlow]:
     """Run one full OAuth connect with default configuration and yield its recorded wire traffic.
 
-    `valid_scopes` includes `offline_access` so the AS metadata advertises it and the SDK's
-    SEP-2207 auto-append (and the resulting `prompt=consent`) is exercised; `required_scopes`
+    `valid_scopes` includes `offline_access` so the AS metadata advertises it; `required_scopes`
     stays at `["mcp"]` so the issued token still passes the bearer middleware.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
     settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "offline_access"])
 
     with anyio.fail_after(5):
@@ -113,7 +119,6 @@ async def recorded_oauth_flow() -> AsyncIterator[RecordedFlow]:
 
 @requirement("client-auth:pkce:s256")
 @requirement("client-auth:resource-parameter")
-@requirement("client-auth:authorize:offline-access-consent")
 async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
@@ -130,7 +135,6 @@ async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
             "client_id",
             "code_challenge",
             "code_challenge_method",
-            "prompt",
             "redirect_uri",
             "resource",
             "response_type",
@@ -145,9 +149,7 @@ async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
     # the stable prefix so the test does not lock in a trailing-slash decision.
     assert params["resource"].startswith(BASE_URL)
     assert params["state"] != ""
-
-    assert params["scope"].split(" ") == snapshot(["mcp", "offline_access"])
-    assert params["prompt"] == "consent"
+    assert params["scope"].split(" ") == snapshot(["mcp"])
 
 
 @requirement("client-auth:pkce:s256")
@@ -175,15 +177,15 @@ async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
     random tokens).
     """
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
     headless = HeadlessOAuth(state_override="wrong-state")
 
     with anyio.fail_after(5):
         with pytest.RaisesGroup(
             pytest.RaisesExc(OAuthFlowError, match="^State parameter mismatch:"), flatten_subgroups=True
         ):
-            # Entering the connect raises during the OAuth handshake (inside `Client.__aenter__`),
-            # so an `async with` body would be unreachable; entering explicitly avoids dead code.
+            # Entering the connect raises during the OAuth handshake (before `ClientSession.initialize`
+            # returns), so an `async with` body would be unreachable; entering explicitly avoids dead code.
             await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
 
 
@@ -238,7 +240,7 @@ async def test_a_client_with_a_secret_authenticates_the_token_request_with_http_
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
 
     client_info = OAuthClientInformationFull(
         client_id="cid",
@@ -276,7 +278,7 @@ async def test_the_registered_auth_method_is_used_regardless_of_as_metadata_adve
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
 
     override = OAuthMetadata(
         issuer=AnyHttpUrl(f"{BASE_URL}/"),
@@ -319,7 +321,7 @@ async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_me
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(default_scopes=["from-header"])
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
     settings = auth_settings(required_scopes=["from-prm"], valid_scopes=["from-header", "from-prm"])
     challenge = f'Bearer scope="from-header", resource_metadata="{BASE_URL}{PRM_PATH}"'
 
@@ -360,7 +362,7 @@ async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_
     serve = {ASM_PATH: override.model_dump_json(exclude_none=True).encode()}
 
     provider = InMemoryAuthorizationServerProvider()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(
@@ -386,7 +388,7 @@ async def test_an_authorize_error_on_the_callback_aborts_the_flow_before_the_tok
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(deny_authorize=True)
-    server = Server("guarded", on_list_tools=list_tools)
+    server = make_guarded_server()
     headless = HeadlessOAuth()
 
     with anyio.fail_after(5):
