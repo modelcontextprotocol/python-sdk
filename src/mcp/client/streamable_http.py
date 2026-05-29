@@ -240,7 +240,11 @@ class StreamableHTTPTransport:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
+            response_complete = False
             async for sse in event_source.aiter_sse():  # pragma: no branch
+                if response_complete:
+                    continue
+
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -248,8 +252,7 @@ class StreamableHTTPTransport:
                     ctx.metadata.on_resumption_token_update if ctx.metadata else None,
                 )
                 if is_complete:
-                    await event_source.response.aclose()
-                    break
+                    response_complete = True
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
@@ -340,9 +343,13 @@ class StreamableHTTPTransport:
         assert isinstance(ctx.session_message.message, JSONRPCRequest)
         original_request_id = ctx.session_message.message.id
 
+        response_complete = False
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():  # pragma: no branch
+                if response_complete:
+                    continue
+
                 # Track last event ID for potential reconnection
                 if sse.id:
                     last_event_id = sse.id
@@ -359,12 +366,14 @@ class StreamableHTTPTransport:
                     is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning response/error
-                # break the loop
+                # keep draining the response to EOF so the HTTP connection can be reused.
                 if is_complete:
-                    await response.aclose()
-                    return  # Normal completion, no reconnect needed
+                    response_complete = True
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+
+        if response_complete:
+            return  # Normal completion, no reconnect needed
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:  # pragma: no branch
@@ -405,7 +414,11 @@ class StreamableHTTPTransport:
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
 
+                response_complete = False
                 async for sse in event_source.aiter_sse():
+                    if response_complete:
+                        continue
+
                     if sse.id:  # pragma: no branch
                         reconnect_last_event_id = sse.id
                     if sse.retry is not None:
@@ -418,13 +431,15 @@ class StreamableHTTPTransport:
                         ctx.metadata.on_resumption_token_update if ctx.metadata else None,
                     )
                     if is_complete:
-                        await event_source.response.aclose()
-                        return
+                        response_complete = True
+
+                if response_complete:
+                    return
 
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 logger.info("SSE stream disconnected, reconnecting...")
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
-        except Exception as e:  # pragma: no cover
+        except Exception as e:  # pragma: lax no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)

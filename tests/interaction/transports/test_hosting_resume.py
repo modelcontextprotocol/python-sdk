@@ -339,7 +339,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
     capture = ClientMessageMetadata(on_resumption_token_update=on_token)
 
     async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, manager):
-        with anyio.fail_after(5):  # pragma: no branch
+        with anyio.fail_after(5):  # pragma: lax no cover
             async with (  # pragma: no branch
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r1, w1),
                 ClientSession(r1, w1, logging_callback=collect) as first,
@@ -357,7 +357,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
                 tg.cancel_scope.cancel()
 
-        with anyio.fail_after(5):  # pragma: no branch
+        with anyio.fail_after(5):  # pragma: lax no cover
             release.set()  # pragma: lax no cover  — python/cpython#106749: 3.11 drops this line event
             # init priming + init response + call priming + "first" + "second" + result = 6 stored events.
             await store.wait_until_stored(6)
