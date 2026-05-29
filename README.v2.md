@@ -1167,6 +1167,10 @@ uv run mcp dev server.py --with pandas --with numpy
 
 # Mount local code
 uv run mcp dev server.py --with-editable .
+
+# Pass environment variables to the server
+uv run mcp dev server.py -v API_KEY=abc123 -v DB_URL=postgres://...
+uv run mcp dev server.py -f .env
 ```
 
 ### Claude Desktop Integration

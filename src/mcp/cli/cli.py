@@ -53,13 +53,40 @@ def _get_npx_command():
     return "npx"  # On Unix-like systems, just use npx
 
 
-def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
+def _parse_env_var(env_var: str) -> tuple[str, str]:
     """Parse environment variable string in format KEY=VALUE."""
     if "=" not in env_var:
         logger.error(f"Invalid environment variable format: {env_var}. Must be KEY=VALUE")
         sys.exit(1)
     key, value = env_var.split("=", 1)
     return key.strip(), value.strip()
+
+
+def _resolve_env(env_file: Path | None, env_vars: list[str]) -> dict[str, str] | None:
+    """Resolve env vars from an optional .env file plus repeated KEY=VALUE flags.
+
+    Command-line ``env_vars`` override values from ``env_file``. Returns ``None``
+    when neither source is provided.
+    """
+    if not env_file and not env_vars:
+        return None
+
+    env_dict: dict[str, str] = {}
+    if env_file:
+        if dotenv is None:
+            logger.error("python-dotenv is not installed. Cannot load .env file.")
+            sys.exit(1)
+        try:
+            env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
+        except (OSError, ValueError):
+            logger.exception("Failed to load .env file")
+            sys.exit(1)
+
+    for env_var in env_vars:
+        key, value = _parse_env_var(env_var)
+        env_dict[key] = value
+
+    return env_dict
 
 
 def _build_uv_command(
@@ -241,6 +268,26 @@ def dev(
             help="Additional packages to install",
         ),
     ] = [],
+    env_vars: Annotated[
+        list[str],
+        typer.Option(
+            "--env-var",
+            "-v",
+            help="Environment variables in KEY=VALUE format (repeatable)",
+        ),
+    ] = [],
+    env_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--env-file",
+            "-f",
+            help="Load environment variables from a .env file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
 ) -> None:  # pragma: no cover
     """Run an MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
@@ -271,13 +318,20 @@ def dev(
             )
             sys.exit(1)
 
+        # Build the environment for the inspector subprocess. Caller-supplied
+        # vars take precedence over the inherited environment.
+        env = dict(os.environ)
+        extra_env = _resolve_env(env_file, env_vars)
+        if extra_env:
+            env.update(extra_env)
+
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=env,
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:
@@ -453,25 +507,7 @@ def install(
         with_packages = list(set(with_packages + server_dependencies))
 
     # Process environment variables if provided
-    env_dict: dict[str, str] | None = None
-    if env_file or env_vars:
-        env_dict = {}
-        # Load from .env file if specified
-        if env_file:
-            if dotenv:
-                try:
-                    env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
-                except (OSError, ValueError):
-                    logger.exception("Failed to load .env file")
-                    sys.exit(1)
-            else:
-                logger.error("python-dotenv is not installed. Cannot load .env file.")
-                sys.exit(1)
-
-        # Add command line environment variables
-        for env_var in env_vars:
-            key, value = _parse_env_var(env_var)
-            env_dict[key] = value
+    env_dict = _resolve_env(env_file, env_vars)
 
     if claude.update_claude_config(
         file_spec,
