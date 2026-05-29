@@ -95,7 +95,8 @@ packages = ["src/mcp"]
 [tool.pyright]
 typeCheckingMode = "strict"
 include = ["src/mcp", "tests", "examples/servers", "examples/snippets"]
-# tests/interaction is mid-backport from main; type-checking is restored phase by phase.
+# tests/interaction is backported from `main` and uses v1's runtime API; strict-mode type-checking
+# of the suite is tracked separately from this tests-only backport.
 exclude = ["tests/interaction"]
 venvPath = "."
 venv = ".venv"
