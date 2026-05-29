@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncIterator
-from http import HTTPStatus
 from typing import Any
 from uuid import uuid4
 
@@ -15,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -88,6 +88,9 @@ class StreamableHTTPSessionManager:
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
         self._server_instances: dict[str, StreamableHTTPServerTransport] = {}
+        # Identity of the credential that created each session; requests for a
+        # session must present the same credential.
+        self._session_owners: dict[str, AuthorizationContext] = {}
 
         # The task group will be set during lifespan
         self._task_group = None
@@ -135,6 +138,7 @@ class StreamableHTTPSessionManager:
                 self._task_group = None
                 # Clear any remaining server instances
                 self._server_instances.clear()
+                self._session_owners.clear()
 
     async def handle_request(
         self,
@@ -227,12 +231,32 @@ class StreamableHTTPSessionManager:
         request = Request(scope, receive)
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
+        user = scope.get("user")
+        requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
+
         # Existing session case
-        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:  # pragma: no cover
+        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
+            if requestor != self._session_owners.get(request_mcp_session_id):
+                # A session can only be used with the credential that created
+                # it. Respond exactly as if the session did not exist.
+                logger.warning(
+                    "Rejecting request for session %s: credential does not match the one that created the session",
+                    request_mcp_session_id[:64],
+                )
+                body = JSONRPCError(
+                    jsonrpc="2.0", id="server-error", error=ErrorData(code=INVALID_REQUEST, message="Session not found")
+                )
+                response = Response(
+                    body.model_dump_json(by_alias=True, exclude_none=True),
+                    status_code=404,
+                    media_type="application/json",
+                )
+                await response(scope, receive, send)
+                return
             logger.debug("Session already exists, handling request directly")
             # Push back idle deadline on activity
-            if transport.idle_scope is not None and self.session_idle_timeout is not None:
+            if transport.idle_scope is not None and self.session_idle_timeout is not None:  # pragma: no cover
                 transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
             await transport.handle_request(scope, receive, send)
             return
@@ -251,6 +275,8 @@ class StreamableHTTPSessionManager:
                 )
 
                 assert http_transport.mcp_session_id is not None
+                if requestor is not None:
+                    self._session_owners[http_transport.mcp_session_id] = requestor
                 self._server_instances[http_transport.mcp_session_id] = http_transport
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
@@ -281,6 +307,7 @@ class StreamableHTTPSessionManager:
                                 assert http_transport.mcp_session_id is not None
                                 logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
                                 self._server_instances.pop(http_transport.mcp_session_id, None)
+                                self._session_owners.pop(http_transport.mcp_session_id, None)
                                 await http_transport.terminate()
                         except Exception:
                             logger.exception(f"Session {http_transport.mcp_session_id} crashed")
@@ -296,6 +323,7 @@ class StreamableHTTPSessionManager:
                                     "active instances."
                                 )
                                 del self._server_instances[http_transport.mcp_session_id]
+                                self._session_owners.pop(http_transport.mcp_session_id, None)
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
@@ -306,19 +334,10 @@ class StreamableHTTPSessionManager:
                 await http_transport.handle_request(scope, receive, send)
         else:
             # Unknown or expired session ID - return 404 per MCP spec
-            # TODO: Align error code once spec clarifies
-            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
-            error_response = JSONRPCError(
-                jsonrpc="2.0",
-                id="server-error",
-                error=ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Session not found",
-                ),
+            body = JSONRPCError(
+                jsonrpc="2.0", id="server-error", error=ErrorData(code=INVALID_REQUEST, message="Session not found")
             )
             response = Response(
-                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
-                status_code=HTTPStatus.NOT_FOUND,
-                media_type="application/json",
+                body.model_dump_json(by_alias=True, exclude_none=True), status_code=404, media_type="application/json"
             )
             await response(scope, receive, send)
