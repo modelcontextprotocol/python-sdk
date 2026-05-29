@@ -63,11 +63,6 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]==7.10.7",
-    # tests/interaction runs the streamable-HTTP and SSE apps in-process; sse-starlette 1.x
-    # keeps a module-global anyio.Event (`AppStatus.should_exit_event`) bound to the first
-    # test's event loop, which breaks every subsequent in-process SSE response. The runtime
-    # floor stays >=1.6.1 (works under uvicorn); only the test environment needs >=2.x.
-    "sse-starlette>=2.1.0",
 ]
 docs = [
     "mkdocs>=1.6.1",

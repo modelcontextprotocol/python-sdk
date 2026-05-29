@@ -807,7 +807,6 @@ dev = [
     { name = "pytest-pretty" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "sse-starlette" },
     { name = "trio" },
 ]
 docs = [
@@ -852,7 +851,6 @@ dev = [
     { name = "pytest-pretty", specifier = ">=1.2.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.8.5" },
-    { name = "sse-starlette", specifier = ">=2.1.0" },
     { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [

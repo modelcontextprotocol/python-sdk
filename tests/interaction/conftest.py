@@ -1,6 +1,9 @@
 """Shared fixtures for the interaction suite."""
 
+from collections.abc import Iterator
+
 import pytest
+from sse_starlette.sse import AppStatus
 
 from tests.interaction._connect import Connect, connect_in_memory, connect_over_sse, connect_over_streamable_http
 
@@ -27,6 +30,22 @@ _FACTORIES: dict[str, Connect] = {
     "streamable-http": connect_over_streamable_http,
     "sse": connect_over_sse,
 }
+
+
+@pytest.fixture(autouse=True)
+def _reset_sse_starlette_exit_event() -> Iterator[None]:
+    """Reset sse-starlette's module-global exit Event after each test.
+
+    sse-starlette <3.0 stores an `anyio.Event` on the `AppStatus` class the first time an
+    `EventSourceResponse` runs; that Event is bound to the test's event loop and breaks every
+    subsequent in-process SSE response (RuntimeError "bound to a different event loop", surfacing
+    as 5-second timeouts in `connect_with_oauth` and "Child exited" on the [sse] leg). v1's own
+    transport tests run uvicorn in a subprocess and so never share a process across event loops.
+    sse-starlette 3.x switched to a ContextVar (`_exit_event_context`) and has no such attribute.
+    """
+    yield
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
+        AppStatus.should_exit_event = None  # pragma: lax no cover
 
 
 @pytest.fixture(params=sorted(_FACTORIES))
