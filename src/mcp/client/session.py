@@ -304,8 +304,22 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
         *,
         meta: RequestParamsMeta | None = None,
+        reset_timeout_on_progress: bool = False,
+        max_total_timeout: float | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            name: The tool name.
+            arguments: Optional arguments for the tool.
+            read_timeout_seconds: Per-request timeout override.
+            progress_callback: Optional callback for progress notifications.
+            meta: Optional request metadata.
+            reset_timeout_on_progress: When True, each progress notification
+                resets the timeout window.
+            max_total_timeout: Optional absolute ceiling (seconds) measured
+                from request start.
+        """
 
         result = await self.send_request(
             types.CallToolRequest(
@@ -314,6 +328,8 @@ class ClientSession(
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+            reset_timeout_on_progress=reset_timeout_on_progress,
+            max_total_timeout=max_total_timeout,
         )
 
         if not result.is_error:
