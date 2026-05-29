@@ -13,6 +13,7 @@ import anyio
 from anyio.abc import TaskGroup
 
 from mcp.server.experimental.task_result_handler import TaskResultHandler
+from mcp.server.experimental.task_scope import new_session_scope
 from mcp.server.session import ServerSession
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, TaskMessageQueue
@@ -83,7 +84,7 @@ class TaskSupport:
             finally:
                 self._task_group = None
 
-    def configure_session(self, session: ServerSession) -> None:
+    def configure_session(self, session: ServerSession, *, stateless: bool = False) -> None:
         """
         Configure a session for task support.
 
@@ -91,12 +92,22 @@ class TaskSupport:
         responses to queued requests (elicitation, sampling) are routed
         back to the waiting resolvers.
 
+        It also assigns the session a task session scope. Task IDs generated
+        by `run_task()` embed this scope, and the default task handlers only
+        operate on tasks created by the requesting session. Stateless sessions
+        are not assigned a scope: each request runs on a fresh session, so a
+        task created by one request could never be retrieved by a later one if
+        tasks were bound to the session that created them.
+
         Called automatically by Server.run() for each new session.
 
         Args:
             session: The session to configure
+            stateless: Whether the session belongs to a stateless server run
         """
         session.add_response_router(self.handler)
+        if not stateless and session.experimental.task_session_scope is None:
+            session.experimental.task_session_scope = new_session_scope()
 
     @classmethod
     def in_memory(cls) -> "TaskSupport":
