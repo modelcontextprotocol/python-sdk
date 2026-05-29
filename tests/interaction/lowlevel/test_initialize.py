@@ -70,7 +70,7 @@ async def _initialize(server: Server[Any]) -> InitializeResult:
             async with ClientSession(client_read, client_write) as session:
                 with anyio.fail_after(5):
                     initialize_result = await session.initialize()
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: lax no cover  — python/cpython#106749 (3.11 tracer dead-zone)
     return initialize_result
 
 
@@ -88,7 +88,7 @@ async def _bare_session(server: Server[Any]) -> AsyncIterator[ClientSession]:
             tg.start_soon(lambda: server.run(server_read, server_write, server.create_initialization_options()))
             async with ClientSession(client_read, client_write) as session:
                 yield session
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: lax no cover  — python/cpython#106749 (3.11 tracer dead-zone)
 
 
 @requirement("lifecycle:initialize:basic")

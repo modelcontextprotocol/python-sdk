@@ -213,6 +213,7 @@ ignore_errors = true
 precision = 2
 exclude_lines = [
     "pragma: no cover",
+    "pragma: lax no cover",
     "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",

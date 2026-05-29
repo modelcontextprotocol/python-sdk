@@ -477,7 +477,7 @@ async def connect_with_oauth(
     else:
         routes.append(Route("/mcp", endpoint=asgi))
 
-    if settings.resource_server_url:
+    if settings.resource_server_url:  # pragma: no branch  — auth_settings() always sets this
         routes.extend(
             create_protected_resource_routes(
                 resource_url=settings.resource_server_url,

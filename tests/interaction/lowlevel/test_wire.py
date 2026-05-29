@@ -83,7 +83,7 @@ async def _record(
                     await client.initialize()
                     yield client, recording
             finally:
-                tg.cancel_scope.cancel()
+                tg.cancel_scope.cancel()  # pragma: lax no cover  — python/cpython#106749 (3.11 tracer dead-zone)
 
 
 @requirement("protocol:request-id:unique")

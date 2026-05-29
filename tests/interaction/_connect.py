@@ -103,7 +103,7 @@ class Connect(Protocol):
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
-    ) -> AbstractAsyncContextManager[ClientSession]: ...
+    ) -> AbstractAsyncContextManager[ClientSession]: ...  # pragma: no cover
 
 
 @asynccontextmanager
@@ -188,7 +188,7 @@ def build_streamable_http_app(
 
     if auth is not None:
         required_scopes = auth.required_scopes or []
-        if verifier is not None:
+        if verifier is not None:  # pragma: no branch  — every auth-bearing caller supplies a provider/verifier
             middleware = [
                 Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(verifier)),
                 Middleware(AuthContextMiddleware),
@@ -437,7 +437,8 @@ def build_sse_app(server: Server[Any] | FastMCP) -> tuple[Starlette, SseServerTr
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):  # type: ignore[reportPrivateUsage]
             await lowlevel.run(read, write, lowlevel.create_initialization_options())
-        return Response()
+        # under StreamingASGITransport the request is cancelled on close, so run() never returns
+        return Response()  # pragma: no cover
 
     app = Starlette(
         routes=[

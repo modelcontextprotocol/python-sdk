@@ -54,7 +54,7 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
         async with sse_client(
             f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory, on_session_created=captured_session_id.append
         ) as (read, write):
-            async with ClientSession(read, write) as client:
+            async with ClientSession(read, write) as client:  # pragma: no branch
                 await client.initialize()
                 assert len(captured_session_id) == 1
                 assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
