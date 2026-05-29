@@ -53,6 +53,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
             redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
             expires_at=time.time() + 300,
             scopes=params.scopes or ["read", "write"],
+            subject="test-user",
         )
         self.auth_codes[code.code] = code
 
@@ -79,6 +80,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
             client_id=client.client_id,
             scopes=authorization_code.scopes,
             expires_at=int(time.time()) + 3600,
+            subject=authorization_code.subject,
         )
 
         self.refresh_tokens[refresh_token] = access_token
@@ -108,6 +110,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
             client_id=token_info.client_id,
             scopes=token_info.scopes,
             expires_at=token_info.expires_at,
+            subject=token_info.subject,
         )
 
         return refresh_obj
@@ -141,6 +144,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
             client_id=client.client_id,
             scopes=scopes or token_info.scopes,
             expires_at=int(time.time()) + 3600,
+            subject=refresh_token.subject,
         )
 
         self.refresh_tokens[new_refresh_token] = new_access_token
@@ -169,6 +173,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
             client_id=token_info.client_id,
             scopes=token_info.scopes,
             expires_at=token_info.expires_at,
+            subject=token_info.subject,
         )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
@@ -832,6 +837,7 @@ class TestAuthEndpoints:
         assert auth_info.client_id == client_info["client_id"]
         assert "read" in auth_info.scopes
         assert "write" in auth_info.scopes
+        assert auth_info.subject == "test-user"
 
         # 6. Refresh the token
         response = await test_client.post(
@@ -851,6 +857,10 @@ class TestAuthEndpoints:
         assert "refresh_token" in new_token_response
         assert new_token_response["access_token"] != access_token
         assert new_token_response["refresh_token"] != refresh_token
+
+        refreshed_auth_info = await mock_oauth_provider.load_access_token(new_token_response["access_token"])
+        assert refreshed_auth_info
+        assert refreshed_auth_info.subject == "test-user"
 
         # 7. Revoke the token
         response = await test_client.post(

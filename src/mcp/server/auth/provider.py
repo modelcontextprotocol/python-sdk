@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
@@ -25,6 +25,7 @@ class AuthorizationCode(BaseModel):
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None  # resource owner; propagate to the issued AccessToken
 
 
 class RefreshToken(BaseModel):
@@ -32,6 +33,7 @@ class RefreshToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    subject: str | None = None  # resource owner; propagate to refreshed AccessTokens
 
 
 class AccessToken(BaseModel):
@@ -40,6 +42,8 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None  # RFC 7662/9068 `sub`: resource owner; unique only per issuer
+    claims: dict[str, Any] | None = None  # additional claims (e.g. `iss`, `act`)
 
 
 RegistrationErrorCode = Literal[

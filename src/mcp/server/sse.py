@@ -116,15 +116,15 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):  # pragma: no cover
-        if scope["type"] != "http":
+    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":  # pragma: no cover
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
 
         # Validate request headers for DNS rebinding protection
         request = Request(scope, receive)
         error_response = await self._security.validate_request(request, is_post=False)
-        if error_response:
+        if error_response:  # pragma: no cover
             await error_response(scope, receive, send)
             raise ValueError("Request validation failed")
 
@@ -179,6 +179,7 @@ class SseServerTransport:
                 await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
                     scope, receive, send
                 )
+                await sse_stream_reader.aclose()
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
                 self._read_stream_writers.pop(session_id, None)
@@ -190,13 +191,13 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 
         # Validate request headers for DNS rebinding protection
         error_response = await self._security.validate_request(request, is_post=True)
-        if error_response:
+        if error_response:  # pragma: no cover
             return await error_response(scope, receive, send)
 
         session_id_param = request.query_params.get("session_id")
@@ -225,7 +226,7 @@ class SseServerTransport:
         try:
             message = types.jsonrpc_message_adapter.validate_json(body, by_name=False)
             logger.debug(f"Validated client message: {message}")
-        except ValidationError as err:
+        except ValidationError as err:  # pragma: no cover
             logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)
