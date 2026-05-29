@@ -1,12 +1,13 @@
 """In-process harness for the auth interaction tests.
 
 Co-hosts the SDK's authorization-server routes, protected-resource metadata route, and the
-bearer-gated MCP endpoint on one Starlette app via `Server.streamable_http_app(auth=...,
-token_verifier=..., auth_server_provider=...)`, drives that app through the streaming bridge
-on a single `httpx.AsyncClient` carrying `auth=OAuthClientProvider(...)`, and completes the
-authorize redirect headlessly by GETing the URL through the same bridge and parsing the code
-from the 302 `Location`. The whole authorization-code flow runs in one event loop with no
-sockets, no threads, and no real time.
+bearer-gated MCP endpoint on one Starlette app assembled from the same public pieces
+`FastMCP.streamable_http_app()` uses (`StreamableHTTPSessionManager`, `create_auth_routes`,
+`BearerAuthBackend`, `RequireAuthMiddleware`, `create_protected_resource_routes`), drives
+that app through the streaming bridge on a single `httpx.AsyncClient` carrying
+`auth=OAuthClientProvider(...)`, and completes the authorize redirect headlessly by GETing the
+URL through the same bridge and parsing the code from the 302 `Location`. The whole
+authorization-code flow runs in one event loop with no sockets, no threads, and no real time.
 """
 
 import json
@@ -18,14 +19,23 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import httpx
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.routing import Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.client.auth import OAuthClientProvider
-from mcp.client.client import Client
+from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import AccessToken, ProviderTokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION
 from tests.interaction.auth._provider import InMemoryAuthorizationServerProvider
@@ -385,7 +395,7 @@ def m2m_token_shim(provider: InMemoryAuthorizationServerProvider, *, scopes: lis
 
 @asynccontextmanager
 async def connect_with_oauth(
-    server: Server,
+    server: Server[Any],
     *,
     provider: InMemoryAuthorizationServerProvider,
     settings: AuthSettings | None = None,
@@ -397,12 +407,19 @@ async def connect_with_oauth(
     verify_tokens: bool = True,
     app_shim: Callable[[ASGIApp], ASGIApp] | None = None,
     on_request: Callable[[httpx.Request], None] | None = None,
-) -> AsyncIterator[tuple[Client, HeadlessOAuth]]:
-    """Connect a `Client` to a server's bearer-gated streamable-HTTP app, completing OAuth in process.
+) -> AsyncIterator[tuple[ClientSession, HeadlessOAuth]]:
+    """Connect a `ClientSession` to a server's bearer-gated streamable-HTTP app, completing OAuth in process.
 
-    Yields the connected `Client` and the `HeadlessOAuth` whose `authorize_url` records what the
-    SDK put on the authorize request. `on_request` records every HTTP request the underlying
-    `httpx.AsyncClient` issues, including those yielded from inside the auth flow.
+    Yields the connected, initialized `ClientSession` and the `HeadlessOAuth` whose
+    `authorize_url` records what the SDK put on the authorize request. `on_request` records
+    every HTTP request the underlying `httpx.AsyncClient` issues, including those yielded from
+    inside the auth flow.
+
+    The Starlette app is assembled from the same public pieces `FastMCP.streamable_http_app()`
+    uses, so behaviour matches what a v1 user would get from a `FastMCP` configured with
+    `auth_server_provider=` — except that hand-assembly lets `verify_tokens=False` mount `/mcp`
+    ungated while still mounting the authorization-server and PRM routes (FastMCP's constructor
+    auto-derives a token verifier from the provider, so it has no ungated combination).
 
     `headless`: supply a pre-configured `HeadlessOAuth` to override the callback behaviour
     (state mismatch, error redirects). `verify_tokens=False` mounts the MCP endpoint without
@@ -433,12 +450,44 @@ async def connect_with_oauth(
         )
     )
 
-    app: ASGIApp = server.streamable_http_app(
-        auth=settings,
-        token_verifier=ProviderTokenVerifier(provider) if verify_tokens else None,
-        auth_server_provider=provider,
-        transport_security=NO_DNS_REBINDING_PROTECTION,
+    manager = StreamableHTTPSessionManager(app=server, security_settings=NO_DNS_REBINDING_PROTECTION)
+    asgi = StreamableHTTPASGIApp(manager)
+
+    routes: list[Route] = list(
+        create_auth_routes(
+            provider=provider,
+            issuer_url=settings.issuer_url,
+            service_documentation_url=settings.service_documentation_url,
+            client_registration_options=settings.client_registration_options,
+            revocation_options=settings.revocation_options,
+        )
     )
+    middleware: list[Middleware] = []
+    required_scopes = settings.required_scopes or []
+    resource_metadata_url = (
+        build_resource_metadata_url(settings.resource_server_url) if settings.resource_server_url else None
+    )
+
+    if verify_tokens:
+        token_verifier = ProviderTokenVerifier(provider)
+        middleware = [
+            Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(token_verifier)),
+            Middleware(AuthContextMiddleware),
+        ]
+        routes.append(Route("/mcp", endpoint=RequireAuthMiddleware(asgi, required_scopes, resource_metadata_url)))
+    else:
+        routes.append(Route("/mcp", endpoint=asgi))
+
+    if settings.resource_server_url:
+        routes.extend(
+            create_protected_resource_routes(
+                resource_url=settings.resource_server_url,
+                authorization_servers=[settings.issuer_url],
+                scopes_supported=required_scopes,
+            )
+        )
+
+    app: ASGIApp = Starlette(routes=routes, middleware=middleware)
     if app_shim is not None:
         app = app_shim(app)
 
@@ -452,14 +501,16 @@ async def connect_with_oauth(
         event_hooks = {"request": [hook]}
 
     async with AsyncExitStack() as stack:
-        await stack.enter_async_context(server.session_manager.run())
+        await stack.enter_async_context(manager.run())
         http_client = await stack.enter_async_context(
             httpx.AsyncClient(
                 transport=StreamingASGITransport(app), base_url=BASE_URL, auth=oauth, event_hooks=event_hooks
             )
         )
         headless.bind(http_client)
-        client = await stack.enter_async_context(
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client))
+        read, write, _get_session_id = await stack.enter_async_context(
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         )
-        yield client, headless
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        yield session, headless

@@ -19,7 +19,7 @@ from inline_snapshot import snapshot
 from pydantic import AnyUrl
 
 from mcp import types
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.shared.auth import OAuthClientInformationFull
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
@@ -39,8 +39,15 @@ from tests.interaction.transports._bridge import StreamingASGITransport
 pytestmark = pytest.mark.anyio
 
 
-async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="whoami", inputSchema={"type": "object"})])
+def _guarded_server() -> Server[object]:
+    """Build a lowlevel server exposing a single `whoami` tool, in the v1 decorator style."""
+    server: Server[object] = Server("guarded")
+
+    @server.list_tools()
+    async def _list_tools() -> list[types.Tool]:
+        return [Tool(name="whoami", inputSchema={"type": "object"})]
+
+    return server
 
 
 @requirement("flow:oauth:authorization-code-roundtrip")
@@ -67,7 +74,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     with anyio.fail_after(5):
         async with connect_with_oauth(server, provider=provider, storage=storage, on_request=requests.append) as (
@@ -121,14 +128,15 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
 @requirement("hosting:auth:authinfo-propagates")
 async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() -> None:
     """A tool handler reads the request's access token through `get_access_token()`."""
+    server = _guarded_server()
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "whoami"
+    @server.call_tool()
+    async def _call_tool(name: str, arguments: dict[str, object]) -> CallToolResult:
+        assert name == "whoami"
         token = get_access_token()
         assert token is not None
         return CallToolResult(content=[TextContent(type="text", text=" ".join(token.scopes))])
 
-    server = Server("guarded", on_list_tools=list_tools, on_call_tool=call_tool)
     provider = InMemoryAuthorizationServerProvider()
 
     with anyio.fail_after(5):
@@ -148,7 +156,7 @@ async def test_a_preregistered_client_skips_registration() -> None:
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     client_info = OAuthClientInformationFull(
         client_id="preregistered",
@@ -183,7 +191,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
-    server = Server("guarded", on_list_tools=list_tools)
+    server = _guarded_server()
 
     client_metadata = oauth_client_metadata()
     client_metadata.software_id = "interaction-test-suite"
