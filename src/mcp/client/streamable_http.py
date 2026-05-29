@@ -43,6 +43,8 @@ StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
+MCP_METHOD = "mcp-method"
+MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
@@ -82,7 +84,7 @@ class StreamableHTTPTransport:
         self.session_id: str | None = None
         self.protocol_version: str | None = None
 
-    def _prepare_headers(self) -> dict[str, str]:
+    def _prepare_headers(self, message: JSONRPCMessage | None = None) -> dict[str, str]:
         """Build MCP-specific request headers.
 
         These headers will be merged with the httpx.AsyncClient's default headers,
@@ -97,7 +99,27 @@ class StreamableHTTPTransport:
             headers[MCP_SESSION_ID] = self.session_id
         if self.protocol_version:
             headers[MCP_PROTOCOL_VERSION] = self.protocol_version
+        if isinstance(message, JSONRPCRequest | JSONRPCNotification):
+            headers[MCP_METHOD] = message.method
+            if mcp_name := self._get_mcp_name(message):
+                headers[MCP_NAME] = mcp_name
         return headers
+
+    def _get_mcp_name(self, message: JSONRPCRequest | JSONRPCNotification) -> str | None:
+        params = message.params
+        if not isinstance(params, dict):
+            return None
+
+        if message.method in {"tools/call", "prompts/get"}:
+            value = params.get("name")
+        elif message.method in {"resources/read", "resources/subscribe", "resources/unsubscribe"}:
+            value = params.get("uri")
+        else:
+            return None
+
+        if value is None:
+            return None
+        return str(value)
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
@@ -253,8 +275,8 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_headers()
         message = ctx.session_message.message
+        headers = self._prepare_headers(message)
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(

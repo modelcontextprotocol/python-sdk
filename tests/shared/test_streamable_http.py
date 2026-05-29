@@ -1428,6 +1428,35 @@ async def test_client_includes_protocol_version_header_after_init(context_app: S
         assert headers_data[MCP_PROTOCOL_VERSION_HEADER] == negotiated_version
 
 
+@pytest.mark.parametrize(
+    ("method", "params", "expected_name"),
+    [
+        ("tools/call", {"name": "echo_headers"}, "echo_headers"),
+        ("prompts/get", {"name": "summarize"}, "summarize"),
+        ("resources/read", {"uri": "file:///tmp/readme.md"}, "file:///tmp/readme.md"),
+        ("resources/subscribe", {"uri": "file:///tmp/readme.md"}, "file:///tmp/readme.md"),
+        ("resources/unsubscribe", {"uri": "file:///tmp/readme.md"}, "file:///tmp/readme.md"),
+        ("tools/call", {}, None),
+        ("resources/read", {}, None),
+        ("tools/list", {}, None),
+    ],
+)
+def test_streamable_http_client_adds_sep_2243_headers(
+    method: str, params: dict[str, Any], expected_name: str | None
+) -> None:
+    """POST requests include SEP-2243 method/name headers."""
+    transport = StreamableHTTPTransport("https://example.com/mcp")
+    message = JSONRPCRequest(jsonrpc="2.0", id=1, method=method, params=params)
+
+    headers = transport._prepare_headers(message)
+
+    assert headers["mcp-method"] == method
+    if expected_name is None:
+        assert "mcp-name" not in headers
+    else:
+        assert headers["mcp-name"] == expected_name
+
+
 @pytest.mark.anyio
 async def test_server_validates_protocol_version_header(basic_app: Starlette) -> None:
     """An invalid or unsupported protocol version header is rejected with 400; the negotiated one passes."""
