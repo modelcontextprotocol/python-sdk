@@ -373,6 +373,10 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
     assert received == snapshot(["before close", "after close"])
 
 
+@requirement("hosting:resume:close-stream")
+@requirement("transport:streamable-http:resumability")
+@requirement("client-transport:http:reconnect-post-priming")
+@requirement("client-transport:http:reconnect-retry-value")
 async def test_a_call_whose_stream_closes_and_cannot_be_resumed_fails_instead_of_hanging() -> None:
     """If a resumable response stream disconnects and the server session is gone, the client fails
     the request instead of hanging forever.
