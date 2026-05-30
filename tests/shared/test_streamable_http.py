@@ -45,7 +45,12 @@ from starlette.types import Message, Scope
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    StreamableHTTPTransport,
+    _encode_mcp_header_value,
+    _set_mcp_request_headers,
+    streamable_http_client,
+)
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     GET_STREAM_KEY,
@@ -2283,3 +2288,74 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        # Request with params.name (tools/prompts) -> Mcp-Name is the name.
+        (
+            types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "read_file"}),
+            {"mcp-method": "tools/call", "mcp-name": "read_file"},
+        ),
+        # Request with params.uri but no name (resources) -> Mcp-Name is the uri.
+        (
+            types.JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/read", params={"uri": "file:///README.md"}),
+            {"mcp-method": "resources/read", "mcp-name": "file:///README.md"},
+        ),
+        # Request without params -> only Mcp-Method.
+        (
+            types.JSONRPCRequest(jsonrpc="2.0", id=3, method="initialize", params=None),
+            {"mcp-method": "initialize"},
+        ),
+        # Request whose name is not a string and has no uri -> only Mcp-Method.
+        (
+            types.JSONRPCRequest(jsonrpc="2.0", id=4, method="tools/call", params={"name": 123}),
+            {"mcp-method": "tools/call"},
+        ),
+        # Notification -> Mcp-Method, never Mcp-Name.
+        (
+            types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"),
+            {"mcp-method": "notifications/initialized"},
+        ),
+        # Response and error have no method -> no MCP routing headers.
+        (
+            types.JSONRPCResponse(jsonrpc="2.0", id=5, result={}),
+            {},
+        ),
+        (
+            types.JSONRPCError(jsonrpc="2.0", id=6, error=types.ErrorData(code=types.INTERNAL_ERROR, message="boom")),
+            {},
+        ),
+        # A name with non-ASCII characters is encoded per SEP-2243, not sent raw
+        # (sending it raw would raise UnicodeEncodeError when building the request).
+        (
+            types.JSONRPCRequest(jsonrpc="2.0", id=7, method="tools/call", params={"name": "café"}),
+            {"mcp-method": "tools/call", "mcp-name": "=?base64?Y2Fmw6k=?="},
+        ),
+    ],
+)
+def test_set_mcp_request_headers(message: types.JSONRPCMessage, expected: dict[str, str]) -> None:
+    """SEP-2243: POST messages carry Mcp-Method, and Mcp-Name when a target is present."""
+    headers: dict[str, str] = {}
+    _set_mcp_request_headers(headers, message)
+    assert headers == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Safe values are sent unchanged.
+        ("get_weather", "get_weather"),
+        ("file:///projects/myapp/config.json", "file:///projects/myapp/config.json"),
+        ("", ""),
+        # Unsafe values are base64-wrapped (examples taken from SEP-2243).
+        ("Hello, 世界", "=?base64?SGVsbG8sIOS4lueVjA==?="),  # non-ASCII
+        (" padded ", "=?base64?IHBhZGRlZCA=?="),  # leading/trailing space
+        ("line1\nline2", "=?base64?bGluZTEKbGluZTI=?="),  # control character / injection
+        ("=?base64?literal?=", "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?="),  # sentinel collision
+    ],
+)
+def test_encode_mcp_header_value(value: str, expected: str) -> None:
+    """SEP-2243 value encoding: safe ASCII passes through, everything else is base64-wrapped."""
+    assert _encode_mcp_header_value(value) == expected
