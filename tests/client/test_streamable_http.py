@@ -72,6 +72,7 @@ async def test_sse_response_disconnect_before_any_event_id_fails_request() -> No
             await transport._handle_sse_response(response, ctx)
             message = await read_stream.receive()
 
+    assert isinstance(message, SessionMessage)
     assert isinstance(message.message, JSONRPCError)
     assert message.message.id == 1
     assert message.message.error.code == CONNECTION_CLOSED
