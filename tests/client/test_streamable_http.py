@@ -13,9 +13,10 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
+from mcp_types import CONNECTION_CLOSED, METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport, streamable_http_client
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 
@@ -50,6 +51,30 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
         assert base64.b64decode(encoded.removeprefix("=?base64?").removesuffix("?=")).decode() == raw
     else:
         assert encoded == raw
+
+
+@pytest.mark.anyio
+async def test_sse_response_disconnect_before_any_event_id_fails_request() -> None:
+    transport = StreamableHTTPTransport("http://example.com/mcp")
+    async with httpx.AsyncClient() as client:
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+        request = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "noop", "arguments": {}})
+        ctx = RequestContext(
+            client=client,
+            session_id=None,
+            session_message=SessionMessage(request),
+            metadata=None,
+            read_stream_writer=read_stream_writer,
+        )
+        response = httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+        async with read_stream_writer, read_stream:
+            await transport._handle_sse_response(response, ctx)
+            message = await read_stream.receive()
+
+    assert isinstance(message.message, JSONRPCError)
+    assert message.message.id == 1
+    assert message.message.error.code == CONNECTION_CLOSED
 
 
 @pytest.mark.anyio

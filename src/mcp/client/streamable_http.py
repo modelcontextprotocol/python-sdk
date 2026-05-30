@@ -399,18 +399,15 @@ class StreamableHTTPTransport:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
         # Bail if max retries exceeded
         if attempt >= MAX_RECONNECTION_ATTEMPTS:
-            original_request_id = None
-            if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
-                original_request_id = ctx.session_message.message.id
-
-            if original_request_id is not None:
-                error_data = ErrorData(
-                    code=CONNECTION_CLOSED,
-                    message="SSE stream disconnected and could not be resumed",
-                    data={"last_event_id": last_event_id},
-                )
-                error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
-                await ctx.read_stream_writer.send(error_msg)
+            assert isinstance(ctx.session_message.message, JSONRPCRequest)
+            original_request_id = ctx.session_message.message.id
+            error_data = ErrorData(
+                code=CONNECTION_CLOSED,
+                message="SSE stream disconnected and could not be resumed",
+                data={"last_event_id": last_event_id},
+            )
+            error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
+            await ctx.read_stream_writer.send(error_msg)
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
             return
 
