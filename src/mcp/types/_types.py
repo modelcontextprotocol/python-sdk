@@ -534,7 +534,7 @@ class TaskStatusNotificationParams(NotificationParams, Task):
 
 
 class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
-    """An optional notification from the receiver to the requestor, informing them that a task's status has changed.
+    """An optional notification from the receiver to the requester, informing them that a task's status has changed.
     Receivers are not required to send these notifications.
     """
 

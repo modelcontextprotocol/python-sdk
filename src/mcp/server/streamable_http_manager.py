@@ -197,12 +197,12 @@ class StreamableHTTPSessionManager:
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         user = scope.get("user")
-        requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
+        requester = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
 
         # Existing session case
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
-            if requestor != self._session_owners.get(request_mcp_session_id):
+            if requester != self._session_owners.get(request_mcp_session_id):
                 # A session can only be used with the credential that created
                 # it. Respond exactly as if the session did not exist.
                 logger.warning(
@@ -240,8 +240,8 @@ class StreamableHTTPSessionManager:
                 )
 
                 assert http_transport.mcp_session_id is not None
-                if requestor is not None:
-                    self._session_owners[http_transport.mcp_session_id] = requestor
+                if requester is not None:
+                    self._session_owners[http_transport.mcp_session_id] = requester
                 self._server_instances[http_transport.mcp_session_id] = http_transport
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 

@@ -111,7 +111,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """Retrieves client information by client ID.
 
-        Implementors MAY raise NotImplementedError if dynamic client registration is
+        Implementers MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
 
         Args:
@@ -124,7 +124,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """Saves client information as part of registering it.
 
-        Implementors MAY raise NotImplementedError if dynamic client registration is
+        Implementers MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
 
         Args:
