@@ -423,7 +423,7 @@ async def test_a_call_whose_stream_closes_and_cannot_be_resumed_fails_instead_of
     ):
         manager_ref = manager
         with anyio.fail_after(5):  # pragma: no branch
-            async with (
+            async with (  # pragma: no branch
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r, w),
                 ClientSession(r, w) as session,
                 anyio.create_task_group() as tg,
