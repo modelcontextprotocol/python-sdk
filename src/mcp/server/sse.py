@@ -232,8 +232,8 @@ class SseServerTransport:
             return await response(scope, receive, send)
 
         user = scope.get("user")
-        requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
-        if requestor != self._session_owners.get(session_id):
+        requester = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
+        if requester != self._session_owners.get(session_id):
             # A session can only be used with the credential that created it.
             # Respond exactly as if the session did not exist.
             logger.warning("Rejecting message for session %s: credential does not match", session_id)
