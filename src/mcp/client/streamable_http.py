@@ -2,6 +2,7 @@
 
 from __future__ import annotations as _annotations
 
+import base64
 import contextlib
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -43,11 +44,58 @@ StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
+MCP_METHOD = "mcp-method"
+MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
+
+
+def _encode_mcp_header_value(value: str) -> str:
+    """Encode a value for an MCP routing header per SEP-2243.
+
+    Returns ``value`` unchanged when it is already safe to send as an HTTP
+    header value: printable ASCII (0x20-0x7E) with no leading or trailing
+    whitespace, and not already matching the ``=?base64?...?=`` sentinel.
+    Otherwise returns the SEP-2243 base64 form ``=?base64?<b64>?=`` over the
+    UTF-8 bytes, which safely carries non-ASCII text, control characters
+    (avoiding header injection), and significant leading/trailing whitespace.
+    """
+    is_safe = (
+        all("\x20" <= ch <= "\x7e" for ch in value)
+        and (not value or (value[0] not in " \t" and value[-1] not in " \t"))
+        and not (value.startswith("=?base64?") and value.endswith("?="))
+    )
+    if is_safe:
+        return value
+    encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    return f"=?base64?{encoded}?="
+
+
+def _set_mcp_request_headers(headers: dict[str, str], message: JSONRPCMessage) -> None:
+    """Add SEP-2243 routing headers for an outgoing POST message.
+
+    ``Mcp-Method`` carries the JSON-RPC method for requests and notifications.
+    ``Mcp-Name`` carries the target ``params.name`` (tools, prompts) or, when
+    that is absent, ``params.uri`` (resources), encoded per SEP-2243 so that
+    non-ASCII, control characters, or significant whitespace are transmitted
+    safely. JSON-RPC responses and errors, which have no method, receive
+    neither header.
+
+    See https://modelcontextprotocol.io/specification (SEP-2243).
+    """
+    if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
+        return
+    headers[MCP_METHOD] = message.method
+    params = message.params
+    if params is None:
+        return
+    name = params.get("name")
+    mcp_name = name if isinstance(name, str) else params.get("uri")
+    if isinstance(mcp_name, str):
+        headers[MCP_NAME] = _encode_mcp_header_value(mcp_name)
 
 
 class StreamableHTTPError(Exception):
@@ -255,6 +303,7 @@ class StreamableHTTPTransport:
         """Handle a POST request with response processing."""
         headers = self._prepare_headers()
         message = ctx.session_message.message
+        _set_mcp_request_headers(headers, message)
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(
