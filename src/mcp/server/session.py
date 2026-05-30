@@ -107,6 +107,11 @@ class ServerSession(
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
+        """The client's InitializeRequestParams received during handshake.
+
+        Contains client_info, capabilities, and the requested protocol_version.
+        Returns None if the session has not yet been initialized.
+        """
         return self._client_params
 
     @property
@@ -689,4 +694,9 @@ class ServerSession(
 
     @property
     def incoming_messages(self) -> MemoryObjectReceiveStream[ServerRequestResponder]:
+        """Stream of incoming client requests wrapped as ServerRequestResponder objects.
+
+        Each item in the stream pairs the original client request with a
+        responder that the server handler uses to send back a result or error.
+        """
         return self._incoming_message_stream_reader

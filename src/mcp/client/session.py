@@ -146,6 +146,20 @@ class ClientSession(
         return types.server_notification_adapter
 
     async def initialize(self) -> types.InitializeResult:
+        """Perform the MCP initialization handshake with the server.
+
+        Sends an InitializeRequest with the client's capabilities (sampling,
+        elicitation, roots, tasks) and client_info, waits for the server's
+        InitializeResult, validates the negotiated protocol version, stores
+        the result, and sends an InitializedNotification.
+
+        Returns:
+            The server's InitializeResult containing server_info,
+            capabilities, instructions, and the negotiated protocol_version.
+
+        Raises:
+            RuntimeError: If the server returns an unsupported protocol version.
+        """
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
             if self._sampling_callback is not _default_sampling_callback

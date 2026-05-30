@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 def remove_request_params(url: str) -> str:
+    """Strip query parameters from a URL, returning only scheme + host + path.
+
+    Used to derive the base endpoint URL from an SSE connection URL that may
+    include session identifiers or other transient query parameters.
+    """
     return urljoin(url, urlparse(url).path)
 
 
