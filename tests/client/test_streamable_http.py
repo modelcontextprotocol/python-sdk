@@ -82,6 +82,30 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
 
 
 @pytest.mark.anyio
+async def test_sse_response_disconnect_before_any_event_id_fails_request() -> None:
+    transport = StreamableHTTPTransport("http://example.com/mcp")
+    async with httpx.AsyncClient() as client:
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+        request = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "noop", "arguments": {}})
+        ctx = RequestContext(
+            client=client,
+            session_id=None,
+            session_message=SessionMessage(request),
+            metadata=None,
+            read_stream_writer=read_stream_writer,
+        )
+        response = httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+        async with read_stream_writer, read_stream:
+            await transport._handle_sse_response(response, ctx)
+            message = await read_stream.receive()
+
+    assert isinstance(message.message, JSONRPCError)
+    assert message.message.id == 1
+    assert message.message.error.code == CONNECTION_CLOSED
+
+
+@pytest.mark.anyio
 async def test_post_request_merges_per_message_metadata_headers() -> None:
     """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
     (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
