@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import anyio
 import httpx
@@ -108,6 +109,19 @@ class StreamableHTTPTransport:
         # `notifications/cancelled` at 2026 can abort it; see
         # `_consume_modern_cancellation`. Keys are verbatim-typed ("1" is not 1).
         self._in_flight_posts: dict[RequestId, _InFlightPost] = {}
+        self._default_origin = self._derive_origin(url)
+
+    @staticmethod
+    def _derive_origin(url: str) -> str | None:
+        """Derive a same-origin ``Origin`` value (scheme://host[:port]) from a URL.
+
+        Returns ``None`` when the URL has no scheme or host, in which case no
+        ``Origin`` header is added.
+        """
+        parsed = urlsplit(url)
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}"
 
     def _prepare_headers(self) -> dict[str, str]:
         """Build MCP-specific request headers for any outbound HTTP request.
@@ -123,6 +137,13 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        # Send a same-origin Origin header by default so spec-compliant servers
+        # that enforce anti-DNS-rebinding / CSRF protection (e.g. the Go SDK's
+        # http.CrossOriginProtection) accept the handshake instead of returning
+        # 403. Callers needing a different Origin can set one on the underlying
+        # httpx client's default headers.
+        if self._default_origin is not None:
+            headers["origin"] = self._default_origin
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         if self._protocol_version_header:
