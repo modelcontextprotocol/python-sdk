@@ -79,10 +79,12 @@ class StreamableHTTPTransport:
             url: The endpoint URL.
         """
         self.url = url
+        parsed_url = httpx.URL(url)
+        self.origin = f"{parsed_url.scheme}://{parsed_url.netloc.decode()}" if parsed_url.netloc else None
         self.session_id: str | None = None
         self.protocol_version: str | None = None
 
-    def _prepare_headers(self) -> dict[str, str]:
+    def _prepare_headers(self, client: httpx.AsyncClient | None = None) -> dict[str, str]:
         """Build MCP-specific request headers.
 
         These headers will be merged with the httpx.AsyncClient's default headers,
@@ -92,6 +94,8 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        if self.origin and (client is None or "origin" not in client.headers):
+            headers["origin"] = self.origin
         # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
@@ -189,7 +193,7 @@ class StreamableHTTPTransport:
                 if not self.session_id:
                     return
 
-                headers = self._prepare_headers()
+                headers = self._prepare_headers(client)
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
@@ -225,7 +229,7 @@ class StreamableHTTPTransport:
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._prepare_headers()
+        headers = self._prepare_headers(ctx.client)
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -253,7 +257,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_headers()
+        headers = self._prepare_headers(ctx.client)
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -388,7 +392,7 @@ class StreamableHTTPTransport:
         delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
         await anyio.sleep(delay_ms / 1000.0)
 
-        headers = self._prepare_headers()
+        headers = self._prepare_headers(ctx.client)
         headers[LAST_EVENT_ID] = last_event_id
 
         # Extract original request ID to map responses
@@ -496,7 +500,7 @@ class StreamableHTTPTransport:
             return  # pragma: no cover
 
         try:
-            headers = self._prepare_headers()
+            headers = self._prepare_headers(client)
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:

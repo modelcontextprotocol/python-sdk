@@ -2318,3 +2318,39 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_adds_origin_header(context_aware_server: None, basic_server_url: str) -> None:
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+            await session.initialize()
+
+            tool_result = await session.call_tool("echo_headers", {})
+            assert len(tool_result.content) == 1
+            assert isinstance(tool_result.content[0], TextContent)
+            headers_data = json.loads(tool_result.content[0].text)
+
+            assert headers_data["origin"] == basic_server_url
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_preserves_custom_origin_header(
+    context_aware_server: None, basic_server_url: str
+) -> None:
+    custom_origin = "https://proxy.example"
+
+    async with create_mcp_http_client(headers={"Origin": custom_origin}) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+
+                tool_result = await session.call_tool("echo_headers", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                headers_data = json.loads(tool_result.content[0].text)
+
+                assert headers_data["origin"] == custom_origin
