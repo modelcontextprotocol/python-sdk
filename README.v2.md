@@ -1375,6 +1375,28 @@ This configuration is necessary because:
 - Browsers restrict access to response headers unless explicitly exposed via CORS
 - Without this configuration, browser-based clients won't be able to read the session ID from initialization responses
 
+#### Reverse Proxy Host Headers
+
+DNS rebinding protection checks the incoming `Host` header when transport security is enabled. If your server is behind
+nginx, Cloudflare, or another reverse proxy, include the public hostname in `TransportSecuritySettings.allowed_hosts`.
+Some proxies preserve the port, so include both forms when needed:
+
+```python
+from mcp.server.transport_security import TransportSecuritySettings
+
+transport_security = TransportSecuritySettings(
+    allowed_hosts=[
+        "mcp.example.com",
+        "mcp.example.com:443",
+    ],
+)
+
+mcp_app = server.streamable_http_app(transport_security=transport_security)
+```
+
+If a request is rejected by this check, the server returns HTTP 421 with `host_not_allowed`, the received host, and the
+setting to configure.
+
 ### Mounting to an Existing ASGI Server
 
 By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mounted at `/mcp`. You can customize these paths using the methods described below.
