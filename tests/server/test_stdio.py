@@ -92,3 +92,21 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_uses_os_dup():
+    """Verify stdio_server uses os.dup to avoid closing real stdin/stdout.
+
+    This verifies the fix for https://github.com/modelcontextprotocol/python-sdk/issues/1933
+    where wrapping sys.stdin.buffer/sys.stdout.buffer directly caused the real
+    file descriptors to be closed when the context manager exited.
+    """
+    import inspect
+
+    from mcp.server import stdio as stdio_module
+
+    source = inspect.getsource(stdio_module.stdio_server)
+    # The fix uses os.dup to duplicate file descriptors
+    assert "os.dup" in source
+    assert "os.fdopen" in source
