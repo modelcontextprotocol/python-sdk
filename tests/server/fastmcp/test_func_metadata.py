@@ -13,7 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, TextContent
 
 
 class SomeInputModelA(BaseModel):
@@ -876,6 +876,24 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
 
     with pytest.raises(ValueError):
         meta.convert_result(func_returning_annotated_tool_call_result())
+
+
+def test_tool_call_result_annotated_error_skips_structured_validation():
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_returning_tool_error() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
+        return CallToolResult(content=[TextContent(type="text", text="Division by zero")], isError=True)
+
+    meta = func_metadata(func_returning_tool_error)
+    result = meta.convert_result(func_returning_tool_error())
+
+    assert isinstance(result, CallToolResult)
+    assert result.isError is True
+    assert result.structuredContent is None
+    content = result.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "Division by zero"
 
 
 def test_tool_call_result_in_optional_is_rejected():
