@@ -114,7 +114,7 @@ The `ttl` (time-to-live) specifies how long the task and result are retained aft
 Servers persist task state in a `TaskStore`. The SDK provides `InMemoryTaskStore` for development:
 
 ```python
-from mcp.shared.experimental.tasks import InMemoryTaskStore
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 
 store = InMemoryTaskStore()
 ```

@@ -211,7 +211,7 @@ from mcp.types import (
     CreateTaskResult, GetTaskResult, GetTaskPayloadResult,
     TaskMetadata, ElicitRequestParams,
 )
-from mcp.shared.experimental.tasks import InMemoryTaskStore
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 
 # Client-side task store
 client_store = InMemoryTaskStore()
