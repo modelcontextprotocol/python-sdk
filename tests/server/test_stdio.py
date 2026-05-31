@@ -4,6 +4,7 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
+from typing import Any
 
 import anyio
 import pytest
@@ -105,10 +106,10 @@ async def test_stdio_server_disables_newline_translation(monkeypatch: pytest.Mon
     monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
     monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
 
-    calls: list[dict[str, object | None]] = []
+    calls: list[dict[str, str | None]] = []
     real_text_io_wrapper = TextIOWrapper
 
-    def spy(buffer: io.BufferedIOBase, *args: object, **kwargs: object) -> TextIOWrapper:
+    def spy(buffer: Any, *args: Any, **kwargs: Any) -> TextIOWrapper:
         calls.append({"errors": kwargs.get("errors"), "newline": kwargs.get("newline")})
         return real_text_io_wrapper(buffer, *args, **kwargs)
 
