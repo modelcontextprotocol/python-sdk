@@ -8,6 +8,7 @@ from io import TextIOWrapper
 import anyio
 import pytest
 
+import mcp.server.stdio as stdio_module
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
@@ -94,6 +95,32 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_disables_newline_translation(monkeypatch: pytest.MonkeyPatch):
+    raw_stdin = io.BytesIO()
+    raw_stdout = io.BytesIO()
+
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
+
+    calls: list[dict[str, object | None]] = []
+    real_text_io_wrapper = TextIOWrapper
+
+    def spy(buffer: io.BufferedIOBase, *args: object, **kwargs: object) -> TextIOWrapper:
+        calls.append({"errors": kwargs.get("errors"), "newline": kwargs.get("newline")})
+        return real_text_io_wrapper(buffer, *args, **kwargs)
+
+    monkeypatch.setattr(stdio_module, "TextIOWrapper", spy)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+    assert {"errors": "replace", "newline": ""} in calls
+    assert {"errors": None, "newline": ""} in calls
 
 
 class _KeepOpenBytesIO(io.BytesIO):
