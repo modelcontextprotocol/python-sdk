@@ -10,7 +10,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
@@ -171,6 +171,7 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
+        self._session_run_error: BaseException | None = None
         # Idle timeout cancel scope; managed by the session manager.
         self.idle_scope: anyio.CancelScope | None = None
 
@@ -178,6 +179,16 @@ class StreamableHTTPServerTransport:
     def is_terminated(self) -> bool:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
+
+    def note_session_run_error(self, exc: BaseException) -> None:
+        self._session_run_error = exc
+
+    def _post_error_message(self, err: BaseException) -> str:
+        display_error = self._session_run_error or err
+        display_error_text = str(display_error) or type(display_error).__name__
+        if display_error is not err and str(display_error):
+            display_error_text = f"{type(display_error).__name__}: {display_error_text}"
+        return f"Error handling POST request: {display_error_text}"
 
     def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.
@@ -361,6 +372,10 @@ class StreamableHTTPServerTransport:
                 # Remove the request stream from the mapping
                 self._request_streams.pop(request_id, None)
 
+    async def _clean_up_post_request_stream(self, request_id: RequestId | None) -> None:
+        if request_id is not None:
+            await self._clean_up_memory_streams(request_id)
+
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests."""
         request = Request(scope, receive)
@@ -441,6 +456,7 @@ class StreamableHTTPServerTransport:
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
+        request_id: RequestId | None = None
         try:
             # Validate Accept header
             if not await self._validate_accept_header(request, scope, send):
@@ -638,15 +654,16 @@ class StreamableHTTPServerTransport:
             # the per-SSE-stream guard above; whether tests reach this depends
             # on client teardown timing.
             logger.exception("Error handling POST request")
+            await self._clean_up_post_request_stream(request_id)
             response = self._create_error_response(
-                f"Error handling POST request: {err}",
+                self._post_error_message(err),
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            if writer:
+            with suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
                 await writer.send(Exception(err))
-            return  # pragma: no cover
+            return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
         """Handle GET request to establish SSE.

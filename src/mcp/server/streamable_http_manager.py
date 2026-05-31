@@ -276,7 +276,8 @@ class StreamableHTTPSessionManager:
                                 self._server_instances.pop(http_transport.mcp_session_id, None)
                                 self._session_owners.pop(http_transport.mcp_session_id, None)
                                 await http_transport.terminate()
-                        except Exception:
+                        except Exception as exc:
+                            http_transport.note_session_run_error(exc)
                             logger.exception(f"Session {http_transport.mcp_session_id} crashed")
                         finally:
                             if (  # pragma: no branch

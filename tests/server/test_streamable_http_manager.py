@@ -209,6 +209,57 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
     assert not manager._server_instances, "No sessions should be tracked after the only session crashes"
 
 
+def test_post_error_message_prefers_session_run_error():
+    transport = StreamableHTTPServerTransport(mcp_session_id="session-id", is_json_response_enabled=True)
+
+    assert transport._post_error_message(anyio.ClosedResourceError()) == (
+        "Error handling POST request: ClosedResourceError"
+    )
+
+    transport.note_session_run_error(RuntimeError("BOOM-distinctive-root-cause"))
+    assert transport._post_error_message(anyio.ClosedResourceError()) == (
+        "Error handling POST request: RuntimeError: BOOM-distinctive-root-cause"
+    )
+
+
+@pytest.mark.anyio
+async def test_stateful_json_response_includes_session_crash_cause():
+    app = Server("test-crash-cause")
+    app.run = AsyncMock(side_effect=RuntimeError("BOOM-distinctive-root-cause"))
+    manager = StreamableHTTPSessionManager(app=app, json_response=True)
+
+    sent_messages: list[Message] = []
+    response_body = b""
+
+    async def mock_send(message: Message) -> None:
+        nonlocal response_body
+        sent_messages.append(message)
+        if message["type"] == "http.response.body":
+            response_body += message.get("body", b"")
+
+    async def mock_receive() -> Message:
+        body = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test-client", "version": "1.0"},
+            },
+        }
+        return {"type": "http.request", "body": json.dumps(body).encode(), "more_body": False}
+
+    async with manager.run():
+        await manager.handle_request(_request_scope(), mock_receive, mock_send)
+        response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+        assert response_start["status"] == 500
+
+        error_data = json.loads(response_body)
+        assert error_data["error"]["code"] == -32603
+        assert "RuntimeError: BOOM-distinctive-root-cause" in error_data["error"]["message"]
+
+
 @pytest.mark.anyio
 async def test_stateless_requests_memory_cleanup():
     """Test that stateless requests actually clean up resources using real transports."""
