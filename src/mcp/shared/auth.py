@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
@@ -83,6 +83,14 @@ class OAuthClientMetadata(BaseModel):
         # registration response. Treat "" as absent.
         if v == "":
             return None
+        return v
+
+    @field_validator("redirect_uris", mode="before")
+    @classmethod
+    def _normalize_redirect_uris(cls, v: object) -> object:
+        if isinstance(v, list | tuple | set | frozenset):
+            redirect_uris = cast(list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any], v)
+            return [str(uri) for uri in redirect_uris]
         return v
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
