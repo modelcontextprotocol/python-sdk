@@ -17,6 +17,7 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -38,10 +39,18 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # standard process handles. Encoding of stdin/stdout as text streams on
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
+    close_stdin = False
+    close_stdout = False
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        stdin_fd = os.dup(sys.stdin.fileno())
+        stdin_buffer = os.fdopen(stdin_fd, "rb", closefd=True)
+        stdin = anyio.wrap_file(TextIOWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+        close_stdin = True
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout_fd = os.dup(sys.stdout.fileno())
+        stdout_buffer = os.fdopen(stdout_fd, "wb", closefd=True)
+        stdout = anyio.wrap_file(TextIOWrapper(stdout_buffer, encoding="utf-8"))
+        close_stdout = True
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
@@ -71,7 +80,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if close_stdin:
+            await stdin.aclose()
+        if close_stdout:
+            await stdout.aclose()
