@@ -65,6 +65,8 @@ async def test_handle_returns_result_for_completed_task(
     assert response is not None
     assert response.meta is not None
     assert "io.modelcontextprotocol/related-task" in response.meta
+    serialized = response.model_dump(by_alias=True, mode="json")
+    assert serialized["content"] == [{"type": "text", "text": "Done!"}]
 
 
 @pytest.mark.anyio
