@@ -94,6 +94,21 @@ def extract_protocol_version_from_sse(response: requests.Response) -> str:
     raise ValueError("Could not extract protocol version from SSE response")  # pragma: no cover
 
 
+def test_streamable_http_transport_includes_default_origin_header():
+    transport = StreamableHTTPTransport(
+        "https://example.com/mcp",
+        default_origin="https://example.com",
+    )
+
+    assert transport._prepare_headers()["origin"] == "https://example.com"
+
+
+def test_streamable_http_transport_omits_origin_header_without_default_origin():
+    transport = StreamableHTTPTransport("https://example.com/mcp")
+
+    assert "origin" not in transport._prepare_headers()
+
+
 # Simple in-memory event store for testing
 class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""

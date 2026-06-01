@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -72,13 +73,15 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, default_origin: str | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            default_origin: Optional Origin header value to include with requests.
         """
         self.url = url
+        self.default_origin = default_origin
         self.session_id: str | None = None
         self.protocol_version: str | None = None
 
@@ -92,6 +95,8 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        if self.default_origin:
+            headers["origin"] = self.default_origin
         # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
@@ -547,7 +552,13 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    default_origin = None
+    if "origin" not in client.headers:
+        parsed_url = urlparse(url)
+        if parsed_url.scheme and parsed_url.netloc:
+            default_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+    transport = StreamableHTTPTransport(url, default_origin=default_origin)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
