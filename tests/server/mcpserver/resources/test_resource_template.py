@@ -157,6 +157,47 @@ def test_matches_escapes_template_literals():
     assert t.matches("data://v1X0/42") is None
 
 
+def test_matches_literal_dot_does_not_route_to_wrong_template():
+    """A "." in a template's literal text matches only a literal dot (#2961).
+
+    The old regex-based matcher let "api://v1.0/{v}" match "api://v1X0/abc",
+    so an earlier registered template could capture URIs meant for a later one.
+    """
+    t = _make("api://v1.0/{version}")
+    assert t.matches("api://v1.0/abc") == {"version": "abc"}
+    assert t.matches("api://v1X0/abc") is None
+
+
+def test_matches_literal_regex_metacharacters_carry_no_regex_meaning():
+    """Quantifiers and grouping characters in literal text match only themselves (#2961).
+
+    Under the old regex-based matcher, "+" / "*" / "?" acted as quantifiers and
+    "(" ")" created groups, producing false negatives on the template's own URIs.
+    """
+    plus = _make("res://a+b/{x}")
+    assert plus.matches("res://a+b/v") == {"x": "v"}
+    assert plus.matches("res://aaab/v") is None  # "+" is not one-or-more
+
+    star = _make("res://a*b/{x}")
+    assert star.matches("res://a*b/v") == {"x": "v"}
+    assert star.matches("res://b/v") is None  # "*" is not zero-or-more
+
+    optional = _make("res://a?b/{x}")
+    assert optional.matches("res://a?b/v") == {"x": "v"}
+    assert optional.matches("res://ab/v") is None  # "?" is not optionality
+
+    parens = _make("res://a(b)c/{x}")
+    assert parens.matches("res://a(b)c/v") == {"x": "v"}
+    assert parens.matches("res://abc/v") is None  # "(" ")" is not a group
+
+
+def test_matches_template_of_every_regex_metacharacter_matches_itself():
+    """A literal run of all the regex metacharacters matches only itself (#2961)."""
+    t = _make("data:.+*?^$|()[]{name}")
+    assert t.matches("data:.+*?^$|()[]hello") == {"name": "hello"}
+    assert t.matches("data:Xhello") is None
+
+
 class TestResourceTemplate:
     """Test ResourceTemplate functionality."""
 
