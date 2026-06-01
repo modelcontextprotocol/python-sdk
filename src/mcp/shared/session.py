@@ -21,6 +21,7 @@ from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    PARSE_ERROR,
     REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
@@ -427,6 +428,21 @@ class BaseSession(
 
                 async for message in self._read_stream:
                     if isinstance(message, Exception):
+                        # The transport couldn't parse the incoming message
+                        # (e.g. deeply-nested JSON exceeding the recursion
+                        # limit on stdio).  Per JSON-RPC spec §5, send a
+                        # Parse error with id=null so the client doesn't
+                        # hang waiting for a response that will never come.
+                        error_response = JSONRPCError(
+                            jsonrpc="2.0",
+                            id=None,
+                            error=ErrorData(
+                                code=PARSE_ERROR,
+                                message="Parse error",
+                                data=str(message),
+                            ),
+                        )
+                        await self._write_stream.send(SessionMessage(message=error_response))
                         await self._handle_incoming(message)
                         continue
 
