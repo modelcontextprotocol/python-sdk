@@ -483,19 +483,16 @@ class StreamableHTTPServerTransport:
             is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
             if is_initialization_request:
-                # Check if the server already has an established session
-                if self.mcp_session_id:
-                    # Check if request has a session ID
-                    request_session_id = self._get_session_id(request)
-
-                    # If request has a session ID but doesn't match, return 404
-                    if request_session_id and request_session_id != self.mcp_session_id:  # pragma: no cover
-                        response = self._create_error_response(
-                            "Not Found: Invalid or expired session ID",
-                            HTTPStatus.NOT_FOUND,
-                        )
-                        await response(scope, receive, send)
-                        return
+                request_session_id = self._get_session_id(request)
+                if (
+                    self.mcp_session_id and request_session_id and request_session_id != self.mcp_session_id
+                ):  # pragma: no cover
+                    response = self._create_error_response(
+                        "Not Found: Invalid or expired session ID",
+                        HTTPStatus.NOT_FOUND,
+                    )
+                    await response(scope, receive, send)
+                    return
             elif not await self._validate_request_headers(request, send):
                 return
 
