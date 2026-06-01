@@ -73,6 +73,14 @@ class TestServer:
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
 
+    def test_stdio_keyboard_interrupt_exits_cleanly(self):
+        mcp = MCPServer("test")
+
+        with patch("mcp.server.mcpserver.server.anyio.run", side_effect=KeyboardInterrupt) as run:
+            mcp.run("stdio")
+
+        run.assert_called_once_with(mcp.run_stdio_async)
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
