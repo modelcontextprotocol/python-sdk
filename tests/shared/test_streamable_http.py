@@ -23,9 +23,16 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
 
+import mcp.client.streamable_http as streamable_http_module
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    RequestContext as StreamableHTTPClientRequestContext,
+)
+from mcp.client.streamable_http import (
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -41,7 +48,12 @@ from mcp.server.streamable_http import (
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._context import RequestContext
-from mcp.shared._context_streams import create_context_streams
+from mcp.shared._context_streams import ContextSendStream, create_context_streams
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    create_mcp_http_client,
+)
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
@@ -1581,6 +1593,150 @@ async def test_handle_sse_event_skips_empty_data() -> None:
     finally:
         await write_stream.aclose()
         await read_stream.aclose()
+
+
+class _FakeStreamResponse(httpx.Response):
+    def __init__(self) -> None:
+        super().__init__(200, request=httpx.Request("POST", "http://localhost:8000/mcp"))
+        self.closed_by_transport = False
+
+    async def aclose(self) -> None:  # pragma: no cover
+        self.closed_by_transport = True
+        await super().aclose()
+
+
+def _response_sse(request_id: int | str) -> ServerSentEvent:
+    return ServerSentEvent(
+        event="message",
+        data=json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {}}),
+        id="response-event",
+    )
+
+
+def _make_streamable_http_request_context(
+    request_id: int | str,
+    client: httpx.AsyncClient,
+    write_stream: ContextSendStream[SessionMessage | Exception],
+) -> StreamableHTTPClientRequestContext:
+    return StreamableHTTPClientRequestContext(
+        client=client,
+        session_id=None,
+        session_message=SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=request_id, method="tools/list")),
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+
+@pytest.mark.anyio
+async def test_sse_response_drains_after_terminal_response(monkeypatch: pytest.MonkeyPatch):
+    """Terminal POST SSE responses are drained instead of force-closed."""
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+    response = _FakeStreamResponse()
+
+    class FakeEventSource:
+        def __init__(self, response: _FakeStreamResponse) -> None:
+            self.response = response
+
+        async def aiter_sse(self):
+            yield _response_sse(1)
+            yield ServerSentEvent(event="message", data="", id="drained-event")
+
+    async def fail_reconnect(*args: Any, **kwargs: Any) -> None:  # pragma: no cover
+        raise AssertionError("terminal responses should not reconnect after draining")
+
+    monkeypatch.setattr(streamable_http_module, "EventSource", FakeEventSource)
+    monkeypatch.setattr(transport, "_handle_reconnection", fail_reconnect)
+
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](2)
+    async with httpx.AsyncClient() as client:
+        try:
+            ctx = _make_streamable_http_request_context(1, client, write_stream)
+            await transport._handle_sse_response(response, ctx)
+
+            assert response.closed_by_transport is False
+            message = await read_stream.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, types.JSONRPCResponse)
+            assert message.message.id == 1
+        finally:
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_reconnection_drains_after_terminal_response(monkeypatch: pytest.MonkeyPatch):
+    """Resumed GET responses use EOF draining instead of response.aclose()."""
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+    response = _FakeStreamResponse()
+
+    class FakeReconnectionEventSource:
+        def __init__(self, response: _FakeStreamResponse) -> None:
+            self.response = response
+
+        async def aiter_sse(self):
+            yield _response_sse("abc")
+            yield ServerSentEvent(event="message", data="", id="drained-event")
+
+    @asynccontextmanager
+    async def fake_aconnect_sse(*args: Any, **kwargs: Any):
+        yield FakeReconnectionEventSource(response)
+
+    monkeypatch.setattr(streamable_http_module, "aconnect_sse", fake_aconnect_sse)
+
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](2)
+    async with httpx.AsyncClient() as client:
+        try:
+            ctx = _make_streamable_http_request_context("abc", client, write_stream)
+            await transport._handle_reconnection(ctx, "previous-event", retry_interval_ms=0)
+
+            assert response.closed_by_transport is False
+            message = await read_stream.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, types.JSONRPCResponse)
+            assert message.message.id == "abc"
+        finally:
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_reconnection_retries_after_failed_resume(monkeypatch: pytest.MonkeyPatch):
+    """A failed resume attempt falls back to the next reconnection attempt."""
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+    response = _FakeStreamResponse()
+    attempts = 0
+
+    class FakeReconnectionEventSource:
+        def __init__(self, response: _FakeStreamResponse) -> None:
+            self.response = response
+
+        async def aiter_sse(self):
+            yield _response_sse("abc")
+
+    @asynccontextmanager
+    async def fake_aconnect_sse(*args: Any, **kwargs: Any):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("resume failed")
+        yield FakeReconnectionEventSource(response)
+
+    monkeypatch.setattr(streamable_http_module, "aconnect_sse", fake_aconnect_sse)
+
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](2)
+    async with httpx.AsyncClient() as client:
+        try:
+            ctx = _make_streamable_http_request_context("abc", client, write_stream)
+            await transport._handle_reconnection(ctx, "previous-event", retry_interval_ms=0)
+
+            assert attempts == 2
+            message = await read_stream.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, types.JSONRPCResponse)
+            assert message.message.id == "abc"
+        finally:
+            await write_stream.aclose()
+            await read_stream.aclose()
 
 
 @pytest.mark.anyio
