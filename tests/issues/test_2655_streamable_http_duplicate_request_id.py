@@ -9,10 +9,7 @@ from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
-    ListToolsResult,
-    PaginatedRequestParams,
     TextContent,
-    Tool,
 )
 
 
@@ -20,20 +17,6 @@ from mcp.types import (
 async def test_streamable_http_duplicate_request_id_returns_409_and_preserves_in_flight_request() -> None:
     started = anyio.Event()
     release = anyio.Event()
-
-    async def handle_list_tools(
-        ctx: ServerRequestContext[object],
-        params: PaginatedRequestParams | None,
-    ) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="slow_tool",
-                    description="Blocks until released by the test",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
-        )
 
     async def handle_call_tool(
         ctx: ServerRequestContext[object],
@@ -43,7 +26,7 @@ async def test_streamable_http_duplicate_request_id_returns_409_and_preserves_in
         await release.wait()
         return CallToolResult(content=[TextContent(type="text", text="ok")])
 
-    server = Server("test-duplicate-request-id", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server = Server("test-duplicate-request-id", on_call_tool=handle_call_tool)
     mcp_app = server.streamable_http_app(json_response=True, host="testserver")
 
     async with (
