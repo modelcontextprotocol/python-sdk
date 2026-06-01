@@ -64,6 +64,29 @@ async def test_stdio_server():
 
 
 @pytest.mark.anyio
+async def test_stdio_server_uses_lf_newlines_with_default_stdout(monkeypatch: pytest.MonkeyPatch):
+    class UnclosableBytesIO(io.BytesIO):
+        def close(self) -> None:
+            pass
+
+    raw_stdout = UnclosableBytesIO()
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(io.BytesIO(b""), encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
+
+    response = JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await read_stream.aclose()
+            async with write_stream:  # pragma: no branch
+                await write_stream.send(SessionMessage(response))
+
+    raw_bytes = raw_stdout.getvalue()
+    assert raw_bytes.endswith(b"\n")
+    assert b"\r\n" not in raw_bytes
+
+
+@pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
     """Non-UTF-8 bytes on stdin must not crash the server.
 
