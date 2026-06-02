@@ -2,7 +2,7 @@ import json
 import multiprocessing
 import socket
 from collections.abc import AsyncGenerator, Generator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.parse import urlparse
 
@@ -20,11 +20,12 @@ from starlette.routing import Mount, Route
 import mcp.client.sse
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, _resolve_endpoint_url, sse_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -229,6 +230,50 @@ def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | Non
     assert _extract_session_id_from_endpoint(endpoint_url) == expected
 
 
+@pytest.mark.parametrize(
+    ("sse_url", "endpoint_data", "messages_url", "expected"),
+    [
+        (
+            "https://example.com/api/v1/sse",
+            "/v1/messages/?session_id=abc123",
+            None,
+            "https://example.com/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/api/v1/sse",
+            "/v1/messages/?session_id=abc123",
+            "https://example.com/api/v1/messages/",
+            "https://example.com/api/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/api/v1/sse",
+            "/v1/messages/?session_id=abc123",
+            "/api/v1/messages/",
+            "https://example.com/api/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/api/v1/sse",
+            "/v1/messages/?session_id=abc123",
+            "https://example.com/api/v1/messages/?tenant=blue",
+            "https://example.com/api/v1/messages/?tenant=blue&session_id=abc123",
+        ),
+        (
+            "https://example.com/api/v1/sse",
+            "/v1/messages/",
+            "https://example.com/api/v1/messages/",
+            "https://example.com/api/v1/messages/",
+        ),
+    ],
+)
+def test_resolve_endpoint_url_with_messages_url_override(
+    sse_url: str,
+    endpoint_data: str,
+    messages_url: str | None,
+    expected: str,
+) -> None:
+    assert _resolve_endpoint_url(sse_url, endpoint_data, messages_url) == expected
+
+
 @pytest.mark.anyio
 async def test_sse_client_on_session_created_not_called_when_no_session_id(
     server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
@@ -247,6 +292,50 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
             # Callback would have fired by now (endpoint event arrives before
             # sse_client yields); if it hasn't, it won't.
             callback_mock.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_sse_client_uses_messages_url_override() -> None:
+    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="endpoint", data="/v1/messages/?session_id=abc123")
+        await anyio.sleep_forever()
+
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
+    mock_event_source.response = MagicMock()
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
+
+    def mock_httpx_client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        _ = (headers, timeout, auth)
+        return cast(httpx.AsyncClient, mock_client)
+
+    with patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse):
+        async with sse_client(
+            "https://example.com/api/v1/sse",
+            httpx_client_factory=mock_httpx_client_factory,
+            messages_url="https://example.com/api/v1/messages/",
+        ) as (_, write_stream):
+            message = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+            await write_stream.send(SessionMessage(message))
+            with anyio.fail_after(1):  # pragma: no branch
+                while not mock_client.post.await_count:
+                    await anyio.sleep(0.01)
+
+            mock_client.post.assert_awaited()
+            assert mock_client.post.await_args.args[0] == "https://example.com/api/v1/messages/?session_id=abc123"
 
 
 @pytest.fixture
