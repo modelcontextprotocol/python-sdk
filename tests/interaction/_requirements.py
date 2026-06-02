@@ -49,8 +49,9 @@ _TestFn = TypeVar("_TestFn", bound=Callable[..., object])
 _SOURCE_PATTERN = re.compile(r"https://modelcontextprotocol\.io/specification/.+|sdk|issue:#\d+")
 
 _TASKS_DEFERRAL = (
-    "Tasks are experimental and the spec is being substantially revised; python task behaviour is "
-    "covered by tests/experimental/tasks/ until the next spec revision settles."
+    "Tasks have been removed from the draft spec and from this SDK; they are expected to return "
+    "as a separate MCP extension. These 2025-11-25 requirements are tracked but intentionally "
+    "unimplemented."
 )
 
 

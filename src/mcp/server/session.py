@@ -37,13 +37,10 @@ from anyio.streams.memory import MemoryObjectReceiveStream
 from pydantic import AnyUrl, TypeAdapter
 
 from mcp import types
-from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import StatelessModeNotSupported
-from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
-from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -76,7 +73,6 @@ class ServerSession(
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
-    _experimental_features: ExperimentalServerSessionFeatures | None = None
 
     def __init__(
         self,
@@ -109,16 +105,6 @@ class ServerSession(
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
 
-    @property
-    def experimental(self) -> ExperimentalServerSessionFeatures:
-        """Experimental APIs for server→client task operations.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
-        if self._experimental_features is None:
-            self._experimental_features = ExperimentalServerSessionFeatures(self)
-        return self._experimental_features
-
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
         if self._client_params is None:  # pragma: lax no cover
@@ -149,12 +135,6 @@ class ServerSession(
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
-
-        if capability.tasks is not None:  # pragma: lax no cover
-            if client_caps.tasks is None:
-                return False
-            if not check_tasks_capability(capability.tasks, client_caps.tasks):
-                return False
 
         return True
 
@@ -508,181 +488,6 @@ class ServerSession(
             ),
             related_request_id,
         )
-
-    def _build_elicit_form_request(
-        self,
-        message: str,
-        requested_schema: types.ElicitRequestedSchema,
-        related_task_id: str | None = None,
-        task: types.TaskMetadata | None = None,
-    ) -> types.JSONRPCRequest:
-        """Build a form mode elicitation request without sending it.
-
-        Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
-            task: If provided, makes this a task-augmented request
-
-        Returns:
-            A JSONRPCRequest ready to be sent or queued
-        """
-        params = types.ElicitRequestFormParams(
-            message=message,
-            requested_schema=requested_schema,
-            task=task,
-        )
-        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        # Add related-task metadata if associated with a parent task
-        if related_task_id is not None:
-            # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no branch
-                params_data["_meta"] = {}
-            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                task_id=related_task_id
-            ).model_dump(by_alias=True)
-
-        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
-        if related_task_id is None:
-            self._request_id += 1
-
-        return types.JSONRPCRequest(
-            jsonrpc="2.0",
-            id=request_id,
-            method="elicitation/create",
-            params=params_data,
-        )
-
-    def _build_elicit_url_request(
-        self,
-        message: str,
-        url: str,
-        elicitation_id: str,
-        related_task_id: str | None = None,
-    ) -> types.JSONRPCRequest:
-        """Build a URL mode elicitation request without sending it.
-
-        Args:
-            message: Human-readable explanation of why the interaction is needed
-            url: The URL the user should navigate to
-            elicitation_id: Unique identifier for tracking this elicitation
-            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
-
-        Returns:
-            A JSONRPCRequest ready to be sent or queued
-        """
-        params = types.ElicitRequestURLParams(
-            message=message,
-            url=url,
-            elicitation_id=elicitation_id,
-        )
-        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        # Add related-task metadata if associated with a parent task
-        if related_task_id is not None:
-            # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no branch
-                params_data["_meta"] = {}
-            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                task_id=related_task_id
-            ).model_dump(by_alias=True)
-
-        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
-        if related_task_id is None:
-            self._request_id += 1
-
-        return types.JSONRPCRequest(
-            jsonrpc="2.0",
-            id=request_id,
-            method="elicitation/create",
-            params=params_data,
-        )
-
-    def _build_create_message_request(
-        self,
-        messages: list[types.SamplingMessage],
-        *,
-        max_tokens: int,
-        system_prompt: str | None = None,
-        include_context: types.IncludeContext | None = None,
-        temperature: float | None = None,
-        stop_sequences: list[str] | None = None,
-        metadata: dict[str, Any] | None = None,
-        model_preferences: types.ModelPreferences | None = None,
-        tools: list[types.Tool] | None = None,
-        tool_choice: types.ToolChoice | None = None,
-        related_task_id: str | None = None,
-        task: types.TaskMetadata | None = None,
-    ) -> types.JSONRPCRequest:
-        """Build a sampling/createMessage request without sending it.
-
-        Args:
-            messages: The conversation messages to send
-            max_tokens: Maximum number of tokens to generate
-            system_prompt: Optional system prompt
-            include_context: Optional context inclusion setting
-            temperature: Optional sampling temperature
-            stop_sequences: Optional stop sequences
-            metadata: Optional metadata to pass through to the LLM provider
-            model_preferences: Optional model selection preferences
-            tools: Optional list of tools the LLM can use during sampling
-            tool_choice: Optional control over tool usage behavior
-            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
-            task: If provided, makes this a task-augmented request
-
-        Returns:
-            A JSONRPCRequest ready to be sent or queued
-        """
-        params = types.CreateMessageRequestParams(
-            messages=messages,
-            system_prompt=system_prompt,
-            include_context=include_context,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stop_sequences=stop_sequences,
-            metadata=metadata,
-            model_preferences=model_preferences,
-            tools=tools,
-            tool_choice=tool_choice,
-            task=task,
-        )
-        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        # Add related-task metadata if associated with a parent task
-        if related_task_id is not None:
-            # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no branch
-                params_data["_meta"] = {}
-            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                task_id=related_task_id
-            ).model_dump(by_alias=True)
-
-        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
-        if related_task_id is None:
-            self._request_id += 1
-
-        return types.JSONRPCRequest(
-            jsonrpc="2.0",
-            id=request_id,
-            method="sampling/createMessage",
-            params=params_data,
-        )
-
-    async def send_message(self, message: SessionMessage) -> None:
-        """Send a raw session message.
-
-        This is primarily used by TaskResultHandler to deliver queued messages
-        (elicitation/sampling requests) to the client during task execution.
-
-        WARNING: This is a low-level experimental method that may change without
-        notice. Prefer using higher-level methods like send_notification() or
-        send_request() for normal operations.
-
-        Args:
-            message: The session message to send
-        """
-        await self._write_stream.send(message)
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

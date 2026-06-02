@@ -77,6 +77,49 @@ async def test_server_session_initialize():
 
 
 @pytest.mark.anyio
+async def test_check_client_capability():
+    """check_client_capability reflects the capabilities sent by the client at initialize."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    initialized = anyio.Event()
+
+    async def list_roots_callback(context: Any) -> types.ListRootsResult:  # pragma: no cover
+        return types.ListRootsResult(roots=[])
+
+    async def run_server(server_session: ServerSession):
+        async for message in server_session.incoming_messages:  # pragma: no branch
+            if isinstance(message, ClientNotification) and isinstance(
+                message, InitializedNotification
+            ):  # pragma: no branch
+                initialized.set()
+                return
+
+    async with (
+        ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(server_name="mcp", server_version="0.1.0", capabilities=ServerCapabilities()),
+        ) as server_session,
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            list_roots_callback=list_roots_callback,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server, server_session)
+        await client_session.initialize()
+        with anyio.fail_after(5):
+            await initialized.wait()
+
+        # ClientSession advertises roots when a list_roots_callback is provided.
+        assert server_session.check_client_capability(types.ClientCapabilities(roots=types.RootsCapability()))
+        # ClientSession does not advertise sampling without a sampling_callback.
+        assert not server_session.check_client_capability(types.ClientCapabilities(sampling=types.SamplingCapability()))
+
+
+@pytest.mark.anyio
 async def test_server_capabilities():
     notification_options = NotificationOptions()
     experimental_capabilities: dict[str, Any] = {}
