@@ -4,7 +4,7 @@ import socket
 import threading
 import time
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Any
 
 import uvicorn
@@ -56,6 +56,8 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
     finally:
         server.should_exit = True
         thread.join(timeout=_SERVER_SHUTDOWN_TIMEOUT_S)
+        with suppress(OSError):
+            sock.close()
 
 
 def wait_for_server(port: int, timeout: float = 20.0) -> None:

@@ -4,8 +4,6 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 (server→client and client→server) using the streamable HTTP transport.
 """
 
-import multiprocessing
-import socket
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 
@@ -19,7 +17,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import TextContent, Tool
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import run_uvicorn_in_thread
 
 # Test constants with various Unicode characters
 UNICODE_TEST_STRINGS = {
@@ -41,10 +39,8 @@ UNICODE_TEST_STRINGS = {
 }
 
 
-def run_unicode_server(port: int) -> None:  # pragma: no cover
-    """Run the Unicode test server in a separate process."""
-    import uvicorn
-
+def make_unicode_server_app() -> Starlette:  # pragma: no cover
+    """Create the Unicode test server."""
     # Need to recreate the server setup in this process
     async def handle_list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -137,43 +133,14 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
         lifespan=lifespan,
     )
 
-    # Run the server
-    config = uvicorn.Config(
-        app=app,
-        host="127.0.0.1",
-        port=port,
-        log_level="error",
-    )
-    uvicorn_server = uvicorn.Server(config)
-    uvicorn_server.run()
+    return app
 
 
 @pytest.fixture
-def unicode_server_port() -> int:
-    """Find an available port for the Unicode test server."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def running_unicode_server(unicode_server_port: int) -> Generator[str, None, None]:
-    """Start a Unicode test server in a separate process."""
-    proc = multiprocessing.Process(target=run_unicode_server, kwargs={"port": unicode_server_port}, daemon=True)
-    proc.start()
-
-    # Wait for server to be ready
-    wait_for_server(unicode_server_port)
-
-    try:
-        yield f"http://127.0.0.1:{unicode_server_port}"
-    finally:
-        # Clean up - try graceful termination first
-        proc.terminate()
-        proc.join(timeout=2)
-        if proc.is_alive():  # pragma: no cover
-            proc.kill()
-            proc.join(timeout=1)
+def running_unicode_server() -> Generator[str, None, None]:
+    """Start a Unicode test server without preselecting a port."""
+    with run_uvicorn_in_thread(make_unicode_server_app()) as url:
+        yield url
 
 
 @pytest.mark.anyio

@@ -1,15 +1,14 @@
 """Tests for SSE server request validation."""
 
 import logging
-import multiprocessing
 import re
-import socket
+from collections.abc import Generator
+from contextlib import contextmanager
 
 import anyio
 import httpx
 import pytest
 import sse_starlette.sse
-import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -24,7 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCRequest, JSONRPCResponse, Tool
-from tests.test_helpers import wait_for_server
+from tests.test_helpers import run_uvicorn_in_thread
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_sse_security_server"
@@ -39,18 +38,6 @@ def reset_sse_starlette_exit_event() -> None:
         app_status.should_exit_event = None
 
 
-@pytest.fixture
-def server_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def server_url(server_port: int) -> str:  # pragma: no cover
-    return f"http://127.0.0.1:{server_port}"
-
-
 class SecurityTestServer(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
@@ -59,8 +46,8 @@ class SecurityTestServer(Server):  # pragma: no cover
         return []
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
-    """Run the SSE server with specified security settings."""
+def make_server_app(security_settings: TransportSecuritySettings | None = None) -> Starlette:  # pragma: no cover
+    """Create the SSE server with specified security settings."""
     app = SecurityTestServer()
     sse_transport = SseServerTransport("/messages/", security_settings)
 
@@ -79,94 +66,74 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
         Mount("/messages/", app=sse_transport.handle_post_message),
     ]
 
-    starlette_app = Starlette(routes=routes)
-    uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
+    return Starlette(routes=routes)
 
 
-def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
-    """Start server in a separate process."""
-    process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
-    process.start()
-    # Wait for server to be ready to accept connections
-    wait_for_server(port)
-    return process
+@contextmanager
+def run_server_with_settings(
+    security_settings: TransportSecuritySettings | None = None,
+) -> Generator[str, None, None]:
+    """Run the SSE server without preselecting a port."""
+    with run_uvicorn_in_thread(make_server_app(security_settings)) as url:
+        yield url
 
 
 @pytest.mark.anyio
-async def test_sse_security_default_settings(server_port: int):
+async def test_sse_security_default_settings():
     """Test SSE with default security settings (protection disabled)."""
-    process = start_server_process(server_port)
-
-    try:
+    with run_server_with_settings() as server_url:
         headers = {"Host": "evil.com", "Origin": "http://evil.com"}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
-            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+            async with client.stream("GET", f"{server_url}/sse", headers=headers) as response:
                 assert response.status_code == 200
-    finally:
-        process.terminate()
-        process.join()
 
 
 @pytest.mark.anyio
-async def test_sse_security_invalid_host_header(server_port: int):
+async def test_sse_security_invalid_host_header():
     """Test SSE with invalid Host header."""
     # Enable security by providing settings with an empty allowed_hosts list
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["example.com"])
-    process = start_server_process(server_port, security_settings)
-
-    try:
+    with run_server_with_settings(security_settings) as server_url:
         # Test with invalid host header
         headers = {"Host": "evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
+            response = await client.get(f"{server_url}/sse", headers=headers)
             assert response.status_code == 421
             assert response.text == "Invalid Host header"
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_invalid_origin_header(server_port: int):
+async def test_sse_security_invalid_origin_header():
     """Test SSE with invalid Origin header."""
     # Configure security to allow the host but restrict origins
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://localhost:*"]
     )
-    process = start_server_process(server_port, security_settings)
-
-    try:
+    with run_server_with_settings(security_settings) as server_url:
         # Test with invalid origin header
         headers = {"Origin": "http://evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
+            response = await client.get(f"{server_url}/sse", headers=headers)
             assert response.status_code == 403
             assert response.text == "Invalid Origin header"
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_post_invalid_content_type(server_port: int):
+async def test_sse_security_post_invalid_content_type():
     """Test POST endpoint with invalid Content-Type header."""
     # Configure security to allow the host
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://127.0.0.1:*"]
     )
-    process = start_server_process(server_port, security_settings)
-
-    try:
+    with run_server_with_settings(security_settings) as server_url:
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Test POST with invalid content type
             fake_session_id = "12345678123456781234567812345678"
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/messages/?session_id={fake_session_id}",
+                f"{server_url}/messages/?session_id={fake_session_id}",
                 headers={"Content-Type": "text/plain"},
                 content="test",
             )
@@ -175,54 +142,42 @@ async def test_sse_security_post_invalid_content_type(server_port: int):
 
             # Test POST with missing content type
             response = await client.post(
-                f"http://127.0.0.1:{server_port}/messages/?session_id={fake_session_id}", content="test"
+                f"{server_url}/messages/?session_id={fake_session_id}", content="test"
             )
             assert response.status_code == 400
             assert response.text == "Invalid Content-Type header"
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_disabled(server_port: int):
+async def test_sse_security_disabled():
     """Test SSE with security disabled."""
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    process = start_server_process(server_port, settings)
-
-    try:
+    with run_server_with_settings(settings) as server_url:
         # Test with invalid host header - should still work
         headers = {"Host": "evil.com"}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             # For SSE endpoints, we need to use stream to avoid timeout
-            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+            async with client.stream("GET", f"{server_url}/sse", headers=headers) as response:
                 # Should connect successfully even with invalid host
                 assert response.status_code == 200
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_custom_allowed_hosts(server_port: int):
+async def test_sse_security_custom_allowed_hosts():
     """Test SSE with custom allowed hosts."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["localhost", "127.0.0.1", "custom.host"],
         allowed_origins=["http://localhost", "http://127.0.0.1", "http://custom.host"],
     )
-    process = start_server_process(server_port, settings)
-
-    try:
+    with run_server_with_settings(settings) as server_url:
         # Test with custom allowed host
         headers = {"Host": "custom.host"}
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             # For SSE endpoints, we need to use stream to avoid timeout
-            async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+            async with client.stream("GET", f"{server_url}/sse", headers=headers) as response:
                 # Should connect successfully with custom host
                 assert response.status_code == 200
 
@@ -230,33 +185,27 @@ async def test_sse_security_custom_allowed_hosts(server_port: int):
         headers = {"Host": "evil.com"}
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
+            response = await client.get(f"{server_url}/sse", headers=headers)
             assert response.status_code == 421
             assert response.text == "Invalid Host header"
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_wildcard_ports(server_port: int):
+async def test_sse_security_wildcard_ports():
     """Test SSE with wildcard port patterns."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["localhost:*", "127.0.0.1:*"],
         allowed_origins=["http://localhost:*", "http://127.0.0.1:*"],
     )
-    process = start_server_process(server_port, settings)
-
-    try:
+    with run_server_with_settings(settings) as server_url:
         # Test with various port numbers
         for test_port in [8080, 3000, 9999]:
             headers = {"Host": f"localhost:{test_port}"}
 
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # For SSE endpoints, we need to use stream to avoid timeout
-                async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+                async with client.stream("GET", f"{server_url}/sse", headers=headers) as response:
                     # Should connect successfully with any port
                     assert response.status_code == 200
 
@@ -264,25 +213,19 @@ async def test_sse_security_wildcard_ports(server_port: int):
 
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # For SSE endpoints, we need to use stream to avoid timeout
-                async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+                async with client.stream("GET", f"{server_url}/sse", headers=headers) as response:
                     # Should connect successfully with any port
                     assert response.status_code == 200
 
-    finally:
-        process.terminate()
-        process.join()
-
 
 @pytest.mark.anyio
-async def test_sse_security_post_valid_content_type(server_port: int):
+async def test_sse_security_post_valid_content_type():
     """Test POST endpoint with valid Content-Type headers."""
     # Configure security to allow the host
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://127.0.0.1:*"]
     )
-    process = start_server_process(server_port, security_settings)
-
-    try:
+    with run_server_with_settings(security_settings) as server_url:
         async with httpx.AsyncClient() as client:
             # Test with various valid content types
             valid_content_types = [
@@ -296,7 +239,7 @@ async def test_sse_security_post_valid_content_type(server_port: int):
                 # Use a valid UUID format (even though session won't exist)
                 fake_session_id = "12345678123456781234567812345678"
                 response = await client.post(
-                    f"http://127.0.0.1:{server_port}/messages/?session_id={fake_session_id}",
+                    f"{server_url}/messages/?session_id={fake_session_id}",
                     headers={"Content-Type": content_type},
                     json={"test": "data"},
                 )
@@ -304,10 +247,6 @@ async def test_sse_security_post_valid_content_type(server_port: int):
                 # We're testing that it passes the content-type check
                 assert response.status_code == 404
                 assert response.text == "Could not find session"
-
-    finally:
-        process.terminate()
-        process.join()
 
 
 def _authenticated_user(client_id: str, subject: str | None = None, issuer: str | None = None) -> AuthenticatedUser:
