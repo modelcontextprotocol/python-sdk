@@ -442,6 +442,26 @@ async def test_ctx_progress_with_only_progress_value_omits_total_and_message():
 
 
 @pytest.mark.anyio
+async def test_progress_callback_exception_is_swallowed_and_logged(caplog: pytest.LogCaptureFixture):
+    """A user progress callback raising must not crash the dispatcher."""
+
+    async def boom(progress: float, total: float | None, message: str | None) -> None:
+        raise RuntimeError("progress callback boom")
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    opts: CallOptions = {"on_progress": boom}
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            result = await client.send_raw_request("t", None, opts)
+    # Request still completes; the callback's crash was swallowed.
+    assert result == {"ok": True}
+    assert "progress callback raised" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_send_raw_request_always_carries_meta_on_the_wire():
     """Outbound requests always include `params._meta` (otel injection per SEP-414).
 

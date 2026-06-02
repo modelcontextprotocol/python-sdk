@@ -221,6 +221,39 @@ async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_on_notify_handler_exception_is_swallowed_and_logged(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+):
+    """A notification handler crashing must not tear down the connection."""
+
+    async def boom(ctx: Ctx, params: NotificationParams | None) -> None:
+        raise RuntimeError("notification handler boom")
+
+    server.add_notification_handler("notifications/roots/list_changed", NotificationParams, boom)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/roots/list_changed", None)
+        # Connection still alive: a request after the crashing handler succeeds.
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
+    assert "notification handler for 'notifications/roots/list_changed' raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pytest.LogCaptureFixture):
+    """Malformed notification params are logged and dropped, not raised."""
+
+    async def on_level(ctx: Ctx, params: SetLevelRequestParams) -> None:
+        raise NotImplementedError
+
+    server.add_notification_handler("notifications/roots/list_changed", SetLevelRequestParams, on_level)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/roots/list_changed", {"level": "not-a-level"})
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
+    assert "dropped 'notifications/roots/list_changed': malformed params" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: SrvT):
     async with connected_runner(server, initialized=False) as (client, _):
         await client.notify("notifications/roots/list_changed", None)  # before init: dropped

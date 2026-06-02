@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Generic, cast, get_args
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
 from mcp.server.connection import Connection
@@ -237,9 +237,20 @@ class ServerRunner(Generic[LifespanT]):
             return
         # Absent wire params reach the handler as `None`, not an empty model
         # (matches the existing `Server._handle_notification`).
-        typed_params = entry.params_type.model_validate(params) if params is not None else None
+        try:
+            typed_params = entry.params_type.model_validate(params) if params is not None else None
+        except ValidationError:
+            logger.warning("dropped %r: malformed params", method)
+            return
         ctx = self._make_context(dctx, typed_params)
-        await entry.handler(ctx, typed_params)
+        try:
+            await entry.handler(ctx, typed_params)
+        except Exception:
+            # Top-level boundary: a notification handler crashing must not
+            # tear down the connection (it runs as a bare task in the
+            # dispatcher's task group; an uncaught exception would cancel
+            # every sibling, including the read loop and in-flight requests).
+            logger.exception("notification handler for %r raised", method)
 
     def _make_context(
         self, dctx: DispatchContext[TransportContext], typed_params: BaseModel | None

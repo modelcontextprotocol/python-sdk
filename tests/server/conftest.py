@@ -44,5 +44,3 @@ def spans(capfire: CaptureLogfire) -> Iterator[SpanCapture]:
     capture.clear()
     yield capture
     capture.clear()
-
-

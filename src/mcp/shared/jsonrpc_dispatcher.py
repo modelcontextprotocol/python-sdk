@@ -162,6 +162,24 @@ def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
     return TransportContext(kind="jsonrpc", can_send_request=True)
 
 
+def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
+    """Wrap a user progress callback so it can't crash the dispatcher.
+
+    The callback runs as a bare task in the dispatcher's task group; an
+    uncaught exception would cancel every sibling (the read loop and all
+    in-flight requests). Swallow and log instead, matching the previous
+    receive-loop's behavior.
+    """
+
+    async def _wrapped(progress: float, total: float | None, message: str | None) -> None:
+        try:
+            await fn(progress, total, message)
+        except Exception:
+            logger.exception("progress callback raised")
+
+    return _wrapped
+
+
 def _outbound_metadata(related_request_id: RequestId | None, opts: CallOptions | None) -> MessageMetadata:
     """Choose the `SessionMessage.metadata` for an outgoing request/notification.
 
@@ -471,7 +489,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     total = msg.params.get("total")
                     message = msg.params.get("message")
                     self._spawn(
-                        pending.on_progress,
+                        _shielded_progress(pending.on_progress),
                         float(progress),
                         float(total) if isinstance(total, int | float) else None,
                         message if isinstance(message, str) else None,
