@@ -27,15 +27,12 @@ def create_mcp_http_client(
 ) -> httpx.AsyncClient:
     """Create a standardized httpx AsyncClient with MCP defaults.
 
-    This function provides common defaults used throughout the MCP codebase:
-    - follow_redirects=True (always enabled)
-    - Default ``timeout`` tuned for long-lived SSE streams (see ``timeout`` below).
+    Always enables follow_redirects and applies an SSE-friendly default timeout.
 
     Args:
         headers: Optional headers to include with all requests.
-        timeout: Request timeout as httpx.Timeout object. Defaults to 30 seconds for
-            connect/write/pool and 300 seconds for read (to accommodate long-lived
-            SSE streams) if not specified.
+        timeout: Request timeout as httpx.Timeout object. Defaults to 30s for
+            connect/write/pool and 300s for read (for long-lived SSE streams).
         auth: Optional authentication handler.
 
     Returns:
