@@ -14,17 +14,7 @@ from typing import Any
 import anyio
 import pytest
 from anyio import Event
-
-from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.client.session import ClientSession
-from mcp.server import Server, ServerRequestContext
-from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.server.lowlevel import NotificationOptions
-from mcp.shared._context import RequestContext
-from mcp.shared.experimental.tasks.helpers import is_terminal
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     TASK_REQUIRED,
     CallToolRequestParams,
     CallToolResult,
@@ -43,6 +33,16 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+
+from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
+from mcp.client.session import ClientSession
+from mcp.server import Server, ServerRequestContext
+from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.lowlevel import NotificationOptions
+from mcp.shared._context import RequestContext
+from mcp.shared.experimental.tasks.helpers import is_terminal
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.message import SessionMessage
 
 
 def create_client_task_handlers(

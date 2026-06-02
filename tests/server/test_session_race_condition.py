@@ -7,14 +7,14 @@ This is critical for HTTP transport where requests can arrive in any order.
 """
 
 import anyio
+import mcp_types as types
 import pytest
+from mcp_types import ServerCapabilities, Tool
 
-from mcp import types
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import ServerCapabilities, Tool
 
 
 @pytest.mark.anyio

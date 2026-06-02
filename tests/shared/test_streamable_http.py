@@ -19,15 +19,29 @@ from urllib.parse import urlparse
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
+from mcp_types import (
+    CallToolRequestParams,
+    CallToolResult,
+    InitializeResult,
+    JSONRPCRequest,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
@@ -53,19 +67,6 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import (
-    CallToolRequestParams,
-    CallToolResult,
-    InitializeResult,
-    JSONRPCRequest,
-    ListToolsResult,
-    PaginatedRequestParams,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
 from tests.test_helpers import wait_for_server
 
 # Test constants

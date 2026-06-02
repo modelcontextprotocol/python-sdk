@@ -3,16 +3,16 @@
 from pathlib import Path
 
 import anyio
+import mcp_types as types
 import pytest
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp_types import CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, TextContent
 
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, TextContent
 
 
 @pytest.mark.anyio

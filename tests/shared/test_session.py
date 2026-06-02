@@ -1,14 +1,7 @@
 import anyio
+import mcp_types as types
 import pytest
-
-from mcp import Client, types
-from mcp.client.session import ClientSession
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
-from mcp.shared.memory import create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
@@ -21,6 +14,14 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
 )
+
+from mcp import Client
+from mcp.client.session import ClientSession
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 
 
 @pytest.mark.anyio

@@ -1,57 +1,8 @@
-[project]
-name = "mcp"
-dynamic = ["version"]
-description = "Model Context Protocol SDK"
-readme = "README.md"
-requires-python = ">=3.10"
-authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
-maintainers = [
-    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
-    { name = "Max Isbey", email = "maxisbey@anthropic.com" },
-    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
-]
-keywords = ["git", "mcp", "llm", "automation"]
-license = { text = "MIT" }
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-]
-dependencies = [
-    "anyio>=4.9",
-    "httpx>=0.27.1,<1.0.0",
-    "httpx-sse>=0.4",
-    "pydantic>=2.12.0",
-    "starlette>=0.48.0; python_version >= '3.14'",
-    "starlette>=0.27; python_version < '3.14'",
-    "python-multipart>=0.0.9",
-    "sse-starlette>=3.0.0",
-    "pydantic-settings>=2.5.2",
-    "uvicorn>=0.31.1; sys_platform != 'emscripten'",
-    "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
-    "pyjwt[crypto]>=2.10.1",
-    "typing-extensions>=4.13.0",
-    "typing-inspection>=0.4.1",
-    "opentelemetry-api>=1.28.0",
-]
-
-[project.optional-dependencies]
-rich = ["rich>=13.9.4"]
-cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
-ws = ["websockets>=15.0.1"]
-
-[project.scripts]
-mcp = "mcp.cli:app [cli]"
+# This is the workspace coordinator. It is not itself a package; the distributable
+# packages live under `src/mcp` and `src/mcp-types` with their own pyproject.toml.
 
 [tool.uv]
+package = false
 default-groups = ["dev", "docs"]
 required-version = ">=0.9.5"
 # PEP 517 build isolation fetches [build-system].requires (and transitives) at
@@ -101,31 +52,11 @@ docs = [
     "mkdocstrings-python>=2.0.1",
 ]
 
-[build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "uv-dynamic-versioning"
-
-[tool.uv-dynamic-versioning]
-vcs = "git"
-style = "pep440"
-bump = true
-
-[project.urls]
-Homepage = "https://modelcontextprotocol.io"
-Documentation = "https://py.sdk.modelcontextprotocol.io/v2/"
-Repository = "https://github.com/modelcontextprotocol/python-sdk"
-Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/mcp"]
-
 [tool.pyright]
 typeCheckingMode = "strict"
 include = [
     "src/mcp",
+    "src/mcp-types",
     "tests",
     "examples/servers",
     "examples/snippets",
@@ -184,10 +115,11 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
+members = ["src/mcp", "src/mcp-types", "examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+mcp-types = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
@@ -229,10 +161,10 @@ patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
 omit = [
-    "src/mcp/client/__main__.py",
-    "src/mcp/server/__main__.py",
-    "src/mcp/os/posix/utilities.py",
-    "src/mcp/os/win32/utilities.py",
+    "src/mcp/mcp/client/__main__.py",
+    "src/mcp/mcp/server/__main__.py",
+    "src/mcp/mcp/os/posix/utilities.py",
+    "src/mcp/mcp/os/win32/utilities.py",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#report

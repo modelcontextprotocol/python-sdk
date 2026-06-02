@@ -5,7 +5,7 @@ import asyncio
 import click
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 
 async def run(url: str) -> None:

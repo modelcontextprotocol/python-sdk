@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import mcp_types as types
 import pytest
 from logfire.testing import CaptureLogfire
 
-from mcp import types
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 

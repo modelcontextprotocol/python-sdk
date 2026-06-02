@@ -44,7 +44,7 @@ To run the below test, you'll need to install the following dependencies:
 import pytest
 from inline_snapshot import snapshot
 from mcp import Client
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from server import app
 

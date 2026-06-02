@@ -5,14 +5,11 @@ ctx.session.create_message(), the client's sampling callback answers it, and the
 round-trips what it received back to the test through its tool result.
 """
 
+import mcp_types as types
 import pydantic
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolResult,
     CreateMessageRequestParams,
@@ -28,6 +25,10 @@ from mcp.types import (
     ToolResultContent,
     ToolUseContent,
 )
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

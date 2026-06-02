@@ -1,5 +1,6 @@
+from mcp_types import SamplingMessage, TextContent
+
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import SamplingMessage, TextContent
 
 mcp = MCPServer(name="Sampling Example")
 

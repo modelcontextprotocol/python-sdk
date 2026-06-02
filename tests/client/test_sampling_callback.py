@@ -1,10 +1,5 @@
 import pytest
-
-from mcp import Client
-from mcp.client.session import ClientSession
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared._context import RequestContext
-from mcp.types import (
+from mcp_types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -12,6 +7,11 @@ from mcp.types import (
     TextContent,
     ToolUseContent,
 )
+
+from mcp import Client
+from mcp.client.session import ClientSession
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared._context import RequestContext
 
 
 @pytest.mark.anyio

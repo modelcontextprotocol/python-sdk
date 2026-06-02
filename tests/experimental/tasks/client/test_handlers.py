@@ -14,19 +14,12 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import anyio
+import mcp_types as types
 import pytest
 from anyio import Event
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
-from mcp import types
-from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.client.session import ClientSession
-from mcp.shared._context import RequestContext
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     CancelTaskRequest,
     CancelTaskRequestParams,
     CancelTaskResult,
@@ -54,6 +47,13 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
 )
+
+from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
+from mcp.client.session import ClientSession
+from mcp.shared._context import RequestContext
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 
 # Buffer size for test streams
 STREAM_BUFFER_SIZE = 10

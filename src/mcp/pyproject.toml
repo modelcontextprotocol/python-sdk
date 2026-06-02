@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling", "hatch-fancy-pypi-readme", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[project]
+name = "mcp"
+dynamic = ["version", "dependencies", "readme"]
+description = "Model Context Protocol SDK"
+requires-python = ">=3.10"
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
+maintainers = [
+    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
+    { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
+    { name = "Max Isbey", email = "maxisbey@anthropic.com" },
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
+]
+keywords = ["git", "mcp", "llm", "automation"]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "anyio>=4.9",
+    "httpx>=0.27.1,<1.0.0",
+    "httpx-sse>=0.4",
+    "mcp-types=={{ version }}",
+    "pydantic>=2.12.0",
+    "starlette>=0.48.0; python_version >= '3.14'",
+    "starlette>=0.27; python_version < '3.14'",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=3.0.0",
+    "pydantic-settings>=2.5.2",
+    "uvicorn>=0.31.1; sys_platform != 'emscripten'",
+    "jsonschema>=4.20.0",
+    "pywin32>=311; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
+    "typing-extensions>=4.13.0",
+    "typing-inspection>=0.4.1",
+    "opentelemetry-api>=1.28.0",
+]
+
+[project.optional-dependencies]
+rich = ["rich>=13.9.4"]
+cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
+ws = ["websockets>=15.0.1"]
+
+[project.scripts]
+mcp = "mcp.cli:app [cli]"
+
+[project.urls]
+Homepage = "https://modelcontextprotocol.io"
+Documentation = "https://py.sdk.modelcontextprotocol.io/v2/"
+Repository = "https://github.com/modelcontextprotocol/python-sdk"
+Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/mcp"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../README.md" = "README.md"
+"../../LICENSE" = "LICENSE"
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "../../README.md"

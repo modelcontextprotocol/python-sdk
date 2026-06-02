@@ -7,16 +7,17 @@ that don't follow SDK conventions.
 import json
 
 import httpx
+import mcp_types as types
 import pytest
+from mcp_types import RootsListChangedNotification
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from mcp import ClientSession, MCPError, types
+from mcp import ClientSession, MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import RequestResponder
-from mcp.types import RootsListChangedNotification
 
 pytestmark = pytest.mark.anyio
 

@@ -7,13 +7,14 @@ cannot be used: a falsy read_timeout_seconds is silently treated as "no timeout"
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import REQUEST_TIMEOUT, CallToolResult, ErrorData, TextContent
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.types import REQUEST_TIMEOUT, CallToolResult, ErrorData, TextContent
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio

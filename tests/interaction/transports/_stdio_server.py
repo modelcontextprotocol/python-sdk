@@ -9,10 +9,7 @@ test-only-functions convention.
 import sys
 
 import anyio
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.stdio import stdio_server
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -22,6 +19,9 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.stdio import stdio_server
 
 
 async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

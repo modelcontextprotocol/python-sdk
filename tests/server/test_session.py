@@ -1,9 +1,17 @@
 from typing import Any
 
 import anyio
+import mcp_types as types
 import pytest
+from mcp_types import (
+    ClientNotification,
+    CompletionsCapability,
+    InitializedNotification,
+    PromptsCapability,
+    ResourcesCapability,
+    ServerCapabilities,
+)
 
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
@@ -12,14 +20,6 @@ from mcp.server.session import ServerSession
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import (
-    ClientNotification,
-    CompletionsCapability,
-    InitializedNotification,
-    PromptsCapability,
-    ResourcesCapability,
-    ServerCapabilities,
-)
 
 
 @pytest.mark.anyio

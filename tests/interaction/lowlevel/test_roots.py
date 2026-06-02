@@ -1,14 +1,15 @@
 """Roots interactions against the low-level Server, driven through the public Client API."""
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
-from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

@@ -1,11 +1,11 @@
 """Tests for TaskContext and helper functions."""
 
 import pytest
+from mcp_types import CallToolResult, TaskMetadata, TextContent
 
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.helpers import create_task_state, task_execution
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.types import CallToolResult, TaskMetadata, TextContent
 
 
 @pytest.mark.anyio

@@ -1,10 +1,7 @@
 """Tests for the RequestContext.experimental (Experimental class) task validation helpers."""
 
 import pytest
-
-from mcp.server.experimental.request_context import Experimental
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     METHOD_NOT_FOUND,
     TASK_FORBIDDEN,
     TASK_OPTIONAL,
@@ -15,6 +12,9 @@ from mcp.types import (
     Tool,
     ToolExecution,
 )
+
+from mcp.server.experimental.request_context import Experimental
+from mcp.shared.exceptions import MCPError
 
 
 def test_is_task_true_when_metadata_present() -> None:

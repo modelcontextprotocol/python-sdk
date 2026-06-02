@@ -1,12 +1,10 @@
 """Tool interactions against the low-level Server, driven through the public Client API."""
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     AudioContent,
     CallToolResult,
@@ -21,6 +19,9 @@ from mcp.types import (
     Tool,
     ToolAnnotations,
 )
+
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

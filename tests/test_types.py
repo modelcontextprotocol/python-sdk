@@ -1,8 +1,7 @@
 from typing import Any
 
 import pytest
-
-from mcp.types import (
+from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     CreateMessageRequestParams,

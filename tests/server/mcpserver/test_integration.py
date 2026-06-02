@@ -13,24 +13,7 @@ import json
 
 import pytest
 from inline_snapshot import snapshot
-
-from examples.snippets.servers import (
-    basic_prompt,
-    basic_resource,
-    basic_tool,
-    completion,
-    elicitation,
-    mcpserver_quickstart,
-    notifications,
-    sampling,
-    structured_output,
-    tool_progress,
-)
-from mcp.client import Client
-from mcp.client.session import ClientSession
-from mcp.shared._context import RequestContext
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     ClientResult,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -52,6 +35,23 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+
+from examples.snippets.servers import (
+    basic_prompt,
+    basic_resource,
+    basic_tool,
+    completion,
+    elicitation,
+    mcpserver_quickstart,
+    notifications,
+    sampling,
+    structured_output,
+    tool_progress,
+)
+from mcp.client import Client
+from mcp.client.session import ClientSession
+from mcp.shared._context import RequestContext
+from mcp.shared.session import RequestResponder
 
 pytestmark = pytest.mark.anyio
 

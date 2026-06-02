@@ -10,15 +10,16 @@ from collections.abc import AsyncIterator
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
 from starlette.types import Receive, Scope, Send
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION, client_via_http, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport

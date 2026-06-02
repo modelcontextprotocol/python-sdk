@@ -8,16 +8,10 @@ answer initialize with an unsupported protocol version.
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext, ClientSession
-from mcp.client._memory import InMemoryTransport
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import MessageStream, create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     CallToolResult,
     ClientCapabilities,
@@ -40,6 +34,13 @@ from mcp.types import (
     TextContent,
     ToolsCapability,
 )
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext, ClientSession
+from mcp.client._memory import InMemoryTransport
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

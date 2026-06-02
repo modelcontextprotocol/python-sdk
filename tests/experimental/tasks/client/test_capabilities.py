@@ -1,14 +1,9 @@
 """Tests for client task capabilities declaration during initialization."""
 
 import anyio
+import mcp_types as types
 import pytest
-
-from mcp import ClientCapabilities, types
-from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.client.session import ClientSession
-from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     Implementation,
     InitializeRequest,
@@ -18,6 +13,12 @@ from mcp.types import (
     ServerCapabilities,
     client_request_adapter,
 )
+
+from mcp import ClientCapabilities
+from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
+from mcp.client.session import ClientSession
+from mcp.shared._context import RequestContext
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio

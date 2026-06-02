@@ -13,6 +13,16 @@ from typing import Any, Protocol
 
 import httpx
 from httpx_sse import ServerSentEvent, aconnect_sse
+from mcp_types import (
+    LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequestParams,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    jsonrpc_message_adapter,
+)
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -30,16 +40,6 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
-    ClientCapabilities,
-    Implementation,
-    InitializeRequestParams,
-    JSONRPCMessage,
-    JSONRPCRequest,
-    JSONRPCResponse,
-    jsonrpc_message_adapter,
-)
 from tests.interaction.transports._bridge import StreamingASGITransport
 
 # The in-process app is mounted at this origin purely so URLs are well-formed; nothing listens here.

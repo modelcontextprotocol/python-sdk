@@ -11,10 +11,7 @@ import pytest
 from anyio.lowlevel import checkpoint
 from httpx_sse import ServerSentEvent, aconnect_sse
 from inline_snapshot import snapshot
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     PARSE_ERROR,
     CallToolRequestParams,
@@ -31,6 +28,9 @@ from mcp.types import (
     SubscribeRequestParams,
     TextContent,
 )
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.transport_security import TransportSecuritySettings
 from tests.interaction._connect import (
     base_headers,
     initialize_body,

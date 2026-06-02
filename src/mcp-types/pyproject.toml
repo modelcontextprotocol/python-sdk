@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+fallback-version = "0.0.0"
+
+[project]
+name = "mcp-types"
+dynamic = ["version"]
+description = "Type definitions for the Model Context Protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
+maintainers = [
+    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
+    { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
+    { name = "Max Isbey", email = "maxisbey@anthropic.com" },
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
+]
+keywords = ["mcp", "llm", "types", "schema"]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "pydantic>=2.12.0",
+    "typing-extensions>=4.13.0",
+]
+
+[project.urls]
+Homepage = "https://modelcontextprotocol.io"
+Documentation = "https://py.sdk.modelcontextprotocol.io/v2/"
+Repository = "https://github.com/modelcontextprotocol/python-sdk"
+Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_types"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/mcp_types", "/README.md"]

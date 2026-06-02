@@ -1,6 +1,6 @@
 import anyio
 import click
-from mcp import types
+import mcp_types as types
 from mcp.server import Server, ServerRequestContext
 from mcp.shared._httpx_utils import create_mcp_http_client
 

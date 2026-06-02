@@ -9,12 +9,12 @@ response. These tests pass ``related_request_id`` so they can collect into a pla
 assert after the request completes on every transport leg -- no events, no waiting.
 """
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

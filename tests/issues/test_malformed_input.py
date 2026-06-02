@@ -3,11 +3,11 @@
 
 import anyio
 import pytest
+from mcp_types import INVALID_PARAMS, JSONRPCError, JSONRPCMessage, JSONRPCRequest, ServerCapabilities
 
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
-from mcp.types import INVALID_PARAMS, JSONRPCError, JSONRPCMessage, JSONRPCRequest, ServerCapabilities
 
 
 @pytest.mark.anyio

@@ -9,16 +9,16 @@ import socket
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 
+import mcp_types as types
 import pytest
+from mcp_types import TextContent, Tool
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import TextContent, Tool
 from tests.test_helpers import wait_for_server
 
 # Test constants with various Unicode characters

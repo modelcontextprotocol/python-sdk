@@ -1,9 +1,9 @@
 from unittest.mock import AsyncMock, Mock
 
 import anyio
+import mcp_types as types
 import pytest
 
-from mcp import types
 from mcp.server.lowlevel.server import Server
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage

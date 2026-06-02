@@ -102,7 +102,7 @@ Server                              Client
 When augmenting a request with task execution, include `TaskMetadata`:
 
 ```python
-from mcp.types import TaskMetadata
+from mcp_types import TaskMetadata
 
 task = TaskMetadata(ttl=60000)  # TTL in milliseconds
 ```
@@ -143,7 +143,7 @@ The SDK manages these automatically when you enable task support.
 ```python
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.types import CallToolResult, TextContent, TASK_REQUIRED
+from mcp_types import CallToolResult, TextContent, TASK_REQUIRED
 
 server = Server("my-server")
 server.experimental.enable_tasks()  # One-line setup
@@ -165,7 +165,7 @@ async def handle_tool(name: str, arguments: dict):
 
 ```python
 from mcp.client.session import ClientSession
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 async with ClientSession(read, write) as session:
     await session.initialize()

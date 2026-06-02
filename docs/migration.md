@@ -8,6 +8,34 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Breaking Changes
 
+### Protocol types moved to the `mcp-types` package
+
+The protocol types previously imported from `mcp.types` now live in a standalone
+[`mcp-types`](https://pypi.org/project/mcp-types/) package, imported as `mcp_types`. The
+`mcp` package depends on it, so installing `mcp` continues to pull the types in. Update
+imports from the `mcp.types` module path to `mcp_types`:
+
+**Before (v1):**
+
+```python
+from mcp.types import Tool, CallToolRequest
+from mcp import types
+
+types.Tool(...)
+```
+
+**After (v2):**
+
+```python
+from mcp_types import Tool, CallToolRequest
+import mcp_types as types
+
+types.Tool(...)
+```
+
+The curated re-exports on the top-level `mcp` package (e.g. `from mcp import Tool`) are
+unchanged.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
@@ -107,7 +135,7 @@ Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `au
 
 ### Removed type aliases and classes
 
-The following deprecated type aliases and classes have been removed from `mcp.types`:
+The following deprecated type aliases and classes have been removed from `mcp_types`:
 
 | Removed | Replacement |
 |---------|-------------|
@@ -121,19 +149,19 @@ The following deprecated type aliases and classes have been removed from `mcp.ty
 **Before (v1):**
 
 ```python
-from mcp.types import Content, ResourceReference, Cursor
+from mcp_types import Content, ResourceReference, Cursor
 ```
 
 **After (v2):**
 
 ```python
-from mcp.types import ContentBlock, ResourceTemplateReference
+from mcp_types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### Field names changed from camelCase to snake_case
 
-All Pydantic model fields in `mcp.types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — serialization still uses camelCase via Pydantic aliases.
+All Pydantic model fields in `mcp_types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — serialization still uses camelCase via Pydantic aliases.
 
 **Before (v1):**
 
@@ -214,7 +242,7 @@ result = await session.list_tools(cursor="next_page_token")
 **After (v2):**
 
 ```python
-from mcp.types import PaginatedRequestParams
+from mcp_types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
@@ -282,7 +310,7 @@ The constructor signature also changed — it now takes `code`, `message`, and o
 
 ```python
 from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData, INVALID_REQUEST
+from mcp_types import ErrorData, INVALID_REQUEST
 
 raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 ```
@@ -291,7 +319,7 @@ raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_REQUEST
+from mcp_types import INVALID_REQUEST
 
 raise MCPError(INVALID_REQUEST, "bad input")
 # or, if you already have an ErrorData:
@@ -448,7 +476,7 @@ In v2, the lowlevel `Server` no longer has decorator methods (handlers are const
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp.types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
+from mcp_types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
 
 
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
@@ -504,7 +532,7 @@ This means you can no longer access `.root` on these types or use `model_validat
 **Before (v1):**
 
 ```python
-from mcp.types import ClientRequest, ServerNotification
+from mcp_types import ClientRequest, ServerNotification
 
 # Using RootModel.model_validate()
 request = ClientRequest.model_validate(data)
@@ -517,7 +545,7 @@ actual_notification = notification.root
 **After (v2):**
 
 ```python
-from mcp.types import client_request_adapter, server_notification_adapter
+from mcp_types import client_request_adapter, server_notification_adapter
 
 # Using TypeAdapter.validate_python()
 request = client_request_adapter.validate_python(data)
@@ -555,7 +583,7 @@ await session.send_request(PingRequest(), EmptyResult)
 | `ServerResult` | `server_result_adapter` |
 | `JSONRPCMessage` | `jsonrpc_message_adapter` |
 
-All adapters are exported from `mcp.types`.
+All adapters are exported from `mcp_types`.
 
 ### `RequestParams.Meta` replaced with `RequestParamsMeta` TypedDict
 
@@ -716,7 +744,7 @@ The `uri` field on resource-related types now uses `str` instead of Pydantic's `
 
 ```python
 from pydantic import AnyUrl
-from mcp.types import Resource
+from mcp_types import Resource
 
 # Required wrapping in AnyUrl
 resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validation
@@ -725,7 +753,7 @@ resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validatio
 **After (v2):**
 
 ```python
-from mcp.types import Resource
+from mcp_types import Resource
 
 # Plain strings accepted
 resource = Resource(name="test", uri="users/me")  # Works
@@ -801,7 +829,7 @@ The public `server.request_handlers` and `server.notification_handlers` dictiona
 
 ```python
 # Before (v1) — direct dict access
-from mcp.types import ListToolsRequest
+from mcp_types import ListToolsRequest
 
 if ListToolsRequest in server.request_handlers:
     ...
@@ -837,7 +865,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -886,13 +914,13 @@ All handlers receive `ctx: ServerRequestContext` as the first argument. The seco
 | `@server.progress_notification()` | `on_progress` | `ProgressNotificationParams` | `None` |
 | — | `on_roots_list_changed` | `NotificationParams \| None` | `None` |
 
-All `params` and return types are importable from `mcp.types`.
+All `params` and return types are importable from `mcp_types`.
 
 **Notification handlers:**
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import ProgressNotificationParams
+from mcp_types import ProgressNotificationParams
 
 
 async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
@@ -1017,7 +1045,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1060,7 +1088,7 @@ async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import GetTaskRequestParams, GetTaskResult
+from mcp_types import GetTaskRequestParams, GetTaskResult
 
 
 async def custom_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
@@ -1087,7 +1115,7 @@ MCP protocol types no longer accept arbitrary extra fields at the top level. Thi
 
 ```python
 # This will now raise a validation error
-from mcp.types import CallToolRequestParams
+from mcp_types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
@@ -1111,7 +1139,7 @@ The `streamable_http_app()` method is now available directly on the lowlevel `Se
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import ListToolsResult, PaginatedRequestParams
+from mcp_types import ListToolsResult, PaginatedRequestParams
 
 
 async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

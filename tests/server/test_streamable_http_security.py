@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 import uvicorn
+from mcp_types import Tool
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
@@ -15,7 +16,6 @@ from starlette.types import Receive, Scope, Send
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import Tool
 from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_streamable_http_security_server"

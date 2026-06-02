@@ -11,15 +11,16 @@ from collections import Counter
 from urllib.parse import parse_qsl, urlsplit
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import INTERNAL_ERROR, ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (

@@ -1,16 +1,16 @@
 """Tests for completion handler with context functionality."""
 
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     CompleteRequestParams,
     CompleteResult,
     Completion,
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 
 @pytest.mark.anyio

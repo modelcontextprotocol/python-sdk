@@ -14,7 +14,7 @@ from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     Completion,
     CompletionArgument,

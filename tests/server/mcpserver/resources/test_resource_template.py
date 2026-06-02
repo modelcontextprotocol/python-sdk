@@ -3,11 +3,11 @@ import threading
 from typing import Any
 
 import pytest
+from mcp_types import Annotations
 from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
-from mcp.types import Annotations
 
 
 class TestResourceTemplate:

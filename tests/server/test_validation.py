@@ -1,14 +1,7 @@
 """Tests for server validation functions."""
 
 import pytest
-
-from mcp.server.validation import (
-    check_sampling_tools_capability,
-    validate_sampling_tools,
-    validate_tool_use_result_messages,
-)
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     ClientCapabilities,
     SamplingCapability,
     SamplingMessage,
@@ -19,6 +12,13 @@ from mcp.types import (
     ToolResultContent,
     ToolUseContent,
 )
+
+from mcp.server.validation import (
+    check_sampling_tools_capability,
+    validate_sampling_tools,
+    validate_tool_use_result_messages,
+)
+from mcp.shared.exceptions import MCPError
 
 # Tests for check_sampling_tools_capability function
 

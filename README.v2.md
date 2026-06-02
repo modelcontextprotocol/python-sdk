@@ -412,10 +412,10 @@ For full control over tool responses including the `_meta` field (for passing da
 
 from typing import Annotated
 
+from mcp_types import CallToolResult, TextContent
 from pydantic import BaseModel
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import CallToolResult, TextContent
 
 mcp = MCPServer("CallToolResult Example")
 
@@ -732,9 +732,10 @@ uv run completion-client
 import asyncio
 import os
 
+from mcp_types import PromptReference, ResourceTemplateReference
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.types import PromptReference, ResourceTemplateReference
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
@@ -821,11 +822,11 @@ like OAuth flows, credential collection, or payment processing.
 
 import uuid
 
+from mcp_types import ElicitRequestURLParams
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import UrlElicitationRequiredError
-from mcp.types import ElicitRequestURLParams
 
 mcp = MCPServer(name="Elicitation Example")
 
@@ -929,8 +930,9 @@ Tools can interact with LLMs through sampling (generating text):
 
 <!-- snippet-source examples/snippets/servers/sampling.py -->
 ```python
+from mcp_types import SamplingMessage, TextContent
+
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import SamplingMessage, TextContent
 
 mcp = MCPServer(name="Sampling Example")
 
@@ -1639,8 +1641,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TypedDict
 
+import mcp_types as types
+
 import mcp.server.stdio
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 
@@ -1751,8 +1754,9 @@ uv run examples/snippets/servers/lowlevel/basic.py
 
 import asyncio
 
+import mcp_types as types
+
 import mcp.server.stdio
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 
@@ -1828,8 +1832,9 @@ uv run examples/snippets/servers/lowlevel/structured_output.py
 import asyncio
 import json
 
+import mcp_types as types
+
 import mcp.server.stdio
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 
@@ -1920,8 +1925,9 @@ uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 
 import asyncio
 
+import mcp_types as types
+
 import mcp.server.stdio
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 
@@ -1991,7 +1997,8 @@ For servers that need to handle large datasets, the low-level server provides pa
 ```python
 """Example of implementing pagination with the low-level MCP server."""
 
-from mcp import types
+import mcp_types as types
+
 from mcp.server import Server, ServerRequestContext
 
 # Sample data to paginate
@@ -2037,9 +2044,10 @@ _Full example: [examples/snippets/servers/pagination_example.py](https://github.
 
 import asyncio
 
+from mcp_types import PaginatedRequestParams, Resource
+
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import PaginatedRequestParams, Resource
 
 
 async def list_all_resources() -> None:
@@ -2099,7 +2107,9 @@ uv run client
 import asyncio
 import os
 
-from mcp import ClientSession, StdioServerParameters, types
+import mcp_types as types
+
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
 

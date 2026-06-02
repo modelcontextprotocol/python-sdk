@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import httpx
 import pytest
+from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 from starlette.types import Message, Scope
 
 from mcp import Client
@@ -17,7 +18,6 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 
 
 @pytest.mark.anyio

@@ -12,7 +12,7 @@ import click
 from mcp import ClientSession
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     CreateMessageRequestParams,
     CreateMessageResult,

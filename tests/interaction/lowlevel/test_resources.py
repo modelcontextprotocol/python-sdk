@@ -3,12 +3,10 @@
 import base64
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     METHOD_NOT_FOUND,
     Annotations,
     BlobResourceContents,
@@ -26,6 +24,9 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement

@@ -13,15 +13,15 @@ assertions are the metadata response bodies and headers, which `Client` does not
 import json
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import ListToolsResult, Tool
 from pydantic import AnyHttpUrl
 
-from mcp import types
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
-from mcp.types import ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (

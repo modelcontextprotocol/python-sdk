@@ -1,9 +1,10 @@
 """Test that UrlElicitationRequiredError is properly propagated as MCP error."""
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import Client, ErrorData, types
+from mcp import Client, ErrorData
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 

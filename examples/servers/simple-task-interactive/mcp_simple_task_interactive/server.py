@@ -9,8 +9,8 @@ This example shows the simplified task API where:
 from typing import Any
 
 import click
+import mcp_types as types
 import uvicorn
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.experimental.task_context import ServerTaskContext
 

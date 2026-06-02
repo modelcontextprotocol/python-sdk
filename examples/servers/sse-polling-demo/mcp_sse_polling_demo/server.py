@@ -16,8 +16,8 @@ import logging
 
 import anyio
 import click
+import mcp_types as types
 import uvicorn
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 from .event_store import InMemoryEventStore

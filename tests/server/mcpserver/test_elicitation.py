@@ -2,14 +2,15 @@
 
 from typing import Any
 
+import mcp_types as types
 import pytest
+from mcp_types import ElicitRequestParams, ElicitResult, TextContent
 from pydantic import BaseModel, Field
 
-from mcp import Client, types
+from mcp import Client
 from mcp.client.session import ClientSession, ElicitationFnT
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared._context import RequestContext
-from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
 # Shared schema for basic tests

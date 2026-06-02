@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 import anyio
+import mcp_types as types
 import pytest
-
-from mcp import types
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types import (
+from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     CallToolResult,
     Implementation,
@@ -25,6 +19,12 @@ from mcp.types import (
     client_notification_adapter,
     client_request_adapter,
 )
+
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.shared._context import RequestContext
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 
 @pytest.mark.anyio

@@ -7,15 +7,10 @@ on an Event rather than a sleep, and every wait is bounded by `anyio.fail_after`
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientSession
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import MessageStream, create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     EmptyResult,
     ErrorData,
@@ -28,6 +23,12 @@ from mcp.types import (
     ServerCapabilities,
     TextContent,
 )
+
+from mcp import MCPError
+from mcp.client import ClientSession
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement

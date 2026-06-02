@@ -14,15 +14,15 @@ from urllib.parse import parse_qs, urlsplit
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from pydantic import AnyUrl
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.shared.auth import OAuthClientInformationFull
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (

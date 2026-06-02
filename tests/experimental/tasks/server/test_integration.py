@@ -16,12 +16,7 @@ import anyio
 import pytest
 from anyio import Event
 from anyio.abc import TaskGroup
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.experimental.tasks.helpers import task_execution
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -36,6 +31,11 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.experimental.tasks.helpers import task_execution
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 
 pytestmark = pytest.mark.anyio
 

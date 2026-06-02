@@ -5,13 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import anyio
 import pytest
-
-from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.server.experimental.task_result_handler import TaskResultHandler
-from mcp.shared.exceptions import MCPError
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ClientCapabilities,
     ClientTasksCapability,
@@ -27,6 +21,12 @@ from mcp.types import (
     TasksSamplingCapability,
     TextContent,
 )
+
+from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.experimental.task_result_handler import TaskResultHandler
+from mcp.shared.exceptions import MCPError
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 
 
 @pytest.mark.anyio

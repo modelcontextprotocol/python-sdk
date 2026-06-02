@@ -1,11 +1,11 @@
 import pytest
+from mcp_types import ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
 from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared._context import RequestContext
-from mcp.types import ListRootsResult, Root, TextContent
 
 
 @pytest.mark.anyio

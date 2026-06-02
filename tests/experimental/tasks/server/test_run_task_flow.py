@@ -13,16 +13,7 @@ from unittest.mock import Mock
 import anyio
 import pytest
 from anyio import Event
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
-from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.server.experimental.task_support import TaskSupport
-from mcp.server.lowlevel import NotificationOptions
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
-from mcp.types import (
+from mcp_types import (
     TASK_REQUIRED,
     CallToolRequestParams,
     CallToolResult,
@@ -33,6 +24,15 @@ from mcp.types import (
     PaginatedRequestParams,
     TextContent,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.experimental.request_context import Experimental
+from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.experimental.task_support import TaskSupport
+from mcp.server.lowlevel import NotificationOptions
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 
 pytestmark = pytest.mark.anyio
 

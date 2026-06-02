@@ -5,18 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
-
-from mcp import Client
-from mcp.client.session import ClientSession
-from mcp.server import Server, ServerRequestContext
-from mcp.server.lowlevel import NotificationOptions
-from mcp.server.models import InitializationOptions
-from mcp.server.session import ServerSession
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.response_router import ResponseRouter
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     INVALID_REQUEST,
     TASK_FORBIDDEN,
     TASK_OPTIONAL,
@@ -49,6 +38,17 @@ from mcp.types import (
     Tool,
     ToolExecution,
 )
+
+from mcp import Client
+from mcp.client.session import ClientSession
+from mcp.server import Server, ServerRequestContext
+from mcp.server.lowlevel import NotificationOptions
+from mcp.server.models import InitializationOptions
+from mcp.server.session import ServerSession
+from mcp.shared.exceptions import MCPError
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
+from mcp.shared.session import RequestResponder
 
 pytestmark = pytest.mark.anyio
 

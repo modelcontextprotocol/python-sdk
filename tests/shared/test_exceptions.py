@@ -1,9 +1,9 @@
 """Tests for MCP exception classes."""
 
 import pytest
+from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
 
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
-from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
 
 
 def test_url_elicitation_required_error_create_with_single_elicitation() -> None:

@@ -1,12 +1,13 @@
 """Tests for InMemoryTransport."""
 
+import mcp_types as types
 import pytest
+from mcp_types import ListResourcesResult, Resource
 
-from mcp import Client, types
+from mcp import Client
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ListResourcesResult, Resource
 
 
 @pytest.fixture

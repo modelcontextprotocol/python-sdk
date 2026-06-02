@@ -6,14 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import anyio
 import pytest
-
-from mcp.server.experimental.task_result_handler import TaskResultHandler
-from mcp.shared.exceptions import MCPError
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, QueuedMessage
-from mcp.shared.experimental.tasks.resolver import Resolver
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     INVALID_REQUEST,
     CallToolResult,
     ErrorData,
@@ -24,6 +17,13 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
 )
+
+from mcp.server.experimental.task_result_handler import TaskResultHandler
+from mcp.shared.exceptions import MCPError
+from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
+from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, QueuedMessage
+from mcp.shared.experimental.tasks.resolver import Resolver
+from mcp.shared.message import SessionMessage
 
 
 @pytest.fixture

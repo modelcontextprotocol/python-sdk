@@ -3,11 +3,11 @@ from unittest.mock import patch
 
 import anyio
 import pytest
+from mcp_types import ClientNotification, ClientRequest, ClientResult, EmptyResult, ErrorData, PingRequest
 from pydantic import TypeAdapter
 
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, RequestId, SendResultT
-from mcp.types import ClientNotification, ClientRequest, ClientResult, EmptyResult, ErrorData, PingRequest
 
 
 @pytest.mark.anyio

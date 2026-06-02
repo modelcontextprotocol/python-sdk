@@ -9,11 +9,7 @@ Each section contains tests for normative requirements (MUST/SHOULD/MAY).
 from datetime import datetime, timezone
 
 import pytest
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.lowlevel import NotificationOptions
-from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
-from mcp.types import (
+from mcp_types import (
     CancelTaskRequestParams,
     CancelTaskResult,
     CreateTaskResult,
@@ -24,6 +20,10 @@ from mcp.types import (
     ServerCapabilities,
     Task,
 )
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.lowlevel import NotificationOptions
+from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
 
 # Shared test datetime
 TEST_DATETIME = datetime(2025, 1, 1, tzinfo=timezone.utc)

@@ -10,6 +10,7 @@ import httpx
 import pytest
 import sse_starlette.sse
 import uvicorn
+from mcp_types import JSONRPCRequest, JSONRPCResponse, Tool
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -23,7 +24,6 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest, JSONRPCResponse, Tool
 from tests.test_helpers import wait_for_server
 
 logger = logging.getLogger(__name__)

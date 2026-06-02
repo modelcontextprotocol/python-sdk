@@ -9,6 +9,7 @@ covered in ``tests/client/test_client.py`` and ``tests/issues/test_88_random_err
 from collections.abc import Generator
 
 import pytest
+from mcp_types import EmptyResult, InitializeResult
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
@@ -17,7 +18,6 @@ from mcp.client.session import ClientSession
 from mcp.client.websocket import websocket_client
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
-from mcp.types import EmptyResult, InitializeResult
 from tests.test_helpers import run_uvicorn_in_thread
 
 SERVER_NAME = "test_server_for_WS"

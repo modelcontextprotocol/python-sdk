@@ -1,6 +1,15 @@
 """Tests for tasks capability checking utilities."""
 
 import pytest
+from mcp_types import (
+    ClientCapabilities,
+    ClientTasksCapability,
+    ClientTasksRequestsCapability,
+    TasksCreateElicitationCapability,
+    TasksCreateMessageCapability,
+    TasksElicitationCapability,
+    TasksSamplingCapability,
+)
 
 from mcp import MCPError
 from mcp.shared.experimental.tasks.capabilities import (
@@ -9,15 +18,6 @@ from mcp.shared.experimental.tasks.capabilities import (
     has_task_augmented_sampling,
     require_task_augmented_elicitation,
     require_task_augmented_sampling,
-)
-from mcp.types import (
-    ClientCapabilities,
-    ClientTasksCapability,
-    ClientTasksRequestsCapability,
-    TasksCreateElicitationCapability,
-    TasksCreateMessageCapability,
-    TasksElicitationCapability,
-    TasksSamplingCapability,
 )
 
 

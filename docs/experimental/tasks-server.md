@@ -13,7 +13,7 @@ The simplest way to add task support:
 ```python
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.types import CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED
+from mcp_types import CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED
 
 server = Server("my-server")
 server.experimental.enable_tasks()  # Registers all task handlers automatically
@@ -58,7 +58,7 @@ That's it. `enable_tasks()` automatically:
 Tools declare task support via the `execution.taskSupport` field:
 
 ```python
-from mcp.types import Tool, ToolExecution, TASK_REQUIRED, TASK_OPTIONAL, TASK_FORBIDDEN
+from mcp_types import Tool, ToolExecution, TASK_REQUIRED, TASK_OPTIONAL, TASK_FORBIDDEN
 
 Tool(
     name="my_tool",
@@ -199,7 +199,7 @@ async def work(task: ServerTaskContext) -> CallToolResult:
 Tasks can request LLM completions from the client:
 
 ```python
-from mcp.types import SamplingMessage, TextContent
+from mcp_types import SamplingMessage, TextContent
 
 async def work(task: ServerTaskContext) -> CallToolResult:
     await task.update_status("Generating response...")
@@ -256,7 +256,7 @@ For production, implement `TaskStore` with persistent storage:
 
 ```python
 from mcp.shared.experimental.tasks.store import TaskStore
-from mcp.types import Task, TaskMetadata, Result
+from mcp_types import Task, TaskMetadata, Result
 
 class RedisTaskStore(TaskStore):
     def __init__(self, redis_client):
@@ -299,7 +299,7 @@ A server with multiple task-supporting tools:
 ```python
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.types import (
+from mcp_types import (
     CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution,
     SamplingMessage, TASK_REQUIRED,
 )
@@ -412,7 +412,7 @@ import uvicorn
 
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.types import (
+from mcp_types import (
     CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED,
 )
 
@@ -468,7 +468,7 @@ Test task functionality with the SDK's testing utilities:
 import pytest
 import anyio
 from mcp.client.session import ClientSession
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 
 @pytest.mark.anyio

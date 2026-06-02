@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, suppress
 import anyio
 import anyio.abc
 import pytest
+from mcp_types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
@@ -19,7 +20,6 @@ from mcp.client.stdio import (
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 # Timeout for cleanup of processes that ignore SIGTERM
 # This timeout ensures the test fails quickly if the cleanup logic doesn't have

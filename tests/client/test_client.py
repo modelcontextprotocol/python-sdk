@@ -8,15 +8,10 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client._memory import InMemoryTransport
-from mcp.client.client import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     EmptyResult,
     GetPromptResult,
@@ -37,6 +32,12 @@ from mcp.types import (
     Tool,
     ToolsCapability,
 )
+
+from mcp import MCPError
+from mcp.client._memory import InMemoryTransport
+from mcp.client.client import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 

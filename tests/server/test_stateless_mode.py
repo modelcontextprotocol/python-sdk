@@ -11,14 +11,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import anyio
+import mcp_types as types
 import pytest
+from mcp_types import ServerCapabilities
 
-from mcp import types
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.message import SessionMessage
-from mcp.types import ServerCapabilities
 
 
 @pytest.fixture

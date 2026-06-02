@@ -12,7 +12,7 @@ Call a tool as a task and poll for the result:
 
 ```python
 from mcp.client.session import ClientSession
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 async with ClientSession(read, write) as session:
     await session.initialize()
@@ -96,7 +96,7 @@ The elicitation callback (set during session creation) handles the actual user i
 To handle elicitation requests from the server, provide a callback when creating the session:
 
 ```python
-from mcp.types import ElicitRequestParams, ElicitResult
+from mcp_types import ElicitRequestParams, ElicitResult
 
 async def handle_elicitation(context, params: ElicitRequestParams) -> ElicitResult:
     # Display the message to the user
@@ -125,7 +125,7 @@ async with ClientSession(
 Similarly, handle sampling requests with a callback:
 
 ```python
-from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
+from mcp_types import CreateMessageRequestParams, CreateMessageResult, TextContent
 
 async def handle_sampling(context, params: CreateMessageRequestParams) -> CreateMessageResult:
     # In a real implementation, call your LLM here
@@ -207,7 +207,7 @@ Register task handlers to declare what task-augmented requests your client accep
 
 ```python
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.types import (
+from mcp_types import (
     CreateTaskResult, GetTaskResult, GetTaskPayloadResult,
     TaskMetadata, ElicitRequestParams,
 )
@@ -283,7 +283,7 @@ A client that handles all task scenarios:
 import anyio
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
-from mcp.types import CallToolResult, ElicitRequestParams, ElicitResult
+from mcp_types import CallToolResult, ElicitRequestParams, ElicitResult
 
 
 async def elicitation_callback(context, params: ElicitRequestParams) -> ElicitResult:

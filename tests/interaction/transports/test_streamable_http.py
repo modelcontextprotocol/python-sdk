@@ -10,12 +10,7 @@ through the suite's streaming ASGI bridge — no sockets, threads, or subprocess
 import anyio
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-
-from mcp.client import ClientRequestContext
-from mcp.server.elicitation import AcceptedElicitation
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
@@ -25,6 +20,11 @@ from mcp.types import (
     ResourceUpdatedNotificationParams,
     TextContent,
 )
+from pydantic import BaseModel
+
+from mcp.client import ClientRequestContext
+from mcp.server.elicitation import AcceptedElicitation
+from mcp.server.mcpserver import Context, MCPServer
 from tests.interaction._connect import connect_over_streamable_http
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement

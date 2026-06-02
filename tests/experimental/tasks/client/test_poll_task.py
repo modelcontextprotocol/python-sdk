@@ -6,9 +6,9 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from mcp_types import GetTaskResult, TaskStatus
 
 from mcp.client.experimental.tasks import ExperimentalClientFeatures
-from mcp.types import GetTaskResult, TaskStatus
 
 
 def make_task_result(

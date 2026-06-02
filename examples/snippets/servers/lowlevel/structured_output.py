@@ -5,8 +5,9 @@ uv run examples/snippets/servers/lowlevel/structured_output.py
 import asyncio
 import json
 
+import mcp_types as types
+
 import mcp.server.stdio
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 
 

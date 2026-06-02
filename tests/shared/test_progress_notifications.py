@@ -2,9 +2,10 @@ from typing import Any
 from unittest.mock import patch
 
 import anyio
+import mcp_types as types
 import pytest
 
-from mcp import Client, types
+from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
