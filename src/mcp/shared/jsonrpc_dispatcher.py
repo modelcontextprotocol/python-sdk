@@ -565,20 +565,23 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 try:
                     result = await on_request(dctx, req.method, req.params)
                 finally:
-                    # Close the back-channel the moment the handler exits
-                    # (success or raise), before the response write - a handler
-                    # spawning detached work that later calls
-                    # `dctx.send_raw_request()` should see `NoBackChannelError`.
+                    # Handler done: close the back-channel (detached work that
+                    # later calls `dctx.send_raw_request()` should see
+                    # `NoBackChannelError`) and drop from `_in_flight` so a
+                    # late `notifications/cancelled` is a no-op rather than
+                    # racing the result write below. No checkpoint between
+                    # handler return and the pop, so the cancel can't
+                    # interleave there.
                     dctx.close()
+                    self._in_flight.pop(req.id, None)
                 await self._write_result(req.id, result)
             if scope.cancel_called:
-                # Peer-cancel: `_dispatch_notification` cancelled this scope.
-                # anyio swallows a scope's *own* cancel at __exit__, so the
-                # result write (or the handler) is interrupted and execution
-                # lands here rather than the `except cancelled` arm below.
+                # Peer-cancel: `_dispatch_notification` cancelled this scope
+                # while the handler was running. anyio swallows a scope's *own*
+                # cancel at __exit__, so execution lands here rather than the
+                # `except cancelled` arm below.
                 # TODO(maxisbey): spec says SHOULD NOT respond after cancel.
-                # The existing server always has and the interaction suite pins
-                # that; revisit once the suite's divergence entry is resolved.
+                # The existing server always has, so match that for now.
                 await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
         except anyio.get_cancelled_exc_class():
             # Outer-cancel: run()'s task group is shutting down. Any bare

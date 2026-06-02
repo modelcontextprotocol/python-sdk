@@ -272,15 +272,6 @@ class Server(Generic[LifespanResultT]):
         """
         self._notification_handlers[method] = HandlerEntry(params_type, handler)
 
-    def _add_request_handler(
-        self,
-        method: str,
-        handler: RequestHandler[LifespanResultT, Any],
-    ) -> None:
-        # TODO: remove once experimental tasks plumbing and remaining callers
-        # migrate to `add_request_handler` with an explicit params_type.
-        self.add_request_handler(method, types.RequestParams, handler)
-
     # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
 
     def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
