@@ -356,24 +356,34 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 self._tg = tg
                 self._running = True
                 task_status.started()
-                async with self._read_stream, self._write_stream:
-                    try:
-                        async for item in self._read_stream:
-                            # Duck-typed: `_context_streams.ContextReceiveStream`
-                            # exposes `.last_context` (the sender's contextvars
-                            # snapshot per message). Plain memory streams don't.
-                            sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
-                            self._dispatch(item, on_request, on_notify, sender_ctx)
-                    except anyio.ClosedResourceError:
-                        # The transport closed our receive end and we looped back
-                        # to `__anext__` on the now-closed stream (stateless SHTTP
-                        # teardown). Same as EOF.
-                        logger.debug("read stream closed by transport; treating as EOF")
-                # Read stream EOF: wake any blocked `send_raw_request` waiters now,
-                # *before* the task group joins, so handlers parked in
-                # `dctx.send_raw_request()` can unwind and the join doesn't deadlock.
-                self._running = False
-                self._fan_out_closed()
+                try:
+                    async with self._read_stream, self._write_stream:
+                        try:
+                            async for item in self._read_stream:
+                                # Duck-typed: `_context_streams.ContextReceiveStream`
+                                # exposes `.last_context` (the sender's contextvars
+                                # snapshot per message). Plain memory streams don't.
+                                sender_ctx: contextvars.Context | None = getattr(
+                                    self._read_stream, "last_context", None
+                                )
+                                self._dispatch(item, on_request, on_notify, sender_ctx)
+                        except anyio.ClosedResourceError:
+                            # The transport closed our receive end and we looped
+                            # back to `__anext__` on the now-closed stream
+                            # (stateless SHTTP teardown). Same as EOF.
+                            logger.debug("read stream closed by transport; treating as EOF")
+                    # Read stream EOF: wake any blocked `send_raw_request` waiters
+                    # (callers outside this task group) with CONNECTION_CLOSED.
+                    self._running = False
+                    self._fan_out_closed()
+                finally:
+                    # Transport closed: cancel in-flight handlers. Without this
+                    # the task-group join waits for them, and a handler that
+                    # outlives its caller (its request timed out client-side, or
+                    # the client disconnected mid-call) would keep `run()` from
+                    # returning forever. Same behaviour as `Server.run()` before
+                    # the dispatcher rework.
+                    tg.cancel_scope.cancel()
         finally:
             # Covers the cancel/crash paths where the inline fan-out above is
             # never reached. Idempotent.

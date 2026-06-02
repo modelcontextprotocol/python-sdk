@@ -197,6 +197,48 @@ async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
 
 
 @pytest.mark.anyio
+async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
+    """A handler that outlives its caller must not keep run() from returning.
+
+    Without the cancel-at-EOF, the task-group join would wait on this handler
+    forever (over SSE that leaks the handler task and the GET request hosting
+    the session).
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+
+    async def park(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_cancelled.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    run_returned = anyio.Event()
+
+    async def drive() -> None:
+        await server.run(park, on_notify)
+        run_returned.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(drive)
+        await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="x", params=None)))
+        with anyio.fail_after(5):
+            await handler_started.wait()
+            c2s_send.close()  # EOF the read side; run() must cancel the parked handler
+            await run_returned.wait()
+    assert handler_cancelled.is_set()
+    s2c_recv.close()
+
+
+@pytest.mark.anyio
 async def test_run_closes_write_stream_on_exit():
     """run() enters both streams; the write end is released on EOF."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
