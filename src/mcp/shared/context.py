@@ -1,4 +1,4 @@
-"""`BaseContext` — the user-facing per-request context.
+"""`BaseContext` - the user-facing per-request context.
 
 Composition over a `DispatchContext`: forwards the transport metadata, the
 back-channel (`send_raw_request`/`notify`), progress reporting, and the cancel
@@ -43,7 +43,7 @@ class BaseContext(Generic[TransportT]):
 
     @property
     def cancel_requested(self) -> anyio.Event:
-        """Set when the peer sends ``notifications/cancelled`` for this request."""
+        """Set when the peer sends `notifications/cancelled` for this request."""
         return self._dctx.cancel_requested
 
     @property
@@ -53,7 +53,7 @@ class BaseContext(Generic[TransportT]):
 
     @property
     def meta(self) -> RequestParamsMeta | None:
-        """The inbound request's ``_meta`` field, if present."""
+        """The inbound request's `_meta` field, if present."""
         return self._meta
 
     async def send_raw_request(
@@ -66,7 +66,7 @@ class BaseContext(Generic[TransportT]):
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: ``can_send_request`` is ``False``.
+            NoBackChannelError: `can_send_request` is `False`.
         """
         return await self._dctx.send_raw_request(method, params, opts)
 

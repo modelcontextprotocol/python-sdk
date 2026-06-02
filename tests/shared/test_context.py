@@ -1,8 +1,8 @@
 """Tests for `BaseContext`.
 
-`BaseContext` is composition over a `DispatchContext` — it forwards
-``transport``/``cancel_requested``/``send_raw_request``/``notify``/``progress``
-and adds ``meta``. It must satisfy `Outbound` so `PeerMixin` works on it.
+`BaseContext` is composition over a `DispatchContext` - it forwards
+`transport`/`cancel_requested`/`send_raw_request`/`notify`/`progress`
+and adds `meta`. It must satisfy `Outbound` so `PeerMixin` works on it.
 """
 
 from collections.abc import Mapping

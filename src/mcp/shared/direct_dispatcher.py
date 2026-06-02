@@ -10,7 +10,7 @@ serialization, no JSON-RPC framing, and no streams. It exists to:
 * embed a server in-process when the JSON-RPC overhead is unnecessary
 
 Unlike `JSONRPCDispatcher`, exceptions raised in a handler propagate directly
-to the caller — there is no exception-to-`ErrorData` boundary here.
+to the caller - there is no exception-to-`ErrorData` boundary here.
 """
 
 from __future__ import annotations
@@ -49,9 +49,9 @@ class _DirectDispatchContext:
     _back_request: _Request
     _back_notify: _Notify
     request_id: RequestId | None = None
-    """Always ``None``: direct dispatch has no wire-level request id."""
+    """Always `None`: direct dispatch has no wire-level request id."""
     message_metadata: MessageMetadata = None  # TODO(maxisbey): remove for Context rework
-    """Always ``None``: in-memory dispatch attaches no transport metadata."""
+    """Always `None`: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
 
@@ -173,12 +173,12 @@ def create_direct_dispatcher_pair(
 
     Args:
         can_send_request: Sets `TransportContext.can_send_request` on both
-            sides. Pass ``False`` to simulate a transport with no back-channel.
+            sides. Pass `False` to simulate a transport with no back-channel.
         headers: Sets `TransportContext.headers` on both sides.
 
     Returns:
-        A ``(left, right)`` pair. Conventionally ``left`` is the client side
-        and ``right`` is the server side, but the wiring is symmetric.
+        A `(left, right)` pair. Conventionally `left` is the client side
+        and `right` is the server side, but the wiring is symmetric.
     """
     ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request, headers=headers)
     left = DirectDispatcher(ctx)

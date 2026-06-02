@@ -81,10 +81,10 @@ LifespanResultT = TypeVar("LifespanResultT", default=Any)
 _ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
 
 RequestHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[HandlerResult]]
-"""A registered request handler: ``(ctx, params) -> result``."""
+"""A registered request handler: `(ctx, params) -> result`."""
 
 NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[None]]
-"""A registered notification handler: ``(ctx, params) -> None``."""
+"""A registered notification handler: `(ctx, params) -> None`."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +93,7 @@ class HandlerEntry(Generic[LifespanResultT]):
 
     Stored in `Server._request_handlers` / `_notification_handlers` and consumed
     by `ServerRunner` to validate, build `Context`, and invoke. The handler's
-    second-argument type is erased to ``Any`` in storage (each entry has a
+    second-argument type is erased to `Any` in storage (each entry has a
     different concrete params type and `Callable` parameters are contravariant);
     the precise type is recoverable via `params_type`. The correlation is
     enforced at registration time by `Server.add_request_handler`.
@@ -262,11 +262,11 @@ class Server(Generic[LifespanResultT]):
         params_type: type[_ParamsT],
         handler: RequestHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Register a request handler for ``method``.
+        """Register a request handler for `method`.
 
-        ``params_type`` is the model incoming params are validated against
+        `params_type` is the model incoming params are validated against
         before the handler is invoked. It should subclass `RequestParams` so
-        ``_meta`` parses uniformly. Replaces any existing handler for the same
+        `_meta` parses uniformly. Replaces any existing handler for the same
         method (no collision guard against spec methods).
         """
         self._request_handlers[method] = HandlerEntry(params_type, handler)
@@ -277,9 +277,9 @@ class Server(Generic[LifespanResultT]):
         params_type: type[_ParamsT],
         handler: NotificationHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Register a notification handler for ``method``.
+        """Register a notification handler for `method`.
 
-        ``params_type`` should subclass `NotificationParams` so ``_meta``
+        `params_type` should subclass `NotificationParams` so `_meta`
         parses uniformly. Replaces any existing handler.
         """
         self._notification_handlers[method] = HandlerEntry(params_type, handler)
@@ -300,11 +300,11 @@ class Server(Generic[LifespanResultT]):
     # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
 
     def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
-        """Return the registered entry for a request method, or ``None``."""
+        """Return the registered entry for a request method, or `None`."""
         return self._request_handlers.get(method)
 
     def get_notification_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
-        """Return the registered entry for a notification method, or ``None``."""
+        """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
     def capabilities(self) -> types.ServerCapabilities:

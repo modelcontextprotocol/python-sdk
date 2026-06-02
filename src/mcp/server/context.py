@@ -39,9 +39,9 @@ class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin,
     """Server-side per-request context.
 
     Composes `BaseContext` (forwards to `DispatchContext`, satisfies `Outbound`),
-    `PeerMixin` (kwarg-style ``sample``/``elicit_*``/``list_roots``/``ping``),
-    and `TypedServerRequestMixin` (typed ``send_request(req) -> Result``). Adds
-    ``lifespan`` and ``connection``.
+    `PeerMixin` (kwarg-style `sample`/`elicit_*`/`list_roots`/`ping`),
+    and `TypedServerRequestMixin` (typed `send_request(req) -> Result`). Adds
+    `lifespan` and `connection`.
 
     Constructed by `ServerRunner` per inbound request and handed to the user's
     handler.
@@ -73,7 +73,7 @@ class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin,
     def session_id(self) -> str | None:
         """The transport's session id for this connection, when one exists.
 
-        Convenience for ``ctx.connection.session_id``. ``None`` on stdio and
+        Convenience for `ctx.connection.session_id`. `None` on stdio and
         stateless HTTP.
         """
         return self._connection.session_id
@@ -82,16 +82,16 @@ class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin,
     def headers(self) -> Mapping[str, str] | None:
         """Request headers carried by this message, when the transport has them.
 
-        Convenience for ``ctx.transport.headers``. ``None`` on stdio.
+        Convenience for `ctx.transport.headers`. `None` on stdio.
         """
         return self.transport.headers
 
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
-        """Send a request-scoped ``notifications/message`` log entry.
+        """Send a request-scoped `notifications/message` log entry.
 
         Uses this request's back-channel (so the entry rides the request's SSE
-        stream in streamable HTTP), not the standalone stream — use
-        ``ctx.connection.log(...)`` for that.
+        stream in streamable HTTP), not the standalone stream - use
+        `ctx.connection.log(...)` for that.
         """
         params: dict[str, Any] = {"level": level, "data": data}
         if logger is not None:
@@ -111,16 +111,16 @@ _MwLifespanT = TypeVar("_MwLifespanT", contravariant=True)
 
 
 class ServerMiddleware(Protocol[_MwLifespanT]):
-    """Context-tier middleware: ``(ctx, method, typed_params, call_next) -> result``.
+    """Context-tier middleware: `(ctx, method, typed_params, call_next) -> result`.
 
     Runs *inside* `ServerRunner._on_request` after params validation and
-    `Context` construction. Wraps registered handlers (including ``ping``) but
-    not ``initialize``, ``METHOD_NOT_FOUND``, or validation failures. Listed
+    `Context` construction. Wraps registered handlers (including `ping`) but
+    not `initialize`, `METHOD_NOT_FOUND`, or validation failures. Listed
     outermost-first on `Server.middleware`.
 
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
     middleware sees `ctx.lifespan: L`. A reusable middleware can be typed
-    `ServerMiddleware[object]` — `Context` is covariant in `LifespanT`, so it
+    `ServerMiddleware[object]` - `Context` is covariant in `LifespanT`, so it
     registers on any `Server[L]`.
     """
 

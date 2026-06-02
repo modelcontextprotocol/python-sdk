@@ -3,7 +3,7 @@
 Behaviors with no `DirectDispatcher` analog: request-id correlation, the
 exception-to-wire boundary, peer-cancel handling, and shutdown fan-out.
 The contract tests shared with `DirectDispatcher` live in
-``test_dispatcher.py``.
+`test_dispatcher.py`.
 """
 
 import contextvars
@@ -300,7 +300,7 @@ async def test_ctx_message_metadata_carries_inbound_request_metadata():
                 )
             )
             with anyio.fail_after(5):
-                await s2c_recv.receive()  # response sent ⇒ the handler has run
+                await s2c_recv.receive()  # response sent => the handler has run
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -502,7 +502,7 @@ async def test_response_write_after_peer_drop_is_swallowed():
             proceed.set()
             with anyio.fail_after(5):
                 await handlers_done.wait()
-            # run() must still be healthy — close the read side to let it exit cleanly.
+            # run() must still be healthy - close the read side to let it exit cleanly.
             c2s_send.close()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -553,14 +553,14 @@ def test_resolve_pending_drops_outcome_when_waiter_stream_already_closed():
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
     d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
-    recv.close()  # waiter gone — send_nowait will raise BrokenResourceError
+    recv.close()  # waiter gone - send_nowait will raise BrokenResourceError
     d._resolve_pending(1, {"late": True})  # pyright: ignore[reportPrivateUsage]
     for s in (c2s_send, c2s_recv, s2c_send, s2c_recv, send):
         s.close()
 
 
 def test_fan_out_closed_drops_signal_when_waiter_already_has_outcome():
-    """White-box: the buffer=1 invariant — WouldBlock means waiter already has an outcome."""
+    """White-box: the buffer=1 invariant - WouldBlock means waiter already has an outcome."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)

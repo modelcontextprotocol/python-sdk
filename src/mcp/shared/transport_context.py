@@ -20,19 +20,19 @@ class TransportContext:
     """
 
     kind: str
-    """Short identifier for the transport (e.g. ``"stdio"``, ``"streamable-http"``)."""
+    """Short identifier for the transport (e.g. `"stdio"`, `"streamable-http"`)."""
 
     can_send_request: bool
     """Whether the transport can deliver server-initiated requests to the peer.
 
-    ``False`` for stateless HTTP and HTTP with JSON response mode; ``True`` for
-    stdio, SSE, and stateful streamable HTTP. When ``False``,
+    `False` for stateless HTTP and HTTP with JSON response mode; `True` for
+    stdio, SSE, and stateful streamable HTTP. When `False`,
     `DispatchContext.send_raw_request` raises `NoBackChannelError`.
     """
 
     headers: Mapping[str, str] | None = None
     """Request headers carried by this message, when the transport has them.
 
-    Populated by HTTP-based transports; ``None`` on stdio. Handlers should
+    Populated by HTTP-based transports; `None` on stdio. Handlers should
     None-check before use.
     """

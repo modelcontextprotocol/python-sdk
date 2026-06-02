@@ -1,18 +1,18 @@
-"""Dispatcher Protocol — the call/return boundary between transports and handlers.
+"""Dispatcher Protocol - the call/return boundary between transports and handlers.
 
 A Dispatcher turns a duplex message channel into two things:
 
-* an outbound API: ``send_raw_request(method, params)`` and ``notify(method, params)``
-* an inbound pump: ``run(on_request, on_notify)`` that drives the receive loop
+* an outbound API: `send_raw_request(method, params)` and `notify(method, params)`
+* an inbound pump: `run(on_request, on_notify)` that drives the receive loop
   and invokes the supplied handlers for each incoming request/notification
 
 It is deliberately *not* MCP-aware. Method names are strings, params and
-results are ``dict[str, Any]``. The MCP type layer (request/result models,
-capability negotiation, ``Context``) sits above this; the wire encoding
+results are `dict[str, Any]`. The MCP type layer (request/result models,
+capability negotiation, `Context`) sits above this; the wire encoding
 (JSON-RPC, gRPC, in-process direct calls) sits below it.
 
-See ``JSONRPCDispatcher`` for the production implementation and
-``DirectDispatcher`` for an in-memory implementation used in tests and for
+See `JSONRPCDispatcher` for the production implementation and
+`DirectDispatcher` for an in-memory implementation used in tests and for
 embedding a server in-process.
 """
 
@@ -53,10 +53,10 @@ class CallOptions(TypedDict, total=False):
     """
 
     timeout: float
-    """Seconds to wait for a result before raising and sending ``notifications/cancelled``."""
+    """Seconds to wait for a result before raising and sending `notifications/cancelled`."""
 
     on_progress: ProgressFnT
-    """Receive ``notifications/progress`` updates for this request."""
+    """Receive `notifications/progress` updates for this request."""
 
     resumption_token: str
     """Opaque token to resume a previously interrupted request (transport-dependent)."""
@@ -71,7 +71,7 @@ class Outbound(Protocol):
 
     Both `Dispatcher` (top-level outbound) and `DispatchContext` (back-channel
     during an inbound request) extend this. The MCP type layer (`PeerMixin`,
-    `Connection`, `Context`) builds typed ``send_request`` / convenience methods
+    `Connection`, `Context`) builds typed `send_request` / convenience methods
     on top of this raw channel.
     """
 
@@ -96,12 +96,12 @@ class Outbound(Protocol):
 
 
 class DispatchContext(Outbound, Protocol[TransportT_co]):
-    """Per-request context handed to ``on_request`` / ``on_notify``.
+    """Per-request context handed to `on_request` / `on_notify`.
 
     Carries the transport metadata for the inbound message and provides the
     back-channel for sending requests/notifications to the peer while handling
     it. `send_raw_request` raises `NoBackChannelError` if
-    ``transport.can_send_request`` is ``False``.
+    `transport.can_send_request` is `False`.
     """
 
     @property
@@ -111,10 +111,10 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
     @property
     def request_id(self) -> RequestId | None:
-        """The id of the inbound request, or ``None`` for a notification.
+        """The id of the inbound request, or `None` for a notification.
 
-        For JSON-RPC this is the wire ``id`` field. Handlers thread it through
-        as ``related_request_id`` on outbound notifications so HTTP transports
+        For JSON-RPC this is the wire `id` field. Handlers thread it through
+        as `related_request_id` on outbound notifications so HTTP transports
         can route them onto the originating request's response stream.
         """
         ...
@@ -126,7 +126,7 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
         This is `SessionMessage.metadata` passed through verbatim: HTTP
         transports attach `ServerMessageMetadata` (the HTTP request, SSE
         stream-close callbacks); stdio and in-memory dispatch attach nothing.
-        Tied to the `SessionMessage` wire format — goes away when transports
+        Tied to the `SessionMessage` wire format - goes away when transports
         stop delivering messages that way.
         """
         # TODO(maxisbey): remove for context rework
@@ -134,7 +134,7 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
     @property
     def cancel_requested(self) -> anyio.Event:
-        """Set when the peer sends ``notifications/cancelled`` for this request."""
+        """Set when the peer sends `notifications/cancelled` for this request."""
         ...
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
@@ -146,13 +146,13 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
 
 OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[dict[str, Any]]]
-"""Handler for inbound requests: ``(ctx, method, params) -> result``. Raise ``MCPError`` to send an error response."""
+"""Handler for inbound requests: `(ctx, method, params) -> result`. Raise `MCPError` to send an error response."""
 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
-"""Handler for inbound notifications: ``(ctx, method, params)``."""
+"""Handler for inbound notifications: `(ctx, method, params)`."""
 
 DispatchMiddleware = Callable[[OnRequest], OnRequest]
-"""Wraps an ``OnRequest`` to produce another ``OnRequest``. Applied outermost-first."""
+"""Wraps an `OnRequest` to produce another `OnRequest`. Applied outermost-first."""
 
 
 class Dispatcher(Outbound, Protocol[TransportT_co]):
@@ -171,12 +171,12 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
-        Each inbound request is dispatched to ``on_request`` in its own task;
-        the returned dict (or raised ``MCPError``) is sent back as the response.
-        Inbound notifications go to ``on_notify``.
+        Each inbound request is dispatched to `on_request` in its own task;
+        the returned dict (or raised `MCPError`) is sent back as the response.
+        Inbound notifications go to `on_notify`.
 
-        ``task_status.started()`` is called once the dispatcher is ready to
-        accept ``send_request``/``notify`` calls, so callers can use
-        ``await tg.start(dispatcher.run, on_request, on_notify)``.
+        `task_status.started()` is called once the dispatcher is ready to
+        accept `send_request`/`notify` calls, so callers can use
+        `await tg.start(dispatcher.run, on_request, on_notify)`.
         """
         ...

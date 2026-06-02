@@ -80,11 +80,11 @@ async def connected_runner(
     headers: Mapping[str, str] | None = None,
     dispatch_middleware: list[DispatchMiddleware] | None = None,
 ) -> AsyncIterator[tuple[DirectDispatcher, ServerRunner[dict[str, Any]]]]:
-    """Yield ``(client, runner)`` running over an in-memory dispatcher pair.
+    """Yield `(client, runner)` running over an in-memory dispatcher pair.
 
     Starts the client (echo handlers) and `runner.run()` in a task group, wraps
-    the body in ``anyio.fail_after(5)``, and cancels on exit. When
-    ``initialized`` is true the helper performs the real ``initialize`` request
+    the body in `anyio.fail_after(5)`, and cancels on exit. When
+    `initialized` is true the helper performs the real `initialize` request
     before yielding, so tests start past the init-gate via the public path.
     """
     client, server_d = create_direct_dispatcher_pair(headers=headers)
@@ -119,7 +119,7 @@ async def connected_runner(
 
 @pytest.mark.anyio
 async def test_connected_runner_propagates_body_exception_unwrapped(server: SrvT):
-    """The harness re-raises body exceptions as-is, not as ``ExceptionGroup``."""
+    """The harness re-raises body exceptions as-is, not as `ExceptionGroup`."""
     with pytest.raises(RuntimeError, match="boom"):
         async with connected_runner(server):
             raise RuntimeError("boom")
@@ -362,7 +362,7 @@ async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, s
     [span] = spans.finished()
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "Method not found: nonexistent/method"
-    # MCPError is a protocol-level response, not a crash — no traceback event.
+    # MCPError is a protocol-level response, not a crash - no traceback event.
     assert not [e for e in span.events if e.name == "exception"]
 
 

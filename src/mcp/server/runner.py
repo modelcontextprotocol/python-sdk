@@ -1,16 +1,16 @@
-"""`ServerRunner` — per-connection orchestrator over a `Dispatcher`.
+"""`ServerRunner` - per-connection orchestrator over a `Dispatcher`.
 
 `ServerRunner` is the bridge between the dispatcher layer (`on_request` /
 `on_notify`, untyped dicts) and the user's handler layer (typed `Context`,
 typed params). One instance per client connection. It:
 
-* handles the ``initialize`` handshake and populates `Connection`
-* gates requests until initialized (``ping`` exempt)
+* handles the `initialize` handshake and populates `Connection`
+* gates requests until initialized (`ping` exempt)
 * looks up the handler in the server's registry, validates params, builds
   `Context`, runs the middleware chain, returns the result dict
-* drives ``dispatcher.run()`` and the per-connection lifespan
+* drives `dispatcher.run()` and the per-connection lifespan
 
-`ServerRunner` holds a `Server` directly — `Server` is the registry.
+`ServerRunner` holds a `Server` directly - `Server` is the registry.
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
     """Dispatch-tier middleware that wraps each request in an OpenTelemetry span.
 
     Mirrors the span shape of the existing `Server._handle_request`: span name
-    ``"MCP handle <method> [<target>]"``, ``mcp.method.name`` attribute, W3C
-    trace context extracted from ``params._meta`` (SEP-414), and an ERROR
+    `"MCP handle <method> [<target>]"`, `mcp.method.name` attribute, W3C
+    trace context extracted from `params._meta` (SEP-414), and an ERROR
     status if the handler raises.
     """
 
@@ -133,8 +133,8 @@ class ServerRunner(Generic[LifespanT]):
         """Drive the dispatcher until the underlying channel closes.
 
         Composes `dispatch_middleware` over `_on_request` and hands the result
-        to `dispatcher.run()`. ``task_status.started()`` is forwarded so callers
-        can ``await tg.start(runner.run)`` and resume once the dispatcher is
+        to `dispatcher.run()`. `task_status.started()` is forwarded so callers
+        can `await tg.start(runner.run)` and resume once the dispatcher is
         ready to accept requests. Once the dispatcher exits,
         `connection.exit_stack` is unwound (shielded) so any per-connection
         cleanup registered by handlers or middleware runs to completion.
@@ -148,8 +148,8 @@ class ServerRunner(Generic[LifespanT]):
     def _compose_on_request(self) -> OnRequest:
         """Wrap `_on_request` in `dispatch_middleware`, outermost-first.
 
-        Dispatch-tier middleware sees raw ``(dctx, method, params) -> dict``
-        and wraps everything — initialize, METHOD_NOT_FOUND, validation
+        Dispatch-tier middleware sees raw `(dctx, method, params) -> dict`
+        and wraps everything - initialize, METHOD_NOT_FOUND, validation
         failures included. `run()` calls this once and hands the result to
         `dispatcher.run()`.
         """
@@ -212,7 +212,7 @@ class ServerRunner(Generic[LifespanT]):
         self.connection.client_info = init.client_info
         self.connection.client_capabilities = init.capabilities
         # TODO: real version negotiation. This always responds with LATEST,
-        # which is wrong — the server should pick the highest version both
+        # which is wrong - the server should pick the highest version both
         # sides support and compute a per-connection feature set from it.
         # See FOLLOWUPS: "Consolidate per-connection mode/negotiation".
         self.connection.protocol_version = (

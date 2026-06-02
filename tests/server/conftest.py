@@ -11,8 +11,8 @@ class SpanCapture:
     """Thin adapter over logfire's `TestExporter` for asserting on MCP spans.
 
     `finished()` returns the raw `ReadableSpan` objects emitted by the
-    ``mcp-python-sdk`` instrumentation scope, filtered to exclude logfire's
-    synthetic ``pending_span`` markers, so tests can assert directly on
+    `mcp-python-sdk` instrumentation scope, filtered to exclude logfire's
+    synthetic `pending_span` markers, so tests can assert directly on
     `.name`, `.kind`, `.status`, `.attributes`, `.parent`, `.events`.
     """
 
@@ -36,7 +36,7 @@ class SpanCapture:
 def spans(capfire: CaptureLogfire) -> Iterator[SpanCapture]:
     """In-memory MCP span capture, cleared before and after each test.
 
-    Backed by the project-level `capfire` override (see ``tests/conftest.py``)
+    Backed by the project-level `capfire` override (see `tests/conftest.py`)
     so there is a single global tracer provider for the suite.
     """
     capture = SpanCapture(capfire.exporter)

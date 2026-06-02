@@ -2,11 +2,11 @@
 
 `PeerMixin` defines the server-to-client request methods (sampling, elicitation,
 roots, ping) once. Any class that satisfies `Outbound` (i.e. has
-``send_raw_request`` and ``notify``) can mix it in and get the typed methods for
-free — `Context`, `Connection`, `Client`, or the bare `Peer` wrapper below.
+`send_raw_request` and `notify`) can mix it in and get the typed methods for
+free - `Context`, `Connection`, `Client`, or the bare `Peer` wrapper below.
 
 The mixin does no capability gating: it builds the params, calls
-``self.send_raw_request(method, params)``, and parses the result into the typed
+`self.send_raw_request(method, params)`, and parses the result into the typed
 model. Gating (and `NoBackChannelError`) is the host's `send_raw_request`'s job.
 """
 
@@ -35,15 +35,15 @@ from mcp.types import (
 __all__ = ["Meta", "Peer", "PeerMixin", "dump_params"]
 
 Meta = dict[str, Any]
-"""Type alias for the ``_meta`` field carried on request/notification params."""
+"""Type alias for the `_meta` field carried on request/notification params."""
 
 
 def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, Any] | None:
-    """Serialize a params model to a wire dict, merging ``meta`` into ``_meta``.
+    """Serialize a params model to a wire dict, merging `meta` into `_meta`.
 
     Shared by `PeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
-    typed convenience method gets the same `_meta` handling. ``meta`` keys take
-    precedence over any ``_meta`` already present on the model.
+    typed convenience method gets the same `_meta` handling. `meta` keys take
+    precedence over any `_meta` already present on the model.
     """
     out = model.model_dump(by_alias=True, mode="json", exclude_none=True) if model is not None else None
     if meta:
@@ -55,8 +55,8 @@ def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, 
 class PeerMixin:
     """Typed server-to-client request methods.
 
-    Each method constrains ``self`` to `Outbound` so the mixin can be applied
-    to anything with ``send_raw_request``/``notify`` — pyright checks the host
+    Each method constrains `self` to `Outbound` so the mixin can be applied
+    to anything with `send_raw_request`/`notify` - pyright checks the host
     class structurally at the call site.
     """
 
@@ -110,7 +110,7 @@ class PeerMixin:
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResult | CreateMessageResultWithTools:
-        """Send a ``sampling/createMessage`` request to the peer.
+        """Send a `sampling/createMessage` request to the peer.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -142,7 +142,7 @@ class PeerMixin:
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> ElicitResult:
-        """Send a form-mode ``elicitation/create`` request.
+        """Send a form-mode `elicitation/create` request.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -161,7 +161,7 @@ class PeerMixin:
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> ElicitResult:
-        """Send a URL-mode ``elicitation/create`` request.
+        """Send a URL-mode `elicitation/create` request.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -174,7 +174,7 @@ class PeerMixin:
     async def list_roots(
         self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None
     ) -> ListRootsResult:
-        """Send a ``roots/list`` request.
+        """Send a `roots/list` request.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -184,7 +184,7 @@ class PeerMixin:
         return ListRootsResult.model_validate(result)
 
     async def ping(self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
-        """Send a ``ping`` request and ignore the result.
+        """Send a `ping` request and ignore the result.
 
         Raises:
             MCPError: The peer responded with an error.

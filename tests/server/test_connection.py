@@ -2,7 +2,7 @@
 
 `Connection` wraps an `Outbound` (the standalone stream). Its `notify` is
 best-effort (never raises); `send_raw_request` is gated on
-``has_standalone_channel``. Tested with a stub `Outbound` so we can assert wire
+`has_standalone_channel`. Tested with a stub `Outbound` so we can assert wire
 shape and inject failures.
 """
 

@@ -1,7 +1,7 @@
 """Behavioral tests for the Dispatcher Protocol.
 
 The contract tests are parametrized over every `Dispatcher` implementation via
-the `pair_factory` fixture (see ``conftest.py``); they must pass for both
+the `pair_factory` fixture (see `conftest.py`); they must pass for both
 `DirectDispatcher` and `JSONRPCDispatcher`. Implementation-specific tests pass
 a concrete factory directly.
 """
@@ -55,7 +55,7 @@ async def running_pair(
     client_on_notify: OnNotify | None = None,
     can_send_request: bool = True,
 ) -> AsyncIterator[tuple[Dispatcher[TransportContext], Dispatcher[TransportContext], Recorder, Recorder]]:
-    """Yield ``(client, server, client_recorder, server_recorder)`` with both ``run()`` loops live."""
+    """Yield `(client, server, client_recorder, server_recorder)` with both `run()` loops live."""
     client, server, close = factory(can_send_request=can_send_request)
     client_rec, server_rec = Recorder(), Recorder()
     c_req, c_notify = echo_handlers(client_rec)
@@ -198,7 +198,7 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
 
 @pytest.mark.anyio
 async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair_factory: PairFactory):
-    """Plain requests carry no transport metadata, so handlers see ``None``."""
+    """Plain requests carry no transport metadata, so handlers see `None`."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)

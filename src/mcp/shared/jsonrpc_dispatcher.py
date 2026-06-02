@@ -9,12 +9,12 @@ The MCP type layer (`ServerRunner`, `Context`, `Client`) sits above this and
 sees only `(ctx, method, params) -> dict`. Transports sit below and see only
 `SessionMessage` reads/writes.
 
-The dispatcher is *mostly* MCP-agnostic — methods/params are opaque strings and
-dicts — but it intercepts ``notifications/cancelled`` and
-``notifications/progress`` because request correlation, cancellation and
+The dispatcher is *mostly* MCP-agnostic - methods/params are opaque strings and
+dicts - but it intercepts `notifications/cancelled` and
+`notifications/progress` because request correlation, cancellation and
 progress are exactly the wiring this layer exists to provide. Those few wire
-shapes are extracted with structural ``match`` patterns (no casts, no
-``mcp.types`` model coupling); a malformed payload simply fails to match and
+shapes are extracted with structural `match` patterns (no casts, no
+`mcp.types` model coupling); a malformed payload simply fails to match and
 the correlation is skipped.
 """
 
@@ -64,22 +64,17 @@ logger = logging.getLogger(__name__)
 TransportT = TypeVar("TransportT", bound=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
-"""How inbound ``notifications/cancelled`` is applied to a running handler.
+"""How inbound `notifications/cancelled` is applied to a running handler.
 
-``"interrupt"`` (default) cancels the handler's scope. ``"signal"`` only sets
-``ctx.cancel_requested`` and lets the handler observe it cooperatively.
+`"interrupt"` (default) cancels the handler's scope. `"signal"` only sets
+`ctx.cancel_requested` and lets the handler observe it cooperatively.
 """
-
-TransportBuilder = Callable[[RequestId | None, MessageMetadata], TransportContext]
-"""Builds the per-message `TransportContext` from the inbound JSON-RPC id and
-the `SessionMessage.metadata` the transport attached. Defaults to a plain
-`TransportContext(kind="jsonrpc", can_send_request=True)` when not supplied."""
 
 
 def _coerce_id(request_id: RequestId) -> RequestId:
     """Coerce a string request ID to int when it's a valid int literal.
 
-    `_allocate_id` only ever produces ``int`` keys for ``_pending``, but a peer
+    `_allocate_id` only ever produces `int` keys for `_pending`, but a peer
     may echo the ID back as a JSON string. The TypeScript SDK and `BaseSession`
     both perform this coercion at lookup time so the response still correlates.
     """
@@ -120,7 +115,7 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     """The transport-attached `SessionMessage.metadata` for this inbound message.
 
     Carries `ServerMessageMetadata` (HTTP request, SSE stream-close callbacks)
-    that the server lifts onto its request context. ``None`` for transports
+    that the server lifts onto its request context. `None` for transports
     that attach nothing.
     """
     _progress_token: ProgressToken | None = None
@@ -172,7 +167,7 @@ def _outbound_metadata(related_request_id: RequestId | None, opts: CallOptions |
     `ServerMessageMetadata` tags a server-to-client message with the inbound
     request it belongs to (so streamable-HTTP can route it onto that request's
     SSE stream). `ClientMessageMetadata` carries resumption hints to the
-    client transport. ``None`` is the common case.
+    client transport. `None` is the common case.
     """
     if related_request_id is not None:
         return ServerMessageMetadata(related_request_id=related_request_id)
@@ -244,17 +239,17 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> dict[str, Any]:
         """Send a JSON-RPC request and await its response.
 
-        ``_related_request_id`` is set only by `_JSONRPCDispatchContext` when a
+        `_related_request_id` is set only by `_JSONRPCDispatchContext` when a
         handler makes a server-to-client request mid-flight; it routes the
         outgoing message onto the correct per-request SSE stream (SHTTP) via
-        `ServerMessageMetadata`. Top-level callers leave it ``None``.
+        `ServerMessageMetadata`. Top-level callers leave it `None`.
 
         Raises:
             MCPError: The peer responded with a JSON-RPC error; or
-                ``REQUEST_TIMEOUT`` if ``opts["timeout"]`` elapsed; or
-                ``CONNECTION_CLOSED`` if the dispatcher shut down while
+                `REQUEST_TIMEOUT` if `opts["timeout"]` elapsed; or
+                `CONNECTION_CLOSED` if the dispatcher shut down while
                 awaiting the response.
-            RuntimeError: Called before ``run()`` has started or after it has
+            RuntimeError: Called before `run()` has started or after it has
                 finished.
         """
         if not self._running:
@@ -276,7 +271,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # buffer=1: at most one outcome is ever delivered. A `WouldBlock` from
         # `_resolve_pending`/`_fan_out_closed` means the waiter already has an
         # outcome and dropping the late/redundant signal is correct. buffer=0
-        # is unsafe — there's a window between registering `_pending[id]` and
+        # is unsafe - there's a window between registering `_pending[id]` and
         # parking in `receive()` where a close signal would be lost.
         send, receive = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
         pending = _Pending(send=send, receive=receive, on_progress=on_progress)
@@ -296,7 +291,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise MCPError(code=REQUEST_TIMEOUT, message=f"Request {method!r} timed out") from None
         except anyio.get_cancelled_exc_class():
             # Our caller's scope was cancelled. We're already inside a cancelled
-            # scope, so any bare `await` here re-raises immediately — shield to
+            # scope, so any bare `await` here re-raises immediately - shield to
             # let the courtesy cancel notification go out before we propagate.
             with anyio.CancelScope(shield=True):
                 await self._cancel_outbound(request_id, "caller cancelled")
@@ -333,8 +328,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Drive the receive loop until the read stream closes.
 
         Each inbound request is handled in its own task in an internal task
-        group; ``task_status.started()`` fires once that group is open, so
-        ``await tg.start(dispatcher.run, ...)`` resumes when ``send_raw_request``
+        group; `task_status.started()` fires once that group is open, so
+        `await tg.start(dispatcher.run, ...)` resumes when `send_raw_request`
         is usable.
         """
         try:
@@ -472,12 +467,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         *args: object,
         sender_ctx: contextvars.Context | None,
     ) -> None:
-        """Schedule ``fn(*args)`` in the run() task group, propagating the sender's contextvars.
+        """Schedule `fn(*args)` in the run() task group, propagating the sender's contextvars.
 
         ASGI middleware (auth, OTel) sets contextvars on the request task that
-        wrote into the read stream. ``Context.run(tg.start_soon, ...)`` makes
+        wrote into the read stream. `Context.run(tg.start_soon, ...)` makes
         the spawned handler inherit *that* context instead of the receive
-        loop's, so ``auth_context_var`` and OTel spans survive.
+        loop's, so `auth_context_var` and OTel spans survive.
         """
         assert self._tg is not None
         if sender_ctx is not None:
@@ -486,9 +481,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg.start_soon(fn, *args)
 
     def _fan_out_closed(self) -> None:
-        """Wake every pending ``send_raw_request`` waiter with ``CONNECTION_CLOSED``.
+        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
 
-        Synchronous (uses ``send_nowait``) because it's called from ``finally``
+        Synchronous (uses `send_nowait`) because it's called from `finally`
         which may be inside a cancelled scope. Idempotent.
         """
         closed = ErrorData(code=CONNECTION_CLOSED, message="connection closed")
@@ -506,10 +501,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         scope: anyio.CancelScope,
         on_request: OnRequest,
     ) -> None:
-        """Run ``on_request`` for one inbound request and write its response.
+        """Run `on_request` for one inbound request and write its response.
 
         This is the single exception-to-wire boundary: handler exceptions are
-        caught here and serialized to ``JSONRPCError``. Nothing above this in
+        caught here and serialized to `JSONRPCError`. Nothing above this in
         the stack constructs wire errors.
         """
         try:
@@ -518,7 +513,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     result = await on_request(dctx, req.method, req.params)
                 finally:
                     # Close the back-channel the moment the handler exits
-                    # (success or raise), before the response write — a handler
+                    # (success or raise), before the response write - a handler
                     # spawning detached work that later calls
                     # `dctx.send_raw_request()` should see `NoBackChannelError`.
                     dctx.close()
@@ -527,7 +522,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             # swallows a scope's *own* cancel at __exit__, so the result write
             # (or the handler) is interrupted and execution lands here without
             # reaching the `except cancelled` arm below. Spec SHOULD: send no
-            # response — fall through to `finally`.
+            # response - fall through to `finally`.
         except anyio.get_cancelled_exc_class():
             # Outer-cancel: run()'s task group is shutting down. Any bare
             # `await` here re-raises immediately, so shield the courtesy write.
