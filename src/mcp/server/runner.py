@@ -415,6 +415,7 @@ async def serve_loop(
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
     close_write_stream_on_read_close: bool = True,
+    read_eof_drain_timeout_seconds: float | None = None,
 ) -> None:
     """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
@@ -434,6 +435,7 @@ async def serve_loop(
         # state instead of failing the init-gate.
         inline_methods=frozenset({"initialize"}),
         close_write_stream_on_read_close=close_write_stream_on_read_close,
+        read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
     )
     connection = Connection.for_loop(dispatcher, session_id=session_id)
     await serve_connection(
@@ -548,6 +550,7 @@ async def serve_dual_era_loop(
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
     close_write_stream_on_read_close: bool = True,
+    read_eof_drain_timeout_seconds: float | None = None,
 ) -> None:
     """Drive `server` over a duplex stream pair, serving both protocol eras.
 
@@ -597,6 +600,7 @@ async def serve_dual_era_loop(
         # next pipelined message is read.
         inline_methods=frozenset({"initialize", "server/discover"}),
         close_write_stream_on_read_close=close_write_stream_on_read_close,
+        read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
     )
     loop_connection = Connection.for_loop(dispatcher, session_id=session_id)
     loop_runner = ServerRunner(server, loop_connection, lifespan_state, init_options=init_options)
