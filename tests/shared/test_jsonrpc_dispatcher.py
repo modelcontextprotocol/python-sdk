@@ -203,7 +203,7 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
 
-    def builder(_rid: object, _meta: object) -> TransportContext:
+    def builder(_meta: object) -> TransportContext:
         return TransportContext(kind="jsonrpc", can_send_request=True)
 
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(

@@ -128,6 +128,10 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
 
     @property
+    def request_id(self) -> RequestId | None:
+        return self._request_id
+
+    @property
     def can_send_request(self) -> bool:
         return self.transport.can_send_request and not self._closed
 
@@ -158,7 +162,7 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
         self._closed = True
 
 
-def _default_transport_builder(_request_id: RequestId | None, _meta: MessageMetadata) -> TransportContext:
+def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
     return TransportContext(kind="jsonrpc", can_send_request=True)
 
 
@@ -199,7 +203,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
         *,
-        transport_builder: Callable[[RequestId | None, MessageMetadata], TransportT],
+        transport_builder: Callable[[MessageMetadata], TransportT],
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
     ) -> None: ...
@@ -208,7 +212,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
         *,
-        transport_builder: Callable[[RequestId | None, MessageMetadata], TransportT] | None = None,
+        transport_builder: Callable[[MessageMetadata], TransportT] | None = None,
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
     ) -> None:
@@ -218,7 +222,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # `TransportT` is `TransportContext`, so the default is type-correct;
         # pyright can't see across overloads, hence the cast.
         self._transport_builder = cast(
-            "Callable[[RequestId | None, MessageMetadata], TransportT]",
+            "Callable[[MessageMetadata], TransportT]",
             transport_builder or _default_transport_builder,
         )
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
@@ -400,7 +404,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 pass
             case _:
                 progress_token = None
-        transport_ctx = self._transport_builder(req.id, metadata)
+        transport_ctx = self._transport_builder(metadata)
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx,
             _dispatcher=self,
@@ -446,7 +450,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 case _:
                     pass
             # fall through: progress is also teed to on_notify
-        transport_ctx = self._transport_builder(None, metadata)
+        transport_ctx = self._transport_builder(metadata)
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx, _dispatcher=self, _request_id=None, message_metadata=metadata
         )

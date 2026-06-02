@@ -24,6 +24,7 @@ import anyio.abc
 
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
+from mcp.types import RequestId
 
 __all__ = [
     "CallOptions",
@@ -106,6 +107,16 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
     @property
     def transport(self) -> TransportT_co:
         """Transport-specific metadata for this inbound message."""
+        ...
+
+    @property
+    def request_id(self) -> RequestId | None:
+        """The id of the inbound request, or ``None`` for a notification.
+
+        For JSON-RPC this is the wire ``id`` field. Handlers thread it through
+        as ``related_request_id`` on outbound notifications so HTTP transports
+        can route them onto the originating request's response stream.
+        """
         ...
 
     @property

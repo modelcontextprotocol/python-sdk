@@ -35,7 +35,7 @@ def jsonrpc_pair(*, can_send_request: bool = True) -> DispatcherTriple:
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
 
-    def builder(_rid: object, _meta: object) -> TransportContext:
+    def builder(_meta: object) -> TransportContext:
         return TransportContext(kind="jsonrpc", can_send_request=can_send_request)
 
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send, transport_builder=builder)
