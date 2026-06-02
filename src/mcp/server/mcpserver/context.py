@@ -94,7 +94,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
 
-        if progress_token is None:  # pragma: no cover
+        if progress_token is None:
             return
 
         await self.request_context.session.send_progress_notification(
@@ -208,9 +208,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    # TODO(maxisbey): see if this is needed otherwise remove
     @property
     def client_id(self) -> str | None:
-        """Get the client ID if available."""
+        """Get the client ID if available.
+
+        Note: this reads from the MCP request's `_meta` params, not the OAuth
+        bearer token. For that, use `get_access_token().client_id`.
+        """
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
@@ -237,7 +242,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             This is a no-op if not using StreamableHTTP transport with event_store.
             The callback is only available when event_store is configured.
         """
-        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no branch
             await self._request_context.close_sse_stream()
 
     async def close_standalone_sse_stream(self) -> None:

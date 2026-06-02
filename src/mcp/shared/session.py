@@ -17,7 +17,6 @@ from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
-from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -183,7 +182,6 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
-    _response_routers: list[ResponseRouter]
 
     def __init__(
         self,
@@ -199,23 +197,7 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
-        self._response_routers = []
         self._exit_stack = AsyncExitStack()
-
-    def add_response_router(self, router: ResponseRouter) -> None:
-        """Register a response router to handle responses for non-standard requests.
-
-        Response routers are checked in order before falling back to the default
-        response stream mechanism. This is used by TaskResultHandler to route
-        responses for queued task requests back to their resolvers.
-
-        !!! warning
-            This is an experimental API that may change without notice.
-
-        Args:
-            router: A ResponseRouter implementation
-        """
-        self._response_routers.append(router)
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -451,7 +433,7 @@ class BaseSession(
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                         await stream.aclose()
-                    except Exception:  # pragma: no cover
+                    except Exception:  # pragma: lax no cover
                         # Stream might already be closed
                         pass
                 self._response_streams.clear()
@@ -477,11 +459,7 @@ class BaseSession(
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
-        """Handle an incoming response or error message.
-
-        Checks response routers first (e.g., for task-related responses),
-        then falls back to the normal response stream mechanism.
-        """
+        """Handle an incoming response or error message."""
         # This check is always true at runtime: the caller (_receive_loop) only invokes
         # this method in the else branch after checking for JSONRPCRequest and
         # JSONRPCNotification. However, the type checker can't infer this from the
@@ -498,20 +476,6 @@ class BaseSession(
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
         response_id = self._normalize_request_id(message.message.id)
 
-        # First, check response routers (e.g., TaskResultHandler)
-        if isinstance(message.message, JSONRPCError):
-            # Route error to routers
-            for router in self._response_routers:
-                if router.route_error(response_id, message.message.error):
-                    return  # Handled
-        else:
-            # Route success response to routers
-            response_data: dict[str, Any] = message.message.result or {}
-            for router in self._response_routers:
-                if router.route_response(response_id, response_data):
-                    return  # Handled
-
-        # Fall back to normal response streams
         stream = self._response_streams.pop(response_id, None)
         if stream:
             await stream.send(message.message)

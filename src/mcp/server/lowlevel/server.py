@@ -59,8 +59,6 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVeri
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
-from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
@@ -121,7 +119,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.CreateTaskResult],
+            Awaitable[types.CallToolResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -197,7 +195,6 @@ class Server(Generic[LifespanResultT]):
         self._notification_handlers: dict[
             str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
         ] = {}
-        self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
@@ -241,10 +238,6 @@ class Server(Generic[LifespanResultT]):
     ) -> None:
         """Add a request handler, silently replacing any existing handler for the same method."""
         self._request_handlers[method] = handler
-
-    def _has_handler(self, method: str) -> bool:
-        """Check if a handler is registered for the given method."""
-        return method in self._request_handlers or method in self._notification_handlers
 
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
@@ -323,24 +316,7 @@ class Server(Generic[LifespanResultT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
-        if self._experimental_handlers:
-            self._experimental_handlers.update_capabilities(capabilities)
         return capabilities
-
-    @property
-    def experimental(self) -> ExperimentalHandlers[LifespanResultT]:
-        """Experimental APIs for tasks and other features.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
-
-        # We create this inline so we only add these capabilities _if_ they're actually used
-        if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(
-                add_request_handler=self._add_request_handler,
-                has_handler=self._has_handler,
-            )
-        return self._experimental_handlers
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -349,12 +325,12 @@ class Server(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:  # pragma: no cover
-            raise RuntimeError(
+        if self._session_manager is None:
+            raise RuntimeError(  # pragma: no cover
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     async def run(
         self,
@@ -382,12 +358,6 @@ class Server(Generic[LifespanResultT]):
                     stateless=stateless,
                 )
             )
-
-            # Configure task support for this session if enabled
-            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-            if task_support is not None:
-                task_support.configure_session(session)
-                await stack.enter_async_context(task_support.run())
 
             async with anyio.create_task_group() as tg:
                 try:
@@ -476,23 +446,11 @@ class Server(Generic[LifespanResultT]):
                         close_sse_stream_cb = message.message_metadata.close_sse_stream
                         close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
 
-                    client_capabilities = session.client_params.capabilities if session.client_params else None
-                    task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                    # Get task metadata from request params if present
-                    task_metadata = None
-                    if hasattr(req, "params") and req.params is not None:  # pragma: no branch
-                        task_metadata = getattr(req.params, "task", None)
                     ctx = ServerRequestContext(
                         request_id=message.request_id,
                         meta=message.request_meta,
                         session=session,
                         lifespan_context=lifespan_context,
-                        experimental=Experimental(
-                            task_metadata=task_metadata,
-                            _client_capabilities=client_capabilities,
-                            _session=session,
-                            _task_support=task_support,
-                        ),
                         request=request_data,
                         close_sse_stream=close_sse_stream_cb,
                         close_standalone_sse_stream=close_standalone_sse_stream_cb,
@@ -513,7 +471,7 @@ class Server(Generic[LifespanResultT]):
                     if raise_exceptions:  # pragma: no cover
                         raise err
                     response = types.ErrorData(code=0, message=str(err))
-            else:  # pragma: no cover
+            else:
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
 
             if isinstance(response, types.ErrorData) and span is not None:
@@ -543,17 +501,9 @@ class Server(Generic[LifespanResultT]):
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
                 ctx = ServerRequestContext(
                     session=session,
                     lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=None,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
                 )
                 await handler(ctx, notify.params)
             except Exception:  # pragma: no cover
@@ -603,7 +553,7 @@ class Server(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if auth:  # pragma: no cover
+        if auth:
             required_scopes = auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -629,10 +579,10 @@ class Server(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if token_verifier:  # pragma: no cover
+        if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:
+            if auth and auth.resource_server_url:  # pragma: no branch
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 
@@ -652,7 +602,7 @@ class Server(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if auth and auth.resource_server_url:  # pragma: no cover
+        if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,

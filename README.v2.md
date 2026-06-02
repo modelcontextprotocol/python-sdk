@@ -207,7 +207,11 @@ In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
-The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions. MCP servers can:
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions.
+
+MCP follows a **client-server model**, where LLM applications act as clients and connect to MCP servers to access capabilities such as data retrieval and tool execution in a consistent format.
+
+MCP servers can:
 
 - Expose data through **Resources** (think of these sort of like GET endpoints; they are used to load information into the LLM's context)
 - Provide functionality through **Tools** (sort of like POST endpoints; they are used to execute code or otherwise produce a side effect)
@@ -2489,7 +2493,6 @@ MCP servers declare capabilities during initialization:
 ## Documentation
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
-- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
