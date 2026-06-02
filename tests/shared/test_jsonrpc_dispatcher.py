@@ -177,6 +177,43 @@ async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_m
 
 
 @pytest.mark.anyio
+async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
+    """Iterating a closed receive end raises ClosedResourceError; run() treats it as EOF.
+
+    Stateless SHTTP teardown closes the dispatcher's receive end after the
+    request is handled; the next loop iteration must not surface as a crash.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    # Close the dispatcher's own receive end (not the send end) before run()
+    # iterates it: __anext__ on a closed stream raises ClosedResourceError.
+    c2s_recv.close()
+    with anyio.fail_after(5):
+        await server.run(on_request, on_notify)
+    for s in (c2s_send, s2c_send, s2c_recv):
+        s.close()
+
+
+@pytest.mark.anyio
+async def test_run_closes_write_stream_on_exit():
+    """run() enters both streams; the write end is released on EOF."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(server.run, on_request, on_notify)
+        c2s_send.close()  # EOF the read side; run() exits
+        with anyio.fail_after(5):
+            # Write end was entered and released by run(); peer's receive sees EOF.
+            with pytest.raises(anyio.EndOfStream):
+                await s2c_recv.receive()
+    s2c_recv.close()
+
+
+@pytest.mark.anyio
 async def test_late_response_after_timeout_is_dropped_without_crashing():
     handler_started = anyio.Event()
     proceed = anyio.Event()

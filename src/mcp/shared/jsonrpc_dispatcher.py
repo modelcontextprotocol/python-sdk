@@ -337,13 +337,19 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 self._tg = tg
                 self._running = True
                 task_status.started()
-                async with self._read_stream:
-                    async for item in self._read_stream:
-                        # Duck-typed: `_context_streams.ContextReceiveStream`
-                        # exposes `.last_context` (the sender's contextvars
-                        # snapshot per message). Plain memory streams don't.
-                        sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
-                        self._dispatch(item, on_request, on_notify, sender_ctx)
+                async with self._read_stream, self._write_stream:
+                    try:
+                        async for item in self._read_stream:
+                            # Duck-typed: `_context_streams.ContextReceiveStream`
+                            # exposes `.last_context` (the sender's contextvars
+                            # snapshot per message). Plain memory streams don't.
+                            sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
+                            self._dispatch(item, on_request, on_notify, sender_ctx)
+                    except anyio.ClosedResourceError:
+                        # The transport closed our receive end and we looped back
+                        # to `__anext__` on the now-closed stream (stateless SHTTP
+                        # teardown). Same as EOF.
+                        logger.debug("read stream closed by transport; treating as EOF")
                 # Read stream EOF: wake any blocked `send_raw_request` waiters now,
                 # *before* the task group joins, so handlers parked in
                 # `dctx.send_raw_request()` can unwind and the join doesn't deadlock.
