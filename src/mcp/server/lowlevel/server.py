@@ -307,10 +307,6 @@ class Server(Generic[LifespanResultT]):
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
-    def capabilities(self) -> types.ServerCapabilities:
-        """Derive `ServerCapabilities` from registered handlers and constructor options."""
-        return self.get_capabilities(self._notification_options, self._experimental_capabilities)
-
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
