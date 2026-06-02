@@ -7,45 +7,30 @@ that appropriate errors are raised when attempting to use unsupported features.
 See: https://github.com/modelcontextprotocol/python-sdk/issues/1097
 """
 
-from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import Mock
 
-import anyio
 import pytest
 
 from mcp import types
-from mcp.server.models import InitializationOptions
+from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import StatelessModeNotSupported
-from mcp.shared.message import SessionMessage
-from mcp.types import ServerCapabilities
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+
+
+def _make_session(*, stateless: bool) -> ServerSession:
+    """A `ServerSession` with a mock dispatcher; the stateless guard fires before any send."""
+    return ServerSession(
+        Mock(spec=JSONRPCDispatcher),
+        Connection(Mock(), has_standalone_channel=False),
+        stateless=stateless,
+    )
 
 
 @pytest.fixture
-async def stateless_session() -> AsyncGenerator[ServerSession, None]:
-    """Create a stateless ServerSession for testing."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    init_options = InitializationOptions(
-        server_name="test",
-        server_version="0.1.0",
-        capabilities=ServerCapabilities(),
-    )
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-    ):
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            init_options,
-            stateless=True,
-        ) as session:
-            yield session
+def stateless_session() -> ServerSession:
+    return _make_session(stateless=True)
 
 
 @pytest.mark.anyio
@@ -126,30 +111,8 @@ async def test_exception_has_method_attribute(stateless_session: ServerSession):
 
 
 @pytest.fixture
-async def stateful_session() -> AsyncGenerator[ServerSession, None]:
-    """Create a stateful ServerSession for testing."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    init_options = InitializationOptions(
-        server_name="test",
-        server_version="0.1.0",
-        capabilities=ServerCapabilities(),
-    )
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-    ):
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            init_options,
-            stateless=False,
-        ) as session:
-            yield session
+def stateful_session() -> ServerSession:
+    return _make_session(stateless=False)
 
 
 @pytest.mark.anyio

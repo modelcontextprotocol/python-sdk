@@ -36,10 +36,13 @@ class SpanCapture:
 def spans(capfire: CaptureLogfire) -> Iterator[SpanCapture]:
     """In-memory MCP span capture, cleared before and after each test.
 
-    Backed by the project-level `capfire` override (see `tests/conftest.py`)
-    so there is a single global tracer provider for the suite.
+    Backed by the project-level `capfire` override (see `tests/conftest.py`),
+    which scopes `mcp.shared._otel._tracer` to the test so the real tracer
+    doesn't leak into later tests in the same worker.
     """
     capture = SpanCapture(capfire.exporter)
     capture.clear()
     yield capture
     capture.clear()
+
+

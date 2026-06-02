@@ -17,15 +17,26 @@ from mcp.server.connection import Connection
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     ElicitationCapability,
     EmptyResult,
+    Implementation,
+    InitializeRequestParams,
     ListRootsRequest,
     ListRootsResult,
     PingRequest,
     RootsCapability,
     SamplingCapability,
 )
+
+
+def _client_params(capabilities: ClientCapabilities) -> InitializeRequestParams:
+    return InitializeRequestParams(
+        protocol_version=LATEST_PROTOCOL_VERSION,
+        capabilities=capabilities,
+        client_info=Implementation(name="t", version="0"),
+    )
 
 
 class StubOutbound:
@@ -190,14 +201,24 @@ def test_connection_check_capability_false_before_initialized():
 )
 def test_check_capability_per_field_branches(have: ClientCapabilities, want: ClientCapabilities, expected: bool):
     conn = Connection(StubOutbound(), has_standalone_channel=True)
-    conn.client_capabilities = have
+    conn.client_params = _client_params(have)
     assert conn.check_capability(want) is expected
+
+
+def test_connection_client_info_and_capabilities_derive_from_client_params():
+    conn = Connection(StubOutbound(), has_standalone_channel=True)
+    assert conn.client_info is None
+    assert conn.client_capabilities is None
+    caps = ClientCapabilities(sampling=SamplingCapability())
+    conn.client_params = _client_params(caps)
+    assert conn.client_info is not None and conn.client_info.name == "t"
+    assert conn.client_capabilities == caps
 
 
 def test_connection_check_capability_true_when_client_declares_it():
     conn = Connection(StubOutbound(), has_standalone_channel=True)
-    conn.client_capabilities = ClientCapabilities(
-        sampling=SamplingCapability(), roots=RootsCapability(list_changed=True)
+    conn.client_params = _client_params(
+        ClientCapabilities(sampling=SamplingCapability(), roots=RootsCapability(list_changed=True))
     )
     conn.initialized.set()
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is True
