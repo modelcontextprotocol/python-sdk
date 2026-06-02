@@ -43,7 +43,6 @@ from mcp.shared.message import (
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CONNECTION_CLOSED,
-    INTERNAL_ERROR,
     INVALID_PARAMS,
     REQUEST_CANCELLED,
     REQUEST_TIMEOUT,
@@ -524,11 +523,15 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     # `dctx.send_raw_request()` should see `NoBackChannelError`.
                     dctx.close()
                 await self._write_result(req.id, result)
-            # Peer-cancel: `_dispatch_notification` cancelled this scope. anyio
-            # swallows a scope's *own* cancel at __exit__, so the result write
-            # (or the handler) is interrupted and execution lands here without
-            # reaching the `except cancelled` arm below. Spec SHOULD: send no
-            # response - fall through to `finally`.
+            if scope.cancel_called:
+                # Peer-cancel: `_dispatch_notification` cancelled this scope.
+                # anyio swallows a scope's *own* cancel at __exit__, so the
+                # result write (or the handler) is interrupted and execution
+                # lands here rather than the `except cancelled` arm below.
+                # TODO(maxisbey): spec says SHOULD NOT respond after cancel.
+                # The existing server always has and the interaction suite pins
+                # that; revisit once the suite's divergence entry is resolved.
+                await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
         except anyio.get_cancelled_exc_class():
             # Outer-cancel: run()'s task group is shutting down. Any bare
             # `await` here re-raises immediately, so shield the courtesy write.
@@ -537,11 +540,20 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise
         except MCPError as e:
             await self._write_error(req.id, e.error)
-        except ValidationError as e:
-            await self._write_error(req.id, ErrorData(code=INVALID_PARAMS, message=str(e)))
+        except ValidationError:
+            # TODO(maxisbey): data="" is pinned compat with the existing
+            # server (which never leaked pydantic error text onto the wire).
+            # Consider putting the validation detail in `data` once the
+            # interaction suite's divergence entry is resolved.
+            await self._write_error(
+                req.id, ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+            )
         except Exception as e:
             logger.exception("handler for %r raised", req.method)
-            await self._write_error(req.id, ErrorData(code=INTERNAL_ERROR, message=str(e)))
+            # TODO(maxisbey): code=0 is pinned compat with the existing
+            # server's `_handle_request`. JSON-RPC says INTERNAL_ERROR
+            # (-32603); revisit once the suite's divergence entry is resolved.
+            await self._write_error(req.id, ErrorData(code=0, message=str(e)))
             if self._raise_handler_exceptions:
                 raise
         finally:

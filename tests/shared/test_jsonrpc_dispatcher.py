@@ -70,8 +70,8 @@ async def test_concurrent_send_raw_requests_correlate_by_id_when_responses_arriv
 
 
 @pytest.mark.anyio
-async def test_handler_raising_exception_sends_internal_error_with_str_message():
-    """Per design: INTERNAL_ERROR carries str(e), not a scrubbed message."""
+async def test_handler_raising_exception_sends_code_zero_with_str_message():
+    """Matches the existing server's `_handle_request`: code=0, message=str(e)."""
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         raise RuntimeError("kaboom")
@@ -79,13 +79,14 @@ async def test_handler_raising_exception_sends_internal_error_with_str_message()
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.code == 0
     assert exc.value.error.message == "kaboom"
     assert exc.value.__cause__ is None  # cause does not survive the wire
 
 
 @pytest.mark.anyio
-async def test_peer_cancel_interrupt_mode_sets_cancel_requested_and_sends_no_response():
+async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
+    """Matches the existing server: a peer-cancelled request is answered with code=0."""
     handler_started = anyio.Event()
     handler_exited = anyio.Event()
     seen_ctx: list[DCtx] = []
@@ -99,23 +100,22 @@ async def test_peer_cancel_interrupt_mode_sets_cancel_requested_and_sends_no_res
             handler_exited.set()
         raise NotImplementedError
 
+    seen_error: list[ErrorData] = []
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call_then_record() -> None:
-                    with pytest.raises(MCPError):  # we'll cancel via tg below
+                    with pytest.raises(MCPError) as exc:
                         await client.send_raw_request("slow", None)
+                    seen_error.append(exc.value.error)
 
                 tg.start_soon(call_then_record)
                 await handler_started.wait()
-                # cancel just the handler (peer-cancel), not our caller
                 await client.notify("notifications/cancelled", {"requestId": 1})
                 await handler_exited.wait()
-                # Handler torn down, no response was written; caller is still parked.
-                # Cancel the caller's task to end the test.
-                tg.cancel_scope.cancel()
     assert seen_ctx[0].cancel_requested.is_set()
+    assert seen_error == [ErrorData(code=0, message="Request cancelled")]
 
 
 @pytest.mark.anyio
@@ -266,7 +266,7 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
         sent = s2c_recv.receive_nowait()
         assert isinstance(sent, SessionMessage)
         assert isinstance(sent.message, JSONRPCError)
-        assert sent.message.error.code == INTERNAL_ERROR
+        assert sent.message.error.code == 0
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
@@ -408,7 +408,7 @@ async def test_handler_raising_validation_error_sends_invalid_params():
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("t", None)
-    assert exc.value.error.code == INVALID_PARAMS
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
 
 
 @pytest.mark.anyio
