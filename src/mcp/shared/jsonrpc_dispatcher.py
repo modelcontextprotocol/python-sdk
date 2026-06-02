@@ -116,6 +116,13 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     transport: TransportT
     _dispatcher: JSONRPCDispatcher[TransportT]
     _request_id: RequestId | None
+    message_metadata: MessageMetadata = None  # TODO(maxisbey): remove for Context rework
+    """The transport-attached `SessionMessage.metadata` for this inbound message.
+
+    Carries `ServerMessageMetadata` (HTTP request, SSE stream-close callbacks)
+    that the server lifts onto its request context. ``None`` for transports
+    that attach nothing.
+    """
     _progress_token: ProgressToken | None = None
     _closed: bool = False
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
@@ -398,6 +405,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             transport=transport_ctx,
             _dispatcher=self,
             _request_id=req.id,
+            message_metadata=metadata,
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
@@ -439,7 +447,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     pass
             # fall through: progress is also teed to on_notify
         transport_ctx = self._transport_builder(None, metadata)
-        dctx = _JSONRPCDispatchContext(transport=transport_ctx, _dispatcher=self, _request_id=None)
+        dctx = _JSONRPCDispatchContext(
+            transport=transport_ctx, _dispatcher=self, _request_id=None, message_metadata=metadata
+        )
         self._spawn(on_notify, dctx, msg.method, msg.params, sender_ctx=sender_ctx)
 
     def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:

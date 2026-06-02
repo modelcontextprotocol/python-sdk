@@ -197,6 +197,16 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
 
 
 @pytest.mark.anyio
+async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair_factory: PairFactory):
+    """Plain requests carry no transport metadata, so handlers see ``None``."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("tools/call", None)
+    assert len(srec.contexts) == 1
+    assert srec.contexts[0].message_metadata is None
+
+
+@pytest.mark.anyio
 async def test_direct_send_raw_request_wraps_non_mcperror_exception_as_internal_error_with_cause():
     """DirectDispatcher-specific: the original exception is chained via __cause__."""
 

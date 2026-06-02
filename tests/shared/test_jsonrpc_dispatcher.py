@@ -22,7 +22,7 @@ from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsag
     _outbound_metadata,
     _Pending,
 )
-from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CONNECTION_CLOSED,
@@ -272,6 +272,77 @@ async def test_ctx_send_raw_request_tags_outbound_with_server_message_metadata()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
+
+
+@pytest.mark.anyio
+async def test_ctx_message_metadata_carries_inbound_request_metadata():
+    """Transport-attached metadata (HTTP request, SSE close hooks) is readable off the dispatch context."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    metadata = ServerMessageMetadata(request_context="request-scoped-data")
+    seen: list[MessageMetadata] = []
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        seen.append(ctx.message_metadata)
+        return {}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params=None),
+                    metadata=metadata,
+                )
+            )
+            with anyio.fail_after(5):
+                await s2c_recv.receive()  # response sent ⇒ the handler has run
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert len(seen) == 1
+    assert seen[0] is metadata  # the exact object, passed through verbatim
+
+
+@pytest.mark.anyio
+async def test_ctx_message_metadata_carries_inbound_notification_metadata():
+    """Notifications get the same metadata pass-through as requests."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    metadata = ServerMessageMetadata(request_context="request-scoped-data")
+    seen: list[MessageMetadata] = []
+    notified = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        seen.append(ctx.message_metadata)
+        notified.set()
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized", params=None),
+                    metadata=metadata,
+                )
+            )
+            with anyio.fail_after(5):
+                await notified.wait()
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert len(seen) == 1
+    assert seen[0] is metadata
 
 
 @pytest.mark.anyio

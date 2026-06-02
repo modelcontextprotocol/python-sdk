@@ -22,6 +22,7 @@ from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 import anyio
 import anyio.abc
 
+from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
 __all__ = [
@@ -105,6 +106,19 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
     @property
     def transport(self) -> TransportT_co:
         """Transport-specific metadata for this inbound message."""
+        ...
+
+    @property
+    def message_metadata(self) -> MessageMetadata:
+        """The metadata the transport attached to this inbound message, if any.
+
+        This is `SessionMessage.metadata` passed through verbatim: HTTP
+        transports attach `ServerMessageMetadata` (the HTTP request, SSE
+        stream-close callbacks); stdio and in-memory dispatch attach nothing.
+        Tied to the `SessionMessage` wire format — goes away when transports
+        stop delivering messages that way.
+        """
+        # TODO(maxisbey): remove for context rework
         ...
 
     @property

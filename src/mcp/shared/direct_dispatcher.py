@@ -24,6 +24,7 @@ import anyio.abc
 
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.types import INTERNAL_ERROR, REQUEST_TIMEOUT
 
@@ -47,6 +48,8 @@ class _DirectDispatchContext:
     transport: TransportContext
     _back_request: _Request
     _back_notify: _Notify
+    message_metadata: MessageMetadata = None  # TODO(maxisbey): remove for Context rework
+    """Always ``None``: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
 
