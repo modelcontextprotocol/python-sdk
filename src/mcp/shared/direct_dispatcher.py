@@ -21,12 +21,13 @@ from typing import Any
 
 import anyio
 import anyio.abc
+from pydantic import ValidationError
 
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INTERNAL_ERROR, REQUEST_TIMEOUT, RequestId
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
 
 __all__ = ["DirectDispatcher", "create_direct_dispatcher_pair"]
 
@@ -149,6 +150,10 @@ class DirectDispatcher:
                     return await self._on_request(dctx, method, params)
                 except MCPError:
                     raise
+                except ValidationError as e:
+                    # Same shape JSONRPCDispatcher writes, so runner-over-direct
+                    # tests see what runner-over-JSONRPC would.
+                    raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="") from e
                 except Exception as e:
                     raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
         except TimeoutError:

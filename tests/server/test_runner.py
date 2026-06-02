@@ -161,11 +161,30 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
 
 
 @pytest.mark.anyio
-async def test_runner_unknown_method_raises_method_not_found(server: SrvT):
+async def test_runner_spec_method_with_no_handler_raises_method_not_found(server: SrvT):
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("resources/list", None)
+    assert exc.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_runner_non_spec_method_with_no_handler_raises_method_not_found(server: SrvT):
+    """Upfront validation is gated to spec methods, so a non-spec method
+    skips it and reaches handler lookup."""
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("nonexistent/method", None)
     assert exc.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_runner_malformed_params_for_unregistered_spec_method_raises_invalid_params(server: SrvT):
+    """A spec method with malformed params is INVALID_PARAMS even with no handler."""
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": 123})
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
 
 
 @pytest.mark.anyio
@@ -287,6 +306,9 @@ async def test_runner_stateless_skips_init_gate(server: SrvT):
 
 @pytest.mark.anyio
 async def test_server_add_request_handler_routes_custom_method_with_validated_params(server: SrvT):
+    """Custom methods outside the spec `ClientRequest` union skip upfront
+    validation and route to the registered handler."""
+
     class GreetParams(RequestParams):
         name: str
 
@@ -358,7 +380,7 @@ async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, s
     async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
         spans.clear()
         with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("nonexistent/method", None)
+            await client.send_raw_request("resources/list", None)
         assert exc.value.error.code == METHOD_NOT_FOUND
     [span] = spans.finished()
     assert span.status.status_code == StatusCode.ERROR

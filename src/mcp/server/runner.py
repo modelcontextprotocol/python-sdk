@@ -19,7 +19,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
-from typing import Any, Generic, cast
+from typing import Any, Generic, cast, get_args
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
@@ -37,9 +37,11 @@ from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    ClientRequest,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
+    client_request_adapter,
 )
 
 __all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "otel_middleware"]
@@ -50,6 +52,13 @@ LifespanT = TypeVar("LifespanT", default=Any)
 
 
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
+
+_SPEC_CLIENT_METHODS: frozenset[str] = frozenset(
+    cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(ClientRequest)
+)
+"""Method names in the spec `ClientRequest` union, derived from the
+discriminator literal on each arm. Used to gate upfront validation so custom
+methods registered via `add_request_handler` are not rejected."""
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -161,6 +170,20 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
+        # TODO(maxisbey): pinned compat. `BaseSession._receive_loop` validates
+        # every inbound request against the spec `ClientRequest` discriminated
+        # union *before* handler lookup, so a spec method with malformed params
+        # surfaces as INVALID_PARAMS via the dispatcher's ValidationError
+        # boundary even when no handler is registered. v2 wanted to decouple
+        # the runner from the spec union; revisit once the suite's divergence
+        # entry is resolved. Gated on spec methods so custom methods registered
+        # via `add_request_handler` still route (the existing server rejects
+        # those too, but nothing pins that and routing them is strictly better).
+        if method in _SPEC_CLIENT_METHODS:
+            payload: dict[str, Any] = {"method": method}
+            if params is not None:
+                payload["params"] = dict(params)
+            client_request_adapter.validate_python(payload)
         if method == "initialize":
             return self._handle_initialize(params)
         if not self._initialized and method not in _INIT_EXEMPT:
