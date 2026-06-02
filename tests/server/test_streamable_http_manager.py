@@ -340,11 +340,32 @@ async def test_e2e_streamable_http_server_cleanup():
         await client.list_tools()
 
 
+class _IdleTimeoutObserver(logging.Handler):
+    """Resolves `reaped` when the manager logs that a session's idle timeout fired."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reaped = anyio.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "idle timeout" in record.getMessage():
+            self.reaped.set()
+
+
 @pytest.mark.anyio
-async def test_idle_session_is_reaped():
+async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest):
     """After idle timeout fires, the session returns 404."""
     app = Server("test-idle-reap")
     manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=0.05)
+
+    # The reap is observed through the manager's own "idle timeout" log record: the manager pops
+    # the session synchronously after emitting it, before its next await, so a waiter woken by
+    # the record always finds the session gone. caplog.set_level enables INFO so it is created.
+    observer = _IdleTimeoutObserver()
+    manager_logger = logging.getLogger(streamable_http_manager.__name__)
+    manager_logger.addHandler(observer)
+    request.addfinalizer(lambda: manager_logger.removeHandler(observer))
+    caplog.set_level(logging.INFO, logger=streamable_http_manager.__name__)
 
     async with manager.run():
         sent_messages: list[Message] = []
@@ -376,8 +397,10 @@ async def test_idle_session_is_reaped():
 
         assert session_id is not None, "Session ID not found in response headers"
 
-        # Wait for the 50ms idle timeout to fire and cleanup to complete
-        await anyio.sleep(0.1)
+        # Wait for the 50ms idle timeout to fire and the session to be unregistered. Re-requesting
+        # the session to poll for the 404 would push its idle deadline forward and keep it alive.
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
 
         # Verify via public API: old session ID now returns 404
         response_messages: list[Message] = []
