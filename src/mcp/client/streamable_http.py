@@ -120,7 +120,7 @@ class StreamableHTTPTransport:
             try:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.result, by_name=False)
-                self.protocol_version = str(init_result.protocol_version)
+                self.protocol_version = init_result.protocol_version
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception:  # pragma: no cover
                 logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)

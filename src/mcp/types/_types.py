@@ -304,7 +304,7 @@ class ServerCapabilities(MCPModel):
 class InitializeRequestParams(RequestParams):
     """Parameters for the initialize request."""
 
-    protocol_version: str | int
+    protocol_version: str
     """The latest version of the Model Context Protocol that the client supports."""
     capabilities: ClientCapabilities
     client_info: Implementation
@@ -322,7 +322,7 @@ class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]])
 class InitializeResult(Result):
     """After receiving an initialize request from the client, the server sends this."""
 
-    protocol_version: str | int
+    protocol_version: str
     """The version of the Model Context Protocol that the server wants to use."""
     capabilities: ServerCapabilities
     server_info: Implementation
