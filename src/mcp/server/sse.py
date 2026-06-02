@@ -50,6 +50,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp import types
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
@@ -73,6 +74,9 @@ class SseServerTransport:
 
     _endpoint: str
     _read_stream_writers: dict[UUID, ContextSendStream[SessionMessage | Exception]]
+    # Identity of the credential that created each session; requests for a
+    # session must present the same credential.
+    _session_owners: dict[UUID, AuthorizationContext]
     _security: TransportSecurityMiddleware
 
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
@@ -112,11 +116,12 @@ class SseServerTransport:
 
         self._endpoint = endpoint
         self._read_stream_writers = {}
+        self._session_owners = {}
         self._security = TransportSecurityMiddleware(security_settings)
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):  # pragma: no cover
+    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
@@ -134,6 +139,9 @@ class SseServerTransport:
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
         session_id = uuid4()
+        user = scope.get("user")
+        if isinstance(user, AuthenticatedUser):
+            self._session_owners[session_id] = authorization_context(user)
         self._read_stream_writers[session_id] = read_stream_writer
         logger.debug(f"Created new session with ID: {session_id}")
 
@@ -169,28 +177,32 @@ class SseServerTransport:
                         }
                     )
 
-        async with anyio.create_task_group() as tg:
+        try:
+            async with anyio.create_task_group() as tg:
 
-            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
-                """The EventSourceResponse returning signals a client close / disconnect.
-                In this case we close our side of the streams to signal the client that
-                the connection has been closed.
-                """
-                await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
-                    scope, receive, send
-                )
-                await read_stream_writer.aclose()
-                await write_stream_reader.aclose()
-                self._read_stream_writers.pop(session_id, None)
-                logging.debug(f"Client session disconnected {session_id}")
+                async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+                    """The EventSourceResponse returning signals a client close / disconnect.
+                    In this case we close our side of the streams to signal the client that
+                    the connection has been closed.
+                    """
+                    await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
+                        scope, receive, send
+                    )
+                    await read_stream_writer.aclose()
+                    await write_stream_reader.aclose()
+                    await sse_stream_reader.aclose()
+                    logging.debug(f"Client session disconnected {session_id}")
 
-            logger.debug("Starting SSE response task")
-            tg.start_soon(response_wrapper, scope, receive, send)
+                logger.debug("Starting SSE response task")
+                tg.start_soon(response_wrapper, scope, receive, send)
 
-            logger.debug("Yielding read and write streams")
-            yield (read_stream, write_stream)
+                logger.debug("Yielding read and write streams")
+                yield (read_stream, write_stream)
+        finally:
+            self._read_stream_writers.pop(session_id, None)
+            self._session_owners.pop(session_id, None)
 
-    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 
@@ -216,6 +228,15 @@ class SseServerTransport:
         writer = self._read_stream_writers.get(session_id)
         if not writer:
             logger.warning(f"Could not find session for ID: {session_id}")
+            response = Response("Could not find session", status_code=404)
+            return await response(scope, receive, send)
+
+        user = scope.get("user")
+        requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
+        if requestor != self._session_owners.get(session_id):
+            # A session can only be used with the credential that created it.
+            # Respond exactly as if the session did not exist.
+            logger.warning("Rejecting message for session %s: credential does not match", session_id)
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
 

@@ -75,6 +75,8 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     scopes=data.get("scope", "").split() if data.get("scope") else [],
                     expires_at=data.get("exp"),
                     resource=data.get("aud"),  # Include resource in token
+                    subject=data.get("sub"),  # RFC 7662 subject (resource owner)
+                    claims=data,
                 )
             except Exception as e:
                 logger.warning(f"Token introspection failed: {e}")

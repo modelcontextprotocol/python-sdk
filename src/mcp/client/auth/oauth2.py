@@ -360,10 +360,10 @@ class OAuthClientProvider(httpx.Auth):
         auth_code, returned_state = await self.context.callback_handler()
 
         if returned_state is None or not secrets.compare_digest(returned_state, state):
-            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")  # pragma: no cover
+            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")
 
         if not auth_code:
-            raise OAuthFlowError("No authorization code received")  # pragma: no cover
+            raise OAuthFlowError("No authorization code received")
 
         # Return auth code and code verifier for token exchange
         return auth_code, pkce_params.code_verifier
@@ -452,7 +452,7 @@ class OAuthClientProvider(httpx.Auth):
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:  # pragma: no cover
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
@@ -468,12 +468,12 @@ class OAuthClientProvider(httpx.Auth):
             await self.context.storage.set_tokens(token_response)
 
             return True
-        except ValidationError:
+        except ValidationError:  # pragma: no cover
             logger.exception("Invalid refresh response")
             self.context.clear_tokens()
             return False
 
-    async def _initialize(self) -> None:  # pragma: no cover
+    async def _initialize(self) -> None:
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
@@ -507,17 +507,17 @@ class OAuthClientProvider(httpx.Auth):
         """HTTPX auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
-                await self._initialize()  # pragma: no cover
+                await self._initialize()
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
-                refresh_request = await self._refresh_token()  # pragma: no cover
-                refresh_response = yield refresh_request  # pragma: no cover
+                refresh_request = await self._refresh_token()
+                refresh_response = yield refresh_request
 
-                if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+                if not await self._handle_refresh_response(refresh_response):
                     # Refresh failed, need full re-authentication
                     self._initialized = False
 
@@ -612,7 +612,7 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("OAuth flow error")
                     raise
 
