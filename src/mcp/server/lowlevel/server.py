@@ -72,6 +72,8 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_READ_EOF_DRAIN_TIMEOUT_SECONDS = 1.0
+
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
 _ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
@@ -695,6 +697,9 @@ class Server(Generic[LifespanResultT]):
         # to drain their responses via the still-open write stream (e.g. stdio
         # with bash-redirected stdin).
         drain_on_read_close: bool = False,
+        # Maximum time to wait for in-flight handlers to drain after read EOF.
+        # None means wait indefinitely.
+        read_eof_drain_timeout_seconds: float | None = DEFAULT_READ_EOF_DRAIN_TIMEOUT_SECONDS,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
@@ -705,20 +710,17 @@ class Server(Generic[LifespanResultT]):
         streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
-            try:
-                await serve_dual_era_loop(
-                    self,
-                    read_stream,
-                    write_stream,
-                    lifespan_state=lifespan_context,
-                    init_options=initialization_options,
-                    raise_exceptions=raise_exceptions,
-                    session_id=None,
-                    close_write_stream_on_read_close=not drain_on_read_close,
-                )
-            finally:
-                if drain_on_read_close:
-                    await write_stream.aclose()
+            await serve_dual_era_loop(
+                self,
+                read_stream,
+                write_stream,
+                lifespan_state=lifespan_context,
+                init_options=initialization_options,
+                raise_exceptions=raise_exceptions,
+                session_id=None,
+                close_write_stream_on_read_close=not drain_on_read_close,
+                read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
+            )
 
     def streamable_http_app(
         self,

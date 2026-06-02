@@ -263,6 +263,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
         close_write_stream_on_read_close: bool = True,
+        read_eof_drain_timeout_seconds: float | None = None,
         on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
     ) -> None:
         """Wire a dispatcher over a transport's `SessionMessage` stream pair.
@@ -279,6 +280,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 read stream closes. Full-duplex transports may set this to
                 false so in-flight handlers can finish writing responses after
                 input EOF.
+            read_eof_drain_timeout_seconds: Maximum time to wait for in-flight
+                handlers to drain after read EOF when the write stream stays
+                open; None waits indefinitely.
             on_stream_exception: Observer for `Exception` items on the read
                 stream; without it they are debug-logged and dropped. Awaited
                 inline in the read loop, so a slow observer stalls dispatch.
@@ -294,6 +298,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
         self._close_write_stream_on_read_close = close_write_stream_on_read_close
+        self._read_eof_drain_timeout_seconds = read_eof_drain_timeout_seconds
         self._inline_methods = inline_methods
         self.on_stream_exception = on_stream_exception
         """Observer for ``Exception`` items on the read stream. Mutable so a session can
@@ -510,16 +515,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     self._fan_out_closed()
                     normal_eof = True
                 finally:
-                    if not normal_eof:
-                        # Cancel on crash/cancel paths. On normal EOF, let
-                        # already received handlers drain their responses.
+                    if not normal_eof or self._close_write_stream_on_read_close:
+                        # Cancel on crash/cancel paths. If read EOF also closed
+                        # writes, handlers cannot drain responses anyway.
                         tg.cancel_scope.cancel()
+                    elif self._read_eof_drain_timeout_seconds is not None:
+                        tg.cancel_scope.deadline = anyio.current_time() + self._read_eof_drain_timeout_seconds
         finally:
             # Covers cancel/crash paths that skip the inline fan-out; idempotent.
             self._running = False
             self._closed = True
             self._tg = None
             self._fan_out_closed()
+            if not self._close_write_stream_on_read_close:
+                with anyio.CancelScope(shield=True):
+                    await self._write_stream.aclose()
             await resync_tracer()
 
     async def _dispatch(

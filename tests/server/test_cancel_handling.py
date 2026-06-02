@@ -120,7 +120,13 @@ async def test_server_drains_in_flight_handlers_on_transport_read_eof():
     server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
 
     async def run_server():
-        await server.run(server_read, server_write, server.create_initialization_options(), drain_on_read_close=True)
+        await server.run(
+            server_read,
+            server_write,
+            server.create_initialization_options(),
+            drain_on_read_close=True,
+            read_eof_drain_timeout_seconds=None,
+        )
         server_run_returned.set()
 
     init_req = JSONRPCRequest(
@@ -164,6 +170,70 @@ async def test_server_drains_in_flight_handlers_on_transport_read_eof():
             assert response.message.id == 2
 
             await server_run_returned.wait()
+
+
+@pytest.mark.anyio
+async def test_server_bounds_drain_on_read_eof_when_handler_never_finishes():
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    server_run_returned = anyio.Event()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_cancelled.set()
+        raise AssertionError  # pragma: no cover
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server():
+        await server.run(
+            server_read,
+            server_write,
+            server.create_initialization_options(),
+            drain_on_read_close=True,
+            read_eof_drain_timeout_seconds=0.05,
+        )
+        server_run_returned.set()
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_HANDSHAKE_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    call_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=2,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+
+    with anyio.fail_after(2):
+        async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
+            tg.start_soon(run_server)
+
+            await to_server.send(SessionMessage(init_req))
+            await from_server.receive()  # init response
+            await to_server.send(SessionMessage(initialized))
+            await to_server.send(SessionMessage(call_req))
+
+            await handler_started.wait()
+            await to_server.aclose()
+
+            await server_run_returned.wait()
+
+    assert handler_cancelled.is_set()
 
 
 @pytest.mark.anyio
