@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import TextIO, cast
 
 import anyio
 import pytest
@@ -71,7 +72,8 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    with tempfile.TemporaryFile(mode="w+") as errlog:
+    with tempfile.TemporaryFile(mode="w+") as errlog_file:
+        errlog = cast(TextIO, errlog_file)
         transport = stdio_client(
             StdioServerParameters(
                 command=sys.executable,
@@ -102,9 +104,11 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     assert received == snapshot(
         [LoggingMessageNotificationParams(level="info", logger="echo", data="echoing across\nprocesses")]
     )
-    # The server writes this line only after its run loop returns on stdin close: seeing it proves
-    # a self-exit, not the terminate escalation. The capture itself proves stderr passthrough.
-    assert captured_stderr == snapshot("stdio-echo: clean exit\n")
+    # The server writes this line only after its run loop returns, which happens when stdin closes:
+    # seeing it proves the process exited on its own rather than via the transport's terminate
+    # escalation, without a timing-based assertion. The suffix check keeps the test stable if the
+    # child interpreter emits dependency warnings before the server's own stderr line.
+    assert captured_stderr.endswith("stdio-echo: clean exit\n")
 
 
 @requirement("transport:stdio:stream-purity")

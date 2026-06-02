@@ -17,9 +17,12 @@ Example:
     ```
 """
 
+import json
+import re
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
+from typing import Any, cast
 
 import anyio
 import anyio.lowlevel
@@ -27,6 +30,50 @@ import mcp_types as types
 
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+
+_JSONRPC_ID_PATTERN = re.compile(r'"id"\s*:\s*(-?\d+|"[^"\\]*")')
+
+
+def _request_id_from_raw_message(line: str) -> types.RequestId | None:
+    try:
+        raw_message: Any = json.loads(line)
+    except Exception:
+        raw_message = None
+
+    if not isinstance(raw_message, dict):
+        match = _JSONRPC_ID_PATTERN.search(line)
+        if not match:
+            return None
+
+        raw_request_id = match.group(1)
+        if raw_request_id.startswith('"'):
+            return json.loads(raw_request_id)
+        return int(raw_request_id)
+
+    raw_message_dict = cast(dict[str, Any], raw_message)
+    request_id = raw_message_dict.get("id")
+    if isinstance(request_id, str) or type(request_id) is int:
+        return request_id
+    return None
+
+
+def _error_response_from_parse_failure(line: str, exc: Exception) -> SessionMessage:
+    request_id = _request_id_from_raw_message(line)
+    message = str(exc)
+    if "Invalid JSON" in message:
+        code = types.PARSE_ERROR
+        prefix = "Parse error"
+    else:
+        code = types.INVALID_REQUEST
+        prefix = "Invalid request"
+
+    return SessionMessage(
+        types.JSONRPCError(
+            jsonrpc="2.0",
+            id=request_id,
+            error=types.ErrorData(code=code, message=f"{prefix}: {message}"),
+        )
+    )
 
 
 @asynccontextmanager
@@ -53,7 +100,8 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                     try:
                         message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                     except Exception as exc:
-                        await read_stream_writer.send(exc)
+                        error_response = _error_response_from_parse_failure(line, exc)
+                        await write_stream.send(error_response)
                         continue
 
                     session_message = SessionMessage(message)
