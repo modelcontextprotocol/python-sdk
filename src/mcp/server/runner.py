@@ -94,10 +94,13 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
             case _:
                 parent = None
         span_name = f"MCP handle {method}{f' {target}' if target else ''}"
+        attributes: dict[str, str | int] = {"mcp.method.name": method}
+        if dctx.request_id is not None:
+            attributes["jsonrpc.request.id"] = dctx.request_id
         with otel_span(
             span_name,
             kind=SpanKind.SERVER,
-            attributes={"mcp.method.name": method},
+            attributes=attributes,
             context=parent,
             record_exception=False,
             set_status_on_exception=False,

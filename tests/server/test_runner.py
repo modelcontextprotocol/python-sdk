@@ -411,6 +411,7 @@ async def test_otel_middleware_emits_server_span_with_method_and_target(server: 
     assert span.name == "MCP handle tools/call mytool"
     assert span.attributes is not None
     assert span.attributes["mcp.method.name"] == "tools/call"
+    assert isinstance(span.attributes["jsonrpc.request.id"], int)
     assert span.status.status_code == StatusCode.UNSET
 
 

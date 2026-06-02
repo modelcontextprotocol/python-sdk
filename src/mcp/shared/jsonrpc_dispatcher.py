@@ -213,6 +213,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         *,
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
+        inline_methods: frozenset[str] = frozenset(),
     ) -> None: ...
     @overload
     def __init__(
@@ -223,6 +224,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         transport_builder: Callable[[MessageMetadata], TransportT],
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
+        inline_methods: frozenset[str] = frozenset(),
     ) -> None: ...
     def __init__(
         self,
@@ -232,6 +234,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         transport_builder: Callable[[MessageMetadata], TransportT] | None = None,
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
+        inline_methods: frozenset[str] = frozenset(),
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -244,6 +247,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
+        self._inline_methods = inline_methods
+        """Request methods handled inline in the read loop (awaited before the
+        next message is dequeued) instead of spawned concurrently. Use for
+        methods whose side effects must be observable to the next message,
+        e.g. `initialize`, so a pipelined follow-up sees the initialized state.
+        Only suitable for handlers that complete quickly, since inline handling
+        blocks dequeuing."""
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -384,7 +394,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                                 sender_ctx: contextvars.Context | None = getattr(
                                     self._read_stream, "last_context", None
                                 )
-                                self._dispatch(item, on_request, on_notify, sender_ctx)
+                                await self._dispatch(item, on_request, on_notify, sender_ctx)
                         except anyio.ClosedResourceError:
                             # The transport closed our receive end and we looped
                             # back to `__anext__` on the now-closed stream
@@ -409,17 +419,19 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg = None
             self._fan_out_closed()
 
-    def _dispatch(
+    async def _dispatch(
         self,
         item: SessionMessage | Exception,
         on_request: OnRequest,
         on_notify: OnNotify,
         sender_ctx: contextvars.Context | None,
     ) -> None:
-        """Route one inbound item. Synchronous: never awaits.
+        """Route one inbound item.
 
-        Everything here is `send_nowait` or `_spawn`. An `await` would let one
-        slow message head-of-line block the entire read loop.
+        Everything here is `send_nowait` or `_spawn`; the only `await` is for
+        `inline_methods` requests, which deliberately block dequeuing until
+        handled. Any other `await` would let one slow message head-of-line
+        block the entire read loop.
         """
         if isinstance(item, Exception):
             logger.debug("transport yielded exception: %r", item)
@@ -428,7 +440,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         msg = item.message
         match msg:
             case JSONRPCRequest():
-                self._dispatch_request(msg, metadata, on_request, sender_ctx)
+                await self._dispatch_request(msg, metadata, on_request, sender_ctx)
             case JSONRPCNotification():
                 self._dispatch_notification(msg, metadata, on_notify, sender_ctx)
             case JSONRPCResponse():
@@ -439,7 +451,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # on this final case is unreachable.
                 self._resolve_pending(msg.id, msg.error)
 
-    def _dispatch_request(
+    async def _dispatch_request(
         self,
         req: JSONRPCRequest,
         metadata: MessageMetadata,
@@ -462,7 +474,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         scope = anyio.CancelScope()
         self._in_flight[req.id] = _InFlight(scope=scope, dctx=dctx)
-        self._spawn(self._handle_request, req, dctx, scope, on_request, sender_ctx=sender_ctx)
+        if req.method in self._inline_methods:
+            await self._handle_request(req, dctx, scope, on_request)
+        else:
+            self._spawn(self._handle_request, req, dctx, scope, on_request, sender_ctx=sender_ctx)
 
     def _dispatch_notification(
         self,

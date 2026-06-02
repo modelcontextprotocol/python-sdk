@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import anyio
+import anyio.lowlevel
 import pytest
 
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
@@ -459,6 +460,39 @@ async def test_progress_callback_exception_is_swallowed_and_logged(caplog: pytes
     # Request still completes; the callback's crash was swallowed.
     assert result == {"ok": True}
     assert "progress callback raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_inline_methods_are_handled_before_next_message_is_dequeued():
+    """A method in `inline_methods` runs to completion before subsequent
+    messages are dispatched, so its side effects are visible to them."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv, s2c_send, inline_methods=frozenset({"first"})
+    )
+    state = {"initialized": False}
+    seen: list[bool] = []
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "first":
+            await anyio.lowlevel.checkpoint()
+            state["initialized"] = True
+        else:
+            seen.append(state["initialized"])
+        return {}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    # Buffer both requests before run() reads anything.
+    await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="first", params=None)))
+    await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="second", params=None)))
+    c2s_send.close()
+    with anyio.fail_after(5):
+        await server.run(on_request, on_notify)
+    assert seen == [True]
+    s2c_recv.close()
 
 
 @pytest.mark.anyio

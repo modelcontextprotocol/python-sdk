@@ -396,6 +396,10 @@ class Server(Generic[LifespanResultT]):
                 read_stream,
                 write_stream,
                 raise_handler_exceptions=raise_exceptions,
+                # Handle `initialize` inline so a client that pipelines it with
+                # the next request (spec says SHOULD NOT, not MUST NOT) sees
+                # the initialized state instead of failing the init-gate.
+                inline_methods=frozenset({"initialize"}),
             )
             runner = ServerRunner(
                 server=self,
