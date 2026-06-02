@@ -209,10 +209,14 @@ async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
     server.add_notification_handler("notifications/roots/list_changed", NotificationParams, on_roots_changed)
     async with connected_runner(server) as (client, _):
         await client.notify("notifications/roots/list_changed", None)
+        await client.notify("notifications/roots/list_changed", {})
         # DirectDispatcher delivers synchronously; one yield is enough.
         await anyio.lowlevel.checkpoint()
-    assert len(seen) == 1
+    assert len(seen) == 2
     assert isinstance(seen[0][0], Context)
+    # Absent wire params reach the handler as None; present-but-empty validates.
+    assert seen[0][1] is None
+    assert isinstance(seen[1][1], NotificationParams)
 
 
 @pytest.mark.anyio

@@ -227,13 +227,17 @@ class ServerRunner(Generic[LifespanT]):
         if entry is None:
             logger.debug("no handler for notification %s", method)
             return
-        typed_params = entry.params_type.model_validate(params or {})
+        # Absent wire params reach the handler as `None`, not an empty model
+        # (matches the existing `Server._handle_notification`).
+        typed_params = entry.params_type.model_validate(params) if params is not None else None
         ctx = self._make_context(dctx, typed_params)
         # TODO: cast goes away when `ServerRequestContext = Context` lands.
         await cast(Any, entry.handler)(ctx, typed_params)
 
-    def _make_context(self, dctx: DispatchContext[TransportContext], typed_params: BaseModel) -> Context[LifespanT]:
-        meta = getattr(typed_params, "meta", None)
+    def _make_context(
+        self, dctx: DispatchContext[TransportContext], typed_params: BaseModel | None
+    ) -> Context[LifespanT]:
+        meta = getattr(typed_params, "meta", None) if typed_params is not None else None
         return Context(dctx, lifespan=self.lifespan_state, connection=self.connection, meta=meta)
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> dict[str, Any]:
