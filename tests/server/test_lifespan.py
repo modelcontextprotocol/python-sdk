@@ -11,7 +11,6 @@ from mcp.server import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.models import InitializationOptions
-from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolRequestParams,
@@ -143,7 +142,7 @@ async def test_mcpserver_server_lifespan():
 
     # Add a tool that checks lifespan context
     @server.tool()
-    def check_lifespan(ctx: Context[ServerSession, None]) -> bool:
+    def check_lifespan(ctx: Context) -> bool:
         """Tool that checks lifespan context."""
         assert isinstance(ctx.request_context.lifespan_context, dict)
         assert ctx.request_context.lifespan_context["started"]

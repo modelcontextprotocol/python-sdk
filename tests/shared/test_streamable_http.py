@@ -45,6 +45,7 @@ from mcp.server.streamable_http import (
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._context import RequestContext
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import (
     MCP_DEFAULT_SSE_READ_TIMEOUT,
     MCP_DEFAULT_TIMEOUT,
@@ -572,11 +573,59 @@ def json_server_url(json_server_port: int) -> str:
 # Basic request validation tests
 def test_accept_header_validation(basic_server: None, basic_server_url: str):
     """Test that Accept header is properly validated."""
-    # Test without Accept header
-    response = requests.post(
+    # Test without Accept header (suppress requests library default Accept: */*)
+    session = requests.Session()
+    session.headers.pop("Accept")
+    response = session.post(
         f"{basic_server_url}/mcp",
         headers={"Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
+    )
+    assert response.status_code == 406
+    assert "Not Acceptable" in response.text
+
+
+@pytest.mark.parametrize(
+    "accept_header",
+    [
+        "*/*",
+        "application/*, text/*",
+        "text/*, application/json",
+        "application/json, text/*",
+        "*/*;q=0.8",
+        "application/*;q=0.9, text/*;q=0.8",
+    ],
+)
+def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accept_header: str):
+    """Test that wildcard Accept headers are accepted per RFC 7231."""
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "accept_header",
+    [
+        "text/html",
+        "application/*",
+        "text/*",
+    ],
+)
+def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):
+    """Test that incompatible Accept headers are rejected for SSE mode."""
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
     )
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
@@ -826,7 +875,10 @@ def test_json_response_accept_json_only(json_response_server: None, json_server_
 def test_json_response_missing_accept_header(json_response_server: None, json_server_url: str):
     """Test that json_response servers reject requests without Accept header."""
     mcp_url = f"{json_server_url}/mcp"
-    response = requests.post(
+    # Suppress requests library default Accept: */* header
+    session = requests.Session()
+    session.headers.pop("Accept")
+    response = session.post(
         mcp_url,
         headers={
             "Content-Type": "application/json",
@@ -851,6 +903,29 @@ def test_json_response_incorrect_accept_header(json_response_server: None, json_
     )
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
+
+
+@pytest.mark.parametrize(
+    "accept_header",
+    [
+        "*/*",
+        "application/*",
+        "application/*;q=0.9",
+    ],
+)
+def test_json_response_wildcard_accept_header(json_response_server: None, json_server_url: str, accept_header: str):
+    """Test that json_response servers accept wildcard Accept headers per RFC 7231."""
+    mcp_url = f"{json_server_url}/mcp"
+    response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
+    assert response.headers.get("Content-Type") == "application/json"
 
 
 def test_get_sse_stream(basic_server: None, basic_server_url: str):
@@ -941,8 +1016,10 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     assert init_data is not None
     negotiated_version = init_data["result"]["protocolVersion"]
 
-    # Test without Accept header
-    response = requests.get(
+    # Test without Accept header (suppress requests library default Accept: */*)
+    session = requests.Session()
+    session.headers.pop("Accept")
+    response = session.get(
         mcp_url,
         headers={
             MCP_SESSION_ID_HEADER: session_id,
@@ -1707,8 +1784,8 @@ async def test_handle_sse_event_skips_empty_data():
     # Create a mock SSE event with empty data (keep-alive ping)
     mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
 
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    # Create a context-aware stream writer (matches StreamWriter type alias)
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
 
     try:
         # Call _handle_sse_event with empty data - should return False and not raise
@@ -1718,8 +1795,9 @@ async def test_handle_sse_event_skips_empty_data():
         assert result is False
 
         # Nothing should have been written to the stream
-        # Check buffer is empty (statistics().current_buffer_used returns buffer size)
-        assert write_stream.statistics().current_buffer_used == 0
+        with pytest.raises(TimeoutError):
+            with anyio.fail_after(0):
+                await read_stream.receive()
     finally:
         await write_stream.aclose()
         await read_stream.aclose()

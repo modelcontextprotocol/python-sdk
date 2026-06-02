@@ -1,12 +1,11 @@
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
 mcp = MCPServer(name="Sampling Example")
 
 
 @mcp.tool()
-async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
+async def generate_poem(topic: str, ctx: Context) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
 

@@ -123,6 +123,11 @@ class FallbackProcess:
         """Return the process ID."""
         return self.popen.pid
 
+    @property
+    def returncode(self) -> int | None:
+        """Return the exit code, or ``None`` if the process has not yet terminated."""
+        return self.popen.returncode
+
 
 # ------------------------
 # Updated function

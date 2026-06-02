@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
 
@@ -14,6 +14,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -93,7 +94,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
 
-        if progress_token is None:  # pragma: no cover
+        if progress_token is None:
             return
 
         await self.request_context.session.send_progress_notification(
@@ -186,36 +187,35 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     async def log(
         self,
-        level: Literal["debug", "info", "warning", "error"],
-        message: str,
+        level: LoggingLevel,
+        data: Any,
         *,
         logger_name: str | None = None,
-        extra: dict[str, Any] | None = None,
     ) -> None:
         """Send a log message to the client.
 
         Args:
-            level: Log level (debug, info, warning, error)
-            message: Log message
+            level: Log level (debug, info, notice, warning, error, critical,
+                alert, emergency)
+            data: The data to be logged. Any JSON serializable type is allowed
+                (string, dict, list, number, bool, etc.) per the MCP specification.
             logger_name: Optional logger name
-            extra: Optional dictionary with additional structured data to include
         """
-
-        if extra:
-            log_data = {"message": message, **extra}
-        else:
-            log_data = message
-
         await self.request_context.session.send_log_message(
             level=level,
-            data=log_data,
+            data=data,
             logger=logger_name,
             related_request_id=self.request_id,
         )
 
+    # TODO(maxisbey): see if this is needed otherwise remove
     @property
     def client_id(self) -> str | None:
-        """Get the client ID if available."""
+        """Get the client ID if available.
+
+        Note: this reads from the MCP request's `_meta` params, not the OAuth
+        bearer token. For that, use `get_access_token().client_id`.
+        """
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
@@ -242,7 +242,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             This is a no-op if not using StreamableHTTP transport with event_store.
             The callback is only available when event_store is configured.
         """
-        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no branch
             await self._request_context.close_sse_stream()
 
     async def close_standalone_sse_stream(self) -> None:
@@ -261,20 +261,18 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
-    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", message, logger_name=logger_name, extra=extra)
+        await self.log("debug", data, logger_name=logger_name)
 
-    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", message, logger_name=logger_name, extra=extra)
+        await self.log("info", data, logger_name=logger_name)
 
-    async def warning(
-        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
-    ) -> None:
+    async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message."""
-        await self.log("warning", message, logger_name=logger_name, extra=extra)
+        await self.log("warning", data, logger_name=logger_name)
 
-    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", message, logger_name=logger_name, extra=extra)
+        await self.log("error", data, logger_name=logger_name)

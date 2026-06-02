@@ -4,14 +4,14 @@ A simple MCP server that exposes a customizable prompt template with optional co
 
 ## Usage
 
-Start the server using either stdio (default) or SSE transport:
+Start the server using either stdio (default) or Streamable HTTP transport:
 
 ```bash
 # Using stdio transport (default)
 uv run mcp-simple-prompt
 
-# Using SSE transport on custom port
-uv run mcp-simple-prompt --transport sse --port 8000
+# Using Streamable HTTP transport on custom port
+uv run mcp-simple-prompt --transport streamable-http --port 8000
 ```
 
 The server exposes a prompt named "simple" that accepts two optional arguments:

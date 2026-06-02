@@ -36,15 +36,16 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import SpanKind, StatusCode
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -58,13 +59,13 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVeri
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
-from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -118,7 +119,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.CreateTaskResult],
+            Awaitable[types.CallToolResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -194,7 +195,6 @@ class Server(Generic[LifespanResultT]):
         self._notification_handlers: dict[
             str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
         ] = {}
-        self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
@@ -238,10 +238,6 @@ class Server(Generic[LifespanResultT]):
     ) -> None:
         """Add a request handler, silently replacing any existing handler for the same method."""
         self._request_handlers[method] = handler
-
-    def _has_handler(self, method: str) -> bool:
-        """Check if a handler is registered for the given method."""
-        return method in self._request_handlers or method in self._notification_handlers
 
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
@@ -320,24 +316,7 @@ class Server(Generic[LifespanResultT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
-        if self._experimental_handlers:
-            self._experimental_handlers.update_capabilities(capabilities)
         return capabilities
-
-    @property
-    def experimental(self) -> ExperimentalHandlers[LifespanResultT]:
-        """Experimental APIs for tasks and other features.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
-
-        # We create this inline so we only add these capabilities _if_ they're actually used
-        if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(
-                add_request_handler=self._add_request_handler,
-                has_handler=self._has_handler,
-            )
-        return self._experimental_handlers
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -346,17 +325,17 @@ class Server(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:  # pragma: no cover
-            raise RuntimeError(
+        if self._session_manager is None:
+            raise RuntimeError(  # pragma: no cover
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     async def run(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
@@ -380,23 +359,30 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-            # Configure task support for this session if enabled
-            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-            if task_support is not None:
-                task_support.configure_session(session)
-                await stack.enter_async_context(task_support.run())
-
             async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+                try:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+                        if isinstance(message, RequestResponder) and message.context is not None:
+                            context = message.context
+                        else:
+                            context = contextvars.copy_context()
+
+                        context.run(
+                            tg.start_soon,
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                        )
+                finally:
+                    # Transport closed: cancel in-flight handlers. Without this the
+                    # TG join waits for them, and when they eventually try to
+                    # respond they hit a closed write stream (the session's
+                    # _receive_loop closed it when the read stream ended).
+                    tg.cancel_scope.cancel()
 
     async def _handle_message(
         self,
@@ -414,11 +400,6 @@ class Server(Generic[LifespanResultT]):
                         )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    await session.send_log_message(
-                        level="error",
-                        data="Internal Server Error",
-                        logger="mcp.server.exception_handler",
-                    )
                     if raise_exceptions:
                         raise message
                 case _:
@@ -437,56 +418,78 @@ class Server(Generic[LifespanResultT]):
     ):
         logger.info("Processing request of type %s", type(req).__name__)
 
-        if handler := self._request_handlers.get(req.method):
-            logger.debug("Dispatching request of type %s", type(req).__name__)
+        target = getattr(req.params, "name", None) if req.params else None
+        span_name = f"MCP handle {req.method} {target}" if target else f"MCP handle {req.method}"
+
+        # Extract W3C trace context from _meta (SEP-414).
+        meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
+        parent_context = extract_trace_context(meta) if meta is not None else None
+
+        with otel_span(
+            span_name,
+            kind=SpanKind.SERVER,
+            attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
+            context=parent_context,
+        ) as span:
+            if handler := self._request_handlers.get(req.method):
+                logger.debug("Dispatching request of type %s", type(req).__name__)
+
+                try:
+                    # Extract request context and close_sse_stream from message metadata
+                    request_data = None
+                    close_sse_stream_cb = None
+                    close_standalone_sse_stream_cb = None
+                    if message.message_metadata is not None and isinstance(
+                        message.message_metadata, ServerMessageMetadata
+                    ):
+                        request_data = message.message_metadata.request_context
+                        close_sse_stream_cb = message.message_metadata.close_sse_stream
+                        close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
+
+                    ctx = ServerRequestContext(
+                        request_id=message.request_id,
+                        meta=message.request_meta,
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        request=request_data,
+                        close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
+                    )
+                    response = await handler(ctx, req.params)
+                except MCPError as err:
+                    response = err.error
+                except anyio.get_cancelled_exc_class():
+                    if message.cancelled:
+                        # Client sent CancelledNotification; responder.cancel() already
+                        # sent an error response, so skip the duplicate.
+                        logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                        return
+                    # Transport-close cancellation from the TG in run(); re-raise so the
+                    # TG swallows its own cancellation.
+                    raise
+                except Exception as err:
+                    if raise_exceptions:  # pragma: no cover
+                        raise err
+                    response = types.ErrorData(code=0, message=str(err))
+            else:
+                response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+
+            if isinstance(response, types.ErrorData) and span is not None:
+                span.set_status(StatusCode.ERROR, response.message)
 
             try:
-                # Extract request context and close_sse_stream from message metadata
-                request_data = None
-                close_sse_stream_cb = None
-                close_standalone_sse_stream_cb = None
-                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
-                    request_data = message.message_metadata.request_context
-                    close_sse_stream_cb = message.message_metadata.close_sse_stream
-                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
-
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                # Get task metadata from request params if present
-                task_metadata = None
-                if hasattr(req, "params") and req.params is not None:
-                    task_metadata = getattr(req.params, "task", None)
-                ctx = ServerRequestContext(
-                    request_id=message.request_id,
-                    meta=message.request_meta,
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=task_metadata,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                    request=request_data,
-                    close_sse_stream=close_sse_stream_cb,
-                    close_standalone_sse_stream=close_standalone_sse_stream_cb,
-                )
-                response = await handler(ctx, req.params)
-            except MCPError as err:
-                response = err.error
-            except anyio.get_cancelled_exc_class():
-                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                await message.respond(response)
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                # Transport closed between handler unblocking and respond. Happens
+                # when _receive_loop's finally wakes a handler blocked on
+                # send_request: the handler runs to respond() before run()'s TG
+                # cancel fires, but after the write stream closed. Closed if our
+                # end closed (_receive_loop's async-with exit); Broken if the peer
+                # end closed first (streamable_http terminate()).
+                logger.debug("Response for %s dropped - transport closed", message.request_id)
                 return
-            except Exception as err:
-                if raise_exceptions:  # pragma: no cover
-                    raise err
-                response = types.ErrorData(code=0, message=str(err))
 
-            await message.respond(response)
-        else:  # pragma: no cover
-            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
-
-        logger.debug("Response sent")
+            logger.debug("Response sent")
 
     async def _handle_notification(
         self,
@@ -498,17 +501,9 @@ class Server(Generic[LifespanResultT]):
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
                 ctx = ServerRequestContext(
                     session=session,
                     lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=None,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
                 )
                 await handler(ctx, notify.params)
             except Exception:  # pragma: no cover
@@ -558,7 +553,7 @@ class Server(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if auth:  # pragma: no cover
+        if auth:
             required_scopes = auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -584,10 +579,10 @@ class Server(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if token_verifier:  # pragma: no cover
+        if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:
+            if auth and auth.resource_server_url:  # pragma: no branch
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 
@@ -607,7 +602,7 @@ class Server(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if auth and auth.resource_server_url:  # pragma: no cover
+        if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,

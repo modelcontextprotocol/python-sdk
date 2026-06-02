@@ -13,7 +13,6 @@ import click
 from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
-from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.types import (
     AudioContent,
@@ -142,7 +141,7 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
 
 
 @mcp.tool()
-async def test_tool_with_logging(ctx: Context[ServerSession, None]) -> str:
+async def test_tool_with_logging(ctx: Context) -> str:
     """Tests tool that emits log messages during execution"""
     await ctx.info("Tool execution started")
     await asyncio.sleep(0.05)
@@ -155,7 +154,7 @@ async def test_tool_with_logging(ctx: Context[ServerSession, None]) -> str:
 
 
 @mcp.tool()
-async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
+async def test_tool_with_progress(ctx: Context) -> str:
     """Tests tool that reports progress notifications"""
     await ctx.report_progress(progress=0, total=100, message="Completed step 0 of 100")
     await asyncio.sleep(0.05)
@@ -173,7 +172,7 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
 
 
 @mcp.tool()
-async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
+async def test_sampling(prompt: str, ctx: Context) -> str:
     """Tests server-initiated sampling (LLM completion request)"""
     try:
         # Request sampling from client
@@ -198,7 +197,7 @@ class UserResponse(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation(message: str, ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation(message: str, ctx: Context) -> str:
     """Tests server-initiated elicitation (user input request)"""
     try:
         # Request user input from client
@@ -230,7 +229,7 @@ class SEP1034DefaultsSchema(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation_sep1034_defaults(ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation_sep1034_defaults(ctx: Context) -> str:
     """Tests elicitation with default values for all primitive types (SEP-1034)"""
     try:
         # Request user input with defaults for all primitive types
@@ -289,7 +288,7 @@ class EnumSchemasTestSchema(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation_sep1330_enums(ctx: Context) -> str:
     """Tests elicitation with enum schema variations per SEP-1330"""
     try:
         result = await ctx.elicit(
@@ -313,7 +312,7 @@ def test_error_handling() -> str:
 
 
 @mcp.tool()
-async def test_reconnection(ctx: Context[ServerSession, None]) -> str:
+async def test_reconnection(ctx: Context) -> str:
     """Tests SSE polling by closing stream mid-call (SEP-1699)"""
     await ctx.info("Before disconnect")
 

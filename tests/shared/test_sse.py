@@ -544,12 +544,6 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         assert sse._endpoint.startswith("/")
 
 
-# ResourceWarning filter: When mocking aconnect_sse, the sse_client's internal task
-# group doesn't receive proper cancellation signals, so the sse_reader task's finally
-# block (which closes read_stream_writer) doesn't execute. This is a test artifact -
-# the actual code path (`if not sse.data: continue`) IS exercised and works correctly.
-# Production code with real SSE connections cleans up properly.
-@pytest.mark.filterwarnings("ignore::ResourceWarning")
 @pytest.mark.anyio
 async def test_sse_client_handles_empty_keepalive_pings() -> None:
     """Test that SSE client properly handles empty data lines (keep-alive pings).

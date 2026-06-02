@@ -38,11 +38,10 @@ async def websocket_client(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
-
     # Connect using websockets, requesting the "mcp" subprotocol
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
+        read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+        write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
         async def ws_reader():
             """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
@@ -68,7 +67,13 @@ async def websocket_client(
                     msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
                     await ws.send(json.dumps(msg_dict))
 
-        async with anyio.create_task_group() as tg:
+        async with (
+            read_stream_writer,
+            read_stream,
+            write_stream,
+            write_stream_reader,
+            anyio.create_task_group() as tg,
+        ):
             # Start reader and writer tasks
             tg.start_soon(ws_reader)
             tg.start_soon(ws_writer)

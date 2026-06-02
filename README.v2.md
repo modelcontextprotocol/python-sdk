@@ -207,7 +207,11 @@ In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
-The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions. MCP servers can:
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions.
+
+MCP follows a **client-server model**, where LLM applications act as clients and connect to MCP servers to access capabilities such as data retrieval and tool execution in a consistent format.
+
+MCP servers can:
 
 - Expose data through **Resources** (think of these sort of like GET endpoints; they are used to load information into the LLM's context)
 - Provide functionality through **Tools** (sort of like POST endpoints; they are used to execute code or otherwise produce a side effect)
@@ -346,13 +350,12 @@ Tools can optionally receive a Context object by including a parameter with the 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 mcp = MCPServer(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -682,11 +685,11 @@ The Context object provides the following capabilities:
 - `ctx.mcp_server` - Access to the MCPServer server instance (see [MCPServer Properties](#mcpserver-properties))
 - `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
 - `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
-- `await ctx.debug(message)` - Send debug log message
-- `await ctx.info(message)` - Send info log message
-- `await ctx.warning(message)` - Send warning log message
-- `await ctx.error(message)` - Send error log message
-- `await ctx.log(level, message, logger_name=None)` - Send log with custom level
+- `await ctx.debug(data)` - Send debug log message
+- `await ctx.info(data)` - Send info log message
+- `await ctx.warning(data)` - Send warning log message
+- `await ctx.error(data)` - Send error log message
+- `await ctx.log(level, data, logger_name=None)` - Send log with custom level
 - `await ctx.report_progress(progress, total=None, message=None)` - Report operation progress
 - `await ctx.read_resource(uri)` - Read a resource by URI
 - `await ctx.elicit(message, schema)` - Request additional information from user with validation
@@ -694,13 +697,12 @@ The Context object provides the following capabilities:
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 mcp = MCPServer(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -826,7 +828,6 @@ import uuid
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import ElicitRequestURLParams
 
@@ -844,7 +845,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context) -> str:
     """Book a table with date availability check.
 
     This demonstrates form mode elicitation for collecting non-sensitive user input.
@@ -868,7 +869,7 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerS
 
 
 @mcp.tool()
-async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> str:
+async def secure_payment(amount: float, ctx: Context) -> str:
     """Process a secure payment requiring URL confirmation.
 
     This demonstrates URL mode elicitation using ctx.elicit_url() for
@@ -892,7 +893,7 @@ async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> st
 
 
 @mcp.tool()
-async def connect_service(service_name: str, ctx: Context[ServerSession, None]) -> str:
+async def connect_service(service_name: str, ctx: Context) -> str:
     """Connect to a third-party service requiring OAuth authorization.
 
     This demonstrates the "throw error" pattern using UrlElicitationRequiredError.
@@ -933,14 +934,13 @@ Tools can interact with LLMs through sampling (generating text):
 <!-- snippet-source examples/snippets/servers/sampling.py -->
 ```python
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
 mcp = MCPServer(name="Sampling Example")
 
 
 @mcp.tool()
-async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
+async def generate_poem(topic: str, ctx: Context) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
 
@@ -970,13 +970,12 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 mcp = MCPServer(name="Notifications Example")
 
 
 @mcp.tool()
-async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
+async def process_data(data: str, ctx: Context) -> str:
     """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
@@ -2494,7 +2493,6 @@ MCP servers declare capabilities during initialization:
 ## Documentation
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
-- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)

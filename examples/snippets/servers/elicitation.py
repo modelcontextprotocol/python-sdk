@@ -10,7 +10,6 @@ import uuid
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import ElicitRequestURLParams
 
@@ -28,7 +27,7 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
+async def book_table(date: str, time: str, party_size: int, ctx: Context) -> str:
     """Book a table with date availability check.
 
     This demonstrates form mode elicitation for collecting non-sensitive user input.
@@ -52,7 +51,7 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerS
 
 
 @mcp.tool()
-async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> str:
+async def secure_payment(amount: float, ctx: Context) -> str:
     """Process a secure payment requiring URL confirmation.
 
     This demonstrates URL mode elicitation using ctx.elicit_url() for
@@ -76,7 +75,7 @@ async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> st
 
 
 @mcp.tool()
-async def connect_service(service_name: str, ctx: Context[ServerSession, None]) -> str:
+async def connect_service(service_name: str, ctx: Context) -> str:
     """Connect to a third-party service requiring OAuth authorization.
 
     This demonstrates the "throw error" pattern using UrlElicitationRequiredError.

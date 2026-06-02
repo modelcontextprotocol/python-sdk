@@ -1,11 +1,10 @@
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 mcp = MCPServer(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 

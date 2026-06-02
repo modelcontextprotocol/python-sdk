@@ -4,15 +4,15 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from anyio.streams.memory import MemoryObjectSendStream
 
 import mcp.shared.memory
+from mcp.client._transport import WriteStream
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 
 class SpyMemoryObjectSendStream:
-    def __init__(self, original_stream: MemoryObjectSendStream[SessionMessage]):
+    def __init__(self, original_stream: WriteStream[SessionMessage]):
         self.original_stream = original_stream
         self.sent_messages: list[SessionMessage] = []
 

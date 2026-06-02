@@ -22,28 +22,26 @@ logger = get_logger(__name__)
 class ResourceManager:
     """Manages MCPServer resources."""
 
-    def __init__(self, warn_on_duplicate_resources: bool = True):
+    def __init__(self, warn_on_duplicate_resources: bool = True, *, resources: list[Resource] | None = None):
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
+
+        for resource in resources or ():
+            self.add_resource(resource)
 
     def add_resource(self, resource: Resource) -> Resource:
         """Add a resource to the manager.
 
         Args:
-            resource: A Resource instance to add
+            resource: A Resource instance to add.
 
         Returns:
-            The added resource. If a resource with the same URI already exists,
-            returns the existing resource.
+            The added resource. If a resource with the same URI already exists, returns the existing resource.
         """
         logger.debug(
             "Adding resource",
-            extra={
-                "uri": resource.uri,
-                "type": type(resource).__name__,
-                "resource_name": resource.name,
-            },
+            extra={"uri": resource.uri, "type": type(resource).__name__, "resource_name": resource.name},
         )
         existing = self._resources.get(str(resource.uri))
         if existing:

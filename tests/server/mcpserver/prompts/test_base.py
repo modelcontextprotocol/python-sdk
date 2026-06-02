@@ -1,3 +1,4 @@
+import threading
 from typing import Any
 
 import pytest
@@ -190,3 +191,21 @@ class TestRenderPrompt:
                 )
             )
         ]
+
+
+@pytest.mark.anyio
+async def test_sync_fn_runs_in_worker_thread():
+    """Sync prompt functions must run in a worker thread, not the event loop."""
+
+    main_thread = threading.get_ident()
+    fn_thread: list[int] = []
+
+    def blocking_fn() -> str:
+        fn_thread.append(threading.get_ident())
+        return "hello"
+
+    prompt = Prompt.from_function(blocking_fn)
+    messages = await prompt.render(None, Context())
+
+    assert messages == [UserMessage(content=TextContent(type="text", text="hello"))]
+    assert fn_thread[0] != main_thread

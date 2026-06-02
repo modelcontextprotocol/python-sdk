@@ -3,14 +3,14 @@ A simple MCP server that exposes a website fetching tool.
 
 ## Usage
 
-Start the server using either stdio (default) or SSE transport:
+Start the server using either stdio (default) or Streamable HTTP transport:
 
 ```bash
 # Using stdio transport (default)
 uv run mcp-simple-tool
 
-# Using SSE transport on custom port
-uv run mcp-simple-tool --transport sse --port 8000
+# Using Streamable HTTP transport on custom port
+uv run mcp-simple-tool --transport streamable-http --port 8000
 ```
 
 The server exposes a tool named "fetch" that accepts one required argument:

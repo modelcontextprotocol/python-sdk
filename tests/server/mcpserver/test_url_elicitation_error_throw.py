@@ -5,7 +5,6 @@ from inline_snapshot import snapshot
 
 from mcp import Client, ErrorData, types
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 
@@ -15,7 +14,7 @@ async def test_url_elicitation_error_thrown_from_tool():
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError")
-    async def connect_service(service_name: str, ctx: Context[ServerSession, None]) -> str:
+    async def connect_service(service_name: str, ctx: Context) -> str:
         # This tool cannot proceed without authorization
         raise UrlElicitationRequiredError(
             [
@@ -56,7 +55,7 @@ async def test_url_elicitation_error_from_error():
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError with multiple elicitations")
-    async def multi_auth(ctx: Context[ServerSession, None]) -> str:
+    async def multi_auth(ctx: Context) -> str:
         raise UrlElicitationRequiredError(
             [
                 types.ElicitRequestURLParams(
@@ -97,7 +96,7 @@ async def test_normal_exceptions_still_return_error_result():
     mcp = MCPServer(name="NormalErrorServer")
 
     @mcp.tool(description="A tool that raises a normal exception")
-    async def failing_tool(ctx: Context[ServerSession, None]) -> str:
+    async def failing_tool(ctx: Context) -> str:
         raise ValueError("Something went wrong")
 
     async with Client(mcp) as client:

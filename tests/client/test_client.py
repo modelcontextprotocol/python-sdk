@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import contextvars
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import types
+from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
@@ -99,7 +102,7 @@ def app() -> MCPServer:
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
-        assert client.server_capabilities == snapshot(
+        assert client.initialize_result.capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
                 prompts=PromptsCapability(list_changed=False),
@@ -107,6 +110,7 @@ async def test_client_is_initialized(app: MCPServer):
                 tools=ToolsCapability(list_changed=False),
             )
         )
+        assert client.initialize_result.server_info.name == "test"
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -173,6 +177,21 @@ async def test_read_resource(app: MCPServer):
                 contents=[TextResourceContents(uri="test://resource", mime_type="text/plain", text="Test content")]
             )
         )
+
+
+async def test_read_resource_error_propagates():
+    """MCPError raised by a server handler propagates to the client with its code intact."""
+
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> ReadResourceResult:
+        raise MCPError(code=404, message="no resource with that URI was found")
+
+    server = Server("test", on_read_resource=handle_read_resource)
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("unknown://example")
+        assert exc_info.value.error.code == 404
 
 
 async def test_get_prompt(app: MCPServer):
@@ -304,3 +323,33 @@ async def test_client_uses_transport_directly(app: MCPServer):
                 structured_content={"result": "Hello, Transport!"},
             )
         )
+
+
+_TEST_CONTEXTVAR = contextvars.ContextVar("test_var", default="initial")
+
+
+@contextmanager
+def _set_test_contextvar(value: str) -> Iterator[None]:
+    token = _TEST_CONTEXTVAR.set(value)
+    try:
+        yield
+    finally:
+        _TEST_CONTEXTVAR.reset(token)
+
+
+async def test_context_propagation():
+    """Sender's contextvars.Context is propagated to the server handler."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def check_context() -> str:
+        """Return the contextvar value visible to the handler."""
+        return _TEST_CONTEXTVAR.get()
+
+    async with Client(server) as client:
+        with _set_test_contextvar("client_value"):
+            result = await client.call_tool("check_context", {})
+
+    assert result.content[0].text == "client_value", (  # type: ignore[union-attr]
+        "Server handler did not see the sender's contextvars.Context"
+    )
