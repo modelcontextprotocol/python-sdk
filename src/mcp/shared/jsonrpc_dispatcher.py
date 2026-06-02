@@ -192,6 +192,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self: JSONRPCDispatcher[TransportContext],
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
+        *,
+        peer_cancel_mode: PeerCancelMode = "interrupt",
+        raise_handler_exceptions: bool = False,
     ) -> None: ...
     @overload
     def __init__(
