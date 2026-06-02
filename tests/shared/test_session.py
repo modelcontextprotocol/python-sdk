@@ -124,7 +124,7 @@ async def test_request_cancellation():
             )
 
             # Give cancellation time to process
-            with anyio.fail_after(1):
+            with anyio.fail_after(1):  # pragma: no cover
                 await ev_cancelled.wait()
 
 
@@ -176,7 +176,7 @@ async def test_response_id_type_mismatch_string_to_int():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            with anyio.fail_after(2):
+            with anyio.fail_after(2):  # pragma: no cover
                 await ev_response_received.wait()
 
     assert len(result_holder) == 1
@@ -232,7 +232,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            with anyio.fail_after(2):
+            with anyio.fail_after(2):  # pragma: no cover
                 await ev_error_received.wait()
 
     assert len(error_holder) == 1
@@ -289,7 +289,7 @@ async def test_response_id_non_numeric_string_no_match():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            with anyio.fail_after(2):
+            with anyio.fail_after(2):  # pragma: no cover
                 await ev_timeout.wait()
 
 
@@ -335,7 +335,7 @@ async def test_connection_closed():
             tg.start_soon(make_request, client_session)
             tg.start_soon(mock_server)
 
-            with anyio.fail_after(1):
+            with anyio.fail_after(1):  # pragma: no cover
                 await ev_closed.wait()
-            with anyio.fail_after(1):
+            with anyio.fail_after(1):  # pragma: no cover
                 await ev_response.wait()

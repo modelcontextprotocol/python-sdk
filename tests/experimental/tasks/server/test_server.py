@@ -312,7 +312,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -392,7 +392,7 @@ async def test_task_metadata_is_task_property() -> None:
         ) as server_session:
             async with anyio.create_task_group() as tg:
 
-                async def handle_messages():
+                async def handle_messages():  # pragma: no cover
                     async for message in server_session.incoming_messages:
                         await server._handle_message(message, server_session, {}, False)
 

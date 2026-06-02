@@ -25,7 +25,7 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     # Get type hints to properly resolve string annotations
     try:
         hints = typing.get_type_hints(fn)
-    except Exception:
+    except Exception:  # pragma: no cover
         # If we can't resolve type hints, we can't find the context parameter
         return None
 

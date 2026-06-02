@@ -409,7 +409,9 @@ async def test_sse_post_requires_the_credential_that_created_the_session(
         scope = _sse_scope("GET", "/sse", creator_user)
         with anyio.fail_after(5):
             async with transport.connect_sse(scope, get_receive, get_send) as (read_stream, write_stream):
-                async with read_stream, write_stream:
+                async with read_stream, write_stream:  # pragma: no branch
+                    # ^ coverage.py misses the ->exit arc on 3.11+ when the body
+                    # is nested inside multiple async with blocks
                     async for _ in read_stream:
                         pass
 
