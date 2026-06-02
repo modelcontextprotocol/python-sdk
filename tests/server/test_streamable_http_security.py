@@ -18,7 +18,7 @@ from tests.test_helpers import run_uvicorn_in_thread
 SERVER_NAME = "test_streamable_http_security_server"
 
 
-class SecurityTestServer(Server):  # pragma: no cover
+class SecurityTestServer(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
 

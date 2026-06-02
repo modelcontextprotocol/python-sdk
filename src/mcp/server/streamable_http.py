@@ -245,7 +245,7 @@ class StreamableHTTPServerTransport:
             async def close_stream_callback() -> None:
                 self.close_sse_stream(request_id)
 
-            async def close_standalone_stream_callback() -> None:  # pragma: no cover
+            async def close_standalone_stream_callback() -> None:
                 self.close_standalone_sse_stream()
 
             metadata = ServerMessageMetadata(
@@ -421,7 +421,7 @@ class StreamableHTTPServerTransport:
         has_json, has_sse = self._check_accept_headers(request)
         if self.is_json_response_enabled:
             # For JSON-only responses, only require application/json
-            if not has_json:  # pragma: no cover
+            if not has_json:
                 response = self._create_error_response(
                     "Not Acceptable: Client must accept application/json",
                     HTTPStatus.NOT_ACCEPTABLE,
@@ -669,7 +669,7 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_request_headers(request, send):  # pragma: no cover
+        if not await self._validate_request_headers(request, send):
             return
 
         # Handle resumability: check for Last-Event-ID header
@@ -1017,7 +1017,7 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
                         else:

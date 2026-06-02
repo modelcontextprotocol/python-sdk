@@ -38,7 +38,7 @@ def reset_sse_starlette_exit_event() -> None:
         app_status.should_exit_event = None
 
 
-class SecurityTestServer(Server):  # pragma: no cover
+class SecurityTestServer(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
 

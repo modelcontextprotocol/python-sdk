@@ -78,7 +78,7 @@ async def _handle_call_tool(  # pragma: no cover
     return CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
 
 
-def _create_server() -> Server:  # pragma: no cover
+def _create_server() -> Server:
     return Server(
         SERVER_NAME,
         on_read_resource=_handle_read_resource,
@@ -266,7 +266,7 @@ async def test_sse_client_timeout(  # pragma: no cover
     pytest.fail("the client should have timed out and returned an error already")
 
 
-def make_mounted_server_app() -> Starlette:  # pragma: no cover
+def make_mounted_server_app() -> Starlette:
     app = make_server_app()
     main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
     return main_app
