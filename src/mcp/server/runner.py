@@ -29,10 +29,12 @@ from typing_extensions import TypeVar
 from mcp.server.connection import Connection
 from mcp.server.context import CallNext, Context, ServerMiddleware
 from mcp.server.lowlevel.server import Server
+from mcp.server.models import InitializationOptions
 from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
@@ -125,6 +127,8 @@ class ServerRunner(Generic[LifespanT]):
     dispatcher: Dispatcher[TransportContext]
     lifespan_state: LifespanT
     has_standalone_channel: bool
+    init_options: InitializationOptions | None = None
+    """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
     session_id: str | None = None
     stateless: bool = False
     dispatch_middleware: list[DispatchMiddleware] = field(default_factory=list[DispatchMiddleware])
@@ -134,6 +138,8 @@ class ServerRunner(Generic[LifespanT]):
 
     def __post_init__(self) -> None:
         self._initialized = self.stateless
+        if self.init_options is None:
+            self.init_options = self.server.create_initialization_options()
         self.connection = Connection(
             self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
         )
@@ -234,18 +240,24 @@ class ServerRunner(Generic[LifespanT]):
         init = InitializeRequestParams.model_validate(params or {})
         self.connection.client_info = init.client_info
         self.connection.client_capabilities = init.capabilities
-        # TODO: real version negotiation. This always responds with LATEST,
-        # which is wrong - the server should pick the highest version both
-        # sides support and compute a per-connection feature set from it.
-        # See FOLLOWUPS: "Consolidate per-connection mode/negotiation".
-        self.connection.protocol_version = (
-            init.protocol_version if init.protocol_version in {LATEST_PROTOCOL_VERSION} else LATEST_PROTOCOL_VERSION
-        )
+        requested = init.protocol_version
+        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
+        self.connection.protocol_version = negotiated
         self._initialized = True
         self.connection.initialized.set()
+        assert self.init_options is not None
+        opts = self.init_options
         result = InitializeResult(
-            protocol_version=self.connection.protocol_version,
-            capabilities=self.server.capabilities(),
-            server_info=Implementation(name=self.server.name, version=self.server.version or "0.0.0"),
+            protocol_version=negotiated,
+            capabilities=opts.capabilities,
+            server_info=Implementation(
+                name=opts.server_name,
+                title=opts.title,
+                description=opts.description,
+                version=opts.server_version,
+                website_url=opts.website_url,
+                icons=opts.icons,
+            ),
+            instructions=opts.instructions,
         )
         return _dump_result(result)

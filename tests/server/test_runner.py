@@ -18,10 +18,12 @@ from opentelemetry.trace import SpanKind, StatusCode
 from mcp.server.connection import Connection
 from mcp.server.context import Context
 from mcp.server.lowlevel.server import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 from mcp.server.runner import ServerRunner, otel_middleware
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
 from mcp.shared.dispatcher import DispatchMiddleware
 from mcp.shared.exceptions import MCPError
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -77,6 +79,7 @@ async def connected_runner(
     initialized: bool = True,
     stateless: bool = False,
     has_standalone_channel: bool = True,
+    init_options: InitializationOptions | None = None,
     session_id: str | None = None,
     headers: Mapping[str, str] | None = None,
     dispatch_middleware: list[DispatchMiddleware] | None = None,
@@ -94,6 +97,7 @@ async def connected_runner(
         dispatcher=server_d,
         lifespan_state={},
         has_standalone_channel=has_standalone_channel,
+        init_options=init_options,
         session_id=session_id,
         stateless=stateless,
         dispatch_middleware=dispatch_middleware or [],
@@ -327,20 +331,31 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
 
 
 @pytest.mark.anyio
-async def test_server_capabilities_reflects_ctor_options_in_initialize_result():
+async def test_runner_initialize_result_reflects_init_options():
     async def list_tools(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
         raise NotImplementedError
 
-    server: SrvT = Server(
-        name="caps-test",
-        on_list_tools=list_tools,
-        notification_options=NotificationOptions(tools_changed=True),
-        experimental_capabilities={"ext": {"k": "v"}},
-    )
-    async with connected_runner(server, initialized=False) as (client, _):
+    server: SrvT = Server(name="caps-test", on_list_tools=list_tools, instructions="be nice")
+    init_options = server.create_initialization_options(NotificationOptions(tools_changed=True), {"ext": {"k": "v"}})
+    async with connected_runner(server, initialized=False, init_options=init_options) as (client, _):
         result = await client.send_raw_request("initialize", _initialize_params())
     assert result["capabilities"]["tools"]["listChanged"] is True
     assert result["capabilities"]["experimental"] == {"ext": {"k": "v"}}
+    assert result["serverInfo"]["name"] == "caps-test"
+    assert result["instructions"] == "be nice"
+
+
+@pytest.mark.anyio
+async def test_runner_initialize_echoes_supported_version_and_falls_back_to_latest(server: SrvT):
+    oldest = SUPPORTED_PROTOCOL_VERSIONS[0]
+    async with connected_runner(server, initialized=False) as (client, _):
+        params = {**_initialize_params(), "protocolVersion": oldest}
+        result = await client.send_raw_request("initialize", params)
+        assert result["protocolVersion"] == oldest
+    async with connected_runner(server, initialized=False) as (client, _):
+        params = {**_initialize_params(), "protocolVersion": "1999-01-01"}
+        result = await client.send_raw_request("initialize", params)
+        assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
