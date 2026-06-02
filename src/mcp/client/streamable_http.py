@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import anyio
 import httpx
@@ -50,6 +51,15 @@ DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't pr
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 
 
+def _get_default_origin(url: str) -> str | None:
+    parsed_url = urlsplit(url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        return None
+
+    authority = parsed_url.netloc.rsplit("@", 1)[-1]
+    return f"{parsed_url.scheme}://{authority}"
+
+
 class StreamableHTTPError(Exception):
     """Base exception for StreamableHTTP transport errors."""
 
@@ -72,13 +82,16 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, default_origin: str | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            default_origin: Origin header to include when the caller has not
+                configured one on the HTTP client.
         """
         self.url = url
+        self.default_origin = default_origin
         self.session_id: str | None = None
         self.protocol_version: str | None = None
 
@@ -92,6 +105,8 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        if self.default_origin:
+            headers["Origin"] = self.default_origin
         # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
@@ -547,7 +562,8 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    default_origin = None if "origin" in client.headers else _get_default_origin(url)
+    transport = StreamableHTTPTransport(url, default_origin=default_origin)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

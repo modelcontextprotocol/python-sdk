@@ -29,7 +29,7 @@ from starlette.routing import Mount
 
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import StreamableHTTPTransport, _get_default_origin, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -765,6 +765,58 @@ def test_streamable_http_transport_init_validation():
 
     with pytest.raises(ValueError):
         StreamableHTTPServerTransport(mcp_session_id="test\n")
+
+
+def test_get_default_origin_derives_origin_from_url():
+    assert _get_default_origin("https://example.com:8443/mcp?token=abc") == "https://example.com:8443"
+    assert _get_default_origin("http://user:pass@[::1]:8080/mcp") == "http://[::1]:8080"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_sets_default_origin_on_http_client():
+    recorded_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded_headers.append(request.headers)
+        return httpx.Response(202, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with streamable_http_client("https://mcp.example.com:8443/mcp", http_client=client) as (
+            _read_stream,
+            write_stream,
+        ):
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            with anyio.fail_after(1):
+                while not recorded_headers:
+                    await anyio.sleep(0.01)
+
+        assert recorded_headers[0]["origin"] == "https://mcp.example.com:8443"
+        assert "origin" not in client.headers
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_preserves_custom_origin_header():
+    recorded_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded_headers.append(request.headers)
+        return httpx.Response(202, request=request)
+
+    async with httpx.AsyncClient(
+        headers={"Origin": "https://proxy.example"},
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        async with streamable_http_client("https://mcp.example.com/mcp", http_client=client) as (
+            _read_stream,
+            write_stream,
+        ):
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            with anyio.fail_after(1):
+                while not recorded_headers:
+                    await anyio.sleep(0.01)
+
+        assert recorded_headers[0]["origin"] == "https://proxy.example"
+        assert client.headers["origin"] == "https://proxy.example"
 
 
 def test_session_termination(basic_server: None, basic_server_url: str):
