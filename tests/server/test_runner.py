@@ -24,11 +24,12 @@ from mcp.shared.dispatcher import DispatchMiddleware
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
     INTERNAL_ERROR,
-    INVALID_REQUEST,
+    INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     CallToolRequestParams,
     ClientCapabilities,
+    ErrorData,
     Implementation,
     InitializeRequestParams,
     ListToolsResult,
@@ -142,7 +143,7 @@ async def test_runner_gates_requests_before_initialize(server: SrvT):
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-        assert exc.value.error.code == INVALID_REQUEST
+        assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
         # ping is exempt from the gate
         assert await client.send_raw_request("ping", None) == {}
 
@@ -361,7 +362,7 @@ async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, s
         assert exc.value.error.code == METHOD_NOT_FOUND
     [span] = spans.finished()
     assert span.status.status_code == StatusCode.ERROR
-    assert span.status.description == "Method not found: nonexistent/method"
+    assert span.status.description == "Method not found"
     # MCPError is a protocol-level response, not a crash - no traceback event.
     assert not [e for e in span.events if e.name == "exception"]
 

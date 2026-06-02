@@ -419,11 +419,15 @@ async def test_send_raw_request_always_carries_meta_on_the_wire():
         with anyio.fail_after(5):
             await client.send_raw_request("a", None)
             await client.send_raw_request("b", {"x": 1, "_meta": {"k": "v"}}, opts)
-    assert seen[0] == {"_meta": {}}
-    assert seen[1] is not None
-    assert seen[1]["x"] == 1
+    # `_meta` is always present. Its contents depend on the active otel
+    # tracer (traceparent/tracestate may be injected), so assert presence
+    # and that anything beyond W3C keys is exactly what we expect.
+    w3c = {"traceparent", "tracestate"}
+    assert seen[0] is not None and seen[0].keys() == {"_meta"}
+    assert set(seen[0]["_meta"].keys()) <= w3c
+    assert seen[1] is not None and seen[1]["x"] == 1
+    assert set(seen[1]["_meta"].keys()) - w3c == {"k", "progressToken"}
     assert seen[1]["_meta"]["k"] == "v"
-    assert "progressToken" in seen[1]["_meta"]
 
 
 @pytest.mark.anyio

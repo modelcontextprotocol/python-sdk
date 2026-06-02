@@ -34,7 +34,7 @@ from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddlewar
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
-    INVALID_REQUEST,
+    INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     Implementation,
@@ -164,13 +164,13 @@ class ServerRunner(Generic[LifespanT]):
         if method == "initialize":
             return self._handle_initialize(params)
         if not self._initialized and method not in _INIT_EXEMPT:
-            raise MCPError(
-                code=INVALID_REQUEST,
-                message=f"Received {method!r} before initialization was complete",
-            )
+            # TODO(maxisbey): pinned compat. The existing server has no
+            # dedicated pre-init check; the request dies in ClientRequest
+            # validation, so the client sees the generic invalid-params shape.
+            raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
         entry = self.server.get_request_handler(method)
         if entry is None:
-            raise MCPError(code=METHOD_NOT_FOUND, message=f"Method not found: {method}")
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
         # ValidationError propagates; the dispatcher's exception boundary maps
         # it to INVALID_PARAMS.
         typed_params = entry.params_type.model_validate(params or {})
