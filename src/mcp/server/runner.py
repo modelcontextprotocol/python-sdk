@@ -19,7 +19,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
-from typing import Any, Generic, cast, get_args
+from typing import TYPE_CHECKING, Any, Generic, cast, get_args
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
@@ -27,12 +27,14 @@ from pydantic import BaseModel
 from typing_extensions import TypeVar
 
 from mcp.server.connection import Connection
-from mcp.server.context import CallNext, Context, ServerMiddleware
-from mcp.server.lowlevel.server import Server
+from mcp.server.context import CallNext, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
+from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
+from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -43,8 +45,12 @@ from mcp.types import (
     Implementation,
     InitializeRequestParams,
     InitializeResult,
+    RequestParams,
     client_request_adapter,
 )
+
+if TYPE_CHECKING:
+    from mcp.server.lowlevel.server import Server
 
 __all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "otel_middleware"]
 
@@ -124,7 +130,7 @@ class ServerRunner(Generic[LifespanT]):
     """Per-connection orchestrator. One instance per client connection."""
 
     server: Server[LifespanT]
-    dispatcher: Dispatcher[TransportContext]
+    dispatcher: JSONRPCDispatcher[Any]
     lifespan_state: LifespanT
     has_standalone_channel: bool
     init_options: InitializationOptions | None = None
@@ -134,6 +140,8 @@ class ServerRunner(Generic[LifespanT]):
     dispatch_middleware: list[DispatchMiddleware] = field(default_factory=list[DispatchMiddleware])
 
     connection: Connection = field(init=False)
+    session: ServerSession = field(init=False)
+    """Connection-scoped: the same instance reaches every request as `ctx.session`."""
     _initialized: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -143,6 +151,7 @@ class ServerRunner(Generic[LifespanT]):
         self.connection = Connection(
             self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
         )
+        self.session = ServerSession(self.dispatcher, self.connection, stateless=self.stateless)
 
     async def run(self, *, task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
         """Drive the dispatcher until the underlying channel closes.
@@ -204,8 +213,7 @@ class ServerRunner(Generic[LifespanT]):
         # it to INVALID_PARAMS.
         typed_params = entry.params_type.model_validate(params or {})
         ctx = self._make_context(dctx, typed_params)
-        # TODO: cast goes away when `ServerRequestContext = Context` lands.
-        call: CallNext = partial(cast(Any, entry.handler), ctx, typed_params)
+        call: CallNext = partial(entry.handler, ctx, typed_params)
         for mw in reversed(self.server.middleware):
             call = partial(mw, ctx, method, typed_params, call)
         return _dump_result(await call())
@@ -231,19 +239,35 @@ class ServerRunner(Generic[LifespanT]):
         # (matches the existing `Server._handle_notification`).
         typed_params = entry.params_type.model_validate(params) if params is not None else None
         ctx = self._make_context(dctx, typed_params)
-        # TODO: cast goes away when `ServerRequestContext = Context` lands.
-        await cast(Any, entry.handler)(ctx, typed_params)
+        await entry.handler(ctx, typed_params)
 
     def _make_context(
         self, dctx: DispatchContext[TransportContext], typed_params: BaseModel | None
-    ) -> Context[LifespanT]:
-        meta = getattr(typed_params, "meta", None) if typed_params is not None else None
-        return Context(dctx, lifespan=self.lifespan_state, connection=self.connection, meta=meta)
+    ) -> ServerRequestContext[LifespanT, Any]:
+        meta = typed_params.meta if isinstance(typed_params, RequestParams) else None
+        # TODO(maxisbey): remove for Context rework. Reads the SHTTP per-request
+        # data off the raw `dctx.message_metadata` carrier; replace with the
+        # per-transport context once that lands.
+        md = dctx.message_metadata
+        if isinstance(md, ServerMessageMetadata):
+            request = md.request_context
+            close_sse_stream = md.close_sse_stream
+            close_standalone_sse_stream = md.close_standalone_sse_stream
+        else:
+            request = close_sse_stream = close_standalone_sse_stream = None
+        return ServerRequestContext(
+            session=self.session,
+            lifespan_context=self.lifespan_state,
+            request_id=dctx.request_id,
+            meta=meta,
+            request=request,
+            close_sse_stream=close_sse_stream,
+            close_standalone_sse_stream=close_standalone_sse_stream,
+        )
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> dict[str, Any]:
         init = InitializeRequestParams.model_validate(params or {})
-        self.connection.client_info = init.client_info
-        self.connection.client_capabilities = init.capabilities
+        self.connection.client_params = init
         requested = init.protocol_version
         negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
         self.connection.protocol_version = negotiated

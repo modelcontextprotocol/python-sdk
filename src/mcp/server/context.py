@@ -9,24 +9,32 @@ from typing_extensions import TypeVar
 
 from mcp.server._typed_request import TypedServerRequestMixin
 from mcp.server.connection import Connection
-from mcp.server.experimental.request_context import Experimental
 from mcp.server.session import ServerSession
-from mcp.shared._context import RequestContext
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.peer import Meta, PeerMixin
 from mcp.shared.transport_context import TransportContext
-from mcp.types import LoggingLevel, RequestParamsMeta
+from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
 RequestT = TypeVar("RequestT", default=Any)
 
 
 @dataclass(kw_only=True)
-class ServerRequestContext(RequestContext[ServerSession], Generic[LifespanContextT, RequestT]):
+class ServerRequestContext(Generic[LifespanContextT, RequestT]):
+    """Per-request context handed to lowlevel request and notification handlers.
+
+    Built by `ServerRunner._make_context` for each inbound message. Carries the
+    connection-scoped `ServerSession` (server-to-client requests and
+    notifications), per-request metadata, and any per-message data the
+    transport attached (the HTTP request, SSE stream-close callbacks).
+    """
+
+    session: ServerSession
     lifespan_context: LifespanContextT
-    experimental: Experimental
+    request_id: RequestId | None = None
+    meta: RequestParamsMeta | None = None
     request: RequestT | None = None
     close_sse_stream: CloseSSEStreamCallback | None = None
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
@@ -107,26 +115,32 @@ all three to a result dict."""
 
 CallNext = Callable[[], Awaitable[HandlerResult]]
 
-_MwLifespanT = TypeVar("_MwLifespanT", contravariant=True)
+_MwLifespanT = TypeVar("_MwLifespanT")
 
 
 class ServerMiddleware(Protocol[_MwLifespanT]):
     """Context-tier middleware: `(ctx, method, typed_params, call_next) -> result`.
 
     Runs *inside* `ServerRunner._on_request` after params validation and
-    `Context` construction. Wraps registered handlers (including `ping`) but
+    context construction. Wraps registered handlers (including `ping`) but
     not `initialize`, `METHOD_NOT_FOUND`, or validation failures. Listed
     outermost-first on `Server.middleware`.
 
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
-    middleware sees `ctx.lifespan: L`. A reusable middleware can be typed
-    `ServerMiddleware[object]` - `Context` is covariant in `LifespanT`, so it
-    registers on any `Server[L]`.
+    middleware sees `ctx.lifespan_context: L`. While the context is the
+    mutable `ServerRequestContext` dataclass it is invariant in `L`, so a
+    reusable middleware should be typed `ServerMiddleware[Any]` to register on
+    any `Server[L]`.
     """
+
+    # TODO(maxisbey): once `_make_context` returns the (covariant) `Context[L]`
+    # again, restore `_MwLifespanT` to `contravariant=True` and retype `ctx`
+    # below to `Context[_MwLifespanT]` so reusable middleware can be
+    # `ServerMiddleware[object]` instead of `ServerMiddleware[Any]`.
 
     async def __call__(
         self,
-        ctx: Context[_MwLifespanT],
+        ctx: ServerRequestContext[_MwLifespanT, Any],
         method: str,
         params: BaseModel,
         call_next: CallNext,

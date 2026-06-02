@@ -24,7 +24,7 @@ from mcp.server._typed_request import TypedServerRequestMixin
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
-from mcp.types import ClientCapabilities, Implementation, LoggingLevel
+from mcp.types import ClientCapabilities, Implementation, InitializeRequestParams, LoggingLevel
 
 __all__ = ["Connection"]
 
@@ -51,8 +51,8 @@ class Connection(TypedServerRequestMixin):
         self.has_standalone_channel = has_standalone_channel
         self.session_id: str | None = session_id
 
-        self.client_info: Implementation | None = None
-        self.client_capabilities: ClientCapabilities | None = None
+        self.client_params: InitializeRequestParams | None = None
+        """The full `initialize` request params; `None` before initialization."""
         self.protocol_version: str | None = None
         self.initialized: anyio.Event = anyio.Event()
 
@@ -67,6 +67,16 @@ class Connection(TypedServerRequestMixin):
         or callbacks (`exit_stack.push_async_callback(...)`) from handlers or
         middleware to register per-connection teardown. Unwound LIFO after
         `dispatcher.run()` returns, shielded from cancellation."""
+
+    @property
+    def client_info(self) -> Implementation | None:
+        """The client's `Implementation` from `initialize`; `None` before initialization."""
+        return self.client_params.client_info if self.client_params is not None else None
+
+    @property
+    def client_capabilities(self) -> ClientCapabilities | None:
+        """The client's `ClientCapabilities` from `initialize`; `None` before initialization."""
+        return self.client_params.capabilities if self.client_params is not None else None
 
     async def send_raw_request(
         self,
