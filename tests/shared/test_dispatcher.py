@@ -34,9 +34,12 @@ def echo_handlers(recorder: Recorder) -> tuple[OnRequest, OnNotify]:
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        recorder.requests.append((method, params))
+        # Strip `_meta` so JSON-RPC and direct dispatch record identically:
+        # the JSON-RPC outbound path always attaches `_meta` (otel injection).
+        recorded = {k: v for k, v in (params or {}).items() if k != "_meta"} if params is not None else None
+        recorder.requests.append((method, recorded))
         recorder.contexts.append(ctx)
-        return {"echoed": method, "params": dict(params or {})}
+        return {"echoed": method, "params": recorded or {}}
 
     async def on_notify(ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
         recorder.notifications.append((method, params))

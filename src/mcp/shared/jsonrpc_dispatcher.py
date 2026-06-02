@@ -29,8 +29,10 @@ from typing import Any, Generic, Literal, TypeVar, cast, overload
 import anyio
 import anyio.abc
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 
+from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, Dispatcher, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -255,7 +257,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run() / after close")
         opts = opts or {}
         request_id = self._allocate_id()
-        out_params = dict(params) if params is not None else None
+        out_params = dict(params) if params is not None else {}
+        out_meta = dict(out_params.get("_meta") or {})
         on_progress = opts.get("on_progress")
         if on_progress is not None:
             # The caller wants progress updates. The spec mechanism is: include
@@ -263,9 +266,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             # any `notifications/progress` it sends. We use the request id as the
             # token so the receive loop can find this `_Pending.on_progress` by
             # `_pending[token]` without a second lookup table.
-            meta = dict((out_params or {}).get("_meta") or {})
-            meta["progressToken"] = request_id
-            out_params = {**(out_params or {}), "_meta": meta}
+            out_meta["progressToken"] = request_id
+        out_params["_meta"] = out_meta
 
         # buffer=1: at most one outcome is ever delivered. A `WouldBlock` from
         # `_resolve_pending`/`_fan_out_closed` means the waiter already has an
@@ -277,11 +279,26 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._pending[request_id] = pending
 
         metadata = _outbound_metadata(_related_request_id, opts)
-        msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+        target = out_params.get("name")
+        span_name = f"MCP send {method}{f' {target}' if isinstance(target, str) else ''}"
+        # TODO(maxisbey): the otel span + inject below mirror
+        # BaseSession.send_request for parity. They belong in an outbound
+        # middleware (symmetric with otel_middleware on the inbound side) once
+        # that seam exists; the dispatcher should not own otel.
         try:
-            await self._write(msg, metadata)
-            with anyio.fail_after(opts.get("timeout")):
-                outcome = await receive.receive()
+            with otel_span(
+                span_name,
+                kind=SpanKind.CLIENT,
+                attributes={"mcp.method.name": method, "jsonrpc.request.id": request_id},
+            ):
+                # Inject W3C trace context into _meta (SEP-414). With a no-op
+                # tracer this writes nothing, but `_meta` itself is still
+                # present on the wire (and the interaction suite pins that).
+                inject_trace_context(out_meta)
+                msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                await self._write(msg, metadata)
+                with anyio.fail_after(opts.get("timeout")):
+                    outcome = await receive.receive()
         except TimeoutError:
             # Spec-recommended courtesy: tell the peer we've given up so it can
             # stop work and free resources. v1's BaseSession.send_request does

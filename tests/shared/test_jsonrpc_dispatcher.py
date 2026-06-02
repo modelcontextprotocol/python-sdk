@@ -14,7 +14,7 @@ import anyio
 import pytest
 
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
-from mcp.shared.dispatcher import DispatchContext
+from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
@@ -397,6 +397,33 @@ async def test_ctx_progress_with_only_progress_value_omits_total_and_message():
         with anyio.fail_after(5):
             await client.send_raw_request("t", None, {"on_progress": on_progress})
     assert received == [(0.25, None, None)]
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_always_carries_meta_on_the_wire():
+    """Outbound requests always include `params._meta` (otel injection per SEP-414).
+
+    Caller-supplied `_meta` keys are preserved; the progress token is merged in.
+    """
+    seen: list[Mapping[str, Any] | None] = []
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        seen.append(params)
+        return {}
+
+    async def noop_progress(progress: float, total: float | None, message: str | None) -> None:
+        raise NotImplementedError
+
+    opts: CallOptions = {"on_progress": noop_progress}
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("a", None)
+            await client.send_raw_request("b", {"x": 1, "_meta": {"k": "v"}}, opts)
+    assert seen[0] == {"_meta": {}}
+    assert seen[1] is not None
+    assert seen[1]["x"] == 1
+    assert seen[1]["_meta"]["k"] == "v"
+    assert "progressToken" in seen[1]["_meta"]
 
 
 @pytest.mark.anyio
