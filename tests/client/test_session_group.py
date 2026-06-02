@@ -294,7 +294,11 @@ async def test_client_session_group_disconnect_non_existent_server():
             "mcp.client.session_group.sse_client",
         ),  # url, headers, timeout, sse_read_timeout
         (
-            StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
+            StreamableHttpParameters(
+                url="http://test.com/stream",
+                terminate_on_close=False,
+                session_id="resumed-session-id",
+            ),
             "streamablehttp",
             "mcp.client.session_group.streamable_http_client",
         ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
@@ -363,6 +367,7 @@ async def test_client_session_group_establish_session_parameterized(
                 call_args = mock_specific_client_func.call_args
                 assert call_args.kwargs["url"] == server_params_instance.url
                 assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
+                assert call_args.kwargs["session_id"] == server_params_instance.session_id
                 assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
 
             mock_client_cm_instance.__aenter__.assert_awaited_once()

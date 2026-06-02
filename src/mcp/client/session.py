@@ -191,6 +191,14 @@ class ClientSession(
 
         return result
 
+    def resume(self, initialize_result: types.InitializeResult) -> None:
+        """Mark this session as resumed using previously negotiated initialization data.
+
+        This bypasses the initialize/initialized handshake and seeds the session with
+        server capabilities and metadata from an earlier connection.
+        """
+        self._initialize_result = initialize_result
+
     @property
     def initialize_result(self) -> types.InitializeResult | None:
         """The server's InitializeResult. None until initialize() has been called.

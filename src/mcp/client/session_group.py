@@ -63,6 +63,9 @@ class StreamableHttpParameters(BaseModel):
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
 
+    # Optional pre-existing MCP session ID for explicit session resumption.
+    session_id: str | None = None
+
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
 
@@ -296,6 +299,7 @@ class ClientSessionGroup:
                     url=server_params.url,
                     http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
+                    session_id=server_params.session_id,
                 )
                 read, write = await session_stack.enter_async_context(client)
 
