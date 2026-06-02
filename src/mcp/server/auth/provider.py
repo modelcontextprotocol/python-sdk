@@ -68,6 +68,7 @@ AuthorizationErrorCode = Literal[
     "invalid_scope",
     "server_error",
     "temporarily_unavailable",
+    "invalid_target",
 ]
 
 

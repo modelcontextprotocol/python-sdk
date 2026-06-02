@@ -8,8 +8,6 @@ from pydantic import TypeAdapter
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
-from mcp.client.experimental import ExperimentalClientFeatures
-from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -120,7 +118,6 @@ class ClientSession(
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
-        experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -132,10 +129,6 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
-        self._experimental_features: ExperimentalClientFeatures | None = None
-
-        # Experimental: Task handlers (use defaults if not provided)
-        self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
@@ -174,7 +167,6 @@ class ClientSession(
                         elicitation=elicitation,
                         experimental=None,
                         roots=roots,
-                        tasks=self._task_handlers.build_capability(),
                     ),
                     client_info=self._client_info,
                 ),
@@ -198,23 +190,6 @@ class ClientSession(
         Contains server_info, capabilities, instructions, and the negotiated protocol_version.
         """
         return self._initialize_result
-
-    @property
-    def experimental(self) -> ExperimentalClientFeatures:
-        """Experimental APIs for tasks and other features.
-
-        !!! warning
-            These APIs are experimental and may change without notice.
-
-        Example:
-            ```python
-            status = await session.experimental.get_task(task_id)
-            result = await session.experimental.get_task_result(task_id, CallToolResult)
-            ```
-        """
-        if self._experimental_features is None:
-            self._experimental_features = ExperimentalClientFeatures(self)
-        return self._experimental_features
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
@@ -413,31 +388,16 @@ class ClientSession(
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession](request_id=responder.request_id, meta=responder.request_meta, session=self)
 
-        # Delegate to experimental task handler if applicable
-        if self._task_handlers.handles_request(responder.request):
-            with responder:
-                await self._task_handlers.handle_request(ctx, responder)
-            return None
-
-        # Core request handling
         match responder.request:
             case types.CreateMessageRequest(params=params):
                 with responder:
-                    # Check if this is a task-augmented request
-                    if params.task is not None:
-                        response = await self._task_handlers.augmented_sampling(ctx, params, params.task)
-                    else:
-                        response = await self._sampling_callback(ctx, params)
+                    response = await self._sampling_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
             case types.ElicitRequest(params=params):
                 with responder:
-                    # Check if this is a task-augmented request
-                    if params.task is not None:
-                        response = await self._task_handlers.augmented_elicitation(ctx, params, params.task)
-                    else:
-                        response = await self._elicitation_callback(ctx, params)
+                    response = await self._elicitation_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
@@ -447,14 +407,9 @@ class ClientSession(
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
-            case types.PingRequest():
+            case types.PingRequest():  # pragma: no branch
                 with responder:
-                    return await responder.respond(types.EmptyResult())
-
-            case _:  # pragma: no cover
-                pass  # Task requests handled above by _task_handlers
-
-        return None
+                    await responder.respond(types.EmptyResult())
 
     async def _handle_incoming(
         self,

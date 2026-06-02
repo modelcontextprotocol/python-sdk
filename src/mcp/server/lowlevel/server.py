@@ -57,7 +57,6 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVeri
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
-from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import ServerRunner, otel_middleware
 from mcp.server.streamable_http import EventStore
@@ -129,8 +128,6 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
-        notification_options: NotificationOptions | None = None,
-        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -143,7 +140,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.CreateTaskResult],
+            Awaitable[types.CallToolResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -215,11 +212,8 @@ class Server(Generic[LifespanResultT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self._notification_options = notification_options or NotificationOptions()
-        self._experimental_capabilities = experimental_capabilities or {}
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
-        self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware consumed by `ServerRunner`. Additive; the
         # existing `run()` path ignores it.
@@ -286,10 +280,6 @@ class Server(Generic[LifespanResultT]):
         # TODO: remove once experimental tasks plumbing and remaining callers
         # migrate to `add_request_handler` with an explicit params_type.
         self.add_request_handler(method, types.RequestParams, handler)
-
-    def _has_handler(self, method: str) -> bool:
-        """Check if a handler is registered for the given method."""
-        return method in self._request_handlers or method in self._notification_handlers
 
     # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
 
@@ -378,24 +368,7 @@ class Server(Generic[LifespanResultT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
-        if self._experimental_handlers:
-            self._experimental_handlers.update_capabilities(capabilities)
         return capabilities
-
-    @property
-    def experimental(self) -> ExperimentalHandlers[LifespanResultT]:
-        """Experimental APIs for tasks and other features.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
-
-        # We create this inline so we only add these capabilities _if_ they're actually used
-        if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(
-                add_request_handler=self._add_request_handler,
-                has_handler=self._has_handler,
-            )
-        return self._experimental_handlers
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
