@@ -41,6 +41,7 @@ UNICODE_TEST_STRINGS = {
 
 def make_unicode_server_app() -> Starlette:  # pragma: no cover
     """Create the Unicode test server."""
+
     # Need to recreate the server setup in this process
     async def handle_list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None

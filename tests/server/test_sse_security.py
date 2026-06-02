@@ -141,9 +141,7 @@ async def test_sse_security_post_invalid_content_type():
             assert response.text == "Invalid Content-Type header"
 
             # Test POST with missing content type
-            response = await client.post(
-                f"{server_url}/messages/?session_id={fake_session_id}", content="test"
-            )
+            response = await client.post(f"{server_url}/messages/?session_id={fake_session_id}", content="test")
             assert response.status_code == 400
             assert response.text == "Invalid Content-Type header"
 
