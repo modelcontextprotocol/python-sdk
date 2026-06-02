@@ -277,7 +277,7 @@ def dev(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=dict(os.environ.items()),  # Copy the environment for subprocess launch
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:

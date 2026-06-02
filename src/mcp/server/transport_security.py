@@ -42,17 +42,17 @@ class TransportSecurityMiddleware:
 
     def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
-        if not host:  # pragma: no cover
+        if not host:
             logger.warning("Missing Host header in request")
             return False
 
         # Check exact match first
-        if host in self.settings.allowed_hosts:  # pragma: no cover
+        if host in self.settings.allowed_hosts:
             return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_hosts:
-            if allowed.endswith(":*"):  # pragma: no branch
+            if allowed.endswith(":*"):
                 # Extract base host from pattern
                 base_host = allowed[:-2]
                 # Check if the actual host starts with base host and has a port
@@ -65,16 +65,16 @@ class TransportSecurityMiddleware:
     def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
-        if not origin:  # pragma: no cover
+        if not origin:
             return True
 
         # Check exact match first
-        if origin in self.settings.allowed_origins:  # pragma: no cover
+        if origin in self.settings.allowed_origins:
             return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_origins:
-            if allowed.endswith(":*"):  # pragma: no branch
+            if allowed.endswith(":*"):
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
                 # Check if the actual origin starts with base origin and has a port
@@ -94,7 +94,7 @@ class TransportSecurityMiddleware:
         Returns None if validation passes, or an error Response if validation fails.
         """
         # Always validate Content-Type for POST requests
-        if is_post:  # pragma: no branch
+        if is_post:
             content_type = request.headers.get("content-type")
             if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
