@@ -595,7 +595,7 @@ The `RequestContext` class has been split to separate shared fields from server-
 **`RequestContext` changes:**
 
 - Type parameters reduced from `RequestContext[SessionT, LifespanContextT, RequestT]` to `RequestContext[SessionT]`
-- Server-specific fields (`lifespan_context`, `experimental`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
+- Server-specific fields (`lifespan_context`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
 
 **Before (v1):**
 
@@ -861,7 +861,7 @@ server = Server("my-server", on_list_tools=handle_list_tools, on_call_tool=handl
 
 **Key differences:**
 
-- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `ServerRequestContext` with `session`, `lifespan_context`, and `experimental` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
+- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `ServerRequestContext` with `session` and `lifespan_context` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
 - Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
 - The automatic `jsonschema` input/output validation that the old `call_tool()` decorator performed has been removed. There is no built-in replacement — if you relied on schema validation in the lowlevel server, you will need to validate inputs yourself in your handler.
 
@@ -872,7 +872,7 @@ All handlers receive `ctx: ServerRequestContext` as the first argument. The seco
 | v1 decorator | v2 constructor kwarg | `params` type | return type |
 |---|---|---|---|
 | `@server.list_tools()` | `on_list_tools` | `PaginatedRequestParams \| None` | `ListToolsResult` |
-| `@server.call_tool()` | `on_call_tool` | `CallToolRequestParams` | `CallToolResult \| CreateTaskResult` |
+| `@server.call_tool()` | `on_call_tool` | `CallToolRequestParams` | `CallToolResult` |
 | `@server.list_resources()` | `on_list_resources` | `PaginatedRequestParams \| None` | `ListResourcesResult` |
 | `@server.list_resource_templates()` | `on_list_resource_templates` | `PaginatedRequestParams \| None` | `ListResourceTemplatesResult` |
 | `@server.read_resource()` | `on_read_resource` | `ReadResourceRequestParams` | `ReadResourceResult` |
@@ -1039,37 +1039,11 @@ from mcp.server import ServerRequestContext
 # but None in notification handlers
 ```
 
-### Experimental: task handler decorators removed
+### Experimental Tasks support removed
 
-The experimental decorator methods on `ExperimentalHandlers` (`@server.experimental.list_tasks()`, `@server.experimental.get_task()`, etc.) have been removed.
+Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with all `Task*` types, the `tasks` capability fields, `Tool.execution`, and the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
 
-Default task handlers are still registered automatically via `server.experimental.enable_tasks()`. Custom handlers can be passed as `on_*` kwargs to override specific defaults.
-
-**Before (v1):**
-
-```python
-server = Server("my-server")
-server.experimental.enable_tasks()
-
-@server.experimental.get_task()
-async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
-    ...
-```
-
-**After (v2):**
-
-```python
-from mcp.server import Server, ServerRequestContext
-from mcp.types import GetTaskRequestParams, GetTaskResult
-
-
-async def custom_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
-    ...
-
-
-server = Server("my-server")
-server.experimental.enable_tasks(on_get_task=custom_get_task)
-```
+Tasks are expected to return as a separate MCP extension in a future release.
 
 ## Deprecations
 

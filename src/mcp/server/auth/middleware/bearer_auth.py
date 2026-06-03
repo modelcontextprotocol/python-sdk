@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any
+from typing import Any, TypedDict
 
 from pydantic import AnyHttpUrl
 from starlette.authentication import AuthCredentials, AuthenticationBackend, SimpleUser
@@ -17,6 +17,30 @@ class AuthenticatedUser(SimpleUser):
         super().__init__(auth_info.client_id)
         self.access_token = auth_info
         self.scopes = auth_info.scopes
+
+
+class AuthorizationContext(TypedDict):
+    client_id: str
+    issuer: str | None
+    subject: str | None
+
+
+def authorization_context(user: AuthenticatedUser) -> AuthorizationContext:
+    """Identify the principal `user` represents, for transports to compare
+    against the principal that created a session. Components the token
+    verifier does not supply are `None`, so the comparison degrades to the
+    remaining components.
+
+    See `examples/servers/simple-auth/mcp_simple_auth/token_verifier.py` for
+    a verifier that populates `subject` and `claims` from an introspection
+    response."""
+    token = user.access_token
+    issuer = (token.claims or {}).get("iss")
+    return AuthorizationContext(
+        client_id=token.client_id,
+        issuer=str(issuer) if issuer is not None else None,
+        subject=token.subject,
+    )
 
 
 class BearerAuthBackend(AuthenticationBackend):

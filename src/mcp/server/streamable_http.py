@@ -669,7 +669,7 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_request_headers(request, send):  # pragma: no cover
+        if not await self._validate_request_headers(request, send):
             return
 
         # Handle resumability: check for Last-Event-ID header
