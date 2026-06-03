@@ -186,17 +186,6 @@ async def _handle_list_tools(
                 input_schema={"type": "object", "properties": {}},
             ),
             Tool(
-                name="tool_with_multiple_stream_closes",
-                description="Tool that closes SSE stream multiple times during execution",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "checkpoints": {"type": "integer", "default": 3},
-                        "sleep_time": {"type": "number", "default": 0.2},
-                    },
-                },
-            ),
-            Tool(
                 name="tool_with_standalone_stream_close",
                 description="Tool that closes standalone GET stream mid-operation",
                 input_schema={"type": "object", "properties": {}},
@@ -207,7 +196,6 @@ async def _handle_list_tools(
 
 async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: CallToolRequestParams) -> CallToolResult:
     name = params.name
-    args = params.arguments or {}
 
     # When the tool is called, send a notification to test GET stream
     if name == "test_tool_with_standalone_notification":
@@ -301,25 +289,6 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         )
         return CallToolResult(content=[TextContent(type="text", text="All notifications sent")])
 
-    elif name == "tool_with_multiple_stream_closes":
-        num_checkpoints = args.get("checkpoints", 3)
-        sleep_time = args.get("sleep_time", 0.2)
-
-        for i in range(num_checkpoints):
-            await ctx.session.send_log_message(
-                level="info",
-                data=f"checkpoint_{i}",
-                logger="multi_close_tool",
-                related_request_id=ctx.request_id,
-            )
-
-            assert ctx.close_sse_stream is not None
-            await ctx.close_sse_stream()
-
-            await anyio.sleep(sleep_time)
-
-        return CallToolResult(content=[TextContent(type="text", text=f"Completed {num_checkpoints} checkpoints")])
-
     elif name == "tool_with_standalone_stream_close":
         await ctx.session.send_resource_updated(uri="http://notification_1")
         await anyio.sleep(0.1)
@@ -350,6 +319,7 @@ async def running_app(
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
+    server: Server[Any] | None = None,
 ) -> AsyncIterator[Starlette]:
     """Serve the test server's streamable HTTP app in process for the duration.
 
@@ -357,12 +327,13 @@ async def running_app(
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
         retry_interval: Retry interval in milliseconds for SSE polling.
+        server: Server to mount; defaults to the file's shared test server.
     """
     # DNS-rebinding protection validates Host/Origin headers against a network attack that cannot
     # exist for an in-process app; the protection itself is pinned by
     # tests/server/test_streamable_http_security.py.
     session_manager = StreamableHTTPSessionManager(
-        app=_create_server(),
+        app=server if server is not None else _create_server(),
         event_store=event_store,
         json_response=is_json_response_enabled,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -912,7 +883,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
     """A tool call reaches the handler and returns its content."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 9
+    assert len(tools.tools) == 8
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -945,7 +916,7 @@ async def test_streamable_http_client_session_persistence(basic_app: Starlette) 
 
         # Make multiple requests to verify session persistence
         tools = await session.list_tools()
-        assert len(tools.tools) == 9
+        assert len(tools.tools) == 8
 
         # Read a resource
         resource = await session.read_resource(uri="foobar://test-persist")
@@ -970,7 +941,7 @@ async def test_streamable_http_client_json_response(json_app: Starlette) -> None
 
         # Check tool listing
         tools = await session.list_tools()
-        assert len(tools.tools) == 9
+        assert len(tools.tools) == 8
 
         # Call a tool and verify JSON response handling
         result = await session.call_tool("test_tool", {})
@@ -1056,7 +1027,7 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
 
                 # Make a request to confirm session is working
                 tools = await session.list_tools()
-                assert len(tools.tools) == 9
+                assert len(tools.tools) == 8
 
     async with make_client(basic_app, headers=headers) as httpx_client2:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client2) as (
@@ -1117,7 +1088,7 @@ async def test_streamable_http_client_session_termination_204(
 
                 # Make a request to confirm session is working
                 tools = await session.list_tools()
-                assert len(tools.tools) == 9
+                assert len(tools.tools) == 8
 
     async with make_client(basic_app, headers=headers) as httpx_client2:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client2) as (
@@ -1943,13 +1914,16 @@ async def test_streamable_http_events_replayed_after_disconnect(
 
 
 @pytest.mark.anyio
-async def test_streamable_http_multiple_reconnections(
-    event_app: tuple[SimpleEventStore, Starlette],
-) -> None:
-    """Verify multiple close_sse_stream() calls each trigger a client reconnect.
+async def test_streamable_http_multiple_reconnections() -> None:
+    """Every close_sse_stream() severs a live connection and triggers its own client reconnect.
 
-    Server uses retry_interval=500ms, tool sleeps 600ms after each close to ensure
-    client has time to reconnect before the next checkpoint.
+    The tool closes its SSE stream three times; before each next cycle it waits until the
+    client has observed the previous cycle's two new resumption tokens (the checkpoint and the
+    new connection's priming event). The priming event is sent only after the server has
+    re-registered the resumed stream, so once the client holds its token the next close is
+    guaranteed to sever a live connection rather than silently no-op — making the exact token
+    count below a consequence of causality, not timing margins. This pins reconnect-per-close
+    accounting; reconnect *latency* is pinned by test_streamable_http_client_respects_retry_interval.
 
     With 3 checkpoints, we expect 8 resumption tokens:
     - 1 priming (initial POST connection)
@@ -1957,13 +1931,41 @@ async def test_streamable_http_multiple_reconnections(
     - 3 priming (one per reconnect after each close)
     - 1 response
     """
-    _, app = event_app
     resumption_tokens: list[str] = []
+    # milestones[n] fires when the client has observed n tokens. After the initial priming
+    # (token 1), each completed cycle i contributes exactly two tokens — checkpoint_i and the
+    # reconnect's priming, in either order — so cycle i is complete at 3 + 2i tokens.
+    milestones = {3: anyio.Event(), 5: anyio.Event(), 7: anyio.Event()}
 
     async def on_resumption_token(token: str) -> None:
         resumption_tokens.append(token)
+        milestone = milestones.get(len(resumption_tokens))
+        if milestone is not None:
+            milestone.set()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "multi_close_tool"
+        for i, milestone in enumerate(milestones.values()):
+            await ctx.session.send_log_message(
+                level="info",
+                data=f"checkpoint_{i}",
+                logger="multi_close_tool",
+                related_request_id=ctx.request_id,
+            )
+            assert ctx.close_sse_stream is not None
+            await ctx.close_sse_stream()
+            # Client and server share one event loop, so the tool can wait directly on the
+            # client-side callback observing the reconnect.
+            with anyio.fail_after(5):
+                await milestone.wait()
+        return CallToolResult(content=[TextContent(type="text", text="Completed 3 checkpoints")])
+
+    server = Server("multi_reconnect_server", on_call_tool=handle_call_tool)
 
     async with (
+        # retry_interval is small to keep the test fast, but nonzero so each dying connection
+        # finishes unwinding before its replacement registers.
+        running_app(event_store=SimpleEventStore(), retry_interval=50, server=server) as app,
         make_client(app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
@@ -1975,11 +1977,7 @@ async def test_streamable_http_multiple_reconnections(
         result = await session.send_request(
             types.CallToolRequest(
                 method="tools/call",
-                params=types.CallToolRequestParams(
-                    name="tool_with_multiple_stream_closes",
-                    # retry_interval=500ms, so sleep 600ms to ensure reconnect completes
-                    arguments={"checkpoints": 3, "sleep_time": 0.6},
-                ),
+                params=types.CallToolRequestParams(name="multi_close_tool", arguments={}),
             ),
             types.CallToolResult,
             metadata=metadata,
