@@ -3,11 +3,12 @@
 WARNING: These APIs are experimental and may change without notice.
 
 A Server Card is a static metadata document describing a remote MCP server —
-its identity, transport endpoints, and supported protocol versions — suitable
-for publishing at ``/.well-known/mcp/server-card`` so a client can discover and
-connect to it before initialization. The companion ``Server`` shape is a strict
-superset that adds locally-runnable ``packages`` (the MCP Registry ``server.json``
-shape).
+its identity, transport endpoints, and supported protocol versions — so a
+client can discover and connect to it before initialization. Cards are
+published at any URL and advertised through an AI Catalog entry (see
+``mcp.shared.experimental.ai_catalog``). The companion ``Server`` shape is a
+strict superset that adds locally-runnable ``packages`` (the MCP Registry
+``server.json`` shape).
 
 These models mirror the protocol types in ``mcp.types`` (camelCase wire format,
 ``Icon`` reused from the core spec) and validate purely through Pydantic, like
@@ -30,8 +31,6 @@ from mcp.types._types import MCPModel
 SERVER_CARD_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json"
 #: Canonical ``$schema`` value for a registry-shaped Server document.
 SERVER_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/v1/server.schema.json"
-#: Conventional path a Server Card is published at, relative to the host root.
-WELL_KNOWN_PATH = "/.well-known/mcp/server-card"
 
 # Constraints copied verbatim from the schema source of truth.
 _SCHEMA_URL_PATTERN = r"^https://static\.modelcontextprotocol\.io/schemas/v1/[^/]+\.schema\.json$"
@@ -41,8 +40,11 @@ _SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
 # Version strings that look like ranges/wildcards. The spec allows non-semantic
 # versions but rejects ranges; this is the one constraint not expressible as a
-# field pattern, so it is enforced with a validator.
-_VERSION_RANGE_RE = re.compile(r"[\^~]|[<>]=?|\.\*|\bx\b", re.IGNORECASE)
+# field pattern, so it is enforced with a validator. Range operators are
+# rejected anywhere; wildcard segments (``1.x``, ``1.*``) only count in the
+# release part, so semver prereleases like ``1.0.0-x`` stay valid.
+_VERSION_RANGE_OPERATOR_RE = re.compile(r"[\^~]|[<>]=?")
+_VERSION_WILDCARD_SEGMENT_RE = re.compile(r"(?:^|\.)[xX*](?:\.|$)")
 
 
 class Input(MCPModel):
@@ -227,14 +229,18 @@ class Package(MCPModel):
 class ServerCard(MCPModel):
     """A static metadata document describing a remote MCP server.
 
-    Suitable for publishing at ``/.well-known/mcp/server-card`` for
+    Published at any URL and advertised through an AI Catalog for
     pre-connection discovery. Describes only identity, transport and protocol
     versions — never the primitive listings (tools/resources/prompts), which
     remain subject to runtime listing.
     """
 
     schema_uri: Annotated[str, Field(alias="$schema", pattern=_SCHEMA_URL_PATTERN)] = SERVER_CARD_SCHEMA_URL
-    """The Server Card JSON Schema URI this document conforms to (the ``$schema`` key)."""
+    """The Server Card JSON Schema URI this document conforms to (the ``$schema`` key).
+
+    The JSON Schema marks ``$schema`` as required; ingestion here is
+    deliberately lenient and defaults it for documents that omit the key.
+    """
 
     name: Annotated[str, Field(min_length=3, max_length=200, pattern=_NAME_PATTERN)]
     """Server name in reverse-DNS ``namespace/name`` format."""
@@ -266,7 +272,8 @@ class ServerCard(MCPModel):
     @field_validator("version")
     @classmethod
     def _reject_version_ranges(cls, value: str) -> str:
-        if _VERSION_RANGE_RE.search(value):
+        release = value.split("-", 1)[0]
+        if _VERSION_RANGE_OPERATOR_RE.search(value) or _VERSION_WILDCARD_SEGMENT_RE.search(release):
             raise ValueError(f"version must be an exact version, not a range/wildcard: {value!r}")
         return value
 
@@ -275,7 +282,7 @@ class Server(ServerCard):
     """A superset of ``ServerCard`` that also describes locally-runnable packages.
 
     This is the shape used by the MCP Registry's ``server.json``. Typically
-    published to a registry rather than served from a ``.well-known`` URI.
+    published to a registry rather than served by the server itself.
     """
 
     schema_uri: Annotated[str, Field(alias="$schema", pattern=_SCHEMA_URL_PATTERN)] = SERVER_SCHEMA_URL

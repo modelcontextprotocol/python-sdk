@@ -17,6 +17,8 @@ from mcp.shared.experimental.server_card import Remote, Repository, ServerCard
 
 pytestmark = pytest.mark.anyio
 
+CARD_PATH = "/server-card.json"
+
 
 def make_server() -> Server:
     return Server(
@@ -63,12 +65,18 @@ async def _get(app: Starlette, path: str) -> httpx.Response:
         return await client.get(path)
 
 
-async def test_server_card_route_serves_json() -> None:
+async def test_server_card_route_serves_card_with_discovery_headers() -> None:
     card = build_server_card(make_server(), name="example/dice")
-    app = Starlette(routes=[server_card_route(card)])
-    response = await _get(app, "/.well-known/mcp/server-card")
+    app = Starlette(routes=[server_card_route(card, path=CARD_PATH)])
+    response = await _get(app, CARD_PATH)
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["content-type"] == "application/mcp-server+json"
+    # Discovery requires CORS headers (MUST) and caching headers (SHOULD).
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["access-control-allow-methods"] == "GET"
+    assert response.headers["access-control-allow-headers"] == "Content-Type"
+    assert response.headers["cache-control"] == "public, max-age=3600"
+    assert response.text == card.model_dump_json(by_alias=True, exclude_none=True)
     assert ServerCard.model_validate(response.json()) == card
 
 
@@ -79,17 +87,9 @@ async def test_mount_server_card_on_existing_app_and_client_fetch() -> None:
         remotes=[Remote(type="streamable-http", url="https://dice.example.com/mcp")],
     )
     app = Starlette()
-    mount_server_card(app, card)
+    mount_server_card(app, card, path=CARD_PATH)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport) as client:
-        fetched = await fetch_server_card("https://dice.example.com", httpx_client=client)
+        fetched = await fetch_server_card(f"https://dice.example.com{CARD_PATH}", http_client=client)
     assert fetched == card
-
-
-async def test_mount_server_card_custom_path() -> None:
-    card = build_server_card(make_server(), name="example/dice")
-    app = Starlette()
-    mount_server_card(app, card, path="/custom/card.json")
-    response = await _get(app, "/custom/card.json")
-    assert response.status_code == 200
