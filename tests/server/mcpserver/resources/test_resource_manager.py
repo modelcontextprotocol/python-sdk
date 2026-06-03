@@ -19,6 +19,16 @@ def temp_file(tmp_path: Path):
     yield tmp_file
 
 
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+
+def test_init_with_resource_templates():
+    template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
+    manager = ResourceManager(resource_templates=[template])
+    assert manager.list_templates() == [template]
+
+
 def test_init_with_resources(temp_file: Path, caplog: pytest.LogCaptureFixture):
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     manager = ResourceManager(resources=[resource])
@@ -85,11 +95,8 @@ async def test_get_resource_from_template():
     """Test getting a resource through a template."""
     manager = ResourceManager()
 
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
-
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
-    manager._templates[template.uri_template] = template
+    manager.add_resource_template(template)
 
     resource = await manager.get_resource(AnyUrl("greet://world"), Context())
     assert isinstance(resource, FunctionResource)
@@ -120,6 +127,47 @@ def test_list_resources(temp_file: Path):
 
 
 def get_item(id: str) -> str: ...
+
+
+def test_add_resource_template():
+    """Test adding a resource template."""
+    manager = ResourceManager()
+
+    template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
+    added = manager.add_resource_template(template)
+    assert added == template
+    assert manager.list_templates() == [template]
+
+
+def test_add_duplicate_resource_template():
+    """Test adding the same resource template twice."""
+    manager = ResourceManager()
+
+    template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
+    first = manager.add_resource_template(template)
+    second = manager.add_resource_template(template)
+    assert first == second
+    assert manager.list_templates() == [template]
+
+
+def test_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
+    """Test warning on duplicate resource templates."""
+    manager = ResourceManager()
+
+    template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
+    manager.add_resource_template(template)
+    manager.add_resource_template(template)
+    assert "Resource template already exists" in caplog.text
+
+
+def test_disable_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
+    """Test disabling warning on duplicate resource templates."""
+    manager = ResourceManager(warn_on_duplicate_resources=False)
+
+    template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
+    manager.add_resource_template(template)
+    manager.add_resource_template(template)
+    assert "Resource template already exists" not in caplog.text
 
 
 def test_add_template_with_metadata():

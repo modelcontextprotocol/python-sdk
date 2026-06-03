@@ -15,6 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.resources import ResourceTemplate as ServerResourceTemplate
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -709,6 +710,58 @@ class TestServerResources:
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
             assert content.text == "Hello from init!"
+
+    async def test_init_with_resource_templates(self):
+        def get_weather(city: str) -> str:
+            """Seeded template."""
+            return f"Weather for {city}"
+
+        template = ServerResourceTemplate.from_function(
+            fn=get_weather,
+            uri_template="weather://{city}",
+            name="weather",
+            description="Seeded template.",
+        )
+
+        mcp = MCPServer(resource_templates=[template])
+
+        async with Client(mcp) as client:
+            templates = await client.list_resource_templates()
+            assert len(templates.resource_templates) == 1
+            listed = templates.resource_templates[0]
+            assert listed.uri_template == "weather://{city}"
+            assert listed.name == "weather"
+            assert listed.description == "Seeded template."
+
+            result = await client.read_resource("weather://london")
+
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Weather for london"
+
+    async def test_add_resource_template(self):
+        mcp = MCPServer()
+
+        def get_weather(city: str) -> str:
+            return f"Weather for {city}"
+
+        template = ServerResourceTemplate.from_function(
+            fn=get_weather,
+            uri_template="weather://{city}",
+            name="weather",
+        )
+        mcp.add_resource_template(template)
+
+        async with Client(mcp) as client:
+            templates = await client.list_resource_templates()
+            assert len(templates.resource_templates) == 1
+            assert templates.resource_templates[0].uri_template == "weather://{city}"
+
+            result = await client.read_resource("weather://paris")
+
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Weather for paris"
 
     async def test_text_resource(self):
         mcp = MCPServer()

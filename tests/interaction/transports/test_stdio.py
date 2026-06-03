@@ -92,7 +92,8 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -
     # seeing it proves the process exited on its own rather than via the transport's terminate
     # escalation, without a timing-based assertion. The capture itself proves stderr passthrough:
     # the transport routes the child's stderr to the caller's `errlog` without consuming it.
-    assert captured_stderr == snapshot("stdio-echo: clean exit\n")
+    # Match the trailing line only: older anyio on py3.14 lowest-direct can emit SyntaxWarning to stderr.
+    assert captured_stderr.endswith("stdio-echo: clean exit\n")
 
 
 @requirement("transport:stdio:stream-purity")
