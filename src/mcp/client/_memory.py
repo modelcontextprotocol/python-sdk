@@ -87,7 +87,9 @@ class InMemoryTransport:
                     # completes the join would hang forever, so bound the wait
                     # and fall back to cancelling. The healthy path returns
                     # from wait() without the timeout firing, so the cancel is
-                    # never reached and gh-106749 stays avoided.
+                    # never reached and gh-106749 stays avoided. If the cancel
+                    # does fire, the checkpoint at the end of
+                    # `create_client_server_memory_streams` resyncs the tracer.
                     with anyio.move_on_after(SERVER_SHUTDOWN_GRACE):
                         await server_done.wait()
                     if not server_done.is_set():

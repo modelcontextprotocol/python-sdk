@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
+import anyio.lowlevel
 import httpx
 from anyio.abc import TaskStatus
 from httpx_sse import SSEError, aconnect_sse
@@ -157,3 +158,10 @@ async def sse_client(
 
                 yield read_stream, write_stream
                 tg.cancel_scope.cancel()
+            # The cancel above is delivered via `coro.throw()` into this task at
+            # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
+            # trace events for the outer await chain and desyncs coverage's CTracer
+            # past the caller's frame. Yielding once here resumes via `.send()`,
+            # which re-stamps the missing `'call'` events and resyncs the tracer.
+            # Shielded so a pending outer cancel is not re-delivered at this point.
+            await anyio.lowlevel.cancel_shielded_checkpoint()
