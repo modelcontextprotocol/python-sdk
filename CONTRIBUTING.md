@@ -72,7 +72,7 @@ When bumping a dependency version manually, update the constraint in `pyproject.
 
 Security-relevant dependency updates (P0) are applied within 7 days of public disclosure and backported to active release branches.
 
-The SDK currently supports Python 3.10 through 3.13. New CPython releases are supported within one minor SDK release of their stable release date.
+The SDK currently supports Python 3.10 through 3.14. New CPython releases are supported within one minor SDK release of their stable release date.
 
 ## Triage Process
 
