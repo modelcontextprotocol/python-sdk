@@ -13,7 +13,6 @@ suitable for pre-connection discovery. See
 from mcp.shared.experimental.server_card.types import (
     SERVER_CARD_SCHEMA_URL,
     SERVER_SCHEMA_URL,
-    WELL_KNOWN_PATH,
     Argument,
     Icon,
     Input,
@@ -35,7 +34,6 @@ from mcp.shared.experimental.server_card.types import (
 __all__ = [
     "SERVER_CARD_SCHEMA_URL",
     "SERVER_SCHEMA_URL",
-    "WELL_KNOWN_PATH",
     "Argument",
     "Icon",
     "Input",
