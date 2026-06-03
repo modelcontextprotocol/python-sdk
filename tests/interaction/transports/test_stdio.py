@@ -69,7 +69,12 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -
                 # stdio_client deliberately filters the inherited environment to a safe minimum,
                 # which drops the variables coverage.py's subprocess support uses; pass them through
                 # so the server module is measured. Empty when not running under coverage.
-                env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")},
+                # SyntaxWarning is suppressed because the child compiles dependencies from source
+                # (pytest's pyc tag doesn't match a plain python child's): at the anyio>=4.9 floor,
+                # Python 3.14 emits a compile-time warning for anyio's return-in-finally, which
+                # would land on the snapshot-asserted stderr below.
+                env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")}
+                | {"PYTHONWARNINGS": "ignore::SyntaxWarning"},
             ),
             errlog=errlog,
         )
