@@ -105,6 +105,38 @@ The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been re
 
 Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 
+### `terminate_windows_process` removed
+
+The deprecated `mcp.os.win32.utilities.terminate_windows_process` function has been
+removed. Process termination is handled internally by the `stdio_client` context
+manager; there is no replacement API. The Windows tree-termination helper
+`terminate_windows_process_tree` no longer accepts a `timeout_seconds` argument —
+the value was never used (Job Object termination is immediate).
+
+### `stdio_client` no longer kills children of a gracefully-exited server on POSIX
+
+When a server exits on its own after `stdio_client` closes its stdin, background
+child processes the server leaves behind are no longer killed on POSIX — their
+lifetime is the server's business. The old behavior was a side effect of a shutdown
+wait gated on the stdio pipes closing rather than on process exit: a child holding
+an inherited pipe made a well-behaved server look hung, so its whole process tree
+was killed. A server that does not exit within the grace period is still terminated
+along with its entire process group. On Windows, children stay in the server's Job
+Object and are still killed at shutdown — now deterministically when the job handle
+is closed, rather than whenever the handle happened to be garbage-collected.
+
+If you relied on `stdio_client` killing everything the server spawned, make the
+server terminate its own children on shutdown (its stdin reaching EOF is the
+shutdown signal), or clean up the process tree from the host application after
+`stdio_client` exits.
+
+Two related shutdown refinements: `stdio_client` now closes its end of the pipes
+deterministically at shutdown, so a surviving child that keeps writing to an
+inherited stdout receives `EPIPE`/`SIGPIPE` once the client is gone (previously the
+pipe lingered until garbage collection); and a failed write to a server that is
+still running now surfaces as a closed connection (`CONNECTION_CLOSED`) on the read
+side instead of leaving requests waiting indefinitely.
+
 ### Removed type aliases and classes
 
 The following deprecated type aliases and classes have been removed from `mcp.types`:

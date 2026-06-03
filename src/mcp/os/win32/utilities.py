@@ -4,16 +4,15 @@ import logging
 import shutil
 import subprocess
 import sys
+import weakref
 from pathlib import Path
 from typing import BinaryIO, TextIO, cast
 
 import anyio
-from anyio import to_thread
 from anyio.abc import Process
 from anyio.streams.file import FileReadStream, FileWriteStream
-from typing_extensions import deprecated
 
-logger = logging.getLogger("client.stdio.win32")
+logger = logging.getLogger(__name__)
 
 # Windows-specific imports for Job Objects
 if sys.platform == "win32":
@@ -28,7 +27,15 @@ else:
     win32job = None
     pywintypes = None
 
-JobHandle = int
+# How often FallbackProcess polls the underlying Popen for exit. Polling keeps the
+# wait cancellable: a thread blocked in Popen.wait() cannot be cancelled by anyio,
+# which would make every timeout around it ineffective.
+_EXIT_POLL_INTERVAL = 0.01
+
+# The Job Object each spawned process was assigned to, so the process tree can be
+# terminated through it later. Keyed weakly: if a process object goes away without
+# explicit termination, the entry goes with it.
+_process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = weakref.WeakKeyDictionary()
 
 
 def get_windows_executable_command(command: str) -> str:
@@ -73,50 +80,29 @@ class FallbackProcess:
 
     def __init__(self, popen_obj: subprocess.Popen[bytes]):
         self.popen: subprocess.Popen[bytes] = popen_obj
-        self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
-        self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
-        self.stderr = popen_obj.stderr  # type: ignore[assignment]
+        self.stdin_raw = popen_obj.stdin
+        self.stdout_raw = popen_obj.stdout
 
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
 
-    async def __aenter__(self):
-        """Support async context manager entry."""
-        return self
+    async def wait(self) -> int:
+        """Wait for process exit by polling.
 
-    async def __aexit__(
-        self,
-        exc_type: BaseException | None,
-        exc_val: BaseException | None,
-        exc_tb: object | None,
-    ) -> None:
-        """Terminate and wait on process exit inside a thread."""
+        `Popen.wait()` in a worker thread cannot be cancelled by anyio, which would
+        defeat every timeout placed around this call; polling keeps it cancellable.
+        """
+        while (returncode := self.popen.poll()) is None:
+            await anyio.sleep(_EXIT_POLL_INTERVAL)
+        return returncode
+
+    def terminate(self) -> None:
+        """Terminate the subprocess."""
         self.popen.terminate()
-        await to_thread.run_sync(self.popen.wait)
-
-        # Close the file handles to prevent ResourceWarning
-        if self.stdin:
-            await self.stdin.aclose()
-        if self.stdout:
-            await self.stdout.aclose()
-        if self.stdin_raw:
-            self.stdin_raw.close()
-        if self.stdout_raw:
-            self.stdout_raw.close()
-        if self.stderr:
-            self.stderr.close()
-
-    async def wait(self):
-        """Async wait for process completion."""
-        return await to_thread.run_sync(self.popen.wait)
-
-    def terminate(self):
-        """Terminate the subprocess immediately."""
-        return self.popen.terminate()
 
     def kill(self) -> None:
-        """Kill the subprocess immediately (alias for terminate)."""
-        self.terminate()
+        """Kill the subprocess (on Windows this is the same hard kill as terminate)."""
+        self.popen.kill()
 
     @property
     def pid(self) -> int:
@@ -125,13 +111,12 @@ class FallbackProcess:
 
     @property
     def returncode(self) -> int | None:
-        """Return the exit code, or ``None`` if the process has not yet terminated."""
-        return self.popen.returncode
+        """Return the exit code, or `None` if the process has not yet terminated.
 
-
-# ------------------------
-# Updated function
-# ------------------------
+        Polls the underlying `Popen` so the value updates as soon as the process
+        dies, without anyone having to call `wait()`.
+        """
+        return self.popen.poll()
 
 
 async def create_windows_process(
@@ -161,33 +146,22 @@ async def create_windows_process(
     Returns:
         Process | FallbackProcess: Async-compatible subprocess with stdin and stdout streams
     """
-    job = _create_job_object()
-    process = None
-
     try:
-        # First try using anyio with Windows-specific flags to hide console window
         process = await anyio.open_process(
             [command, *args],
             env=env,
             # Ensure we don't create console windows for each process
-            creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
-            if hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             stderr=errlog,
             cwd=cwd,
         )
     except NotImplementedError:
-        # If Windows doesn't support async subprocess creation, use fallback
+        # Windows event loops without async subprocess support (SelectorEventLoop)
         process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
-    except Exception:
-        # Try again without creation flags
-        process = await anyio.open_process(
-            [command, *args],
-            env=env,
-            stderr=errlog,
-            cwd=cwd,
-        )
 
+    # Created only after a successful spawn: a failed spawn raises before any job
+    # exists, so there is no handle to leak on that path.
+    job = _create_job_object()
     _maybe_assign_process_to_job(process, job)
     return process
 
@@ -203,37 +177,25 @@ async def _create_windows_fallback_process(
 
     This function wraps the sync subprocess.Popen in an async-compatible interface.
     """
-    try:
-        # Try launching with creationflags to avoid opening a new console window
-        popen_obj = subprocess.Popen(
-            [command, *args],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=errlog,
-            env=env,
-            cwd=cwd,
-            bufsize=0,  # Unbuffered output
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except Exception:
-        # If creationflags failed, fallback without them
-        popen_obj = subprocess.Popen(
-            [command, *args],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=errlog,
-            env=env,
-            cwd=cwd,
-            bufsize=0,
-        )
+    popen_obj = subprocess.Popen(
+        [command, *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=errlog,
+        env=env,
+        cwd=cwd,
+        bufsize=0,  # Unbuffered output
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     return FallbackProcess(popen_obj)
 
 
-def _create_job_object() -> int | None:
+def _create_job_object() -> object | None:
     """Create a Windows Job Object configured to terminate all processes when closed."""
-    if sys.platform != "win32" or not win32job:
+    if sys.platform != "win32" or not win32api or not win32job:
         return None
 
+    job = None
     try:
         job = win32job.CreateJobObject(None, "")
         extended_info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
@@ -241,17 +203,26 @@ def _create_job_object() -> int | None:
         extended_info["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, extended_info)
         return job
-    except Exception as e:
-        logger.warning(f"Failed to create Job Object for process tree management: {e}")
+    except pywintypes.error:
+        logger.warning("Failed to create Job Object for process tree management", exc_info=True)
+        # If creation succeeded but configuration failed, close the handle rather
+        # than leaving it to be reclaimed whenever the GC gets to it.
+        if job is not None:
+            try:
+                win32api.CloseHandle(job)
+            except pywintypes.error:
+                pass
         return None
 
 
-def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHandle | None) -> None:
+def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object | None) -> None:
     """Try to assign a process to a job object.
 
+    On success the job is recorded for the process so that
+    `terminate_windows_process_tree` can terminate the whole tree through it.
     If assignment fails for any reason, the job handle is closed.
     """
-    if not job:
+    if job is None:
         return
 
     if sys.platform != "win32" or not win32api or not win32con or not win32job:
@@ -262,72 +233,74 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHan
             win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE, False, process.pid
         )
         if not process_handle:
-            raise Exception("Failed to open process handle")
+            raise pywintypes.error(0, "OpenProcess", "Failed to open process handle")
 
         try:
             win32job.AssignProcessToJobObject(job, process_handle)
-            process._job_object = job
         finally:
             win32api.CloseHandle(process_handle)
-    except Exception as e:
-        logger.warning(f"Failed to assign process {process.pid} to Job Object: {e}")
-        if win32api:
+        # Recorded only once nothing else can fail, so the failure branch below can
+        # assume the job is unregistered and just close it.
+        _process_jobs[process] = job
+    except pywintypes.error:
+        logger.warning("Failed to assign process %d to Job Object", process.pid, exc_info=True)
+        try:
             win32api.CloseHandle(job)
+        except pywintypes.error:
+            pass
 
 
-async def terminate_windows_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
-    """Terminate a process and all its children on Windows.
+def close_process_job(process: Process | FallbackProcess) -> None:
+    """Close the process's Job Object handle, if it still has one.
 
-    If the process has an associated job object, it will be terminated.
-    Otherwise, falls back to basic process termination.
-
-    Args:
-        process: The process to terminate
-        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
+    The job is created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so closing the
+    handle also kills any job members that are still alive. Calling this at the end
+    of shutdown makes that reaping deterministic — otherwise it would happen whenever
+    the handle happens to be garbage-collected. This is a deliberate divergence from
+    POSIX, where a well-behaved server's surviving background children are left
+    alive. No-op on POSIX and when no job was assigned (or it was already closed by
+    tree termination).
     """
     if sys.platform != "win32":
         return
 
-    job = getattr(process, "_job_object", None)
-    if job and win32job:
+    job = _process_jobs.pop(process, None)
+    if job is not None and win32api:
+        try:
+            win32api.CloseHandle(job)
+        except pywintypes.error:
+            pass
+
+
+async def terminate_windows_process_tree(process: Process | FallbackProcess) -> None:
+    """Terminate a process and all its children on Windows.
+
+    If the process was assigned to a Job Object at spawn, the job is terminated,
+    which kills every process in it immediately. Otherwise only the process itself
+    is terminated. Both are immediate hard kills: Windows offers no portable
+    equivalent of SIGTERM for a whole tree, so unlike POSIX there is no graceful
+    phase here — the stdin-close grace period in the client shutdown is the
+    server's opportunity to exit cleanly.
+    """
+    if sys.platform != "win32":
+        return
+
+    job = _process_jobs.pop(process, None)
+    if job is not None and win32job:
         try:
             win32job.TerminateJobObject(job, 1)
-        except Exception:
+        except pywintypes.error:
             # Job might already be terminated
             pass
         finally:
             if win32api:
                 try:
                     win32api.CloseHandle(job)
-                except Exception:
+                except pywintypes.error:
                     pass
 
     # Always try to terminate the process itself as well
     try:
         process.terminate()
-    except Exception:
+    except OSError:
         pass
-
-
-@deprecated(
-    "terminate_windows_process is deprecated and will be removed in a future version. "
-    "Process termination is now handled internally by the stdio_client context manager."
-)
-async def terminate_windows_process(process: Process | FallbackProcess):
-    """Terminate a Windows process.
-
-    Note: On Windows, terminating a process with process.terminate() doesn't
-    always guarantee immediate process termination.
-    If the process does not exit within 2 seconds, process.kill() is called
-    to send a SIGKILL-equivalent signal.
-
-    Args:
-        process: The process to terminate
-    """
-    try:
-        process.terminate()
-        with anyio.fail_after(2.0):
-            await process.wait()
-    except TimeoutError:
-        # Force kill if it doesn't terminate
-        process.kill()
