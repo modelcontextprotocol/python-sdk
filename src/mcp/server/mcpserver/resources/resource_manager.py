@@ -76,8 +76,7 @@ class ResourceManager:
                 "resource_name": template.name,
             },
         )
-        existing = self._templates.get(template.uri_template)
-        if existing:
+        if existing := self._templates.get(template.uri_template):
             if self.warn_on_duplicate_resources:
                 logger.warning(f"Resource template already exists: {template.uri_template}")
             return existing
