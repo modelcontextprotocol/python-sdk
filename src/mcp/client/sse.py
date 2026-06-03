@@ -120,15 +120,24 @@ async def sse_client(
 
                         async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
-                            response = await client.post(
-                                endpoint_url,
-                                json=session_message.message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
-                            )
-                            response.raise_for_status()
+                            try:
+                                response = await client.post(
+                                    endpoint_url,
+                                    json=session_message.message.model_dump(
+                                        by_alias=True,
+                                        mode="json",
+                                        exclude_unset=True,
+                                    ),
+                                )
+                                response.raise_for_status()
+                            except httpx.HTTPError as exc:
+                                # Forward the failure to the caller via the read stream instead of
+                                # letting it surface as a swallowed task-group error, which would
+                                # leave read_stream.receive() blocked forever (#2110). Mirrors the
+                                # stream-error handling in stdio.py and streamable_http.py.
+                                logger.exception("Error sending client message")
+                                await read_stream_writer.send(exc)
+                                return
                             logger.debug(f"Client message sent successfully: {response.status_code}")
 
                         async for session_message in write_stream_reader:
