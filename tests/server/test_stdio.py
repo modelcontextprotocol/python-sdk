@@ -2,7 +2,7 @@ import io
 import sys
 import tempfile
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
@@ -65,6 +65,27 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
     received_responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in output_lines]
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_server_supports_fileno_less_standard_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default path supports in-memory stdio replacements without fileno()."""
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    raw_stdin = io.BytesIO(request.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdout = io.BytesIO()
+
+    test_stdin = TextIOWrapper(raw_stdin, encoding="utf-8")
+    test_stdout = TextIOWrapper(raw_stdout, encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", test_stdin)
+    monkeypatch.setattr(sys, "stdout", test_stdout)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                message = await read_stream.receive()
+                assert isinstance(message, SessionMessage)
+                assert message.message == request
 
 
 @pytest.mark.anyio
@@ -170,7 +191,7 @@ def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatc
     events: list[str] = []
 
     @asynccontextmanager
-    async def lifespan(server: MCPServer) -> AsyncIterator[None]:
+    async def lifespan(server: MCPServer) -> AsyncGenerator[None, None]:
         events.append("setup")
         try:
             yield

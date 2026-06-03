@@ -20,7 +20,7 @@ Example:
 import os
 import sys
 from contextlib import asynccontextmanager
-from io import TextIOWrapper
+from io import TextIOWrapper, UnsupportedOperation
 
 import anyio
 import anyio.lowlevel
@@ -28,6 +28,33 @@ import anyio.lowlevel
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+
+
+def _wrap_stdin() -> tuple[anyio.AsyncFile[str], bool]:
+    """Wrap stdin as UTF-8 text without closing process stdio on exit."""
+    try:
+        stdin_fd = os.dup(sys.stdin.fileno())
+    except (AttributeError, OSError, UnsupportedOperation):
+        # Some tests and embedders replace sys.stdin with fileno-less in-memory
+        # streams. Keep supporting that shape by falling back to the existing
+        # buffer-wrapping behavior.
+        return anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")), False
+
+    stdin_buffer = os.fdopen(stdin_fd, "rb", closefd=True)
+    return anyio.wrap_file(TextIOWrapper(stdin_buffer, encoding="utf-8", errors="replace")), True
+
+
+def _wrap_stdout() -> tuple[anyio.AsyncFile[str], bool]:
+    """Wrap stdout as UTF-8 text without closing process stdio on exit."""
+    try:
+        stdout_fd = os.dup(sys.stdout.fileno())
+    except (AttributeError, OSError, UnsupportedOperation):
+        # Match the fileno-less stdin fallback for in-memory test streams and
+        # embedders that provide file-like stdout objects.
+        return anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8")), False
+
+    stdout_buffer = os.fdopen(stdout_fd, "wb", closefd=True)
+    return anyio.wrap_file(TextIOWrapper(stdout_buffer, encoding="utf-8")), True
 
 
 @asynccontextmanager
@@ -42,15 +69,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     close_stdin = False
     close_stdout = False
     if not stdin:
-        stdin_fd = os.dup(sys.stdin.fileno())
-        stdin_buffer = os.fdopen(stdin_fd, "rb", closefd=True)
-        stdin = anyio.wrap_file(TextIOWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
-        close_stdin = True
+        stdin, close_stdin = _wrap_stdin()
     if not stdout:
-        stdout_fd = os.dup(sys.stdout.fileno())
-        stdout_buffer = os.fdopen(stdout_fd, "wb", closefd=True)
-        stdout = anyio.wrap_file(TextIOWrapper(stdout_buffer, encoding="utf-8"))
-        close_stdout = True
+        stdout, close_stdout = _wrap_stdout()
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
