@@ -92,3 +92,53 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_no_crlf_on_windows(monkeypatch: pytest.MonkeyPatch):
+    """Verify stdout uses bare LF (\\n) line endings, not CRLF (\\r\\n).
+
+    The MCP protocol uses newline-delimited JSON with \\n as the delimiter.
+    On Windows, TextIOWrapper without newline="" translates \\n -> \\r\\n,
+    corrupting the wire format. This test ensures the fix is effective on
+    all platforms by going through the default sys.stdout.buffer path.
+    """
+
+    class NonClosingBytesIO(io.BytesIO):
+        """BytesIO subclass that ignores close() so we can inspect data after
+        the owning TextIOWrapper is closed."""
+
+        def close(self) -> None:
+            pass  # Keep the buffer open for inspection
+
+    raw_stdin_buf = io.BytesIO(b"")
+    raw_stdout_buf = NonClosingBytesIO()
+
+    # Create a fake sys.stdin / sys.stdout that expose .buffer attributes
+    # pointing to our BytesIO objects.  This exercises the real code path in
+    # stdio_server() which accesses sys.stdin.buffer / sys.stdout.buffer.
+    fake_stdin = TextIOWrapper(raw_stdin_buf, encoding="utf-8")
+    fake_stdout = TextIOWrapper(raw_stdout_buf, encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", fake_stdin)
+    monkeypatch.setattr(sys, "stdout", fake_stdout)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            # Send a message through the server's write stream
+            response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+            session_message = SessionMessage(response)
+            await write_stream.send(session_message)
+            await write_stream.aclose()
+            # Drain the read stream so the stdin_reader task can exit cleanly
+            await read_stream.aclose()
+
+    # The stdio_server wraps sys.stdout.buffer (= raw_stdout_buf) with its own
+    # TextIOWrapper(newline="").  After the context manager exits, all data
+    # should be flushed to raw_stdout_buf.
+    raw_bytes = raw_stdout_buf.getvalue()
+    assert raw_bytes, "Expected output bytes but got empty buffer"
+    # Must end with bare \n, not \r\n
+    assert raw_bytes.endswith(b"\n"), f"Output must end with LF: {raw_bytes!r}"
+    assert not raw_bytes.endswith(b"\r\n"), f"Output must NOT contain CRLF: {raw_bytes!r}"
+    # No \r anywhere in the output
+    assert b"\r" not in raw_bytes, f"Output contains CR byte: {raw_bytes!r}"
