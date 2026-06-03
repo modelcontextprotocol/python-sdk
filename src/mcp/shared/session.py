@@ -7,6 +7,7 @@ from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
+import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectSendStream
 from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
@@ -173,7 +174,15 @@ class BaseSession(
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
         self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        # The cancel above is delivered via `coro.throw()` into this task; on
+        # CPython 3.11 (gh-106749) that drops `'call'` trace events for the
+        # outer await chain and desyncs coverage's CTracer past the caller's
+        # frame. Yielding once here resumes via `.send()`, which re-stamps the
+        # missing `'call'` events and resyncs the tracer. Shielded so a pending
+        # outer cancel is not re-delivered at this point.
+        await anyio.lowlevel.cancel_shielded_checkpoint()
+        return result
 
     async def send_request(
         self,

@@ -635,7 +635,10 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:
+        except Exception as err:  # pragma: lax no cover
+            # Reached only when something raises during POST handling outside
+            # the per-SSE-stream guard above; whether tests reach this depends
+            # on client teardown timing.
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -643,7 +646,7 @@ class StreamableHTTPServerTransport:
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            if writer:  # pragma: no cover
+            if writer:
                 await writer.send(Exception(err))
             return  # pragma: no cover
 

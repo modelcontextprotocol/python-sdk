@@ -249,10 +249,9 @@ async def test_run_closes_write_stream_on_exit():
     async with anyio.create_task_group() as tg:
         await tg.start(server.run, on_request, on_notify)
         c2s_send.close()  # EOF the read side; run() exits
-        with anyio.fail_after(5):
+        with anyio.fail_after(5), pytest.raises(anyio.EndOfStream):  # pragma: no branch
             # Write end was entered and released by run(); peer's receive sees EOF.
-            with pytest.raises(anyio.EndOfStream):
-                await s2c_recv.receive()
+            await s2c_recv.receive()
     s2c_recv.close()
 
 
