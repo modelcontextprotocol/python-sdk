@@ -33,7 +33,7 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager, ResourceTemplate
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -141,6 +141,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
+        resource_templates: list[ResourceTemplate] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -164,7 +165,9 @@ class MCPServer(Generic[LifespanResultT]):
 
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(
-            resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
+            resources=resources,
+            resource_templates=resource_templates,
+            warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources,
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
@@ -623,6 +626,14 @@ class MCPServer(Generic[LifespanResultT]):
             resource: A Resource instance to add
         """
         self._resource_manager.add_resource(resource)
+
+    def add_resource_template(self, template: ResourceTemplate) -> None:
+        """Add a resource template to the server.
+
+        Args:
+            template: A ResourceTemplate instance to add
+        """
+        self._resource_manager.add_resource_template(template)
 
     def resource(
         self,

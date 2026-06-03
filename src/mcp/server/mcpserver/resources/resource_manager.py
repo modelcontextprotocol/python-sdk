@@ -22,13 +22,21 @@ logger = get_logger(__name__)
 class ResourceManager:
     """Manages MCPServer resources."""
 
-    def __init__(self, warn_on_duplicate_resources: bool = True, *, resources: list[Resource] | None = None):
+    def __init__(
+        self,
+        warn_on_duplicate_resources: bool = True,
+        *,
+        resources: list[Resource] | None = None,
+        resource_templates: list[ResourceTemplate] | None = None,
+    ):
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
 
         for resource in resources or ():
             self.add_resource(resource)
+        for template in resource_templates or ():
+            self.add_resource_template(template)
 
     def add_resource(self, resource: Resource) -> Resource:
         """Add a resource to the manager.
@@ -50,6 +58,31 @@ class ResourceManager:
             return existing
         self._resources[str(resource.uri)] = resource
         return resource
+
+    def add_resource_template(self, template: ResourceTemplate) -> ResourceTemplate:
+        """Add a resource template to the manager.
+
+        Args:
+            template: A ResourceTemplate instance to add.
+
+        Returns:
+            The added template. If a template with the same URI template already exists, returns the existing template.
+        """
+        logger.debug(
+            "Adding resource template",
+            extra={
+                "uri_template": template.uri_template,
+                "type": type(template).__name__,
+                "resource_name": template.name,
+            },
+        )
+        existing = self._templates.get(template.uri_template)
+        if existing:
+            if self.warn_on_duplicate_resources:
+                logger.warning(f"Resource template already exists: {template.uri_template}")
+            return existing
+        self._templates[template.uri_template] = template
+        return template
 
     def add_template(
         self,
@@ -75,8 +108,7 @@ class ResourceManager:
             annotations=annotations,
             meta=meta,
         )
-        self._templates[template.uri_template] = template
-        return template
+        return self.add_resource_template(template)
 
     async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
         """Get resource by URI, checking concrete resources first, then templates."""
