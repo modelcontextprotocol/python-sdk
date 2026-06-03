@@ -155,14 +155,19 @@ class Connection(TypedServerRequestMixin):
                 return False
             if capability.roots.list_changed and not have.roots.list_changed:
                 return False
-        if capability.sampling is not None and have.sampling is None:
-            return False
+        if capability.sampling is not None:
+            if have.sampling is None:
+                return False
+            if capability.sampling.context is not None and have.sampling.context is None:
+                return False
+            if capability.sampling.tools is not None and have.sampling.tools is None:
+                return False
         if capability.elicitation is not None and have.elicitation is None:
             return False
         if capability.experimental is not None:
             if have.experimental is None:
                 return False
-            for k in capability.experimental:
-                if k not in have.experimental:
+            for k, v in capability.experimental.items():
+                if k not in have.experimental or have.experimental[k] != v:
                     return False
         return True

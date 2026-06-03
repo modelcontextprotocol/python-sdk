@@ -91,36 +91,7 @@ class ServerSession:
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self.client_params is None:  # pragma: lax no cover
-            return False
-
-        client_caps = self.client_params.capabilities
-
-        if capability.roots is not None:  # pragma: lax no cover
-            if client_caps.roots is None:
-                return False
-            if capability.roots.list_changed and not client_caps.roots.list_changed:
-                return False
-
-        if capability.sampling is not None:  # pragma: lax no cover
-            if client_caps.sampling is None:
-                return False
-            if capability.sampling.context is not None and client_caps.sampling.context is None:
-                return False
-            if capability.sampling.tools is not None and client_caps.sampling.tools is None:
-                return False
-
-        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
-            return False
-
-        if capability.experimental is not None:  # pragma: lax no cover
-            if client_caps.experimental is None:
-                return False
-            for exp_key, exp_value in capability.experimental.items():
-                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
-                    return False
-
-        return True
+        return self._connection.check_capability(capability)
 
     async def send_log_message(
         self,

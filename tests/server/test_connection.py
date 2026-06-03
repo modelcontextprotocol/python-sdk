@@ -28,6 +28,8 @@ from mcp.types import (
     PingRequest,
     RootsCapability,
     SamplingCapability,
+    SamplingContextCapability,
+    SamplingToolsCapability,
 )
 
 
@@ -194,8 +196,24 @@ def test_connection_check_capability_false_before_initialized():
             False,
         ),
         (ClientCapabilities(sampling=None), ClientCapabilities(sampling=SamplingCapability()), False),
+        (
+            ClientCapabilities(sampling=SamplingCapability()),
+            ClientCapabilities(sampling=SamplingCapability(context=SamplingContextCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(sampling=SamplingCapability()),
+            ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability())),
+            ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability())),
+            True,
+        ),
         (ClientCapabilities(experimental=None), ClientCapabilities(experimental={"a": {}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
+        (ClientCapabilities(experimental={"a": {"x": 1}}), ClientCapabilities(experimental={"a": {"x": 2}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"a": {}}), True),
     ],
 )

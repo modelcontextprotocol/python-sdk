@@ -41,7 +41,7 @@ async def test_context_exposes_lifespan_and_connection_and_forwards_base_context
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, server, *_):
         # Now we have the server dispatcher; build the real Connection bound to it.
-        conn.__init__(server, has_standalone_channel=True)
+        conn.__init__(server, has_standalone_channel=True, session_id="sess-1")
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
         ctx = captured[0]
@@ -49,6 +49,8 @@ async def test_context_exposes_lifespan_and_connection_and_forwards_base_context
         assert ctx.connection is conn
         assert ctx.transport.kind == "direct"
         assert ctx.can_send_request is True
+        assert ctx.session_id == "sess-1"
+        assert ctx.headers is None
 
 
 @pytest.mark.anyio
