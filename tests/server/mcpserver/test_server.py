@@ -14,7 +14,8 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
-from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceTemplate as ServerResourceTemplate
+from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.resources import ResourceTemplate as ServerResourceTemplate
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
