@@ -1,7 +1,6 @@
 import errno
 import shutil
 import sys
-import textwrap
 import time
 from contextlib import AsyncExitStack, suppress
 
@@ -11,6 +10,7 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
+    PROCESS_TERMINATION_TIMEOUT,
     StdioServerParameters,
     _create_platform_compatible_process,
     _terminate_process_tree,
@@ -20,11 +20,6 @@ from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
-
-# Timeout for cleanup of processes that ignore SIGTERM
-# This timeout ensures the test fails quickly if the cleanup logic doesn't have
-# proper fallback mechanisms (SIGINT/SIGKILL) for processes that ignore SIGTERM
-SIGTERM_IGNORING_PROCESS_TIMEOUT = 5.0
 
 tee = shutil.which("tee")
 
@@ -103,142 +98,27 @@ async def test_stdio_client_nonexistent_command():
     assert exc_info.value.errno == errno.ENOENT
 
 
-@pytest.mark.anyio
-async def test_stdio_client_universal_cleanup():
-    """Test that stdio_client completes cleanup within reasonable time
-    even when connected to processes that exit slowly.
-    """
-
-    # Use a Python script that simulates a long-running process
-    # This ensures consistent behavior across platforms
-    long_running_script = textwrap.dedent(
-        """
-        import time
-        import sys
-
-        # Simulate a long-running process
-        for i in range(100):
-            time.sleep(0.1)
-            # Flush to ensure output is visible
-            sys.stdout.flush()
-            sys.stderr.flush()
-        """
-    )
-
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-c", long_running_script],
-    )
-
-    start_time = time.time()
-
-    with anyio.move_on_after(8.0) as cancel_scope:
-        async with stdio_client(server_params) as (_, _):
-            # Immediately exit - this triggers cleanup while process is still running
-            pass
-
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        # On Windows: 2s (stdin wait) + 2s (terminate wait) + overhead = ~5s expected
-        assert elapsed < 6.0, (
-            f"stdio_client cleanup took {elapsed:.1f} seconds, expected < 6.0 seconds. "
-            f"This suggests the timeout mechanism may not be working properly."
-        )
-
-    # Check if we timed out
-    if cancel_scope.cancelled_caught:  # pragma: no cover
-        pytest.fail(
-            "stdio_client cleanup timed out after 8.0 seconds. "
-            "This indicates the cleanup mechanism is hanging and needs fixing."
-        )
-
-
-@pytest.mark.anyio
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
-    """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
-    # Create a Python script that ignores SIGTERM but handles SIGINT
-    script_content = textwrap.dedent(
-        """
-        import signal
-        import sys
-        import time
-
-        # Ignore SIGTERM (what process.terminate() sends)
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-
-        # Handle SIGINT (Ctrl+C signal) by exiting cleanly
-        def sigint_handler(signum, frame):
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, sigint_handler)
-
-        # Keep running until SIGINT received
-        while True:
-            time.sleep(0.1)
-        """
-    )
-
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-c", script_content],
-    )
-
-    start_time = time.time()
-
-    try:
-        # Use anyio timeout to prevent test from hanging forever
-        with anyio.move_on_after(5.0) as cancel_scope:
-            async with stdio_client(server_params) as (_, _):
-                # Let the process start and begin ignoring SIGTERM
-                await anyio.sleep(0.5)
-                # Exit context triggers cleanup - this should not hang
-                pass
-
-        if cancel_scope.cancelled_caught:  # pragma: no cover
-            raise TimeoutError("Test timed out")
-
-        end_time = time.time()
-        elapsed = end_time - start_time
-
-        # Should complete quickly even with SIGTERM-ignoring process
-        # This will fail if cleanup only uses process.terminate() without fallback
-        assert elapsed < SIGTERM_IGNORING_PROCESS_TIMEOUT, (
-            f"stdio_client cleanup took {elapsed:.1f} seconds with SIGTERM-ignoring process. "
-            f"Expected < {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds. "
-            "This suggests the cleanup needs SIGINT/SIGKILL fallback."
-        )
-    except (TimeoutError, Exception) as e:  # pragma: no cover
-        if isinstance(e, TimeoutError) or "timed out" in str(e):
-            pytest.fail(
-                f"stdio_client cleanup timed out after {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds "
-                "with SIGTERM-ignoring process. "
-                "This confirms the cleanup needs SIGINT/SIGKILL fallback for processes that ignore SIGTERM."
-            )
-        else:
-            raise
-
-
 # ---------------------------------------------------------------------------
-# TestChildProcessCleanup — socket-based deterministic child liveness probe
+# Socket-based deterministic child liveness probe
 # ---------------------------------------------------------------------------
 #
-# These tests verify that `_terminate_process_tree()` kills the *entire* process
-# tree (not just the immediate child), which is critical for cleaning up tools
-# like `npx` that spawn their own subprocesses.
+# The cleanup tests below verify that exiting `stdio_client` (or calling
+# `_terminate_process_tree()` directly) kills the spawned process — including
+# its *entire* process tree, which is critical for cleaning up tools like
+# `npx` that spawn their own subprocesses.
 #
-# Mechanism: each subprocess in the tree connects a TCP socket back to a
-# listener owned by the test. We then use two kernel-guaranteed blocking-I/O
-# signals — neither requires any `sleep()` or polling loop:
+# Mechanism: each subprocess connects a TCP socket back to a listener owned by
+# the test. We then use two kernel-guaranteed blocking-I/O signals — neither
+# requires any `sleep()` or polling loop:
 #
 #   1. `await listener.accept()` blocks until the subprocess connects,
-#      proving it is running.
-#   2. After `_terminate_process_tree()`, `await stream.receive(1)` raises
-#      `EndOfStream` (clean close / FIN) or `BrokenResourceError` (abrupt
-#      close / RST — typical on Windows after TerminateJobObject) because the
-#      kernel closes all file descriptors when a process terminates. Either
-#      is the direct, OS-level proof that the child is dead.
+#      proving it is running (and that any setup lines preceding the connect
+#      in its script, such as installing a signal handler, have executed).
+#   2. After cleanup, `await stream.receive(1)` raises `EndOfStream` (clean
+#      close / FIN) or `BrokenResourceError` (abrupt close / RST — typical on
+#      Windows after TerminateJobObject) because the kernel closes all file
+#      descriptors when a process terminates. Either is the direct, OS-level
+#      proof that the child is dead.
 #
 # This replaces an older file-growth-watching approach whose fixed `sleep()`
 # durations raced against slow Python interpreter startup on loaded CI runners.
@@ -246,7 +126,7 @@ async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
 
 def _connect_back_script(port: int) -> str:
     """Return a ``python -c`` script body that connects to the given port,
-    sends ``b'alive'``, then blocks forever. Used by TestChildProcessCleanup
+    sends ``b'alive'``, then blocks forever. Used by the cleanup tests'
     subprocesses as a liveness probe."""
     return (
         f"import socket, time\n"
@@ -346,215 +226,227 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
         await proc.stdout.aclose()
 
 
-class TestChildProcessCleanup:
-    """Integration tests for ``_terminate_process_tree`` covering basic,
-    nested, and early-parent-exit process tree scenarios. See module-level
-    comment above for the socket-based liveness probe mechanism.
-    """
+@pytest.mark.anyio
+async def test_basic_child_process_cleanup() -> None:
+    """Parent spawns one child; terminating the tree kills both."""
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
 
-    @pytest.mark.anyio
-    async def test_basic_child_process_cleanup(self):
-        """Parent spawns one child; terminating the tree kills both."""
-        async with AsyncExitStack() as stack:
-            sock, port = await _open_liveness_listener()
-            stack.push_async_callback(sock.aclose)
+        # Parent spawns a child; the child connects back to us.
+        parent_script = _spawn_then_block(_connect_back_script(port))
+        proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        stack.push_async_callback(_terminate_and_reap, proc)
 
-            # Parent spawns a child; the child connects back to us.
-            parent_script = _spawn_then_block(_connect_back_script(port))
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
-            stack.push_async_callback(_terminate_and_reap, proc)
+        # Deterministic: accept() blocks until the child connects. No sleep.
+        with anyio.fail_after(10.0):
+            stream = await _accept_alive(sock)
+        stack.push_async_callback(stream.aclose)
 
-            # Deterministic: accept() blocks until the child connects. No sleep.
-            with anyio.fail_after(10.0):
+        # Terminate, reap and close transports (wraps _terminate_process_tree,
+        # the behavior under test).
+        await _terminate_and_reap(proc)
+
+        # Deterministic: kernel closed child's socket when it died.
+        await _assert_stream_closed(stream)
+
+
+@pytest.mark.anyio
+async def test_nested_process_tree() -> None:
+    """Parent → child → grandchild; terminating the tree kills all three."""
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        # Build a three-level chain: parent spawns child, child spawns
+        # grandchild. Every level connects back to our socket.
+        grandchild = _connect_back_script(port)
+        child = (
+            f"import subprocess, sys\n"
+            f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n" + _connect_back_script(port)
+        )
+        parent_script = (
+            f"import subprocess, sys\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n" + _connect_back_script(port)
+        )
+        proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        stack.push_async_callback(_terminate_and_reap, proc)
+
+        # Deterministic: three blocking accepts, one per tree level.
+        streams: list[anyio.abc.SocketStream] = []
+        with anyio.fail_after(10.0):
+            for _ in range(3):
                 stream = await _accept_alive(sock)
-            stack.push_async_callback(stream.aclose)
+                stack.push_async_callback(stream.aclose)
+                streams.append(stream)
 
-            # Terminate, reap and close transports (wraps _terminate_process_tree,
-            # the behavior under test).
-            await _terminate_and_reap(proc)
+        # Terminate the entire tree (wraps _terminate_process_tree).
+        await _terminate_and_reap(proc)
 
-            # Deterministic: kernel closed child's socket when it died.
-            await _assert_stream_closed(stream)
-
-    @pytest.mark.anyio
-    async def test_nested_process_tree(self):
-        """Parent → child → grandchild; terminating the tree kills all three."""
-        async with AsyncExitStack() as stack:
-            sock, port = await _open_liveness_listener()
-            stack.push_async_callback(sock.aclose)
-
-            # Build a three-level chain: parent spawns child, child spawns
-            # grandchild. Every level connects back to our socket.
-            grandchild = _connect_back_script(port)
-            child = (
-                f"import subprocess, sys\n"
-                f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n" + _connect_back_script(port)
-            )
-            parent_script = (
-                f"import subprocess, sys\n"
-                f"subprocess.Popen([sys.executable, '-c', {child!r}])\n" + _connect_back_script(port)
-            )
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
-            stack.push_async_callback(_terminate_and_reap, proc)
-
-            # Deterministic: three blocking accepts, one per tree level.
-            streams: list[anyio.abc.SocketStream] = []
-            with anyio.fail_after(10.0):
-                for _ in range(3):
-                    stream = await _accept_alive(sock)
-                    stack.push_async_callback(stream.aclose)
-                    streams.append(stream)
-
-            # Terminate the entire tree (wraps _terminate_process_tree).
-            await _terminate_and_reap(proc)
-
-            # Every level of the tree must be dead: three kernel-level EOFs.
-            for stream in streams:
-                await _assert_stream_closed(stream)
-
-    @pytest.mark.anyio
-    async def test_early_parent_exit(self):
-        """Parent exits immediately on SIGTERM; process-group termination still
-        catches the child (exercises the race where the parent dies mid-cleanup).
-        """
-        async with AsyncExitStack() as stack:
-            sock, port = await _open_liveness_listener()
-            stack.push_async_callback(sock.aclose)
-
-            # Parent installs a SIGTERM handler that exits immediately, spawns a
-            # child that connects back to us, then blocks.
-            child = _connect_back_script(port)
-            parent_script = (
-                f"import signal, subprocess, sys, time\n"
-                f"signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
-                f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
-                f"time.sleep(3600)\n"
-            )
-            proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
-            stack.push_async_callback(_terminate_and_reap, proc)
-
-            # Deterministic: child connected means both parent and child are up.
-            with anyio.fail_after(10.0):
-                stream = await _accept_alive(sock)
-            stack.push_async_callback(stream.aclose)
-
-            # Parent will sys.exit(0) on SIGTERM, but the process-group kill
-            # (POSIX killpg / Windows Job Object) must still terminate the child.
-            await _terminate_and_reap(proc)
-
-            # Child must be dead despite parent's early exit.
+        # Every level of the tree must be dead: three kernel-level EOFs.
+        for stream in streams:
             await _assert_stream_closed(stream)
 
 
 @pytest.mark.anyio
-async def test_stdio_client_graceful_stdin_exit():
-    """Test that a process exits gracefully when stdin is closed,
-    without needing SIGTERM or SIGKILL.
+async def test_early_parent_exit() -> None:
+    """Parent exits immediately on SIGTERM; process-group termination still
+    catches the child (exercises the race where the parent dies mid-cleanup).
     """
-    # Create a Python script that exits when stdin is closed
-    script_content = textwrap.dedent(
-        """
-        import sys
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
 
-        # Read from stdin until it's closed
-        try:
-            while True:
-                line = sys.stdin.readline()
-                if not line:  # EOF/stdin closed
-                    break
-        except:
-            pass
+        # Parent installs a SIGTERM handler that exits immediately, spawns a
+        # child that connects back to us, then blocks.
+        child = _connect_back_script(port)
+        parent_script = (
+            f"import signal, subprocess, sys, time\n"
+            f"signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+            f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            f"time.sleep(3600)\n"
+        )
+        proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        stack.push_async_callback(_terminate_and_reap, proc)
 
-        # Exit gracefully
-        sys.exit(0)
-        """
-    )
+        # Deterministic: child connected means both parent and child are up.
+        with anyio.fail_after(10.0):
+            stream = await _accept_alive(sock)
+        stack.push_async_callback(stream.aclose)
 
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-c", script_content],
-    )
+        # Parent will sys.exit(0) on SIGTERM, but the process-group kill
+        # (POSIX killpg / Windows Job Object) must still terminate the child.
+        await _terminate_and_reap(proc)
 
-    start_time = time.time()
-
-    # Use anyio timeout to prevent test from hanging forever
-    with anyio.move_on_after(5.0) as cancel_scope:
-        async with stdio_client(server_params) as (_, _):
-            # Let the process start and begin reading stdin
-            await anyio.sleep(0.2)
-            # Exit context triggers cleanup - process should exit from stdin closure
-            pass
-
-    if cancel_scope.cancelled_caught:
-        pytest.fail(
-            "stdio_client cleanup timed out after 5.0 seconds. "
-            "Process should have exited gracefully when stdin was closed."
-        )  # pragma: no cover
-
-    end_time = time.time()
-    elapsed = end_time - start_time
-
-    # Should complete quickly with just stdin closure (no signals needed)
-    assert elapsed < 3.0, (
-        f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-aware process. "
-        f"Expected < 3.0 seconds since process should exit on stdin closure."
-    )
+        # Child must be dead despite parent's early exit.
+        await _assert_stream_closed(stream)
 
 
 @pytest.mark.anyio
-async def test_stdio_client_stdin_close_ignored():
-    """Test that when a process ignores stdin closure, the shutdown sequence
-    properly escalates to SIGTERM.
+async def test_stdio_client_universal_cleanup() -> None:
+    """Exiting the stdio_client context terminates a process that never exits on its own.
+
+    The child ignores stdin closure (it never reads stdin) and would block for an hour, so
+    cleanup must escalate past the stdin-close grace period to terminate it. Death is
+    observed through the kernel closing the child's liveness socket; the only time bound is
+    a generous hang guard, not a performance claim.
     """
-    # Create a Python script that ignores stdin closure but responds to SIGTERM
-    script_content = textwrap.dedent(
-        """
-        import signal
-        import sys
-        import time
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
 
-        # Set up SIGTERM handler to exit cleanly
-        def sigterm_handler(signum, frame):
-            sys.exit(0)
+        server_params = StdioServerParameters(command=sys.executable, args=["-c", _connect_back_script(port)])
 
-        signal.signal(signal.SIGTERM, sigterm_handler)
+        # ~2s expected on a healthy run (the stdin-close grace period, then termination).
+        with anyio.fail_after(15.0):
+            async with stdio_client(server_params) as (_, _):
+                stream = await _accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
 
-        # Close stdin immediately to simulate ignoring it
-        sys.stdin.close()
+        await _assert_stream_closed(stream)
 
-        # Keep running until SIGTERM
-        while True:
-            time.sleep(0.1)
-        """
-    )
 
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-c", script_content],
-    )
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
+# Excluded from coverage (lax: exempt from strict-no-cover) because coverage is enforced
+# per CI job at 100%, including on Windows runners, where this test is skipped and its
+# body would otherwise count as uncovered lines.
+async def test_stdio_client_sigterm_ignoring_process() -> None:  # pragma: lax no cover
+    """Cleanup escalates past SIGTERM and kills a process that ignores it.
 
-    start_time = time.time()
+    The child installs SIG_IGN for SIGTERM *before* connecting to the liveness socket, so
+    by the time the test proceeds the ignore is guaranteed to be in place. SIGKILL cannot
+    be observed by the child; its delivery is proven by the kernel closing the socket.
+    """
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
 
-    # Use anyio timeout to prevent test from hanging forever
-    with anyio.move_on_after(7.0) as cancel_scope:
-        async with stdio_client(server_params) as (_, _):
-            # Let the process start
-            await anyio.sleep(0.2)
-            # Exit context triggers cleanup
-            pass
+        script = "import signal\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n" + _connect_back_script(port)
+        server_params = StdioServerParameters(command=sys.executable, args=["-c", script])
 
-    if cancel_scope.cancelled_caught:
-        pytest.fail(
-            "stdio_client cleanup timed out after 7.0 seconds. "
-            "Process should have been terminated via SIGTERM escalation."
-        )  # pragma: no cover
+        # ~4s expected on a healthy run: the stdin-close grace period, then the SIGTERM
+        # wait before SIGKILL. The bound is a generous hang guard, not a performance claim.
+        with anyio.fail_after(20.0):
+            async with stdio_client(server_params) as (_, _):
+                stream = await _accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
 
-    end_time = time.time()
-    elapsed = end_time - start_time
+        await _assert_stream_closed(stream)
 
-    # Should take ~2 seconds (stdin close timeout) before SIGTERM is sent
-    # Total time should be between 2-4 seconds
-    assert 1.5 < elapsed < 4.5, (
-        f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
-        f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
-    )
+
+@pytest.mark.anyio
+async def test_stdio_client_graceful_stdin_exit() -> None:
+    """A process that exits on stdin closure is cleaned up without any signal.
+
+    The child sends an ``exited`` marker over the liveness socket after observing stdin
+    EOF and then exits on its own; receiving the marker proves the exit was stdin-driven.
+    A signal-based death (the SIGTERM escalation path) would close the socket without the
+    marker ever being sent, failing the assertion.
+    """
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        script = (
+            f"import socket, sys\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stdin.buffer.read()\n"
+            f"s.sendall(b'exited')\n"
+        )
+        server_params = StdioServerParameters(command=sys.executable, args=["-c", script])
+
+        with anyio.fail_after(15.0):
+            async with stdio_client(server_params) as (_, _):
+                stream = await _accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
+
+        # Read until the kernel-level EOF that accompanies the child's death; everything
+        # received must be the marker the child sends only on the stdin-EOF exit path.
+        received = b""
+        with anyio.fail_after(5.0):
+            with suppress(anyio.EndOfStream, anyio.BrokenResourceError):
+                while True:
+                    received += await stream.receive(16)
+        assert received == b"exited"
+
+
+@pytest.mark.anyio
+async def test_stdio_client_stdin_close_ignored() -> None:
+    """When a process ignores stdin closure, shutdown waits out the grace period and
+    then escalates to termination.
+
+    The lower bound on the cleanup duration pins the genuine time-based contract: the
+    escalation must not fire before the stdin-close grace period elapses. There is
+    deliberately no upper bound — on a slow runner cleanup only takes longer, which
+    proves nothing about the escalation logic.
+    """
+    async with AsyncExitStack() as stack:
+        sock, port = await _open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        # The child installs a SIGTERM handler that exits cleanly, then connects, then
+        # blocks forever without ever reading stdin; the liveness handshake guarantees
+        # the handler is installed before cleanup can send SIGTERM.
+        script = "import signal, sys\nsignal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n" + _connect_back_script(
+            port
+        )
+        server_params = StdioServerParameters(command=sys.executable, args=["-c", script])
+
+        with anyio.fail_after(15.0):
+            async with stdio_client(server_params) as (_, _):
+                stream = await _accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
+                cleanup_started = time.monotonic()
+            cleanup_elapsed = time.monotonic() - cleanup_started
+
+        await _assert_stream_closed(stream)
+
+        # The cleanup contains a full PROCESS_TERMINATION_TIMEOUT wait for the process to
+        # exit on stdin closure (which this child never does); a small slop absorbs timer
+        # granularity. An early escalation would finish well under the grace period.
+        assert cleanup_elapsed > PROCESS_TERMINATION_TIMEOUT - 0.1, (
+            f"cleanup finished in {cleanup_elapsed:.2f}s, faster than the "
+            f"{PROCESS_TERMINATION_TIMEOUT}s stdin-close grace period — escalation fired early"
+        )
