@@ -106,18 +106,26 @@ def test_fields_settable_by_python_name_and_serialize_camelcase() -> None:
     }
 
 
-@pytest.mark.parametrize("version", ["^1.2.3", "~1.2.3", ">=1.2.3", "1.x", "1.*"])
+@pytest.mark.parametrize("version", ["^1.2.3", "~1.2.3", ">=1.2.3", "1.x", "1.2.X", "1.*", "x", "*"])
 def test_version_ranges_rejected(version: str) -> None:
     with pytest.raises(ValidationError, match="exact version"):
         ServerCard(name="a/b", version=version, description="d")
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.0.0-x", "1.0.0-X.1", "1.0.0-rc.x", "2024-01-05"])
+def test_exact_versions_accepted(version: str) -> None:
+    """Semver prereleases like 1.0.0-x are exact versions, not wildcards."""
+    assert ServerCard(name="a/b", version=version, description="d").version == version
 
 
 @pytest.mark.parametrize(
     "doc, field",
     [
         ({**MINIMAL, "name": "no-slash"}, "name"),
-        ({**MINIMAL, "$schema": "https://static.modelcontextprotocol.io/schemas/2025-11-25/server-card.schema.json"},
-         "$schema"),
+        (
+            {**MINIMAL, "$schema": "https://static.modelcontextprotocol.io/schemas/2025-11-25/server-card.schema.json"},
+            "$schema",
+        ),
         ({**MINIMAL, "description": ""}, "description"),
     ],
 )
