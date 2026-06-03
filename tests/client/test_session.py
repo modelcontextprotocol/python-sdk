@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
 import anyio
+import anyio.streams.memory
 import pytest
 
 from mcp import types
@@ -10,12 +15,14 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     CallToolResult,
     Implementation,
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
+    JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -25,6 +32,29 @@ from mcp.types import (
     client_notification_adapter,
     client_request_adapter,
 )
+
+_SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
+_RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage]
+
+
+@asynccontextmanager
+async def raw_client_session(
+    **kwargs: Any,
+) -> AsyncIterator[tuple[ClientSession, _SendToClient, _RecvFromClient]]:
+    """Yield `(session, send_to_client, recv_from_client)` with the receive loop running.
+
+    `send_to_client` accepts `SessionMessage | Exception` so tests can inject
+    transport-level exceptions. No initialize handshake is performed.
+    """
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](32)
+    async with ClientSession(s2c_recv, c2s_send, **kwargs) as session:
+        try:
+            with anyio.fail_after(5):
+                yield session, s2c_send, c2s_recv
+        finally:
+            s2c_send.close()
+            c2s_recv.close()
 
 
 @pytest.mark.anyio
@@ -705,3 +735,96 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_receive_loop_answers_malformed_inbound_request_with_invalid_params():
+    """A request that fails ServerRequest validation gets an INVALID_PARAMS error response."""
+    async with raw_client_session() as (_session, to_client, from_client):
+        await to_client.send(
+            SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=7, method="sampling/createMessage", params={"broken": 1}))
+        )
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.id == 7
+    assert out.message.error.code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_receive_loop_answers_invalid_params_when_sampling_callback_raises():
+    """Same boundary catches exceptions from the request handler itself."""
+
+    async def boom(ctx: object, params: object) -> types.CreateMessageResult:
+        raise RuntimeError("sampling boom")
+
+    params = types.CreateMessageRequestParams(
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
+        max_tokens=10,
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    async with raw_client_session(sampling_callback=boom) as (_session, to_client, from_client):
+        await to_client.send(
+            SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=8, method="sampling/createMessage", params=params))
+        )
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.error.code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest.LogCaptureFixture):
+    """A notification that fails ServerNotification validation is logged and dropped."""
+    seen: list[object] = []
+    delivered = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        delivered.set()
+
+    async with raw_client_session(message_handler=handler) as (_session, to_client, _):
+        await to_client.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="not/a/spec/notification")))
+        # Follow with a valid notification so we know the loop is still alive.
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
+        await delivered.wait()
+    assert isinstance(seen[0], types.ToolListChangedNotification)
+    assert "Failed to validate notification" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_receive_loop_forwards_transport_exception_to_message_handler():
+    seen: list[object] = []
+    delivered = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        delivered.set()
+
+    async with raw_client_session(message_handler=handler) as (_session, to_client, _):
+        exc = ValueError("bad bytes")
+        await to_client.send(exc)
+        await delivered.wait()
+    assert seen == [exc]
+
+
+@pytest.mark.anyio
+async def test_receive_loop_swallows_progress_callback_exception(caplog: pytest.LogCaptureFixture):
+    delivered = anyio.Event()
+
+    async def boom(progress: float, total: float | None, message: str | None) -> None:
+        raise RuntimeError("progress boom")
+
+    async def handler(msg: object) -> None:
+        delivered.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        # Register the callback under a known token without sending a request.
+        session._progress_callbacks[42] = boom  # pyright: ignore[reportPrivateUsage]
+        params = {"progressToken": 42, "progress": 0.5}
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress", params=params))
+        )
+        # The progress notification also reaches the message handler after the
+        # callback runs, so this fires once the callback's exception is handled.
+        await delivered.wait()
+    assert "Progress callback raised an exception" in caplog.text

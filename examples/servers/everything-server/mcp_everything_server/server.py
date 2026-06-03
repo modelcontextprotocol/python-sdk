@@ -417,9 +417,15 @@ async def handle_unsubscribe(ctx: ServerRequestContext, params: UnsubscribeReque
     return EmptyResult()
 
 
-mcp._lowlevel_server._add_request_handler("logging/setLevel", handle_set_logging_level)  # pyright: ignore[reportPrivateUsage]
-mcp._lowlevel_server._add_request_handler("resources/subscribe", handle_subscribe)  # pyright: ignore[reportPrivateUsage]
-mcp._lowlevel_server._add_request_handler("resources/unsubscribe", handle_unsubscribe)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
+    "logging/setLevel", SetLevelRequestParams, handle_set_logging_level
+)
+mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
+    "resources/subscribe", SubscribeRequestParams, handle_subscribe
+)
+mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
+    "resources/unsubscribe", UnsubscribeRequestParams, handle_unsubscribe
+)
 
 
 @mcp.completion()

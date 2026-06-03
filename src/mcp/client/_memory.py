@@ -62,7 +62,15 @@ class InMemoryTransport:
                 try:
                     yield client_read, client_write
                 finally:
-                    tg.cancel_scope.cancel()
+                    # EOF the server (and our own read side) instead of
+                    # cancelling. The dispatcher's run() cancels its own
+                    # in-flight handlers on read-stream EOF, so cleanup is
+                    # equivalent. Cancelling here would `coro.throw()` into the
+                    # host task, which on CPython 3.11 (gh-106749) drops
+                    # `'call'` trace events for the outer await chain and
+                    # desyncs coverage's CTracer past the test frame.
+                    await client_write.aclose()
+                    await server_write.aclose()
 
     async def __aenter__(self) -> TransportStreams:
         """Connect to the server and return streams for communication."""

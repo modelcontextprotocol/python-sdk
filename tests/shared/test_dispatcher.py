@@ -17,7 +17,7 @@ from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatc
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, REQUEST_TIMEOUT
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, REQUEST_TIMEOUT, ErrorData, Tool
 
 from .conftest import PairFactory, direct_pair
 
@@ -96,6 +96,23 @@ async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_fa
             await client.send_raw_request("tools/list", {})
     assert exc.value.error.code == INVALID_PARAMS
     assert exc.value.error.message == "bad cursor"
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_maps_validation_error_to_invalid_params(pair_factory: PairFactory):
+    """A pydantic `ValidationError` from the handler surfaces as the
+    normalized INVALID_PARAMS shape on every dispatcher."""
+
+    async def on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        Tool.model_validate({"name": 123})  # raises ValidationError
+        raise NotImplementedError
+
+    async with running_pair(pair_factory, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
 
 
 @pytest.mark.anyio
