@@ -808,6 +808,39 @@ async def test_receive_loop_forwards_transport_exception_to_message_handler():
 
 
 @pytest.mark.anyio
+async def test_receive_loop_consumes_server_cancelled_without_reaching_message_handler():
+    """A server-sent notifications/cancelled is swallowed, matching the pre-swap contract.
+
+    The server dispatcher now emits this on sampling/elicitation timeout, but
+    ClientSession has no in-flight tracking to act on it, so surfacing it would
+    only break user handlers that exhaustively match ServerNotification.
+    """
+    seen: list[object] = []
+    delivered = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        delivered.set()
+
+    async with raw_client_session(message_handler=handler) as (_session, to_client, _):
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1, "reason": "timed out"}
+                )
+            )
+        )
+        # Follow with a notification that does reach the handler so we can
+        # assert ordering deterministically.
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
+        await delivered.wait()
+    assert len(seen) == 1
+    assert isinstance(seen[0], types.ToolListChangedNotification)
+
+
+@pytest.mark.anyio
 async def test_receive_loop_swallows_progress_callback_exception(caplog: pytest.LogCaptureFixture):
     delivered = anyio.Event()
 

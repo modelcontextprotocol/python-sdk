@@ -14,6 +14,9 @@ from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.memory import create_client_server_memory_streams
 
+SERVER_SHUTDOWN_GRACE = 2.0
+"""Seconds to wait for the in-process server to exit on EOF before cancelling."""
+
 
 class InMemoryTransport:
     """In-memory transport for testing MCP servers without network overhead.
@@ -48,29 +51,47 @@ class InMemoryTransport:
             client_read, client_write = client_streams
             server_read, server_write = server_streams
 
-            async with anyio.create_task_group() as tg:
-                # Start server in background
-                tg.start_soon(
-                    lambda: actual_server.run(
+            server_done = anyio.Event()
+
+            async def _run_server() -> None:
+                try:
+                    await actual_server.run(
                         server_read,
                         server_write,
                         actual_server.create_initialization_options(),
                         raise_exceptions=self._raise_exceptions,
                     )
-                )
+                finally:
+                    server_done.set()
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(_run_server)
 
                 try:
                     yield client_read, client_write
                 finally:
                     # EOF the server (and our own read side) instead of
-                    # cancelling. The dispatcher's run() cancels its own
-                    # in-flight handlers on read-stream EOF, so cleanup is
-                    # equivalent. Cancelling here would `coro.throw()` into the
-                    # host task, which on CPython 3.11 (gh-106749) drops
-                    # `'call'` trace events for the outer await chain and
-                    # desyncs coverage's CTracer past the test frame.
+                    # cancelling outright. The dispatcher's run() cancels its
+                    # own in-flight handlers on read-stream EOF, so for a
+                    # well-behaved server the task exits naturally and the
+                    # task-group join below is immediate. Cancelling here
+                    # unconditionally would `coro.throw()` into this task,
+                    # which on CPython 3.11 (gh-106749) drops `'call'` trace
+                    # events for the outer await chain and desyncs coverage's
+                    # CTracer past the test frame.
                     await client_write.aclose()
                     await server_write.aclose()
+                    # Backstop: the dispatcher exits on EOF, but the server's
+                    # own teardown (lifespan __aexit__, connection.exit_stack
+                    # callbacks) runs after that and is user code. If it never
+                    # completes the join would hang forever, so bound the wait
+                    # and fall back to cancelling. The healthy path returns
+                    # from wait() without the timeout firing, so the cancel is
+                    # never reached and gh-106749 stays avoided.
+                    with anyio.move_on_after(SERVER_SHUTDOWN_GRACE):
+                        await server_done.wait()
+                    if not server_done.is_set():
+                        tg.cancel_scope.cancel()
 
     async def __aenter__(self) -> TransportStreams:
         """Connect to the server and return streams for communication."""

@@ -19,6 +19,8 @@ from mcp.shared.exceptions import NoBackChannelError
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
+    CreateMessageRequest,
+    CreateMessageRequestParams,
     ElicitationCapability,
     EmptyResult,
     Implementation,
@@ -114,6 +116,16 @@ async def test_connection_send_request_with_spec_type_infers_result_type():
     assert method == "roots/list"
     assert isinstance(result, ListRootsResult)
     assert str(result.roots[0].uri) == "file:///ws"
+
+
+@pytest.mark.anyio
+async def test_connection_send_request_validates_result_alias_only():
+    """Peer results validate alias-only; a snake_case key from the wire is
+    ignored as extra, not populated by Python field name."""
+    snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
+    conn = Connection(StubOutbound(result=snake), has_standalone_channel=True)
+    result = await conn.send_request(CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=1)))
+    assert result.stop_reason is None
 
 
 @pytest.mark.anyio

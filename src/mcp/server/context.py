@@ -142,6 +142,6 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
         self,
         ctx: ServerRequestContext[_MwLifespanT, Any],
         method: str,
-        params: BaseModel,
+        params: BaseModel | None,
         call_next: CallNext,
     ) -> HandlerResult: ...

@@ -48,8 +48,12 @@ class BaseContext(Generic[TransportT]):
 
     @property
     def can_send_request(self) -> bool:
-        """Whether the back-channel can deliver server-initiated requests."""
-        return self._dctx.transport.can_send_request
+        """Whether the back-channel can currently deliver server-initiated requests.
+
+        `False` when the transport has no back-channel, or when the underlying
+        dispatch context has been closed because the inbound request finished.
+        """
+        return self._dctx.can_send_request
 
     @property
     def meta(self) -> RequestParamsMeta | None:

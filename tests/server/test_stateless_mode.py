@@ -10,13 +10,18 @@ See: https://github.com/modelcontextprotocol/python-sdk/issues/1097
 from typing import Any
 from unittest.mock import Mock
 
+import anyio
 import pytest
 
 from mcp import types
 from mcp.server.connection import Connection
+from mcp.server.context import ServerRequestContext
+from mcp.server.lowlevel.server import Server
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import StatelessModeNotSupported
+from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import SessionMessage
+from mcp.types import JSONRPCRequest, JSONRPCResponse, ListToolsResult, PaginatedRequestParams
 
 
 def _make_session(*, stateless: bool) -> ServerSession:
@@ -138,3 +143,45 @@ async def test_stateful_mode_does_not_raise_stateless_error(
 
     assert send_request_called
     assert isinstance(result, types.ListRootsResult)
+
+
+@pytest.mark.anyio
+async def test_server_run_stateless_wires_no_standalone_channel():
+    """`Server.run(stateless=True)` must wire `Connection.has_standalone_channel=False`.
+
+    Stateless HTTP has no standalone GET stream, so server-initiated requests on
+    the connection must fail fast with `NoBackChannelError` rather than write to
+    a channel that will never deliver a response. The `ServerSession` typed
+    helpers carry their own stateless guard (tested above); this pins the
+    `Connection` wiring that `Server.run` produces.
+    """
+    captured: list[Connection] = []
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        # `ServerRequestContext` doesn't expose `connection` directly yet (it
+        # will after the Context rework); reach it via the session for now.
+        captured.append(ctx.session._connection)  # pyright: ignore[reportPrivateUsage]
+        return ListToolsResult(tools=[])
+
+    server: Server[Any] = Server("test", on_list_tools=list_tools)
+
+    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server() -> None:
+        await server.run(server_read, server_write, server.create_initialization_options(), stateless=True)
+
+    async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
+        tg.start_soon(run_server)
+        # stateless=True skips the init gate, so tools/list routes immediately.
+        await to_server.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list")))
+        with anyio.fail_after(5):
+            response = (await from_server.receive()).message
+        assert isinstance(response, JSONRPCResponse)
+        tg.cancel_scope.cancel()
+
+    assert len(captured) == 1
+    conn = captured[0]
+    assert conn.has_standalone_channel is False
+    with pytest.raises(NoBackChannelError):
+        await conn.ping()

@@ -16,7 +16,7 @@ import pytest
 
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
     _coerce_id,
@@ -355,6 +355,56 @@ async def test_ctx_send_raw_request_tags_outbound_with_server_message_metadata()
 
 
 @pytest.mark.anyio
+async def test_courtesy_cancel_on_timeout_tags_outbound_with_server_message_metadata():
+    """The timeout-path `notifications/cancelled` carries the originating request id.
+
+    Streamable-HTTP's `message_router` keys on `ServerMessageMetadata.related_request_id`;
+    a cancel without it would fall through to the standalone GET stream and be dropped
+    when no GET stream is open, so the client never learns to stop work.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        with pytest.raises(MCPError):  # REQUEST_TIMEOUT
+            await ctx.send_raw_request("sampling/createMessage", None, {"timeout": 0})
+        return {"gave_up": True}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, server_on_request, on_notify)
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="t", params=None)))
+            with anyio.fail_after(5):
+                outbound = await s2c_recv.receive()
+            assert isinstance(outbound, SessionMessage)
+            assert isinstance(outbound.message, JSONRPCRequest)
+            assert outbound.message.method == "sampling/createMessage"
+            sampling_id = outbound.message.id
+            # Don't respond; let the timeout fire. Next on the wire is the courtesy cancel.
+            with anyio.fail_after(5):
+                cancel = await s2c_recv.receive()
+            assert isinstance(cancel, SessionMessage)
+            assert isinstance(cancel.message, JSONRPCNotification)
+            assert cancel.message.method == "notifications/cancelled"
+            assert cancel.message.params == {"requestId": sampling_id, "reason": "timed out after 0s"}
+            assert isinstance(cancel.metadata, ServerMessageMetadata)
+            assert cancel.metadata.related_request_id == 7
+            with anyio.fail_after(5):
+                final = await s2c_recv.receive()
+            assert isinstance(final, SessionMessage)
+            assert isinstance(final.message, JSONRPCResponse)
+            assert final.message.result == {"gave_up": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_request_metadata():
     """Transport-attached metadata (HTTP request, SSE close hooks) is readable off the dispatch context."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -440,6 +490,39 @@ async def test_ctx_progress_with_only_progress_value_omits_total_and_message():
         with anyio.fail_after(5):
             await client.send_raw_request("t", None, {"on_progress": on_progress})
     assert received == [(0.25, None, None)]
+
+
+@pytest.mark.anyio
+async def test_ctx_after_handler_return_reports_closed_and_drops_backchannel_traffic():
+    """Once `_handle_request` closes the dctx, the back-channel guard and ops agree.
+
+    Detached work that outlives the handler must see `can_send_request == False`,
+    get `NoBackChannelError` from `send_raw_request`, and have `notify`/`progress`
+    silently dropped rather than emitted with a stale `related_request_id`.
+    """
+    captured: list[DCtx] = []
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        captured.append(ctx)
+        assert ctx.can_send_request is True
+        return {}
+
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        raise NotImplementedError
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, crec, _srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
+            dctx = captured[0]
+            assert dctx.can_send_request is False
+            with pytest.raises(NoBackChannelError):
+                await dctx.send_raw_request("sampling/createMessage", None)
+            await dctx.notify("notifications/message", {"level": "info"})
+            await dctx.progress(0.9)
+            # A second round-trip flushes any notification the server might have
+            # written, so an empty client recorder afterwards proves the drop.
+            await client.send_raw_request("ping", None)
+        assert crec.notifications == []
 
 
 @pytest.mark.anyio
@@ -596,13 +679,15 @@ _probe: contextvars.ContextVar[str] = contextvars.ContextVar("probe", default="u
 
 
 @pytest.mark.anyio
-async def test_handler_inherits_sender_contextvars_via_spawn():
-    """The handler task sees contextvars set by the task that wrote into the read stream."""
+@pytest.mark.parametrize("inline", [frozenset[str](), frozenset({"t"})], ids=["spawned", "inline"])
+async def test_handler_inherits_sender_contextvars(inline: frozenset[str]):
+    """The handler task sees contextvars set by the task that wrote into the
+    read stream, on both the spawned and the inline-method dispatch paths."""
     raw_send, raw_recv = anyio.create_memory_object_stream[tuple[contextvars.Context, SessionMessage | Exception]](4)
     read_stream = ContextReceiveStream[SessionMessage | Exception](raw_recv)
     write_send = ContextSendStream[SessionMessage | Exception](raw_send)
     out_send, out_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(read_stream, out_send)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(read_stream, out_send, inline_methods=inline)
 
     seen: list[str] = []
 

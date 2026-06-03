@@ -94,6 +94,17 @@ async def test_send_request_omits_call_options_when_none_given():
 
 
 @pytest.mark.anyio
+async def test_send_request_validates_result_alias_only():
+    """Peer results validate alias-only; a snake_case key from the wire is
+    ignored as extra, not populated by Python field name."""
+    snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
+    session = _make_session(StubDispatcher(result=snake))
+    request = types.CreateMessageRequest(params=types.CreateMessageRequestParams(messages=[], max_tokens=1))
+    result = await session.send_request(request, types.CreateMessageResult)
+    assert result.stop_reason is None
+
+
+@pytest.mark.anyio
 async def test_create_message_with_tools_returns_with_tools_result():
     dispatcher = StubDispatcher(result={"role": "assistant", "content": [{"type": "text", "text": "ok"}], "model": "m"})
     session = _make_session(

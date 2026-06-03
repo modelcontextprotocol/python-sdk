@@ -83,4 +83,4 @@ class TypedServerRequestMixin:
         """
         raw = await self.send_raw_request(req.method, dump_params(req.params), opts)
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
-        return cls.model_validate(raw)
+        return cls.model_validate(raw, by_name=False)

@@ -19,7 +19,7 @@ from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import ServerRunner, otel_middleware
 from mcp.server.session import ServerSession
-from mcp.shared.dispatcher import DispatchMiddleware
+from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
@@ -36,6 +36,7 @@ from mcp.types import (
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
+    ProgressNotificationParams,
     RequestParams,
     SetLevelRequestParams,
     Tool,
@@ -192,6 +193,52 @@ async def test_runner_malformed_params_for_unregistered_spec_method_raises_inval
 
 
 @pytest.mark.anyio
+async def test_runner_rejects_snake_case_initialize_params(server: SrvT):
+    """Inbound wire payloads validate alias-only; Python field names are not
+    accepted (`protocol_version` must arrive as `protocolVersion`)."""
+    snake = {
+        "protocol_version": LATEST_PROTOCOL_VERSION,
+        "capabilities": {},
+        "client_info": {"name": "c", "version": "0"},
+    }
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", snake)
+    assert exc.value.error.code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_runner_rejects_snake_case_params_for_custom_handler(server: SrvT):
+    """Custom-method handlers (which skip the spec-method gate) still validate
+    alias-only at the per-handler boundary."""
+
+    async def handler(ctx: Ctx, params: ProgressNotificationParams) -> dict[str, Any]:
+        return {"ok": True}
+
+    server.add_request_handler("custom/progress", ProgressNotificationParams, handler)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("custom/progress", {"progress_token": 1, "progress": 0.5})
+        assert exc.value.error.code == INVALID_PARAMS
+        result = await client.send_raw_request("custom/progress", {"progressToken": 1, "progress": 0.5})
+    assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_drops_snake_case_params(server: SrvT, caplog: pytest.LogCaptureFixture):
+    """Notification params validate alias-only; snake_case is dropped as malformed."""
+
+    async def handler(ctx: Ctx, params: ProgressNotificationParams) -> None:
+        raise NotImplementedError
+
+    server.add_notification_handler("notifications/roots/list_changed", ProgressNotificationParams, handler)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/roots/list_changed", {"progress_token": 1, "progress": 0.5})
+        await client.send_raw_request("tools/list", None)
+    assert "dropped 'notifications/roots/list_changed': malformed params" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_runner_on_notify_initialized_sets_flag_and_connection_event(server: SrvT):
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.notify("notifications/initialized", None)
@@ -251,6 +298,80 @@ async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pyt
         result = await client.send_raw_request("tools/list", None)
     assert result["tools"][0]["name"] == "t"
     assert "dropped 'notifications/roots/list_changed': malformed params" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_drops_absent_params_when_model_requires_them(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+):
+    """A params-less progress notification is dropped, not delivered as None.
+
+    `on_progress` is typed to receive a non-Optional `ProgressNotificationParams`;
+    the previous server validated the full notification union and dropped this
+    as malformed before dispatch.
+    """
+
+    async def on_progress(ctx: Ctx, params: ProgressNotificationParams) -> None:
+        raise NotImplementedError
+
+    server.add_notification_handler("notifications/progress", ProgressNotificationParams, on_progress)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/progress", None)
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
+    assert "dropped 'notifications/progress': malformed params" in caplog.text
+    assert "notification handler for" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_absent_wire_params_reaches_request_handler_as_none():
+    """A request with no `params` member on the wire reaches the handler as
+    `None`, matching the previous server and the `| None` handler annotation.
+
+    The in-SDK client always attaches `_meta`, so a dispatch middleware
+    forwards `params=None` to model what an external client sends.
+    """
+    seen: list[PaginatedRequestParams | None] = []
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        seen.append(params)
+        return ListToolsResult(tools=[])
+
+    def drop_params(next_on_request: OnRequest) -> OnRequest:
+        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
+            return await next_on_request(dctx, method, None if method == "tools/list" else params)
+
+        return wrapped
+
+    server: SrvT = Server(name="s", on_list_tools=list_tools)
+    async with connected_runner(server, dispatch_middleware=[drop_params]) as (client, _):
+        await client.send_raw_request("tools/list", None)
+    assert seen == [None]
+
+
+@pytest.mark.anyio
+async def test_runner_absent_wire_params_for_required_params_custom_method_is_invalid_params():
+    """A custom method whose `params_type` has required fields rejects absent
+    wire params as INVALID_PARAMS rather than invoking the handler with None."""
+
+    class GreetParams(RequestParams):
+        name: str
+
+    async def greet(ctx: Ctx, params: GreetParams) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def drop_params(next_on_request: OnRequest) -> OnRequest:
+        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
+            return await next_on_request(dctx, method, None if method == "custom/greet" else params)
+
+        return wrapped
+
+    server: SrvT = Server(name="s")
+    server.add_request_handler("custom/greet", GreetParams, greet)
+    async with connected_runner(server, dispatch_middleware=[drop_params]) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("custom/greet", {"name": "x"})
+    assert exc.value.error.code == INVALID_PARAMS
 
 
 @pytest.mark.anyio
@@ -333,6 +454,21 @@ async def test_runner_handler_returning_none_yields_empty_result(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_handler_returning_error_data_produces_jsonrpc_error(server: SrvT):
+    """A handler returning `ErrorData` reaches the client as a JSON-RPC error,
+    not a success result, matching `BaseSession._send_response`."""
+
+    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:
+        return ErrorData(code=INVALID_PARAMS, message="bad level", data={"got": params.level})
+
+    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("logging/setLevel", {"level": "info"})
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="bad level", data={"got": "info"})
+
+
+@pytest.mark.anyio
 async def test_runner_handler_returning_unsupported_type_surfaces_as_error(server: SrvT):
     async def bad_return(ctx: Ctx, params: PaginatedRequestParams | None) -> int:
         return 42
@@ -352,6 +488,17 @@ async def test_runner_stateless_skips_init_gate(server: SrvT):
     async with connected_runner(server, initialized=False, stateless=True, has_standalone_channel=False) as (client, _):
         result = await client.send_raw_request("tools/list", None)
     assert result["tools"][0]["name"] == "t"
+
+
+@pytest.mark.anyio
+async def test_runner_stateless_connection_initialized_event_set_on_construction(server: SrvT):
+    """`connection.initialized` mirrors the gate flag in stateless mode so
+    `await connection.initialized.wait()` does not hang when no handshake
+    arrives."""
+    async with connected_runner(server, initialized=False, stateless=True, has_standalone_channel=False) as (_, runner):
+        assert runner._initialized is True
+        assert runner.connection.initialized.is_set()
+        await runner.connection.initialized.wait()
 
 
 @pytest.mark.anyio
@@ -485,3 +632,24 @@ async def test_runner_connection_exit_stack_unwinds_after_run_returns(server: Sr
         await client.send_raw_request("tools/list", None)
         assert cleaned == []
     assert cleaned == [3, 2, 1]
+
+
+@pytest.mark.anyio
+async def test_runner_exit_stack_cleanup_exception_is_logged_not_propagated(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A raising cleanup callback is caught and logged; `run()` exits cleanly."""
+    cleaned: list[str] = []
+
+    async def _ok() -> None:
+        cleaned.append("ok")
+
+    async def _boom() -> None:
+        raise RuntimeError("cleanup failed")
+
+    async with connected_runner(server) as (client, runner):
+        runner.connection.exit_stack.push_async_callback(_ok)
+        runner.connection.exit_stack.push_async_callback(_boom)
+        await client.send_raw_request("tools/list", None)
+    assert cleaned == ["ok"]
+    assert "connection exit_stack cleanup raised" in caplog.text

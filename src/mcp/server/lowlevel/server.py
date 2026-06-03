@@ -406,7 +406,11 @@ class Server(Generic[LifespanResultT]):
                 dispatcher=dispatcher,
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
-                has_standalone_channel=True,
+                # Stateless HTTP has no standalone GET stream, so server-initiated
+                # requests on `runner.connection` must fail fast with
+                # `NoBackChannelError` rather than write to a channel that will
+                # never deliver a response.
+                has_standalone_channel=not stateless,
                 stateless=stateless,
                 dispatch_middleware=[otel_middleware],
             )

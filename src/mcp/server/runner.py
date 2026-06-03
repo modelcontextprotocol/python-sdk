@@ -42,6 +42,7 @@ from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     ClientRequest,
+    ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
@@ -120,6 +121,11 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
 def _dump_result(result: Any) -> dict[str, Any]:
     if result is None:
         return {}
+    if isinstance(result, ErrorData):
+        # The existing `BaseSession._send_response` treats a handler-returned
+        # `ErrorData` as a JSON-RPC error, not a success result. Re-raise as
+        # `MCPError` so the dispatcher's exception boundary emits `JSONRPCError`.
+        raise MCPError(code=result.code, message=result.message, data=result.data)
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if isinstance(result, dict):
@@ -153,6 +159,11 @@ class ServerRunner(Generic[LifespanT]):
         self.connection = Connection(
             self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
         )
+        if self.stateless:
+            # Keep the public event in lockstep with the gate flag so a handler
+            # awaiting `connection.initialized` does not hang on a stateless
+            # connection (where no `initialize` exchange ever arrives).
+            self.connection.initialized.set()
         self.session = ServerSession(self.dispatcher, self.connection, stateless=self.stateless)
 
     async def run(self, *, task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
@@ -169,7 +180,15 @@ class ServerRunner(Generic[LifespanT]):
             await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
         finally:
             with anyio.CancelScope(shield=True):
-                await self.connection.exit_stack.aclose()
+                try:
+                    await self.connection.exit_stack.aclose()
+                except Exception:
+                    # Top-level boundary: a cleanup callback raising must not
+                    # escape `run()` - it would crash stdio servers on a normal
+                    # disconnect and, via raise-in-finally, mask the original
+                    # exception from `dispatcher.run()` (including the
+                    # CancelledError that SHTTP idle-timeout teardown checks).
+                    logger.exception("connection exit_stack cleanup raised")
 
     def _compose_on_request(self) -> OnRequest:
         """Wrap `_on_request` in `dispatch_middleware`, outermost-first.
@@ -200,7 +219,7 @@ class ServerRunner(Generic[LifespanT]):
             payload: dict[str, Any] = {"method": method}
             if params is not None:
                 payload["params"] = dict(params)
-            client_request_adapter.validate_python(payload)
+            client_request_adapter.validate_python(payload, by_name=False)
         if method == "initialize":
             return self._handle_initialize(params)
         if not self._initialized and method not in _INIT_EXEMPT:
@@ -212,8 +231,16 @@ class ServerRunner(Generic[LifespanT]):
         if entry is None:
             raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
         # ValidationError propagates; the dispatcher's exception boundary maps
-        # it to INVALID_PARAMS.
-        typed_params = entry.params_type.model_validate(params or {})
+        # it to INVALID_PARAMS. Absent wire params reach the handler as None
+        # (matches the existing `Server._handle_request`, where `req.params`
+        # is None for optional-params requests like tools/list); the empty-dict
+        # validate is a required-field check so a required-params model still
+        # surfaces as INVALID_PARAMS rather than reaching the handler as None.
+        if params is None:
+            entry.params_type.model_validate({}, by_name=False)
+            typed_params = None
+        else:
+            typed_params = entry.params_type.model_validate(params, by_name=False)
         ctx = self._make_context(dctx, typed_params)
         call: CallNext = partial(entry.handler, ctx, typed_params)
         for mw in reversed(self.server.middleware):
@@ -237,10 +264,17 @@ class ServerRunner(Generic[LifespanT]):
         if entry is None:
             logger.debug("no handler for notification %s", method)
             return
-        # Absent wire params reach the handler as `None`, not an empty model
-        # (matches the existing `Server._handle_notification`).
+        # Absent wire params reach the handler as None, not an empty model
+        # (matches the existing `Server._handle_notification`). The empty-dict
+        # validate is a required-field check: a required-params model (e.g.
+        # ProgressNotificationParams) takes the malformed-params drop path
+        # instead of reaching a non-Optional handler as None.
         try:
-            typed_params = entry.params_type.model_validate(params) if params is not None else None
+            if params is None:
+                entry.params_type.model_validate({}, by_name=False)
+                typed_params = None
+            else:
+                typed_params = entry.params_type.model_validate(params, by_name=False)
         except ValidationError:
             logger.warning("dropped %r: malformed params", method)
             return
@@ -279,7 +313,7 @@ class ServerRunner(Generic[LifespanT]):
         )
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        init = InitializeRequestParams.model_validate(params or {})
+        init = InitializeRequestParams.model_validate(params or {}, by_name=False)
         self.connection.client_params = init
         requested = init.protocol_version
         negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION

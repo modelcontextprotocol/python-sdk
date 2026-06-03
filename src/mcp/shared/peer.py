@@ -131,8 +131,8 @@ class PeerMixin:
         )
         result = await self.send_raw_request("sampling/createMessage", dump_params(params, meta), opts)
         if tools is not None:
-            return CreateMessageResultWithTools.model_validate(result)
-        return CreateMessageResult.model_validate(result)
+            return CreateMessageResultWithTools.model_validate(result, by_name=False)
+        return CreateMessageResult.model_validate(result, by_name=False)
 
     async def elicit_form(
         self: Outbound,
@@ -150,7 +150,7 @@ class PeerMixin:
         """
         params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
-        return ElicitResult.model_validate(result)
+        return ElicitResult.model_validate(result, by_name=False)
 
     async def elicit_url(
         self: Outbound,
@@ -169,7 +169,7 @@ class PeerMixin:
         """
         params = ElicitRequestURLParams(message=message, url=url, elicitation_id=elicitation_id)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
-        return ElicitResult.model_validate(result)
+        return ElicitResult.model_validate(result, by_name=False)
 
     async def list_roots(
         self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None
@@ -181,7 +181,7 @@ class PeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
-        return ListRootsResult.model_validate(result)
+        return ListRootsResult.model_validate(result, by_name=False)
 
     async def ping(self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
         """Send a `ping` request and ignore the result.

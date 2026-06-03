@@ -16,7 +16,7 @@ from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.peer import Peer
 from mcp.shared.transport_context import TransportContext
 
-from .conftest import direct_pair
+from .conftest import direct_pair, jsonrpc_pair
 from .test_dispatcher import Recorder, echo_handlers, running_pair
 
 DCtx = DispatchContext[TransportContext]
@@ -39,6 +39,24 @@ async def test_base_context_forwards_transport_and_cancel_requested():
         assert isinstance(bctx.cancel_requested, anyio.Event)
         assert bctx.can_send_request is True
         assert bctx.meta is None
+
+
+@pytest.mark.anyio
+async def test_base_context_can_send_request_reflects_dispatch_context_closed_state():
+    """`can_send_request` must track the dctx, not the static transport flag,
+    so it agrees with whether `send_raw_request` would raise."""
+    captured: list[BaseContext[TransportContext]] = []
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        captured.append(BaseContext(ctx))
+        return {}
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("t", None)
+        bctx = captured[0]
+        assert bctx.transport.can_send_request is True
+        assert bctx.can_send_request is False
 
 
 @pytest.mark.anyio

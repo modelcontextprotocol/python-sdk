@@ -20,6 +20,7 @@ from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
+    CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -326,6 +327,14 @@ class BaseSession(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
+                            if isinstance(notification, CancelledNotification):
+                                # ClientSession runs server-initiated requests
+                                # inline in this loop, so by the time a peer
+                                # cancellation is read there is nothing left to
+                                # cancel. Consume it here so message_handler
+                                # keeps the contract it had before the
+                                # dispatcher swap removed _in_flight.
+                                return
                             # Handle progress notifications callback
                             if isinstance(notification, ProgressNotification):
                                 progress_token = notification.params.progress_token

@@ -100,13 +100,23 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
     Carries the transport metadata for the inbound message and provides the
     back-channel for sending requests/notifications to the peer while handling
-    it. `send_raw_request` raises `NoBackChannelError` if
-    `transport.can_send_request` is `False`.
+    it. `send_raw_request` raises `NoBackChannelError` if `can_send_request`
+    is `False`.
     """
 
     @property
     def transport(self) -> TransportT_co:
         """Transport-specific metadata for this inbound message."""
+        ...
+
+    @property
+    def can_send_request(self) -> bool:
+        """Whether the back-channel can currently deliver server-initiated requests.
+
+        `False` when the transport has no back-channel, or when this context has
+        been closed (the inbound request finished). `send_raw_request` raises
+        `NoBackChannelError` exactly when this is `False`.
+        """
         ...
 
     @property

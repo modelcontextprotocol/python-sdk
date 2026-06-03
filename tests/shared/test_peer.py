@@ -58,6 +58,22 @@ async def test_peer_sample_sends_create_message_and_returns_typed_result():
 
 
 @pytest.mark.anyio
+async def test_peer_sample_validates_result_alias_only():
+    """Peer results validate alias-only; a snake_case key from the wire is
+    ignored as extra, not populated by Python field name."""
+    snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
+    rec = _Recorder(snake)
+    async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
+        peer = Peer(client)
+        with anyio.fail_after(5):
+            result = await peer.sample(
+                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))], max_tokens=1
+            )
+        assert isinstance(result, CreateMessageResult)
+        assert result.stop_reason is None
+
+
+@pytest.mark.anyio
 async def test_peer_sample_with_tools_returns_with_tools_result():
     rec = _Recorder({"role": "assistant", "content": [{"type": "text", "text": "x"}], "model": "m"})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):

@@ -43,7 +43,9 @@ class Connection(TypedServerRequestMixin):
     """Per-client connection state and standalone-stream `Outbound`.
 
     Constructed by `ServerRunner` once per connection. The peer-info fields are
-    `None` until `initialize` completes; `initialized` is set then.
+    `None` until `initialize` completes; `initialized` is set then. In
+    stateless deployments the runner sets `initialized` immediately and
+    peer-info remains `None` (no handshake reaches a stateless connection).
     """
 
     def __init__(self, outbound: Outbound, *, has_standalone_channel: bool, session_id: str | None = None) -> None:
@@ -66,7 +68,9 @@ class Connection(TypedServerRequestMixin):
         Push context managers (`await exit_stack.enter_async_context(...)`)
         or callbacks (`exit_stack.push_async_callback(...)`) from handlers or
         middleware to register per-connection teardown. Unwound LIFO after
-        `dispatcher.run()` returns, shielded from cancellation."""
+        `dispatcher.run()` returns, shielded from cancellation. Exceptions
+        raised by callbacks are logged and swallowed; they never propagate
+        out of `ServerRunner.run()`."""
 
     @property
     def client_info(self) -> Implementation | None:

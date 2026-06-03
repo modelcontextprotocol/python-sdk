@@ -78,7 +78,7 @@ class ServerSession:
         result = await self._dispatcher.send_raw_request(
             data["method"], data.get("params"), opts or None, _related_request_id=related
         )
-        return result_type.model_validate(result)
+        return result_type.model_validate(result, by_name=False)
 
     async def send_notification(
         self,

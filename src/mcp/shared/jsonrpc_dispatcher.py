@@ -131,6 +131,9 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
         return self.transport.can_send_request and not self._closed
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        if self._closed:
+            logger.debug("dropped %s: dispatch context closed", method)
+            return
         await self._dispatcher.notify(method, params, _related_request_id=self._request_id)
 
     async def send_raw_request(
@@ -252,7 +255,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         methods whose side effects must be observable to the next message,
         e.g. `initialize`, so a pipelined follow-up sees the initialized state.
         Only suitable for handlers that complete quickly, since inline handling
-        blocks dequeuing."""
+        blocks dequeuing; a handler that awaits the peer (`send_raw_request`)
+        while inline will deadlock because the parked read loop cannot dequeue
+        the response."""
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -333,14 +338,14 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             # Spec-recommended courtesy: tell the peer we've given up so it can
             # stop work and free resources. v1's BaseSession.send_request does
             # NOT do this; it's new behaviour.
-            await self._cancel_outbound(request_id, f"timed out after {opts.get('timeout')}s")
+            await self._cancel_outbound(request_id, f"timed out after {opts.get('timeout')}s", _related_request_id)
             raise MCPError(code=REQUEST_TIMEOUT, message=f"Request {method!r} timed out") from None
         except anyio.get_cancelled_exc_class():
             # Our caller's scope was cancelled. We're already inside a cancelled
             # scope, so any bare `await` here re-raises immediately - shield to
             # let the courtesy cancel notification go out before we propagate.
             with anyio.CancelScope(shield=True):
-                await self._cancel_outbound(request_id, "caller cancelled")
+                await self._cancel_outbound(request_id, "caller cancelled", _related_request_id)
             raise
         finally:
             # Always remove the waiter, even on cancel/timeout, so a late
@@ -474,7 +479,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         scope = anyio.CancelScope()
         self._in_flight[req.id] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
-            await self._handle_request(req, dctx, scope, on_request)
+            # Spawn (so `sender_ctx` applies, matching the concurrent path) but
+            # park the read loop until the handler returns; that's the inline
+            # ordering guarantee. Because the read loop is parked, a handler
+            # that awaits the peer here (e.g. `dctx.send_raw_request`) will
+            # deadlock: the response can never be dequeued.
+            done = anyio.Event()
+
+            async def _run_inline() -> None:
+                try:
+                    await self._handle_request(req, dctx, scope, on_request)
+                finally:
+                    done.set()
+
+            self._spawn(_run_inline, sender_ctx=sender_ctx)
+            await done.wait()
         else:
             self._spawn(self._handle_request, req, dctx, scope, on_request, sender_ctx=sender_ctx)
 
@@ -642,8 +661,16 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped error for %r: write stream closed", request_id)
 
-    async def _cancel_outbound(self, request_id: RequestId, reason: str) -> None:
+    async def _cancel_outbound(self, request_id: RequestId, reason: str, related_request_id: RequestId | None) -> None:
+        # Thread `related_request_id` so streamable-HTTP routes the cancel onto
+        # the same per-request SSE stream as the request it cancels; without it
+        # the notification falls through to the standalone GET stream and is
+        # dropped when no GET stream is open.
         try:
-            await self.notify("notifications/cancelled", {"requestId": request_id, "reason": reason})
+            await self.notify(
+                "notifications/cancelled",
+                {"requestId": request_id, "reason": reason},
+                _related_request_id=related_request_id,
+            )
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             pass

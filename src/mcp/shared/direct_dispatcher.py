@@ -56,6 +56,10 @@ class _DirectDispatchContext:
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
 
+    @property
+    def can_send_request(self) -> bool:
+        return self.transport.can_send_request
+
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         await self._back_notify(method, params)
 
@@ -65,7 +69,7 @@ class _DirectDispatchContext:
         params: Mapping[str, Any] | None,
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
-        if not self.transport.can_send_request:
+        if not self.can_send_request:
             raise NoBackChannelError(method)
         return await self._back_request(method, params, opts)
 
