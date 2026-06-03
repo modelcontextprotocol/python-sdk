@@ -207,7 +207,7 @@ class StreamableHTTPServerTransport:
             send_stream.close()
             receive_stream.close()
 
-    def close_standalone_sse_stream(self) -> None:  # pragma: no cover
+    def close_standalone_sse_stream(self) -> None:
         """Close the standalone GET SSE stream, triggering client reconnection.
 
         This method closes the HTTP connection for the standalone GET stream used
@@ -221,8 +221,6 @@ class StreamableHTTPServerTransport:
             This is a no-op if there is no active standalone SSE stream.
             Requires event_store to be configured for events to be stored during
             the disconnect.
-            Currently, client reconnection for standalone GET streams is NOT
-            implemented - this is a known gap (see test_standalone_get_stream_reconnection).
         """
         self.close_sse_stream(GET_STREAM_KEY)
 
@@ -245,7 +243,7 @@ class StreamableHTTPServerTransport:
             async def close_stream_callback() -> None:
                 self.close_sse_stream(request_id)
 
-            async def close_standalone_stream_callback() -> None:  # pragma: no cover
+            async def close_standalone_stream_callback() -> None:
                 self.close_standalone_sse_stream()
 
             metadata = ServerMessageMetadata(
@@ -421,7 +419,7 @@ class StreamableHTTPServerTransport:
         has_json, has_sse = self._check_accept_headers(request)
         if self.is_json_response_enabled:
             # For JSON-only responses, only require application/json
-            if not has_json:  # pragma: no cover
+            if not has_json:
                 response = self._create_error_response(
                     "Not Acceptable: Client must accept application/json",
                     HTTPStatus.NOT_ACCEPTABLE,
