@@ -19,10 +19,11 @@ def temp_file(tmp_path: Path):
     yield tmp_file
 
 
-def test_init_with_resource_templates():
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
 
+
+def test_init_with_resource_templates():
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     manager = ResourceManager(resource_templates=[template])
     assert manager.list_templates() == [template]
@@ -94,9 +95,6 @@ async def test_get_resource_from_template():
     """Test getting a resource through a template."""
     manager = ResourceManager()
 
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
-
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     manager.add_resource_template(template)
 
@@ -135,9 +133,6 @@ def test_add_resource_template():
     """Test adding a resource template."""
     manager = ResourceManager()
 
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
-
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     added = manager.add_resource_template(template)
     assert added == template
@@ -147,9 +142,6 @@ def test_add_resource_template():
 def test_add_duplicate_resource_template():
     """Test adding the same resource template twice."""
     manager = ResourceManager()
-
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
 
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     first = manager.add_resource_template(template)
@@ -162,9 +154,6 @@ def test_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
     """Test warning on duplicate resource templates."""
     manager = ResourceManager()
 
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
-
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     manager.add_resource_template(template)
     manager.add_resource_template(template)
@@ -174,9 +163,6 @@ def test_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
 def test_disable_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
     """Test disabling warning on duplicate resource templates."""
     manager = ResourceManager(warn_on_duplicate_resources=False)
-
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
 
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
     manager.add_resource_template(template)
