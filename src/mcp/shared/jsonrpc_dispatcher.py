@@ -102,7 +102,6 @@ class _InFlight(Generic[TransportT]):
 
     scope: anyio.CancelScope
     dctx: _JSONRPCDispatchContext[TransportT]
-    cancelled_by_peer: bool = False
 
 
 @dataclass
@@ -489,7 +488,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         if msg.method == "notifications/cancelled":
             match msg.params:
                 case {"requestId": str() | int() as rid} if (in_flight := self._in_flight.get(rid)) is not None:
-                    in_flight.cancelled_by_peer = True
                     in_flight.dctx.cancel_requested.set()
                     if self._peer_cancel_mode == "interrupt":
                         in_flight.scope.cancel()

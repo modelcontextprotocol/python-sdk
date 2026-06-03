@@ -255,11 +255,19 @@ async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pyt
 
 @pytest.mark.anyio
 async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: SrvT):
+    seen: list[Any] = []
+
+    async def on_roots(ctx: Ctx, params: NotificationParams | None) -> None:
+        seen.append(params)
+
+    server.add_notification_handler("notifications/roots/list_changed", NotificationParams, on_roots)
     async with connected_runner(server, initialized=False) as (client, _):
         await client.notify("notifications/roots/list_changed", None)  # before init: dropped
         await client.notify("notifications/initialized", None)
         await client.notify("notifications/unknown", None)  # no handler: dropped
-    # No exception raised; both drops are silent.
+        await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
+        await anyio.wait_all_tasks_blocked()
+    assert seen == [None]  # only the post-init one reached the handler
 
 
 @pytest.mark.anyio
