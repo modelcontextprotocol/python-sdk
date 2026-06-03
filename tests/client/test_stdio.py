@@ -558,3 +558,146 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+# A stub MCP-ish server: exits cleanly as soon as stdin closes. We only need
+# the stdio_client to be able to stand the transport up; we do not exercise
+# any MCP protocol traffic in the FIFO-cleanup tests below.
+_QUIET_STDIN_STUB = textwrap.dedent(
+    """
+    import sys
+    for _ in sys.stdin:
+        pass
+    """
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_supports_fifo_cleanup_on_asyncio(anyio_backend: str):
+    """Regression for https://github.com/modelcontextprotocol/python-sdk/issues/577.
+
+    Prior to the fix, closing two ``stdio_client`` transports in the order
+    they were opened (FIFO) crashed with::
+
+        RuntimeError: Attempted to exit a cancel scope that isn't the
+        current task's current cancel scope
+
+    because each stdio_client bound a task-group cancel scope to the
+    caller's task, and anyio enforces a strict LIFO stack on those
+    scopes. On asyncio the fix uses ``asyncio.create_task`` for the
+    reader / writer so the transports are independent and the cleanup
+    order no longer matters.
+
+    (Trio intentionally forbids orphan tasks — there is no equivalent
+    fix on that backend, so this test is asyncio-only.)
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    s1 = AsyncExitStack()
+    s2 = AsyncExitStack()
+
+    await s1.__aenter__()
+    await s2.__aenter__()
+
+    await s1.enter_async_context(stdio_client(params))
+    await s2.enter_async_context(stdio_client(params))
+
+    # Close in FIFO order — the opposite of what anyio's structured
+    # concurrency would normally require.
+    await s1.aclose()
+    await s2.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_supports_lifo_cleanup_on_asyncio(anyio_backend: str):
+    """Sanity check for the fix above: the historical LIFO cleanup path
+    must still work unchanged on asyncio.
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    s1 = AsyncExitStack()
+    s2 = AsyncExitStack()
+    await s1.__aenter__()
+    await s2.__aenter__()
+
+    await s1.enter_async_context(stdio_client(params))
+    await s2.enter_async_context(stdio_client(params))
+
+    # LIFO cleanup — the last-opened transport closes first.
+    await s2.aclose()
+    await s1.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_shared_exit_stack_fifo_on_asyncio(anyio_backend: str):
+    """The same story, but through a single ``AsyncExitStack`` that the
+    caller then closes once. ExitStack runs callbacks in LIFO order on
+    its own, so this case already worked — the test pins that behavior
+    so a future refactor of the asyncio branch cannot silently break
+    it.
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(stdio_client(params))
+        await stack.enter_async_context(stdio_client(params))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["trio"])
+async def test_stdio_client_supports_lifo_cleanup_on_trio(anyio_backend: str):
+    """Coverage for the structured-concurrency branch of ``stdio_client``.
+
+    On trio the historical anyio task-group is kept — the FIFO fix from
+    #577 is asyncio-only because trio forbids orphan tasks by design.
+    This test just exercises the trio code path end-to-end with LIFO
+    cleanup (which works the same way it always has) so the trio
+    branch is not dead code under coverage.
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(stdio_client(params))
+        await stack.enter_async_context(stdio_client(params))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_reader_crash_propagates_on_asyncio(
+    anyio_backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guardrail for the asyncio branch of #577: moving the reader/writer
+    out of an anyio task group must NOT silently swallow exceptions
+    they raise. An anyio task group would have re-raised those through
+    the async ``with`` block; the asyncio path has to reproduce that
+    contract by collecting the task results in ``__aexit__`` and
+    re-raising anything that isn't cancellation / closed-resource.
+    """
+    from typing import Any
+
+    from mcp.client import stdio as stdio_mod
+
+    class _BoomTextStream:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __aiter__(self) -> "_BoomTextStream":
+            return self
+
+        async def __anext__(self) -> str:
+            raise RuntimeError("deliberate reader crash for #577 regression test")
+
+    monkeypatch.setattr(stdio_mod, "TextReceiveStream", _BoomTextStream)
+
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    with pytest.raises(RuntimeError, match="deliberate reader crash"):
+        async with stdio_client(params):
+            # Give the reader a chance to raise. The crash should close
+            # the streams out from under us, so we just wait a moment
+            # and then exit the context — the exception is surfaced on
+            # the way out.
+            await anyio.sleep(0.2)
