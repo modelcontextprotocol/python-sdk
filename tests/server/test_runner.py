@@ -14,6 +14,7 @@ import anyio
 import pytest
 from opentelemetry.trace import SpanKind, StatusCode
 
+import mcp.server.runner
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
@@ -775,3 +776,55 @@ async def test_runner_exit_stack_cleanup_exception_is_logged_not_propagated(
         await client.send_raw_request("tools/list", None)
     assert cleaned == ["ok"]
     assert "connection exit_stack cleanup raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_exit_stack_blocking_cleanup_abandoned_after_grace(
+    server: SrvT, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A cleanup callback that never returns is abandoned once the grace period
+    elapses: `run()` exits, later callbacks in the unwind are cancelled at
+    their first checkpoint, and a warning is logged. Grace 0 means the deadline
+    is already expired on entry, so the abandonment is immediate."""
+    monkeypatch.setattr(mcp.server.runner, "_EXIT_STACK_CLOSE_TIMEOUT", 0)
+    ran: list[str] = []
+    release = anyio.Event()
+
+    async def _abandoned() -> None:
+        # LIFO unwind: pushed first, so it runs after the blocker. By then the
+        # deadline has fired, so this checkpoint raises and the append never runs.
+        await anyio.sleep(0)
+        ran.append("abandoned")
+
+    async def _blocker() -> None:
+        ran.append("blocker started")
+        await release.wait()
+        ran.append("blocker finished")
+
+    async with connected_runner(server) as (client, runner):
+        runner.connection.exit_stack.push_async_callback(_abandoned)
+        runner.connection.exit_stack.push_async_callback(_blocker)
+        await client.send_raw_request("tools/list", None)
+    assert ran == ["blocker started"]
+    assert "abandoning remaining callbacks" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Well-behaved cleanup callbacks run to completion under the bounded
+    unwind and no abandonment warning is logged. Uses the production grace;
+    the deadline never delays a fast unwind, it only bounds a hung one."""
+    cleaned: list[int] = []
+
+    async def _append(i: int) -> None:
+        await anyio.sleep(0)
+        cleaned.append(i)
+
+    async with connected_runner(server) as (client, runner):
+        for i in (1, 2):
+            runner.connection.exit_stack.push_async_callback(_append, i)
+        await client.send_raw_request("tools/list", None)
+    assert cleaned == [2, 1]
+    assert "abandoning remaining callbacks" not in caplog.text

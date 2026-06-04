@@ -63,6 +63,13 @@ LifespanT = TypeVar("LifespanT", default=Any)
 
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
 
+_EXIT_STACK_CLOSE_TIMEOUT: float = 5
+"""Grace period in seconds for `connection.exit_stack` teardown in `run()`.
+
+The unwind is shielded from outer cancellation so per-connection cleanup runs
+even when the server is being torn down; the shield must be bounded or a
+misbehaving cleanup callback would hang shutdown indefinitely."""
+
 
 def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
     """Lift `_meta` from raw params with the same key-aliasing pydantic applies.
@@ -194,13 +201,15 @@ class ServerRunner(Generic[LifespanT]):
         to `dispatcher.run()`. `task_status.started()` is forwarded so callers
         can `await tg.start(runner.run)` and resume once the dispatcher is
         ready to accept requests. Once the dispatcher exits,
-        `connection.exit_stack` is unwound (shielded) so any per-connection
-        cleanup registered by handlers or middleware runs to completion.
+        `connection.exit_stack` is unwound (shielded from outer cancellation,
+        bounded by `_EXIT_STACK_CLOSE_TIMEOUT`) so any per-connection cleanup
+        registered by handlers or middleware gets a chance to run without a
+        misbehaving callback hanging shutdown indefinitely.
         """
         try:
             await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
         finally:
-            with anyio.CancelScope(shield=True):
+            with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True) as scope:
                 try:
                     await self.connection.exit_stack.aclose()
                 except Exception:
@@ -210,6 +219,11 @@ class ServerRunner(Generic[LifespanT]):
                     # exception from `dispatcher.run()` (including the
                     # CancelledError that SHTTP idle-timeout teardown checks).
                     logger.exception("connection exit_stack cleanup raised")
+            if scope.cancelled_caught:
+                logger.warning(
+                    "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
+                    _EXIT_STACK_CLOSE_TIMEOUT,
+                )
 
     def _compose_on_request(self) -> OnRequest:
         """Wrap `_on_request` in `dispatch_middleware`, outermost-first.
