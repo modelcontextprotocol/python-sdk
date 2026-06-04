@@ -17,7 +17,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, otel_middleware
+from mcp.server.runner import ServerRunner, _extract_meta, otel_middleware
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
@@ -420,19 +420,77 @@ async def test_runner_dispatch_middleware_wraps_everything_including_initialize(
 
 
 @pytest.mark.anyio
-async def test_runner_server_middleware_wraps_handlers_but_not_initialize(server: SrvT):
-    seen_methods: list[str] = []
+async def test_runner_server_middleware_wraps_every_request_including_initialize(server: SrvT):
+    seen: list[tuple[str, Any]] = []
 
     async def ctx_mw(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
-        seen_methods.append(method)
+        seen.append((method, params))
         return await call_next()
 
     server.middleware.append(ctx_mw)
     async with connected_runner(server) as (client, _):
         await client.send_raw_request("ping", None)
-        await client.send_raw_request("tools/list", None)
-    # initialize (sent by the helper) NOT wrapped; ping and tools/list ARE.
-    assert seen_methods == ["ping", "tools/list"]
+        await client.send_raw_request("tools/list", {"_meta": {"k": "v"}})
+    assert [m for m, _ in seen] == ["initialize", "ping", "tools/list"]
+    # params arrive raw (Mapping), not as a validated model
+    assert seen[2][1] == {"_meta": {"k": "v"}}
+
+
+@pytest.mark.anyio
+async def test_runner_server_middleware_observes_method_not_found_via_call_next_raise(server: SrvT):
+    seen: list[tuple[str, type[BaseException] | None]] = []
+
+    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        try:
+            return await call_next()
+        except MCPError as e:
+            seen.append((method, type(e)))
+            raise
+
+    server.middleware.append(observe)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("nonexistent/method", None)
+    assert exc.value.error.code == METHOD_NOT_FOUND
+    assert seen == [("nonexistent/method", MCPError)]
+
+
+@pytest.mark.anyio
+async def test_runner_server_middleware_wraps_notifications(server: SrvT):
+    """The same chain wraps `_on_notify`: it sees `notifications/initialized`,
+    pre-init drops, and registered notification handlers, with
+    `ctx.request_id is None`."""
+    seen: list[tuple[str, bool]] = []
+
+    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        seen.append((method, ctx.request_id is None))
+        return await call_next()
+
+    async def on_roots(ctx: Ctx, params: NotificationParams | None) -> None:
+        return None
+
+    server.add_notification_handler("notifications/roots/list_changed", NotificationParams, on_roots)
+    server.middleware.append(observe)
+    async with connected_runner(server, initialized=False) as (client, _):
+        await client.notify("notifications/roots/list_changed", None)  # pre-init drop, still observed
+        await client.notify("notifications/initialized", None)
+        await client.notify("notifications/roots/list_changed", None)
+        await anyio.wait_all_tasks_blocked()
+    assert seen == [
+        ("notifications/roots/list_changed", True),
+        ("notifications/initialized", True),
+        ("notifications/roots/list_changed", True),
+    ]
+
+
+def test_extract_meta_returns_none_for_absent_or_malformed():
+    """Context construction is independent of `_meta` validity; the params
+    validation inside `call_next()` is what surfaces the error."""
+    assert _extract_meta(None) is None
+    assert _extract_meta({}) is None
+    assert _extract_meta({"_meta": "not-a-dict"}) is None
+    assert _extract_meta({"_meta": {"progressToken": []}}) is None
+    assert _extract_meta({"_meta": {"progressToken": "x", "k": 1}}) == {"progress_token": "x", "k": 1}
 
 
 @pytest.mark.anyio
@@ -450,6 +508,7 @@ async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
 
     server.middleware.extend([make_mw("a"), make_mw("b")])
     async with connected_runner(server) as (client, _):
+        order.clear()  # drop the wrap of the helper's `initialize`
         await client.send_raw_request("tools/list", None)
     assert order == ["a-in", "b-in", "b-out", "a-out"]
 

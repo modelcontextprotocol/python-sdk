@@ -1113,7 +1113,7 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 - `InitializationState` enum and `ServerSession._initialization_state` — initialization tracking is now on `Connection` (`connection.initialized` is an `anyio.Event`, `connection.client_params` holds the init params).
 - `ServerRequestResponder` type alias.
-- `ServerSession.incoming_messages` stream — there is no longer a public stream of inbound messages to iterate. Register handlers via the `on_*` constructor params (or `add_request_handler`) and use `Server.middleware` to observe every request.
+- `ServerSession.incoming_messages` stream — there is no longer a public stream of inbound messages to iterate. Register handlers via the `on_*` constructor params (or `add_request_handler`) and use `Server.middleware` to observe every inbound request and notification (`initialize`, unknown methods, validation failures, and `notifications/initialized` included).
 - `ServerSession.__aenter__` / `__aexit__` — `ServerSession` is no longer an async context manager.
 - The private `_receive_loop`, `_received_request`, `_received_notification`, and `_handle_incoming` overrides — there is nothing to override on `ServerSession` anymore. To intercept inbound messages, use `Server.middleware` or `DispatchMiddleware` (see the `_handle_*` removal section above).
 

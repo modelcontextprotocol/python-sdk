@@ -117,12 +117,25 @@ _MwLifespanT = TypeVar("_MwLifespanT")
 
 
 class ServerMiddleware(Protocol[_MwLifespanT]):
-    """Context-tier middleware: `(ctx, method, typed_params, call_next) -> result`.
+    """Context-tier middleware: `(ctx, method, params, call_next) -> result`.
 
-    Runs *inside* `ServerRunner._on_request` after params validation and
-    context construction. Wraps registered handlers (including `ping`) but
-    not `initialize`, `METHOD_NOT_FOUND`, or validation failures. Listed
-    outermost-first on `Server.middleware`.
+    Runs at the top of `ServerRunner._on_request` / `_on_notify` after `ctx`
+    is built but before any validation, lookup, or handshake. Wraps every
+    inbound request and notification: `initialize`, the pre-init gate,
+    `METHOD_NOT_FOUND`, params validation, the handler call, and
+    `notifications/initialized` all run inside `call_next()`. A request-side
+    failure reaches the middleware as a raised `MCPError` (or
+    `ValidationError` for malformed params) so observation/logging middleware
+    can record it. Listed outermost-first on `Server.middleware`.
+
+    `ctx.request_id is None` distinguishes a notification from a request. For
+    notifications `call_next()` returns `None` (a dropped or unhandled
+    notification also returns `None`) and the middleware's own return value is
+    discarded.
+
+    `params` is the raw inbound mapping (no model validation has happened
+    yet). For typed inspection, validate against the model the middleware
+    expects.
 
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
     middleware sees `ctx.lifespan_context: L`. While the context is the
@@ -140,6 +153,6 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
         self,
         ctx: ServerRequestContext[_MwLifespanT, Any],
         method: str,
-        params: BaseModel | None,
+        params: Mapping[str, Any] | None,
         call_next: CallNext,
     ) -> HandlerResult: ...

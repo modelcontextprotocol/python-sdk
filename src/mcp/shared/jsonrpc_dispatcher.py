@@ -477,6 +477,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
+        # TODO(maxisbey): the spec puts request-id uniqueness on the sender;
+        # neither v1 nor the TS SDK guards a duplicate id here, so for now we
+        # blind-overwrite (parity). Revisit rejecting with INVALID_REQUEST.
         self._in_flight[req.id] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
             # Spawn (so `sender_ctx` applies, matching the concurrent path) but

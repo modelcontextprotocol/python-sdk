@@ -27,7 +27,7 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
 from mcp.server.connection import Connection
-from mcp.server.context import CallNext, ServerMiddleware, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
@@ -47,6 +47,7 @@ from mcp.types import (
     InitializeRequestParams,
     InitializeResult,
     RequestParams,
+    RequestParamsMeta,
     client_request_adapter,
 )
 
@@ -61,6 +62,24 @@ LifespanT = TypeVar("LifespanT", default=Any)
 
 
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
+
+
+def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
+    """Lift `_meta` from raw params with the same key-aliasing pydantic applies.
+
+    `RequestParams` only declares `meta` (alias `_meta`) and `MCPModel` does
+    not forbid extras, so this validate ignores everything else and never
+    rejects on the caller's other fields. Returns `None` for absent or
+    malformed `_meta` so context construction is independent of params
+    validity (which `_on_request` checks separately).
+    """
+    if not params or "_meta" not in params:
+        return None
+    try:
+        return RequestParams.model_validate(params, by_name=False).meta
+    except ValidationError:
+        return None
+
 
 _SPEC_CLIENT_METHODS: frozenset[str] = frozenset(
     cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(ClientRequest)
@@ -206,45 +225,50 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        # TODO(maxisbey): pinned compat. `BaseSession._receive_loop` validates
-        # every inbound request against the spec `ClientRequest` discriminated
-        # union *before* handler lookup, so a spec method with malformed params
-        # surfaces as INVALID_PARAMS via the dispatcher's ValidationError
-        # boundary even when no handler is registered. v2 wanted to decouple
-        # the runner from the spec union; revisit once the suite's divergence
-        # entry is resolved. Gated on spec methods so custom methods registered
-        # via `add_request_handler` still route (the existing server rejects
-        # those too, but nothing pins that and routing them is strictly better).
-        if method in _SPEC_CLIENT_METHODS:
-            payload: dict[str, Any] = {"method": method}
-            if params is not None:
-                payload["params"] = dict(params)
-            client_request_adapter.validate_python(payload, by_name=False)
-        if method == "initialize":
-            return self._handle_initialize(params)
-        if not self._initialized and method not in _INIT_EXEMPT:
-            # TODO(maxisbey): pinned compat. The existing server has no
-            # dedicated pre-init check; the request dies in ClientRequest
-            # validation, so the client sees the generic invalid-params shape.
-            raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-        entry = self.server.get_request_handler(method)
-        if entry is None:
-            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
-        # ValidationError propagates; the dispatcher's exception boundary maps
-        # it to INVALID_PARAMS. Absent wire params reach the handler as None
-        # (matches the existing `Server._handle_request`, where `req.params`
-        # is None for optional-params requests like tools/list); the empty-dict
-        # validate is a required-field check so a required-params model still
-        # surfaces as INVALID_PARAMS rather than reaching the handler as None.
-        if params is None:
-            entry.params_type.model_validate({}, by_name=False)
-            typed_params = None
-        else:
-            typed_params = entry.params_type.model_validate(params, by_name=False)
-        ctx = self._make_context(dctx, typed_params)
-        call: CallNext = partial(entry.handler, ctx, typed_params)
-        for mw in reversed(self.server.middleware):
-            call = partial(mw, ctx, method, typed_params, call)
+        ctx = self._make_context(dctx, _extract_meta(params))
+
+        async def _inner() -> HandlerResult:
+            # TODO(maxisbey): pinned compat. `BaseSession._receive_loop`
+            # validates every inbound request against the spec `ClientRequest`
+            # discriminated union *before* handler lookup, so a spec method
+            # with malformed params surfaces as INVALID_PARAMS via the
+            # dispatcher's ValidationError boundary even when no handler is
+            # registered. v2 wanted to decouple the runner from the spec union;
+            # revisit once the suite's divergence entry is resolved. Gated on
+            # spec methods so custom methods registered via
+            # `add_request_handler` still route (the existing server rejects
+            # those too, but nothing pins that and routing is strictly better).
+            if method in _SPEC_CLIENT_METHODS:
+                payload: dict[str, Any] = {"method": method}
+                if params is not None:
+                    payload["params"] = dict(params)
+                client_request_adapter.validate_python(payload, by_name=False)
+            if method == "initialize":
+                return self._handle_initialize(params)
+            if not self._initialized and method not in _INIT_EXEMPT:
+                # TODO(maxisbey): pinned compat. The existing server has no
+                # dedicated pre-init check; the request dies in ClientRequest
+                # validation, so the client sees the generic invalid-params
+                # shape.
+                raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+            entry = self.server.get_request_handler(method)
+            if entry is None:
+                raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
+            # ValidationError propagates; the dispatcher's exception boundary
+            # maps it to INVALID_PARAMS. Absent wire params reach the handler
+            # as None (matches the existing `Server._handle_request`, where
+            # `req.params` is None for optional-params requests like
+            # tools/list); the empty-dict validate is a required-field check
+            # so a required-params model still surfaces as INVALID_PARAMS
+            # rather than reaching the handler as None.
+            if params is None:
+                entry.params_type.model_validate({}, by_name=False)
+                typed_params = None
+            else:
+                typed_params = entry.params_type.model_validate(params, by_name=False)
+            return await entry.handler(ctx, typed_params)
+
+        call = self._compose_server_middleware(ctx, method, params, _inner)
         return _dump_result(await call())
 
     async def _on_notify(
@@ -253,45 +277,68 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> None:
-        if method == "notifications/initialized":
-            self._initialized = True
-            self.connection.initialized.set()
-            return
-        if not self._initialized:
-            logger.debug("dropped %s: received before initialization", method)
-            return
-        entry = self.server.get_notification_handler(method)
-        if entry is None:
-            logger.debug("no handler for notification %s", method)
-            return
-        # Absent wire params reach the handler as None, not an empty model
-        # (matches the existing `Server._handle_notification`). The empty-dict
-        # validate is a required-field check: a required-params model (e.g.
-        # ProgressNotificationParams) takes the malformed-params drop path
-        # instead of reaching a non-Optional handler as None.
-        try:
-            if params is None:
-                entry.params_type.model_validate({}, by_name=False)
-                typed_params = None
-            else:
-                typed_params = entry.params_type.model_validate(params, by_name=False)
-        except ValidationError:
-            logger.warning("dropped %r: malformed params", method)
-            return
-        ctx = self._make_context(dctx, typed_params)
-        try:
+        ctx = self._make_context(dctx, _extract_meta(params))
+
+        async def _inner() -> None:
+            if method == "notifications/initialized":
+                self._initialized = True
+                self.connection.initialized.set()
+                return
+            if not self._initialized:
+                logger.debug("dropped %s: received before initialization", method)
+                return
+            entry = self.server.get_notification_handler(method)
+            if entry is None:
+                logger.debug("no handler for notification %s", method)
+                return
+            # Absent wire params reach the handler as None, not an empty model
+            # (matches the existing `Server._handle_notification`). The
+            # empty-dict validate is a required-field check: a required-params
+            # model (e.g. ProgressNotificationParams) takes the
+            # malformed-params drop path instead of reaching a non-Optional
+            # handler as None.
+            try:
+                if params is None:
+                    entry.params_type.model_validate({}, by_name=False)
+                    typed_params = None
+                else:
+                    typed_params = entry.params_type.model_validate(params, by_name=False)
+            except ValidationError:
+                logger.warning("dropped %r: malformed params", method)
+                return
             await entry.handler(ctx, typed_params)
+
+        call = self._compose_server_middleware(ctx, method, params, _inner)
+        try:
+            await call()
         except Exception:
-            # Top-level boundary: a notification handler crashing must not
-            # tear down the connection (it runs as a bare task in the
-            # dispatcher's task group; an uncaught exception would cancel
-            # every sibling, including the read loop and in-flight requests).
+            # Top-level boundary: a notification handler (or middleware)
+            # crashing must not tear down the connection (it runs as a bare
+            # task in the dispatcher's task group; an uncaught exception would
+            # cancel every sibling, including the read loop and in-flight
+            # requests). Middleware sees the raise out of `call_next()` first.
             logger.exception("notification handler for %r raised", method)
 
+    def _compose_server_middleware(
+        self,
+        ctx: ServerRequestContext[LifespanT, Any],
+        method: str,
+        params: Mapping[str, Any] | None,
+        inner: CallNext,
+    ) -> CallNext:
+        """Wrap `inner` in `Server.middleware`, outermost-first.
+
+        Shared by `_on_request` and `_on_notify` so the same middleware chain
+        observes every inbound message.
+        """
+        call = inner
+        for mw in reversed(self.server.middleware):
+            call = partial(mw, ctx, method, params, call)
+        return call
+
     def _make_context(
-        self, dctx: DispatchContext[TransportContext], typed_params: BaseModel | None
+        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None
     ) -> ServerRequestContext[LifespanT, Any]:
-        meta = typed_params.meta if isinstance(typed_params, RequestParams) else None
         # TODO(maxisbey): remove for Context rework. Reads the SHTTP per-request
         # data off the raw `dctx.message_metadata` carrier; replace with the
         # per-transport context once that lands.
@@ -312,7 +359,7 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
 
-    def _handle_initialize(self, params: Mapping[str, Any] | None) -> dict[str, Any]:
+    def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
         init = InitializeRequestParams.model_validate(params or {}, by_name=False)
         self.connection.client_params = init
         requested = init.protocol_version
@@ -335,4 +382,4 @@ class ServerRunner(Generic[LifespanT]):
             ),
             instructions=opts.instructions,
         )
-        return _dump_result(result)
+        return result

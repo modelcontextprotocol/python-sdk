@@ -215,7 +215,8 @@ class Server(Generic[LifespanResultT]):
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
-        # Context-tier middleware: wraps each request handler with
+        # Context-tier middleware: wraps every inbound request (including
+        # `initialize`, lookup, validation, handler) with
         # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
         # TODO(maxisbey): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
