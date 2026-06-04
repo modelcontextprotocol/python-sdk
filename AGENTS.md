@@ -65,6 +65,11 @@
   tests. Don't silence warnings from your own code; fix the underlying cause.
   Scoped `ignore::` entries for upstream libraries are acceptable in
   `pyproject.toml` with a comment explaining why.
+- New features from the 2026-07-28 spec must have a matching test in the
+  [conformance suite](https://github.com/modelcontextprotocol/conformance)
+  that passes against this SDK (CI runs it via
+  `.github/workflows/conformance.yml`). If no matching test exists, stop and
+  tell the user so they can raise an issue on the conformance repo.
 
 ### Coverage
 
