@@ -57,16 +57,21 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
     through the graceful path's job-handle close and not through the escalation's
     `TerminateJobObject` — the two kills are indistinguishable on the socket.
 
-    The server connects back too (not just the child), and its stderr is captured
-    through `errlog`: a failure then says *which* process never arrived and what the
-    server printed, instead of one silent timeout — xdist swallows subprocess stderr
-    on CI, so without the capture a broken spawn chain is undiagnosable there.
+    The server connects back too (not just the child), the child's stderr is routed
+    into the server's, and both are captured through `errlog`; the child also prints
+    a startup marker there. A timeout failure then reports how many connections
+    arrived (so which process never showed), how long the spawn took, and the
+    captured stderr verbatim — xdist swallows subprocess stderr on CI, so without
+    the capture a broken spawn chain is undiagnosable there.
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
         stack.push_async_callback(sock.aclose)
 
-        child = connect_back_script(port)
+        # The startup marker (and any child traceback, via the Popen's
+        # stderr=sys.stderr below) lands in errlog, splitting "child never
+        # spawned/started" from "child started but could not connect".
+        child = "import sys\nprint('child-started', file=sys.stderr, flush=True)\n" + connect_back_script(port)
         # The server spawns a child (its Popen failure, if any, is surfaced on
         # stderr), connects back itself, then exits as soon as its stdin closes —
         # the well-behaved graceful path, so the escalation never runs. The child
@@ -77,7 +82,7 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
         server = (
             f"import socket, subprocess, sys\n"
             f"try:\n"
-            f"    subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            f"    subprocess.Popen([sys.executable, '-c', {child!r}], stderr=sys.stderr)\n"
             f"except BaseException as exc:\n"
             f"    print(exc, file=sys.stderr, flush=True)\n"
             f"    raise\n"
@@ -93,20 +98,32 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
                 errlog.seek(0)
                 return errlog.read()
 
+            streams: list[anyio.abc.SocketStream] = []
+            spawn_started = anyio.current_time()
+            entered_at: float | None = None
             try:
                 # The bound covers two Python interpreter cold starts on a loaded
                 # runner; a healthy run takes well under a second.
                 with anyio.fail_after(15.0):
                     async with stdio_client(server_params, errlog=errlog):
+                        entered_at = anyio.current_time()
                         # The server and child race to connect; accept both,
                         # order-agnostic (accept_alive verifies each banner).
-                        streams: list[anyio.abc.SocketStream] = []
                         for _ in range(2):
                             stream = await accept_alive(sock)
                             stack.push_async_callback(stream.aclose)
                             streams.append(stream)
             except TimeoutError:
-                pytest.fail(f"a liveness connection never arrived; server stderr: {server_stderr()!r}")
+                missing_leg = "the server never ran its connect line" if not streams else "the child never connected"
+                spawn_split = (
+                    "the context never entered"
+                    if entered_at is None
+                    else f"the context entered {entered_at - spawn_started:.1f}s after spawn began"
+                )
+                pytest.fail(
+                    f"{len(streams)}/2 liveness connections arrived ({missing_leg}); "
+                    f"{spawn_split}; server stderr: {server_stderr()!r}"
+                )
 
             # Both peers connected and the context has fully exited, closing the
             # job handle. KILL_ON_JOB_CLOSE must have killed the child, and the
