@@ -14,6 +14,7 @@ from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata
 from mcp.types import (
@@ -48,8 +49,13 @@ class StubDispatcher:
         raise NotImplementedError
 
 
-def _make_session(dispatcher: StubDispatcher, *, capabilities: ClientCapabilities | None = None) -> ServerSession:
-    conn = Connection(dispatcher, has_standalone_channel=True)
+def _make_session(
+    dispatcher: StubDispatcher,
+    *,
+    capabilities: ClientCapabilities | None = None,
+    has_standalone_channel: bool = True,
+) -> ServerSession:
+    conn = Connection(dispatcher, has_standalone_channel=has_standalone_channel)
     if capabilities is not None:
         conn.client_params = InitializeRequestParams(
             protocol_version=LATEST_PROTOCOL_VERSION,
@@ -91,6 +97,22 @@ async def test_send_request_omits_call_options_when_none_given():
     _method, _params, opts, related = dispatcher.requests[0]
     assert opts is None
     assert related is None
+
+
+@pytest.mark.anyio
+async def test_send_request_without_back_channel_or_related_id_fails_fast():
+    """No standalone channel and no related request to ride on: raise instead
+    of parking forever on a response that cannot arrive."""
+    dispatcher = StubDispatcher(result={})
+    session = _make_session(dispatcher, has_standalone_channel=False)
+    with pytest.raises(NoBackChannelError):
+        await session.send_request(types.PingRequest(), types.EmptyResult)
+    assert dispatcher.requests == []
+    # With a related request id the message rides that request's stream.
+    await session.send_request(
+        types.PingRequest(), types.EmptyResult, metadata=ServerMessageMetadata(related_request_id=3)
+    )
+    assert dispatcher.requests[0][3] == 3
 
 
 @pytest.mark.anyio

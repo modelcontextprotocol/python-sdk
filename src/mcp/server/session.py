@@ -17,9 +17,9 @@ from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.dispatcher import CallOptions, ProgressFnT
-from mcp.shared.exceptions import StatelessModeNotSupported
+from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata
+from mcp.shared.message import ServerMessageMetadata
 
 __all__ = ["ServerSession"]
 
@@ -55,14 +55,19 @@ class ServerSession:
         request: types.ServerRequest,
         result_type: type[ResultT],
         request_read_timeout_seconds: float | None = None,
-        metadata: MessageMetadata = None,
+        metadata: ServerMessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ResultT:
         """Send a typed server-to-client request and validate the result.
 
         `metadata.related_request_id` (when supplied) routes the outgoing
         message onto the originating request's response stream over
-        streamable HTTP.
+        streamable HTTP; it is the only metadata field honored here.
+
+        Raises:
+            NoBackChannelError: If there is no related request to ride on and
+                the connection has no standalone channel (stateless HTTP), so
+                a response could never arrive.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
@@ -70,7 +75,11 @@ class ServerSession:
             opts["timeout"] = request_read_timeout_seconds
         if progress_callback is not None:
             opts["on_progress"] = progress_callback
-        related = metadata.related_request_id if isinstance(metadata, ServerMessageMetadata) else None
+        related = metadata.related_request_id if metadata is not None else None
+        if related is None and not self._connection.has_standalone_channel:
+            # Fail fast instead of parking forever on a response that cannot
+            # arrive; matches `Connection.send_raw_request`.
+            raise NoBackChannelError(data["method"])
         result = await self._dispatcher.send_raw_request(
             data["method"], data.get("params"), opts or None, _related_request_id=related
         )
