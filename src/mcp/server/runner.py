@@ -46,6 +46,7 @@ from mcp.types import (
     Implementation,
     InitializeRequestParams,
     InitializeResult,
+    NotificationParams,
     RequestParams,
     RequestParamsMeta,
     client_request_adapter,
@@ -315,10 +316,23 @@ class ServerRunner(Generic[LifespanT]):
 
         async def _inner() -> None:
             if method == "notifications/initialized":
+                # Validate against the spec params model *before* flipping the
+                # init state, so a malformed initialized notification drops
+                # like any other malformed notification and leaves the
+                # connection uninitialized (the existing server validated the
+                # full `ClientNotification` union before dispatch). On
+                # success, fall through to the registry so a handler
+                # registered for this method observes an initialized
+                # connection.
+                if params is not None:
+                    try:
+                        NotificationParams.model_validate(params, by_name=False)
+                    except ValidationError:
+                        logger.warning("dropped %r: malformed params", method)
+                        return
                 self._initialized = True
                 self.connection.initialized.set()
-                return
-            if not self._initialized:
+            elif not self._initialized:
                 logger.debug("dropped %s: received before initialization", method)
                 return
             entry = self.server.get_notification_handler(method)

@@ -259,8 +259,15 @@ class Server(Generic[LifespanResultT]):
         `params_type` is the model incoming params are validated against
         before the handler is invoked. It should subclass `RequestParams` so
         `_meta` parses uniformly. Replaces any existing handler for the same
-        method (no collision guard against spec methods).
+        method, except `initialize`, which is reserved: the runner owns the
+        handshake, so registering it raises `ValueError`. Use
+        `Server.middleware` to observe or wrap initialization.
         """
+        if method == "initialize":
+            raise ValueError(
+                "'initialize' is handled by the server runner and cannot be overridden; "
+                "use Server.middleware to observe or wrap initialization"
+            )
         self._request_handlers[method] = HandlerEntry(params_type, handler)
 
     def add_notification_handler(
@@ -272,7 +279,9 @@ class Server(Generic[LifespanResultT]):
         """Register a notification handler for `method`.
 
         `params_type` should subclass `NotificationParams` so `_meta`
-        parses uniformly. Replaces any existing handler.
+        parses uniformly. Replaces any existing handler. A handler for
+        `notifications/initialized` runs after the runner has marked the
+        connection initialized.
         """
         self._notification_handlers[method] = HandlerEntry(params_type, handler)
 

@@ -261,6 +261,48 @@ async def test_runner_on_notify_initialized_sets_flag_and_connection_event(serve
 
 
 @pytest.mark.anyio
+async def test_runner_on_notify_malformed_initialized_does_not_initialize(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+):
+    """A malformed `notifications/initialized` drops like any other malformed
+    notification and leaves the connection uninitialized."""
+    async with connected_runner(server, initialized=False) as (client, runner):
+        await client.notify("notifications/initialized", {"_meta": 42})
+        await anyio.wait_all_tasks_blocked()
+        assert runner._initialized is False
+        assert not runner.connection.initialized.is_set()
+    assert "dropped 'notifications/initialized': malformed params" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_initialized_routes_to_registered_handler_after_state_set(server: SrvT):
+    """A handler registered for `notifications/initialized` fires after the
+    runner flips the init state, so it observes an initialized connection."""
+    seen: list[bool] = []
+    delivered = anyio.Event()
+
+    async def on_initialized(ctx: Ctx, params: NotificationParams | None) -> None:
+        seen.append(runner._initialized and runner.connection.initialized.is_set())
+        delivered.set()
+
+    server.add_notification_handler("notifications/initialized", NotificationParams, on_initialized)
+    async with connected_runner(server, initialized=False) as (client, runner):
+        await client.notify("notifications/initialized", {"_meta": {"k": "v"}})
+        await delivered.wait()
+    assert seen == [True]
+
+
+def test_server_add_request_handler_rejects_initialize():
+    async def handler(ctx: Ctx, params: InitializeRequestParams) -> dict[str, Any]:
+        raise NotImplementedError
+
+    server: SrvT = Server(name="s")
+    with pytest.raises(ValueError, match="Server.middleware"):
+        server.add_request_handler("initialize", InitializeRequestParams, handler)
+    assert server.get_request_handler("initialize") is None
+
+
+@pytest.mark.anyio
 async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
     seen: list[tuple[Any, Any]] = []
     delivered = anyio.Event()
@@ -792,14 +834,16 @@ async def test_runner_exit_stack_blocking_cleanup_abandoned_after_grace(
 
     async def _abandoned() -> None:
         # LIFO unwind: pushed first, so it runs after the blocker. By then the
-        # deadline has fired, so this checkpoint raises and the append never runs.
+        # deadline has fired, so this checkpoint raises and the line below is
+        # unreachable (if abandonment broke, the missing warning fails the
+        # caplog assert).
         await anyio.sleep(0)
-        ran.append("abandoned")
+        raise NotImplementedError
 
     async def _blocker() -> None:
         ran.append("blocker started")
         await release.wait()
-        ran.append("blocker finished")
+        raise NotImplementedError
 
     async with connected_runner(server) as (client, runner):
         runner.connection.exit_stack.push_async_callback(_abandoned)
