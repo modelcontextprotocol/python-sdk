@@ -13,6 +13,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.oauth2 import _build_authorization_url
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -3169,3 +3170,86 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+class TestAuthorizationEndpointWithQuery:
+    """Regression tests for #2776 - authorization_endpoint carrying query params."""
+
+    def test_build_authorization_url_no_existing_query(self):
+        url = _build_authorization_url(
+            "https://auth.example.com/authorize",
+            {"response_type": "code", "client_id": "abc"},
+        )
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/authorize"
+        assert params["response_type"] == ["code"]
+        assert params["client_id"] == ["abc"]
+        # No malformed double "?" separator.
+        assert url.count("?") == 1
+
+    def test_build_authorization_url_preserves_existing_query(self):
+        # e.g. Salesforce advertises .../authorize?prompt=select_account
+        url = _build_authorization_url(
+            "https://test.salesforce.com/services/oauth2/authorize?prompt=select_account",
+            {"response_type": "code", "client_id": "abc"},
+        )
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/services/oauth2/authorize"
+        # The server-provided param survives...
+        assert params["prompt"] == ["select_account"]
+        # ...alongside the flow-generated params.
+        assert params["response_type"] == ["code"]
+        assert params["client_id"] == ["abc"]
+        # Exactly one "?" - the old f-string produced "...?prompt=...?response_type=...".
+        assert url.count("?") == 1
+
+    def test_build_authorization_url_flow_params_win_on_conflict(self):
+        url = _build_authorization_url(
+            "https://auth.example.com/authorize?response_type=token",
+            {"response_type": "code"},
+        )
+        params = parse_qs(urlparse(url).query)
+        assert params["response_type"] == ["code"]
+
+    @pytest.mark.anyio
+    async def test_perform_authorization_preserves_endpoint_query(self, oauth_provider: OAuthClientProvider):
+        """End-to-end: redirect URL stays valid when the endpoint has a query string."""
+        oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://test.salesforce.com"),
+            authorization_endpoint=AnyHttpUrl(
+                "https://test.salesforce.com/services/oauth2/authorize?prompt=select_account"
+            ),
+            token_endpoint=AnyHttpUrl("https://test.salesforce.com/services/oauth2/token"),
+        )
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        captured_url: str | None = None
+        captured_state: str | None = None
+
+        async def capture_redirect(url: str) -> None:
+            nonlocal captured_url, captured_state
+            captured_url = url
+            captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+        async def mock_callback() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
+
+        oauth_provider.context.redirect_handler = capture_redirect
+        oauth_provider.context.callback_handler = mock_callback
+
+        await oauth_provider._perform_authorization_code_grant()
+
+        assert captured_url is not None
+        parsed = urlparse(captured_url)
+        params = parse_qs(parsed.query)
+        assert parsed.path == "/services/oauth2/authorize"
+        assert params["prompt"] == ["select_account"]
+        assert params["response_type"] == ["code"]
+        assert params["client_id"] == ["test_client_id"]
+        assert captured_url.count("?") == 1

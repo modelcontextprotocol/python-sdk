@@ -9,10 +9,10 @@ import logging
 import secrets
 import string
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -57,6 +57,22 @@ from mcp.shared.auth_utils import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 logger = logging.getLogger(__name__)
+
+
+def _build_authorization_url(auth_endpoint: str, auth_params: Mapping[str, str | None]) -> str:
+    """Build an authorization URL, preserving any query params already on the endpoint.
+
+    Servers may advertise an ``authorization_endpoint`` that already carries query
+    parameters (e.g. ``https://example.com/authorize?prompt=select_account``).
+    Naively appending ``?<params>`` would produce an invalid URL with two ``?``
+    separators, so the existing query is parsed and merged with ``auth_params``.
+    Flow-generated params take precedence on key conflicts; ``None`` values are
+    dropped rather than serialized as the literal string ``"None"``.
+    """
+    parsed = urlparse(auth_endpoint)
+    merged_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    merged_params.update({key: value for key, value in auth_params.items() if value is not None})
+    return urlunparse(parsed._replace(query=urlencode(merged_params)))
 
 
 class PKCEParameters(BaseModel):
@@ -357,7 +373,7 @@ class OAuthClientProvider(httpx.Auth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = _build_authorization_url(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
