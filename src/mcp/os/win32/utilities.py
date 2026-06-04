@@ -6,7 +6,7 @@ import subprocess
 import sys
 import weakref
 from pathlib import Path
-from typing import BinaryIO, TextIO, cast
+from typing import BinaryIO, TextIO, TypeAlias, cast
 
 import anyio
 from anyio.abc import Process
@@ -33,20 +33,11 @@ else:
 _EXIT_POLL_INTERVAL = 0.01
 
 # The Job Object each spawned process was assigned to, so the process tree can be
-# terminated through it later.
-#
-# Values must stay the pywin32 `PyHANDLE` returned by `CreateJobObject`, never a
-# detached int: on abandoned-shutdown paths where neither pop site runs, the dying
-# weak entry drops the last reference to the `PyHANDLE`, whose destructor closes
-# the OS handle — and `KILL_ON_JOB_CLOSE` then reaps the orphaned tree. That
-# destructor-close is the only backstop on those paths; storing anything but the
-# `PyHANDLE` would turn it into a permanent handle leak.
-#
-# Keys rely on anyio's `Process` being weakref-able and identity-hashed (it is a
-# `dataclass(eq=False)` without `__slots__`); if that ever changes, registration
-# fails loudly with a `TypeError` rather than silently. Entries are written once,
-# after assignment can no longer fail, and consumed via `pop()` on the event
-# loop — no locking needed.
+# terminated through it later. Values must stay the pywin32 `PyHANDLE` returned by
+# `CreateJobObject`, never a detached int: on abandoned-shutdown paths where
+# neither pop site runs, the dying weak entry drops the last reference and the
+# `PyHANDLE` destructor closes the OS handle, which is what makes
+# `KILL_ON_JOB_CLOSE` reap the orphaned tree.
 _process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = weakref.WeakKeyDictionary()
 
 
@@ -131,6 +122,11 @@ class FallbackProcess:
         return self.popen.poll()
 
 
+# The process handle stdio_client drives: anyio's Process, or the Popen-backed
+# fallback used on Windows event loops without async subprocess support.
+ServerProcess: TypeAlias = Process | FallbackProcess
+
+
 async def create_windows_process(
     command: str,
     args: list[str],
@@ -146,10 +142,8 @@ async def create_windows_process(
     In that case, we fall back to using subprocess.Popen.
 
     The process is added to a Job Object so that child processes are terminated
-    with it. Children the server spawns before the assignment completes — a
-    window of two API calls against the server's interpreter cold start — are
-    not captured: job membership is inherited at process creation, never
-    acquired retroactively.
+    with it; children spawned before the assignment completes are not captured
+    (see the inline note below).
 
     Args:
         command (str): The executable to run
@@ -258,11 +252,8 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object
             win32job.AssignProcessToJobObject(job, process_handle)
         finally:
             win32api.CloseHandle(process_handle)
-        # Recorded only after the process-handle close above. If that close failed
-        # post-assignment, the except below would close the job handle and
-        # KILL_ON_JOB_CLOSE would take the just-assigned healthy server with it —
-        # accepted, because CloseHandle cannot realistically fail on a handle
-        # OpenProcess just returned.
+        # Recorded after the CloseHandle above: had that close failed, the except
+        # below would close the job and KILL_ON_JOB_CLOSE would take the server.
         _process_jobs[process] = job
     except pywintypes.error:
         logger.warning("Failed to assign process %d to Job Object", process.pid, exc_info=True)
@@ -277,8 +268,8 @@ def close_process_job(process: Process | FallbackProcess) -> None:
 
     The job is created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so closing the
     handle also kills any job members that are still alive. Calling this at the end
-    of shutdown makes that reaping deterministic — otherwise it would happen whenever
-    the handle happens to be garbage-collected. This is a deliberate divergence from
+    of shutdown makes that reaping deterministic instead of GC-timed (when the
+    handle would happen to be collected). This is a deliberate divergence from
     POSIX, where a well-behaved server's surviving background children are left
     alive. No-op on POSIX and when no job was assigned (or it was already closed by
     tree termination).
@@ -301,7 +292,7 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
     which kills every process in it immediately. Otherwise only the process itself
     is terminated. Both are immediate hard kills: Windows offers no portable
     equivalent of SIGTERM for a whole tree, so unlike POSIX there is no graceful
-    phase here — the stdin-close grace period in the client shutdown is the
+    phase here; the stdin-close grace period in the client shutdown is the
     server's opportunity to exit cleanly.
     """
     if sys.platform != "win32":
@@ -321,7 +312,8 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
                 except pywintypes.error:
                     pass
 
-    # Always try to terminate the process itself as well
+    # Terminate the process directly too: it may have no job (creation or
+    # assignment failed), in which case the job path above did nothing.
     try:
         process.terminate()
     except OSError:
