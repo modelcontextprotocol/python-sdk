@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import TextIO, cast
 
 import anyio
 import pytest
@@ -80,7 +81,7 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
                 env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")}
                 | {"PYTHONWARNINGS": "ignore::SyntaxWarning"},
             ),
-            errlog=errlog,
+            errlog=cast(TextIO, errlog),
         )
 
         # Must exceed session time plus the patched PROCESS_TERMINATION_TIMEOUT (10s).
@@ -98,9 +99,12 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     assert received == snapshot(
         [LoggingMessageNotificationParams(level="info", logger="echo", data="echoing across\nprocesses")]
     )
-    # The server writes this line only after its run loop returns on stdin close: seeing it proves
-    # a self-exit, not the terminate escalation. The capture itself proves stderr passthrough.
-    assert captured_stderr == snapshot("stdio-echo: clean exit\n")
+    # The server writes this line only after its run loop returns, which happens when stdin closes:
+    # seeing it proves the process exited on its own rather than via the transport's terminate
+    # escalation, without a timing-based assertion. The capture itself proves stderr passthrough:
+    # the transport routes the child's stderr to the caller's `errlog` without consuming it.
+    # Prerelease Python/lowest-direct dependency runs may print warnings before the server marker.
+    assert captured_stderr.endswith("stdio-echo: clean exit\n")
 
 
 @requirement("transport:stdio:stream-purity")
