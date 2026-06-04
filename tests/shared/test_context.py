@@ -2,7 +2,7 @@
 
 `BaseContext` is composition over a `DispatchContext` - it forwards
 `transport`/`cancel_requested`/`send_raw_request`/`notify`/`progress`
-and adds `meta`. It must satisfy `Outbound` so `PeerMixin` works on it.
+and adds `meta`. It must satisfy `Outbound` so `ClientPeerMixin` works on it.
 """
 
 from collections.abc import Mapping
@@ -13,7 +13,7 @@ import pytest
 
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
-from mcp.shared.peer import Peer
+from mcp.shared.peer import ClientPeer
 from mcp.shared.transport_context import TransportContext
 
 from .conftest import direct_pair, jsonrpc_pair
@@ -104,11 +104,11 @@ async def test_base_context_report_progress_invokes_caller_on_progress():
 
 @pytest.mark.anyio
 async def test_base_context_satisfies_outbound_so_peer_mixin_works():
-    """Wrapping a BaseContext in Peer proves it satisfies Outbound structurally."""
+    """Wrapping a BaseContext in ClientPeer proves it satisfies Outbound structurally."""
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         bctx = BaseContext(ctx)
-        await Peer(bctx).ping()
+        await ClientPeer(bctx).ping()
         return {}
 
     crec = Recorder()

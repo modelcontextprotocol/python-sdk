@@ -1,7 +1,7 @@
 """Tests for the server-side `Context`.
 
 `Context` composes `BaseContext` (forwarding to a `DispatchContext`) with
-`PeerMixin` (typed sample/elicit/roots/ping) plus `lifespan` and `connection`.
+`ClientPeerMixin` (typed sample/elicit/roots/ping) plus `lifespan` and `connection`.
 End-to-end tested over `DirectDispatcher`.
 """
 

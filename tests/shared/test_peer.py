@@ -1,6 +1,6 @@
-"""Tests for `PeerMixin` and `Peer`.
+"""Tests for `ClientPeerMixin` and `ClientPeer`.
 
-Each PeerMixin method is tested by wrapping a `DirectDispatcher` in `Peer`,
+Each ClientPeerMixin method is tested by wrapping a `DirectDispatcher` in `ClientPeer`,
 calling the typed method, and asserting (a) the right method+params went out
 and (b) the return value is the typed result model.
 """
@@ -12,7 +12,7 @@ import anyio
 import pytest
 
 from mcp.shared.dispatcher import DispatchContext
-from mcp.shared.peer import Peer, dump_params
+from mcp.shared.peer import ClientPeer, dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CreateMessageResult,
@@ -44,7 +44,7 @@ class _Recorder:
 async def test_peer_sample_sends_create_message_and_returns_typed_result():
     rec = _Recorder({"role": "assistant", "content": {"type": "text", "text": "hi"}, "model": "m"})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
                 [SamplingMessage(role="user", content=TextContent(type="text", text="hello"))],
@@ -64,7 +64,7 @@ async def test_peer_sample_validates_result_alias_only():
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     rec = _Recorder(snake)
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
                 [SamplingMessage(role="user", content=TextContent(type="text", text="q"))], max_tokens=1
@@ -77,7 +77,7 @@ async def test_peer_sample_validates_result_alias_only():
 async def test_peer_sample_with_tools_returns_with_tools_result():
     rec = _Recorder({"role": "assistant", "content": [{"type": "text", "text": "x"}], "model": "m"})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
                 [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],
@@ -94,7 +94,7 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
 async def test_peer_elicit_form_sends_elicitation_create_with_form_params():
     rec = _Recorder({"action": "accept", "content": {"name": "Max"}})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.elicit_form("Your name?", requested_schema={"type": "object", "properties": {}})
         method, params = rec.seen[0]
@@ -108,7 +108,7 @@ async def test_peer_elicit_form_sends_elicitation_create_with_form_params():
 async def test_peer_elicit_url_sends_elicitation_create_with_url_params():
     rec = _Recorder({"action": "accept"})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.elicit_url("Auth needed", url="https://example.com/auth", elicitation_id="e1")
         method, params = rec.seen[0]
@@ -122,7 +122,7 @@ async def test_peer_elicit_url_sends_elicitation_create_with_url_params():
 async def test_peer_list_roots_sends_roots_list_and_returns_typed_result():
     rec = _Recorder({"roots": [{"uri": "file:///workspace"}]})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.list_roots()
         method, _ = rec.seen[0]
@@ -136,7 +136,7 @@ async def test_peer_list_roots_sends_roots_list_and_returns_typed_result():
 async def test_peer_list_roots_with_meta_sends_meta_in_params():
     rec = _Recorder({"roots": []})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             await peer.list_roots(meta={"traceId": "t1"})
         method, params = rec.seen[0]
@@ -164,7 +164,7 @@ async def test_peer_notify_forwards_to_wrapped_outbound():
         async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
             sent.append((method, params))
 
-    await Peer(_Out()).notify("n", {"x": 1})
+    await ClientPeer(_Out()).notify("n", {"x": 1})
     assert sent == [("n", {"x": 1})]
 
 
@@ -172,7 +172,7 @@ async def test_peer_notify_forwards_to_wrapped_outbound():
 async def test_peer_ping_sends_ping_and_returns_none():
     rec = _Recorder({})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
-        peer = Peer(client)
+        peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.ping()
         method, _ = rec.seen[0]

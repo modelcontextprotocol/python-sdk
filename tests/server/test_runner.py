@@ -208,6 +208,18 @@ async def test_runner_rejects_snake_case_initialize_params(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_initialize_with_absent_params_returns_invalid_params_and_stays_alive(server: SrvT):
+    """Re-covers what the old `tests/issues/test_malformed_input.py` pinned: a
+    malformed `initialize` is rejected and the runner keeps serving."""
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", None)
+        assert exc.value.error.code == INVALID_PARAMS
+        result = await client.send_raw_request("initialize", _initialize_params())
+    assert result["serverInfo"]["name"] == "test-server"
+
+
+@pytest.mark.anyio
 async def test_runner_rejects_snake_case_params_for_custom_handler(server: SrvT):
     """Custom-method handlers (which skip the spec-method gate) still validate
     alias-only at the per-handler boundary."""

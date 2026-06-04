@@ -1,9 +1,9 @@
 """Typed MCP request sugar over an `Outbound`.
 
-`PeerMixin` defines the server-to-client request methods (sampling, elicitation,
-roots, ping) once. Any class that satisfies `Outbound` (i.e. has
+`ClientPeerMixin` defines the server-to-client request methods (sampling,
+elicitation, roots, ping) once. Any class that satisfies `Outbound` (i.e. has
 `send_raw_request` and `notify`) can mix it in and get the typed methods for
-free - `Context`, `Connection`, `Client`, or the bare `Peer` wrapper below.
+free - `Context`, or the bare `ClientPeer` wrapper below.
 
 The mixin does no capability gating: it builds the params, calls
 `self.send_raw_request(method, params)`, and parses the result into the typed
@@ -32,7 +32,7 @@ from mcp.types import (
     ToolChoice,
 )
 
-__all__ = ["Meta", "Peer", "PeerMixin"]
+__all__ = ["ClientPeer", "ClientPeerMixin", "Meta"]
 
 Meta = dict[str, Any]
 """Type alias for the `_meta` field carried on request/notification params."""
@@ -41,7 +41,7 @@ Meta = dict[str, Any]
 def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, Any] | None:
     """Serialize a params model to a wire dict, merging `meta` into `_meta`.
 
-    Shared by `PeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
+    Shared by `ClientPeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
     typed convenience method gets the same `_meta` handling. `meta` keys take
     precedence over any `_meta` already present on the model.
     """
@@ -52,7 +52,7 @@ def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, 
     return out
 
 
-class PeerMixin:
+class ClientPeerMixin:
     """Typed server-to-client request methods.
 
     Each method constrains `self` to `Outbound` so the mixin can be applied
@@ -193,11 +193,11 @@ class PeerMixin:
         await self.send_raw_request("ping", dump_params(None, meta), opts)
 
 
-class Peer(PeerMixin):
-    """Standalone wrapper that gives any `Outbound` the `PeerMixin` sugar.
+class ClientPeer(ClientPeerMixin):
+    """Standalone wrapper that gives any `Outbound` the `ClientPeerMixin` sugar.
 
-    `Context` and `Connection` mix `PeerMixin` in directly; use `Peer` when
-    you have a bare dispatcher (or any `Outbound`) and want the typed methods
+    `Context` mixes `ClientPeerMixin` in directly; use `ClientPeer` when you
+    have a bare dispatcher (or any `Outbound`) and want the typed methods
     without writing your own host class.
     """
 

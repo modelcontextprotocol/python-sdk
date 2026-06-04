@@ -11,7 +11,7 @@ from mcp.server.session import ServerSession
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.message import CloseSSEStreamCallback
-from mcp.shared.peer import Meta, PeerMixin
+from mcp.shared.peer import ClientPeerMixin, Meta
 from mcp.shared.transport_context import TransportContext
 from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
@@ -41,11 +41,11 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
 LifespanT = TypeVar("LifespanT", default=Any, covariant=True)
 
 
-class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin, Generic[LifespanT]):
+class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequestMixin, Generic[LifespanT]):
     """Server-side per-request context.
 
     Composes `BaseContext` (forwards to `DispatchContext`, satisfies `Outbound`),
-    `PeerMixin` (kwarg-style `sample`/`elicit_*`/`list_roots`/`ping`),
+    `ClientPeerMixin` (kwarg-style `sample`/`elicit_*`/`list_roots`/`ping`),
     and `TypedServerRequestMixin` (typed `send_request(req) -> Result`). Adds
     `lifespan` and `connection`.
 
