@@ -16,6 +16,7 @@ on the Windows runners where they do execute.
 import asyncio
 import sys
 from contextlib import AsyncExitStack
+from pathlib import Path
 
 import anyio
 import anyio.abc
@@ -39,6 +40,7 @@ pytestmark = [
 
 
 async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_closes(  # pragma: no cover
+    tmp_path: Path,
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
@@ -54,44 +56,78 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
     `terminate_calls == []` is the load-bearing distinction: it proves the child died
     through the graceful path's job-handle close and not through the escalation's
     `TerminateJobObject` — the two kills are indistinguishable on the socket.
+
+    The server connects back too (not just the child), and its stderr is captured
+    through `errlog`: a failure then says *which* process never arrived and what the
+    server printed, instead of one silent timeout — xdist swallows subprocess stderr
+    on CI, so without the capture a broken spawn chain is undiagnosable there.
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
         stack.push_async_callback(sock.aclose)
 
         child = connect_back_script(port)
-        # The server hands its inherited Job membership to a child, then exits as
-        # soon as its stdin closes — the well-behaved graceful path, so the
-        # escalation never runs. The child inherits membership because the SDK
-        # assigns the server to the Job synchronously after the spawn returns,
-        # while the server's interpreter is still cold-starting — long before it
-        # can Popen the child (job membership is inherited at CreateProcess, never
-        # acquired retroactively).
-        server = f"import subprocess, sys\nsubprocess.Popen([sys.executable, '-c', {child!r}])\nsys.stdin.read()\n"
+        # The server spawns a child (its Popen failure, if any, is surfaced on
+        # stderr), connects back itself, then exits as soon as its stdin closes —
+        # the well-behaved graceful path, so the escalation never runs. The child
+        # inherits Job membership because the SDK assigns the server to the Job
+        # synchronously after the spawn returns, while the server's interpreter is
+        # still cold-starting — long before it can Popen the child (job membership
+        # is inherited at CreateProcess, never acquired retroactively).
+        server = (
+            f"import socket, subprocess, sys\n"
+            f"try:\n"
+            f"    subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+            f"except BaseException as exc:\n"
+            f"    print(exc, file=sys.stderr, flush=True)\n"
+            f"    raise\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stdin.read()\n"
+        )
         server_params = StdioServerParameters(command=sys.executable, args=["-c", server])
 
-        # The bound covers two Python interpreter cold starts on a loaded runner;
-        # a healthy run takes well under a second.
-        with anyio.fail_after(15.0):
-            async with stdio_client(server_params):
-                stream = await accept_alive(sock)
-                stack.push_async_callback(stream.aclose)
+        with (tmp_path / "errlog.txt").open("w+", encoding="utf-8") as errlog:
 
-        # The child connected (so it joined the Job) and the context has fully
-        # exited (so the job handle is closed). KILL_ON_JOB_CLOSE must have killed
-        # the child: its socket closes abruptly. The `spawned_processes` recording
-        # is load-bearing here beyond observability: `_process_jobs` is weak-keyed,
-        # and the recorded strong reference pins the process object (and with it
-        # the job-handle entry) across this assertion window — without it, a GC
-        # between context exit and this assert could close the handle itself and
-        # mask a regression in the deterministic close.
-        await assert_stream_closed(stream)
+            def server_stderr() -> str:
+                errlog.seek(0)
+                return errlog.read()
 
-        leader = spawned_processes[0]
-        # The graceful path: the server exited on stdin closure with code 0, and
-        # the tree-termination escalation was never invoked.
-        assert leader.returncode == 0
-        assert terminate_calls == []
+            try:
+                # The bound covers two Python interpreter cold starts on a loaded
+                # runner; a healthy run takes well under a second.
+                with anyio.fail_after(15.0):
+                    async with stdio_client(server_params, errlog=errlog):
+                        # The server and child race to connect; accept both,
+                        # order-agnostic (accept_alive verifies each banner).
+                        streams: list[anyio.abc.SocketStream] = []
+                        for _ in range(2):
+                            stream = await accept_alive(sock)
+                            stack.push_async_callback(stream.aclose)
+                            streams.append(stream)
+            except TimeoutError:
+                pytest.fail(f"a liveness connection never arrived; server stderr: {server_stderr()!r}")
+
+            # Both peers connected and the context has fully exited, closing the
+            # job handle. KILL_ON_JOB_CLOSE must have killed the child, and the
+            # server died with its graceful exit: both sockets close. The
+            # `spawned_processes` recording is load-bearing here beyond
+            # observability: `_process_jobs` is weak-keyed, and the recorded strong
+            # reference pins the process object (and with it the job-handle entry)
+            # across this assertion window — without it, a GC between context exit
+            # and this assert could close the handle itself and mask a regression
+            # in the deterministic close.
+            try:
+                for stream in streams:
+                    await assert_stream_closed(stream)
+            except TimeoutError:
+                pytest.fail(f"a socket stayed open after shutdown; server stderr: {server_stderr()!r}")
+
+            leader = spawned_processes[0]
+            # The graceful path: the server exited on stdin closure with code 0,
+            # and the tree-termination escalation was never invoked.
+            assert leader.returncode == 0, server_stderr()
+            assert terminate_calls == [], server_stderr()
 
 
 # Overrides the suite-wide plain-"asyncio" anyio_backend fixture for this test only:
