@@ -186,12 +186,12 @@ def create_direct_dispatcher_pair(
         headers: Sets `TransportContext.headers` on both sides.
 
     Returns:
-        A `(left, right)` pair. Conventionally `left` is the client side
-        and `right` is the server side, but the wiring is symmetric.
+        A `(client, server)` pair. The wiring is symmetric, so the roles
+        are conventional only.
     """
     ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request, headers=headers)
-    left = DirectDispatcher(ctx)
-    right = DirectDispatcher(ctx)
-    left.connect_to(right)
-    right.connect_to(left)
-    return left, right
+    client = DirectDispatcher(ctx)
+    server = DirectDispatcher(ctx)
+    client.connect_to(server)
+    server.connect_to(client)
+    return client, server

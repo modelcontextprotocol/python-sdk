@@ -136,8 +136,8 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
         result = await client.send_raw_request("initialize", _initialize_params())
     assert result["serverInfo"]["name"] == "test-server"
     assert "tools" in result["capabilities"]
-    assert runner.connection.client_info is not None
-    assert runner.connection.client_info.name == "test-client"
+    assert runner.connection.client_params is not None
+    assert runner.connection.client_params.client_info.name == "test-client"
     assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
     assert runner._initialized is True
 

@@ -59,10 +59,20 @@ class CallOptions(TypedDict, total=False):
     """Receive `notifications/progress` updates for this request."""
 
     resumption_token: str
-    """Opaque token to resume a previously interrupted request (transport-dependent)."""
+    """Opaque token to resume a previously interrupted request.
+
+    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
+    transports. Supports protocol version 2025-11-25 and earlier; SSE-stream
+    resumption is removed in the next protocol revision.
+    """
 
     on_resumption_token: Callable[[str], Awaitable[None]]
-    """Receive a resumption token when the transport issues one."""
+    """Receive a resumption token when the transport issues one for this request.
+
+    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
+    transports. Supports protocol version 2025-11-25 and earlier; SSE-stream
+    resumption is removed in the next protocol revision.
+    """
 
 
 @runtime_checkable
@@ -82,6 +92,9 @@ class Outbound(Protocol):
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
         """Send a request and await its raw result dict.
+
+        `opts` carries per-call `timeout` / `on_progress` / resumption hints;
+        see `CallOptions`.
 
         Raises:
             MCPError: If the peer responded with an error, or the handler

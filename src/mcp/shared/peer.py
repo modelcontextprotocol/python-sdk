@@ -32,7 +32,7 @@ from mcp.types import (
     ToolChoice,
 )
 
-__all__ = ["Meta", "Peer", "PeerMixin", "dump_params"]
+__all__ = ["Meta", "Peer", "PeerMixin"]
 
 Meta = dict[str, Any]
 """Type alias for the `_meta` field carried on request/notification params."""

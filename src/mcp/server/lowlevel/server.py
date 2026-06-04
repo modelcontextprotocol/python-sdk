@@ -215,8 +215,11 @@ class Server(Generic[LifespanResultT]):
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
-        # Context-tier middleware consumed by `ServerRunner`. Additive; the
-        # existing `run()` path ignores it.
+        # Context-tier middleware: wraps each request handler with
+        # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
+        # TODO(maxisbey): provisional - signature and semantics change with the
+        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
+        # v2 final.
         self.middleware: list[ServerMiddleware[LifespanResultT]] = []
         logger.debug("Initializing server %r", name)
 
@@ -271,8 +274,6 @@ class Server(Generic[LifespanResultT]):
         parses uniformly. Replaces any existing handler.
         """
         self._notification_handlers[method] = HandlerEntry(params_type, handler)
-
-    # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
 
     def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
         """Return the registered entry for a request method, or `None`."""

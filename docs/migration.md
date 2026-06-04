@@ -428,7 +428,7 @@ async def my_tool(x: int, ctx: Context) -> str:
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
-### Registering lowlevel handlers on `MCPServer` (workaround)
+### Registering lowlevel handlers from `MCPServer`
 
 `MCPServer` does not expose public APIs for `subscribe_resource`, `unsubscribe_resource`, or `set_logging_level` handlers. In v1, the workaround was to reach into the private lowlevel server and use its decorator methods:
 
@@ -442,7 +442,7 @@ async def handle_set_logging_level(level: str) -> None:
 mcp._mcp_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
 ```
 
-In v2, the lowlevel `Server` no longer has decorator methods (handlers are constructor-only), so the equivalent workaround is `add_request_handler`:
+In v2, the lowlevel `Server` supports arbitrary request handlers directly via `add_request_handler` (the decorator methods are gone; handlers are otherwise constructor-only). From `MCPServer`, access it via `_lowlevel_server`:
 
 **After (v2):**
 

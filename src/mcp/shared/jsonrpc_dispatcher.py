@@ -504,6 +504,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         on_notify: OnNotify,
         sender_ctx: contextvars.Context | None,
     ) -> None:
+        """Route one inbound notification.
+
+        `notifications/cancelled` and `notifications/progress` are intercepted
+        here because they correlate against JSON-RPC request IDs - the
+        `_in_flight` / `_pending` tables this layer owns - so no higher layer
+        can act on them. See the module docstring for the design rationale.
+        """
         if msg.method == "notifications/cancelled":
             match msg.params:
                 case {"requestId": str() | int() as rid} if (in_flight := self._in_flight.get(rid)) is not None:

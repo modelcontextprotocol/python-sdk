@@ -24,7 +24,7 @@ from mcp.server._typed_request import TypedServerRequestMixin
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
-from mcp.types import ClientCapabilities, Implementation, InitializeRequestParams, LoggingLevel
+from mcp.types import ClientCapabilities, InitializeRequestParams, LoggingLevel
 
 __all__ = ["Connection"]
 
@@ -72,16 +72,6 @@ class Connection(TypedServerRequestMixin):
         raised by callbacks are logged and swallowed; they never propagate
         out of `ServerRunner.run()`."""
 
-    @property
-    def client_info(self) -> Implementation | None:
-        """The client's `Implementation` from `initialize`; `None` before initialization."""
-        return self.client_params.client_info if self.client_params is not None else None
-
-    @property
-    def client_capabilities(self) -> ClientCapabilities | None:
-        """The client's `ClientCapabilities` from `initialize`; `None` before initialization."""
-        return self.client_params.capabilities if self.client_params is not None else None
-
     async def send_raw_request(
         self,
         method: str,
@@ -92,7 +82,8 @@ class Connection(TypedServerRequestMixin):
 
         Low-level `Outbound` channel. Prefer the typed `send_request` (from
         `TypedServerRequestMixin`) or the convenience methods below; use this
-        directly only for off-spec messages.
+        directly only for off-spec messages. `opts` carries per-call `timeout`
+        / `on_progress` / resumption hints; see `CallOptions`.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -151,9 +142,9 @@ class Connection(TypedServerRequestMixin):
         """
         # TODO: redesign - mirrors v1 ServerSession.check_client_capability
         # verbatim for parity.
-        if self.client_capabilities is None:
+        if self.client_params is None:
             return False
-        have = self.client_capabilities
+        have = self.client_params.capabilities
         if capability.roots is not None:
             if have.roots is None:
                 return False

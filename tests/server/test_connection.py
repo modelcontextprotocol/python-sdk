@@ -235,16 +235,6 @@ def test_check_capability_per_field_branches(have: ClientCapabilities, want: Cli
     assert conn.check_capability(want) is expected
 
 
-def test_connection_client_info_and_capabilities_derive_from_client_params():
-    conn = Connection(StubOutbound(), has_standalone_channel=True)
-    assert conn.client_info is None
-    assert conn.client_capabilities is None
-    caps = ClientCapabilities(sampling=SamplingCapability())
-    conn.client_params = _client_params(caps)
-    assert conn.client_info is not None and conn.client_info.name == "t"
-    assert conn.client_capabilities == caps
-
-
 def test_connection_check_capability_true_when_client_declares_it():
     conn = Connection(StubOutbound(), has_standalone_channel=True)
     conn.client_params = _client_params(

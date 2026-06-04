@@ -9,21 +9,17 @@ The receive-loop, initialize handling, and per-request task isolation that
 used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any, TypeVar, overload
+from typing import Any, TypeVar, overload
 
 from pydantic import AnyUrl, BaseModel
 
 from mcp import types
+from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.dispatcher import CallOptions, ProgressFnT
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
-
-if TYPE_CHECKING:
-    from mcp.server.connection import Connection
 
 __all__ = ["ServerSession"]
 
