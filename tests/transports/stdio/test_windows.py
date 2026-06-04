@@ -58,11 +58,13 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
     `TerminateJobObject` — the two kills are indistinguishable on the socket.
 
     The server connects back too (not just the child), the child's stderr is routed
-    into the server's, and both are captured through `errlog`; the child also prints
-    a startup marker there. A timeout failure then reports how many connections
-    arrived (so which process never showed), how long the spawn took, and the
-    captured stderr verbatim — xdist swallows subprocess stderr on CI, so without
-    the capture a broken spawn chain is undiagnosable there.
+    into the server's, and both are captured through `errlog`; the child prints a
+    startup marker there, and the server reports the child's `poll()` status after
+    stdin EOF ends it. A timeout failure then reports how many connections arrived
+    (so which process never showed), how long the spawn took, and the captured
+    stderr verbatim — including the child's fate — since xdist swallows subprocess
+    stderr on CI, and without the capture a broken spawn chain is undiagnosable
+    there.
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
@@ -79,16 +81,28 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
         # synchronously after the spawn returns, while the server's interpreter is
         # still cold-starting — long before it can Popen the child (job membership
         # is inherited at CreateProcess, never acquired retroactively).
+        #
+        # The child is spawned through the base interpreter, not `sys.executable`:
+        # in launcher-wrapped venvs (uv's `python.exe` is a trampoline that runs
+        # the real interpreter inside its own Job machinery) the extra launcher
+        # layer proved fatal to grandchildren on CI runners — they booted and then
+        # died tracelessly inside the launcher's private job. The contract under
+        # test is unchanged: the child still inherits the SDK's Job at
+        # CreateProcess. After stdin EOF ends the server, it reports the child's
+        # `poll()` status — `None` means the child was alive when the server
+        # exited; an exit or NTSTATUS code names whatever killed it.
         server = (
             f"import socket, subprocess, sys\n"
+            f"exe = getattr(sys, '_base_executable', None) or sys.executable\n"
             f"try:\n"
-            f"    subprocess.Popen([sys.executable, '-c', {child!r}], stderr=sys.stderr)\n"
+            f"    p = subprocess.Popen([exe, '-c', {child!r}], stderr=sys.stderr)\n"
             f"except BaseException as exc:\n"
             f"    print(exc, file=sys.stderr, flush=True)\n"
             f"    raise\n"
             f"s = socket.create_connection(('127.0.0.1', {port}))\n"
             f"s.sendall(b'alive')\n"
             f"sys.stdin.read()\n"
+            f"print('child-rc:%s' % p.poll(), file=sys.stderr, flush=True)\n"
         )
         server_params = StdioServerParameters(command=sys.executable, args=["-c", server])
 
@@ -114,6 +128,11 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
                             stack.push_async_callback(stream.aclose)
                             streams.append(stream)
             except TimeoutError:
+                # By the time this clause runs, `stdio_client.__aexit__` has already
+                # completed its shielded shutdown on the way out of the `async
+                # with`: stdin closed, the server printed its `child-rc` line and
+                # exited. The stderr read below therefore carries the child's fate,
+                # not a mid-flight snapshot.
                 missing_leg = "the server never ran its connect line" if not streams else "the child never connected"
                 spawn_split = (
                     "the context never entered"
