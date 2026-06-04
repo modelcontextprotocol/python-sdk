@@ -7,6 +7,8 @@ The contract tests shared with `DirectDispatcher` live in
 """
 
 import contextvars
+import json
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -14,6 +16,8 @@ import anyio
 import anyio.lowlevel
 import pytest
 
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -29,11 +33,17 @@ from mcp.types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    CancelledNotification,
+    CancelledNotificationParams,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestId,
     Tool,
 )
 
@@ -665,13 +675,45 @@ async def test_progress_notification_for_unknown_token_falls_through_to_on_notif
 
 
 @pytest.mark.anyio
-async def test_cancelled_notification_for_unknown_request_id_is_noop():
+async def test_cancelled_notification_for_unknown_request_id_skips_cancel_but_reaches_on_notify():
     async with running_pair(jsonrpc_pair) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.notify("notifications/cancelled", {"requestId": 999})
-            # No effect; dispatcher remains healthy.
+            await srec.notified.wait()
+            # No in-flight correlation; dispatcher remains healthy.
             assert await client.send_raw_request("t", None) == {"echoed": "t", "params": {}}
-    assert srec.notifications == []  # cancelled is fully consumed, never teed
+    # cancelled is teed to on_notify so middleware/handlers can observe it.
+    assert srec.notifications == [("notifications/cancelled", {"requestId": 999})]
+
+
+@pytest.mark.anyio
+async def test_cancelled_notification_for_in_flight_request_is_teed_to_on_notify():
+    """The dispatcher applies the cancellation itself AND forwards the notification."""
+    handler_started = anyio.Event()
+    handler_exited = anyio.Event()
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def call() -> None:
+                    with pytest.raises(MCPError):
+                        await client.send_raw_request("slow", None)
+
+                tg.start_soon(call)
+                await handler_started.wait()
+                await client.notify("notifications/cancelled", {"requestId": 1})
+                await handler_exited.wait()
+                await srec.notified.wait()
+    assert srec.notifications == [("notifications/cancelled", {"requestId": 1})]
 
 
 _probe: contextvars.ContextVar[str] = contextvars.ContextVar("probe", default="unset")
@@ -931,3 +973,397 @@ async def test_jsonrpc_error_response_with_null_id_is_dropped():
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
+
+
+@pytest.mark.anyio
+async def test_notify_without_params_omits_params_key_on_the_wire():
+    """JSON-RPC 2.0 forbids `params: null`; the member must be absent.
+
+    Transports serialize with `exclude_unset=True`, so `notify` must leave
+    `params` unset on the model rather than passing an explicit None (strict
+    peers like the TypeScript SDK reject `"params": null`).
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    try:
+        await d.notify("notifications/tools/list_changed", None)
+        await d.notify("notifications/message", {"level": "info"})
+        bare = c2s_recv.receive_nowait()
+        with_params = c2s_recv.receive_nowait()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert isinstance(bare, SessionMessage)
+    wire = json.loads(bare.message.model_dump_json(by_alias=True, exclude_unset=True))
+    assert wire == {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+    assert isinstance(with_params, SessionMessage)
+    wire = json.loads(with_params.message.model_dump_json(by_alias=True, exclude_unset=True))
+    assert wire == {"jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "info"}}
+
+
+@pytest.mark.anyio
+async def test_transport_builder_exception_on_request_is_answered_with_internal_error():
+    """A raising builder costs only the one request, not the connection."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    calls = 0
+
+    def builder(_meta: MessageMetadata) -> TransportContext:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("builder boom")
+        return TransportContext(kind="jsonrpc", can_send_request=True)
+
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, transport_builder=builder)
+    on_request, on_notify = echo_handlers(Recorder())
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCError)
+            assert resp.message.id == 1
+            assert resp.message.error == ErrorData(code=INTERNAL_ERROR, message="transport context unavailable")
+            # The dispatcher stays healthy: the next request is served normally.
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp2 = await s2c_recv.receive()
+            assert isinstance(resp2, SessionMessage)
+            assert isinstance(resp2.message, JSONRPCResponse)
+            assert resp2.message.id == 2
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_transport_builder_exception_on_notification_drops_only_that_notification():
+    """A raising builder drops the one notification; the read loop survives."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    calls = 0
+
+    def builder(_meta: MessageMetadata) -> TransportContext:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("builder boom")
+        return TransportContext(kind="jsonrpc", can_send_request=True)
+
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, transport_builder=builder)
+    rec = Recorder()
+    on_request, on_notify = echo_handlers(rec)
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(message=JSONRPCNotification(jsonrpc="2.0", method="notifications/x", params=None))
+            )
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCResponse)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert rec.notifications == []  # the notification never reached on_notify
+
+
+@pytest.mark.anyio
+async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
+    """`int()` match patterns accept bool, and `True == 1` would alias the
+    `_in_flight` lookup to request id 1; the bool guard must reject it."""
+    handler_started = anyio.Event()
+    handler_exited = anyio.Event()
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def call() -> None:
+                    with pytest.raises(MCPError):
+                        await client.send_raw_request("slow", None)
+
+                tg.start_soon(call)
+                await handler_started.wait()
+                await client.notify("notifications/cancelled", {"requestId": True})
+                # The malformed cancel is teed to on_notify; once observed, the
+                # correlation arm has already run - and must not have cancelled
+                # the request keyed by id 1.
+                await srec.notified.wait()
+                assert not handler_exited.is_set()
+                await client.notify("notifications/cancelled", {"requestId": 1})
+                await handler_exited.wait()
+
+
+@pytest.mark.anyio
+async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback():
+    """Bool `progressToken`/`progress` values are malformed; the callback must
+    not fire for the unrelated request keyed by id 1 (`True == 1`)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    seen: list[float] = []
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            with anyio.fail_after(5):
+
+                async def respond_with_malformed_then_valid_progress() -> None:
+                    out = await c2s_recv.receive()
+                    assert isinstance(out, SessionMessage)
+                    assert isinstance(out.message, JSONRPCRequest)
+                    rid = out.message.id
+                    for params in (
+                        {"progressToken": True, "progress": 0.1},  # bool token
+                        {"progressToken": rid, "progress": True},  # bool progress
+                        {"progressToken": rid, "progress": 0.5},  # valid
+                    ):
+                        await s2c_send.send(
+                            SessionMessage(
+                                message=JSONRPCNotification(
+                                    jsonrpc="2.0", method="notifications/progress", params=params
+                                )
+                            )
+                        )
+                    await s2c_send.send(
+                        SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=rid, result={"ok": True}))
+                    )
+
+                async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+                    seen.append(progress)
+
+                tg.start_soon(respond_with_malformed_then_valid_progress)
+                result = await client.send_raw_request("ping", None, {"on_progress": on_progress})
+                assert result == {"ok": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert seen == [0.5]  # only the well-formed progress fired the callback
+
+
+@pytest.mark.anyio
+async def test_request_with_bool_meta_progress_token_is_not_adopted():
+    """A bool `_meta.progressToken` is malformed; `ctx.progress()` must be a no-op
+    instead of emitting `progressToken: true` on the wire."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params={"_meta": {"progressToken": True}})
+                )
+            )
+            with anyio.fail_after(5):
+                first = await s2c_recv.receive()
+            # No progress notification was emitted; the first wire message is the response.
+            assert isinstance(first, SessionMessage)
+            assert isinstance(first.message, JSONRPCResponse)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("request_id", "cancel_id"),
+    [(7, "7"), ("9", 9)],
+    ids=["string-cancel-for-int-request", "int-cancel-for-string-request"],
+)
+async def test_cancelled_correlates_across_string_and_int_request_id_forms(request_id: RequestId, cancel_id: object):
+    """A peer that stringifies the id between request and cancel still cancels
+    (same `_coerce_id` treatment as the response path)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=request_id, method="t", params=None))
+            )
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCNotification(
+                        jsonrpc="2.0", method="notifications/cancelled", params={"requestId": cancel_id}
+                    )
+                )
+            )
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCError)
+            assert resp.message.id == request_id  # response echoes the peer's id form verbatim
+            assert resp.message.error == ErrorData(code=0, message="Request cancelled")
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight():
+    """The awaited response write sits after the `_in_flight` pop; a second
+    request reusing the id during that window must keep its own entry (a
+    second, post-write pop would evict it and break its peer-cancellation)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    # buffer=0: the first handler's response write parks until the test receives.
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    calls = 0
+    second_started = anyio.Event()
+    second_exited = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"first": True}
+        second_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            second_exited.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="a")))
+                # First handler is now parked in `_write_result`; reuse its id.
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="b")))
+                await second_started.wait()
+                resp1 = await s2c_recv.receive()
+                assert isinstance(resp1, SessionMessage)
+                assert isinstance(resp1.message, JSONRPCResponse)
+                assert resp1.message.result == {"first": True}
+                # Let the first handler task run to completion past the write.
+                await anyio.wait_all_tasks_blocked()
+                assert 7 in server._in_flight  # pyright: ignore[reportPrivateUsage]
+                # The surviving entry must still be cancellable.
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 7}
+                        )
+                    )
+                )
+                resp2 = await s2c_recv.receive()
+                assert isinstance(resp2, SessionMessage)
+                assert isinstance(resp2.message, JSONRPCError)
+                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
+                assert second_exited.is_set()
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+def test_outbound_metadata_with_related_request_id_drops_resumption_hints_with_debug_log(
+    caplog: pytest.LogCaptureFixture,
+):
+    """`SessionMessage.metadata` carries one object; `related_request_id` wins
+    and resumption hints are dropped observably (debug log)."""
+    with caplog.at_level(logging.DEBUG, logger="mcp.shared.jsonrpc_dispatcher"):
+        md = _outbound_metadata(7, {"resumption_token": "abc"})
+    assert isinstance(md, ServerMessageMetadata)
+    assert md.related_request_id == 7
+    assert "dropping resumption hints" in caplog.text
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="mcp.shared.jsonrpc_dispatcher"):
+        md = _outbound_metadata(7, {"timeout": 1.0})
+    assert isinstance(md, ServerMessageMetadata)
+    assert "dropping resumption hints" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_server_middleware_observes_cancelled_notification():
+    """End-to-end over the JSON-RPC path: `Server.middleware` wraps every inbound
+    notification, including `notifications/cancelled` (the dispatcher applies
+    the cancellation itself, then forwards the notification)."""
+    handler_started = anyio.Event()
+    cancel_observed = anyio.Event()
+    observed: list[tuple[str, dict[str, Any]]] = []
+    request_id: RequestId | None = None
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        nonlocal request_id
+        request_id = ctx.request_id
+        handler_started.set()
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def observe(ctx: Any, method: str, params: Mapping[str, Any] | None, call_next: Any) -> Any:
+        if method == "notifications/cancelled":
+            observed.append((method, dict(params or {})))
+            cancel_observed.set()
+        return await call_next()
+
+    server = Server("test-server", on_call_tool=handle_call_tool)
+    server.middleware.append(observe)
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def call() -> None:
+                    with pytest.raises(MCPError):
+                        await client.session.send_request(
+                            CallToolRequest(params=CallToolRequestParams(name="t", arguments={})),
+                            CallToolResult,
+                        )
+
+                tg.start_soon(call)
+                await handler_started.wait()
+                assert request_id is not None
+                await client.session.send_notification(
+                    CancelledNotification(
+                        params=CancelledNotificationParams(request_id=request_id, reason="user clicked stop")
+                    )
+                )
+                await cancel_observed.wait()
+    assert len(observed) == 1
+    assert observed[0][0] == "notifications/cancelled"
+    assert observed[0][1]["requestId"] == request_id
+    assert observed[0][1]["reason"] == "user clicked stop"

@@ -123,7 +123,9 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
     is built but before any validation, lookup, or handshake. Wraps every
     inbound request and notification: `initialize`, the pre-init gate,
     `METHOD_NOT_FOUND`, params validation, the handler call, and
-    `notifications/initialized` all run inside `call_next()`. A request-side
+    `notifications/initialized` all run inside `call_next()`.
+    `notifications/cancelled` is observed too; the dispatcher applies the
+    cancellation itself, then forwards the notification. A request-side
     failure reaches the middleware as a raised `MCPError` (or
     `ValidationError` for malformed params) so observation/logging middleware
     can record it. Listed outermost-first on `Server.middleware`.

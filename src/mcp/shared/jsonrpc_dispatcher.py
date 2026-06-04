@@ -45,6 +45,7 @@ from mcp.shared.message import (
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     REQUEST_CANCELLED,
     REQUEST_TIMEOUT,
@@ -189,8 +190,17 @@ def _outbound_metadata(related_request_id: RequestId | None, opts: CallOptions |
     request it belongs to (so streamable-HTTP can route it onto that request's
     SSE stream). `ClientMessageMetadata` carries resumption hints to the
     client transport. `None` is the common case.
+
+    `SessionMessage.metadata` carries exactly one of these, so when
+    `related_request_id` is set it takes precedence and any resumption hints
+    in `opts` are dropped (with a debug log): requests made from a dispatch
+    context are routed onto the inbound request's stream, not resumed.
     """
     if related_request_id is not None:
+        if opts and (opts.get("resumption_token") is not None or opts.get("on_resumption_token") is not None):
+            logger.debug(
+                "dropping resumption hints: related_request_id %r takes precedence on metadata", related_request_id
+            )
         return ServerMessageMetadata(related_request_id=related_request_id)
     if opts:
         token = opts.get("resumption_token")
@@ -366,7 +376,14 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         *,
         _related_request_id: RequestId | None = None,
     ) -> None:
-        msg = JSONRPCNotification(jsonrpc="2.0", method=method, params=dict(params) if params is not None else None)
+        # Leave `params` unset (not explicitly None) when there are none:
+        # transports serialize with `exclude_unset=True`, and an explicit None
+        # would survive as `"params": null`, which JSON-RPC 2.0 forbids and
+        # strict peers (e.g. the TypeScript SDK's zod schemas) reject.
+        if params is not None:
+            msg = JSONRPCNotification(jsonrpc="2.0", method=method, params=dict(params))
+        else:
+            msg = JSONRPCNotification(jsonrpc="2.0", method=method)
         await self._write(msg, _outbound_metadata(_related_request_id, None))
 
     async def run(
@@ -464,11 +481,26 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         progress_token: ProgressToken | None
         match req.params:
-            case {"_meta": {"progressToken": str() | int() as progress_token}}:
+            # The bool guard matters: `int()` patterns match bool (a subclass),
+            # and `True == 1` would alias dict lookups to request id 1.
+            case {"_meta": {"progressToken": str() | int() as progress_token}} if not isinstance(progress_token, bool):
                 pass
             case _:
                 progress_token = None
-        transport_ctx = self._transport_builder(metadata)
+        try:
+            transport_ctx = self._transport_builder(metadata)
+        except Exception:
+            # Containment boundary for the user-supplied builder: a raising
+            # builder must cost only this message, not the whole connection
+            # (the exception would otherwise escape into run()'s read loop).
+            logger.exception("transport_builder raised; rejecting request %r", req.id)
+            self._spawn(
+                self._write_error,
+                req.id,
+                ErrorData(code=INTERNAL_ERROR, message="transport context unavailable"),
+                sender_ctx=sender_ctx,
+            )
+            return
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx,
             _dispatcher=self,
@@ -480,7 +512,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # TODO(maxisbey): the spec puts request-id uniqueness on the sender;
         # neither v1 nor the TS SDK guards a duplicate id here, so for now we
         # blind-overwrite (parity). Revisit rejecting with INVALID_REQUEST.
-        self._in_flight[req.id] = _InFlight(scope=scope, dctx=dctx)
+        # Coerced key so `notifications/cancelled` correlates regardless of
+        # whether the peer stringifies the id between request and cancel
+        # (`_dispatch_notification` coerces at lookup; responses still echo
+        # `req.id` verbatim).
+        self._in_flight[_coerce_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
             # Spawn (so `sender_ctx` applies, matching the concurrent path) but
             # park the read loop until the handler returns; that's the inline
@@ -512,22 +548,34 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         `notifications/cancelled` and `notifications/progress` are intercepted
         here because they correlate against JSON-RPC request IDs - the
         `_in_flight` / `_pending` tables this layer owns - so no higher layer
-        can act on them. See the module docstring for the design rationale.
+        can act on them. Both are still teed to `on_notify` afterwards, so
+        middleware and registered notification handlers observe every inbound
+        notification. See the module docstring for the design rationale.
         """
         if msg.method == "notifications/cancelled":
             match msg.params:
-                case {"requestId": str() | int() as rid} if (in_flight := self._in_flight.get(rid)) is not None:
+                # The bool guards here and below matter: `int()` patterns match
+                # bool (a subclass), and `True == 1` would alias the dict lookup
+                # to the entry keyed by request id 1.
+                case {"requestId": str() | int() as rid} if (
+                    not isinstance(rid, bool) and (in_flight := self._in_flight.get(_coerce_id(rid))) is not None
+                ):
                     in_flight.dctx.cancel_requested.set()
                     if self._peer_cancel_mode == "interrupt":
                         in_flight.scope.cancel()
                 case _:
                     pass
-            return
-        if msg.method == "notifications/progress":
+            # fall through: cancelled is also teed to on_notify so middleware
+            # and registered handlers can observe it (matches DirectDispatcher,
+            # which forwards every notification).
+        elif msg.method == "notifications/progress":
             match msg.params:
                 case {"progressToken": str() | int() as token, "progress": int() | float() as progress} if (
-                    pending := self._pending.get(_coerce_id(token))
-                ) is not None and pending.on_progress is not None:
+                    not isinstance(token, bool)
+                    and not isinstance(progress, bool)
+                    and (pending := self._pending.get(_coerce_id(token))) is not None
+                    and pending.on_progress is not None
+                ):
                     total = msg.params.get("total")
                     message = msg.params.get("message")
                     self._spawn(
@@ -540,7 +588,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 case _:
                     pass
             # fall through: progress is also teed to on_notify
-        transport_ctx = self._transport_builder(metadata)
+        try:
+            transport_ctx = self._transport_builder(metadata)
+        except Exception:
+            # Same containment boundary as `_dispatch_request`: a raising
+            # builder drops this notification instead of killing the read loop.
+            logger.exception("transport_builder raised; dropping notification %r", msg.method)
+            return
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx, _dispatcher=self, _request_id=None, message_metadata=metadata
         )
@@ -615,7 +669,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     # handler return and the pop, so the cancel can't
                     # interleave there.
                     dctx.close()
-                    self._in_flight.pop(req.id, None)
+                    self._in_flight.pop(_coerce_id(req.id), None)
                 await self._write_result(req.id, result)
             if scope.cancel_called:
                 # Peer-cancel: `_dispatch_notification` cancelled this scope
@@ -649,8 +703,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             await self._write_error(req.id, ErrorData(code=0, message=str(e)))
             if self._raise_handler_exceptions:
                 raise
-        finally:
-            self._in_flight.pop(req.id, None)
+        # No outer `_in_flight` pop here: the inner `finally` above already
+        # removes the entry on every path out of the handler, and a second
+        # pop after the awaited response writes could evict a newer request
+        # that reused the id during that window.
 
     def _allocate_id(self) -> int:
         self._next_id += 1

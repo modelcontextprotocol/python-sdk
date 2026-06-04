@@ -835,16 +835,15 @@ server.add_notification_handler("notifications/custom", MyNotifyParams, my_notif
 These were private, but some users subclassed `Server` and overrode them to intercept requests. Use middleware instead:
 
 ```python
+from collections.abc import Mapping
 from typing import Any
-
-from pydantic import BaseModel
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.context import CallNext, HandlerResult
 
 
 async def logging_middleware(
-    ctx: ServerRequestContext[Any, Any], method: str, params: BaseModel, call_next: CallNext
+    ctx: ServerRequestContext[Any, Any], method: str, params: Mapping[str, Any] | None, call_next: CallNext
 ) -> HandlerResult:
     print(f"handling {method}")
     result = await call_next()
@@ -856,11 +855,11 @@ server = Server("my-server", on_call_tool=...)
 server.middleware.append(logging_middleware)
 ```
 
-For lower-level interception (raw method/params before validation, including unknown methods), use `DispatchMiddleware` from `mcp.shared.dispatcher`.
+Middleware runs before params validation, so `params` is the raw inbound mapping (or `None`), and it also wraps unknown methods.
 
 ### Lowlevel `Server.run(raise_exceptions=True)`: transport errors no longer re-raised
 
-`raise_exceptions=True` now only governs handler exceptions: an exception raised by an `on_*` handler propagates out of `run()` instead of being converted to a JSON-RPC error response.
+`raise_exceptions=True` now only governs handler exceptions: an exception raised by an `on_*` handler propagates out of `run()`. The JSON-RPC error response is still written to the client first, regardless of the flag.
 
 Previously it also re-raised exceptions yielded by the transport onto the read stream (e.g. JSON parse errors). Those are now debug-logged and dropped regardless of `raise_exceptions`. If you relied on `run()` exiting on a transport-level parse error, that no longer happens.
 
@@ -1115,7 +1114,7 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 - `ServerRequestResponder` type alias.
 - `ServerSession.incoming_messages` stream — there is no longer a public stream of inbound messages to iterate. Register handlers via the `on_*` constructor params (or `add_request_handler`) and use `Server.middleware` to observe every inbound request and notification (`initialize`, unknown methods, validation failures, and `notifications/initialized` included).
 - `ServerSession.__aenter__` / `__aexit__` — `ServerSession` is no longer an async context manager.
-- The private `_receive_loop`, `_received_request`, `_received_notification`, and `_handle_incoming` overrides — there is nothing to override on `ServerSession` anymore. To intercept inbound messages, use `Server.middleware` or `DispatchMiddleware` (see the `_handle_*` removal section above).
+- The private `_receive_loop`, `_received_request`, `_received_notification`, and `_handle_incoming` overrides — there is nothing to override on `ServerSession` anymore. To intercept inbound messages, use `Server.middleware` (see the `_handle_*` removal section above).
 
 ### `BaseSession` / `RequestResponder`: server-side cancellation tracking removed
 

@@ -22,6 +22,7 @@ from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -493,6 +494,15 @@ def test_extract_meta_returns_none_for_absent_or_malformed():
     assert _extract_meta({"_meta": {"progressToken": "x", "k": 1}}) == {"progress_token": "x", "k": 1}
 
 
+def test_extract_meta_round_trips_through_dump_params():
+    """Forwarding an inbound `ctx.meta` outbound (`meta=ctx.meta`) re-emits the
+    wire key `progressToken`, not the Python field name `_extract_meta`
+    validation produced."""
+    meta = _extract_meta({"_meta": {"progressToken": 7, "k": 1}})
+    assert meta is not None
+    assert dump_params(None, dict(meta)) == {"_meta": {"progressToken": 7, "k": 1}}
+
+
 @pytest.mark.anyio
 async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
     order: list[str] = []
@@ -537,6 +547,47 @@ async def test_runner_handler_returning_error_data_produces_jsonrpc_error(server
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("logging/setLevel", {"level": "info"})
     assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="bad level", data={"got": "info"})
+
+
+@pytest.mark.anyio
+async def test_runner_server_middleware_observes_handler_error_data_as_mcp_error(server: SrvT):
+    """A handler returning `ErrorData` raises `MCPError` inside `call_next()`,
+    so observation middleware records the failure instead of seeing a
+    successful-looking `ErrorData` return."""
+    seen: list[MCPError] = []
+
+    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        try:
+            return await call_next()
+        except MCPError as e:
+            seen.append(e)
+            raise
+
+    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:
+        return ErrorData(code=INVALID_PARAMS, message="bad level")
+
+    server.middleware.append(observe)
+    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("logging/setLevel", {"level": "info"})
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="bad level")
+    assert [e.error.message for e in seen] == ["bad level"]
+
+
+@pytest.mark.anyio
+async def test_runner_middleware_returning_error_data_produces_jsonrpc_error(server: SrvT):
+    """A middleware that short-circuits with an `ErrorData` return gets the
+    same treatment as a handler return: the wire sees a JSON-RPC error."""
+
+    async def short_circuit(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        return ErrorData(code=INVALID_PARAMS, message="denied")
+
+    server.middleware.append(short_circuit)
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="denied")
 
 
 @pytest.mark.anyio

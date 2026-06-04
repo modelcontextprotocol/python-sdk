@@ -141,10 +141,12 @@ def _dump_result(result: Any) -> dict[str, Any]:
     if result is None:
         return {}
     if isinstance(result, ErrorData):
-        # The existing `BaseSession._send_response` treats a handler-returned
-        # `ErrorData` as a JSON-RPC error, not a success result. Re-raise as
-        # `MCPError` so the dispatcher's exception boundary emits `JSONRPCError`.
-        raise MCPError(code=result.code, message=result.message, data=result.data)
+        # The existing `BaseSession._send_response` treats a returned
+        # `ErrorData` as a JSON-RPC error, not a success result. Handler
+        # returns are converted inside `_on_request`'s `_inner` (so
+        # `Server.middleware` observes the raise); this branch is the boundary
+        # check for middleware that itself returns `ErrorData`.
+        raise MCPError.from_error_data(result)
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if isinstance(result, dict):
@@ -266,7 +268,16 @@ class ServerRunner(Generic[LifespanT]):
                 typed_params = None
             else:
                 typed_params = entry.params_type.model_validate(params, by_name=False)
-            return await entry.handler(ctx, typed_params)
+            result = await entry.handler(ctx, typed_params)
+            if isinstance(result, ErrorData):
+                # A handler-returned `ErrorData` is a JSON-RPC error, not a
+                # success result (matches `BaseSession._send_response`). Raise
+                # here, inside the middleware chain, so `Server.middleware`
+                # observes the failure as a raised `MCPError` out of
+                # `call_next()` per the `ServerMiddleware` contract instead of
+                # a successful-looking `ErrorData` return.
+                raise MCPError.from_error_data(result)
+            return result
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
         return _dump_result(await call())

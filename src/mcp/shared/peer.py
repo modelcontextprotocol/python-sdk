@@ -11,7 +11,7 @@ model. Gating (and `NoBackChannelError`) is the host's `send_raw_request`'s job.
 """
 
 from collections.abc import Mapping
-from typing import Any, overload
+from typing import Any, cast, overload
 
 from pydantic import BaseModel
 
@@ -27,6 +27,8 @@ from mcp.types import (
     IncludeContext,
     ListRootsResult,
     ModelPreferences,
+    RequestParams,
+    RequestParamsMeta,
     SamplingMessage,
     Tool,
     ToolChoice,
@@ -44,11 +46,18 @@ def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, 
     Shared by `ClientPeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
     typed convenience method gets the same `_meta` handling. `meta` keys take
     precedence over any `_meta` already present on the model.
+
+    `meta` is serialized through `RequestParams` so Python field names emit
+    their wire aliases: an inbound `ctx.meta` carries `progress_token` (the
+    key `_extract_meta` validation produces), and forwarding it outbound via
+    `meta=ctx.meta` must put `progressToken` back on the wire. Keys not
+    declared on `RequestParamsMeta` pass through unchanged.
     """
     out = model.model_dump(by_alias=True, mode="json", exclude_none=True) if model is not None else None
     if meta:
+        wire_meta = RequestParams(_meta=cast(RequestParamsMeta, meta)).model_dump(by_alias=True, mode="json")["_meta"]
         out = dict(out or {})
-        out["_meta"] = {**out.get("_meta", {}), **meta}
+        out["_meta"] = {**out.get("_meta", {}), **wire_meta}
     return out
 
 

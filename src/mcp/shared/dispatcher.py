@@ -62,7 +62,9 @@ class CallOptions(TypedDict, total=False):
     """Opaque token to resume a previously interrupted request.
 
     Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports. Supports protocol version 2025-11-25 and earlier; SSE-stream
+    transports, and also ignored (with a debug log) for requests sent from a
+    `DispatchContext`, where routing onto the inbound request's stream takes
+    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
     resumption is removed in the next protocol revision.
     """
 
@@ -70,7 +72,9 @@ class CallOptions(TypedDict, total=False):
     """Receive a resumption token when the transport issues one for this request.
 
     Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports. Supports protocol version 2025-11-25 and earlier; SSE-stream
+    transports, and also ignored (with a debug log) for requests sent from a
+    `DispatchContext`, where routing onto the inbound request's stream takes
+    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
     resumption is removed in the next protocol revision.
     """
 

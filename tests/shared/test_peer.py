@@ -151,6 +151,16 @@ def test_dump_params_merges_meta_over_model_meta():
     assert out == {"_meta": {"k": 1}}
 
 
+def test_dump_params_serializes_meta_by_alias():
+    """`progress_token` (the Python key an inbound `ctx.meta` carries) emits
+    its wire alias `progressToken`; undeclared keys pass through unchanged."""
+    out = dump_params(None, {"progress_token": 7, "traceparent": "00-abc"})
+    assert out == {"_meta": {"progressToken": 7, "traceparent": "00-abc"}}
+    # The wire spelling is already canonical and survives as-is.
+    out = dump_params(None, {"progressToken": "tok"})
+    assert out == {"_meta": {"progressToken": "tok"}}
+
+
 @pytest.mark.anyio
 async def test_peer_notify_forwards_to_wrapped_outbound():
     sent: list[tuple[str, Mapping[str, Any] | None]] = []
