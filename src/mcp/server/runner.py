@@ -259,6 +259,15 @@ class ServerRunner(Generic[LifespanT]):
                 if params is not None:
                     payload["params"] = dict(params)
                 client_request_adapter.validate_python(payload, by_name=False)
+            # TODO(maxisbey): rework initialization into a pure incoming
+            # middleware, and add an outgoing-middleware seam whose default
+            # chain blocks server-to-client requests when the negotiated
+            # protocol version requires initialization and the connection is
+            # neither initialized nor stateless. Until then, note that
+            # `initialize` is handled inline (the dispatcher's read loop is
+            # parked until this whole call - middleware included - returns),
+            # so awaiting a peer response anywhere on this path deadlocks the
+            # connection.
             if method == "initialize":
                 return self._handle_initialize(params)
             if not self._initialized and method not in _INIT_EXEMPT:

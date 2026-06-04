@@ -139,6 +139,12 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
     yet). For typed inspection, validate against the model the middleware
     expects.
 
+    Warning: `initialize` is handled inline - the dispatcher does not read
+    further inbound messages until the middleware chain returns. Awaiting a
+    server-to-client request (`ctx.session.send_request`, `send_ping`, ...)
+    while handling `initialize` therefore deadlocks the connection: the
+    response can never be dequeued. Send-and-forget notifications are safe.
+
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
     middleware sees `ctx.lifespan_context: L`. While the context is the
     mutable `ServerRequestContext` dataclass it is invariant in `L`, so a
