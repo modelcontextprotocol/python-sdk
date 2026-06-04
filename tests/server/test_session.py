@@ -100,6 +100,16 @@ async def test_send_request_omits_call_options_when_none_given():
 
 
 @pytest.mark.anyio
+async def test_send_request_timeout_zero_means_no_timeout():
+    """0 falls through BaseSession's `or`-fallback, so it has always meant
+    "no timeout"; ClientSession still reads it that way."""
+    dispatcher = StubDispatcher(result={})
+    session = _make_session(dispatcher)
+    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0)
+    assert dispatcher.requests[0][2] is None
+
+
+@pytest.mark.anyio
 async def test_send_request_without_back_channel_or_related_id_fails_fast():
     """No standalone channel and no related request to ride on: raise instead
     of parking forever on a response that cannot arrive."""
