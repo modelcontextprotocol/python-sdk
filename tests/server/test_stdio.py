@@ -87,6 +87,13 @@ async def test_stdio_server_supports_fileno_less_standard_streams(monkeypatch: p
                 assert isinstance(message, SessionMessage)
                 assert message.message == request
 
+    assert not test_stdin.closed
+    assert not test_stdout.closed
+    test_stdin.seek(0)
+    assert test_stdin.readline() == request.model_dump_json(by_alias=True, exclude_none=True) + "\n"
+    test_stdout.write("stdio still open")
+    test_stdout.flush()
+
 
 @pytest.mark.anyio
 async def test_stdio_server_invalid_utf8() -> None:

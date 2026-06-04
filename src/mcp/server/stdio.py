@@ -36,9 +36,9 @@ def _wrap_stdin() -> tuple[anyio.AsyncFile[str], bool]:
         stdin_fd = os.dup(sys.stdin.fileno())
     except (AttributeError, OSError, UnsupportedOperation):
         # Some tests and embedders replace sys.stdin with fileno-less in-memory
-        # streams. Keep supporting that shape by falling back to the existing
-        # buffer-wrapping behavior.
-        return anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")), False
+        # streams. Reusing the caller-provided wrapper avoids closing it when the
+        # transport exits.
+        return anyio.wrap_file(sys.stdin), False
 
     stdin_buffer = os.fdopen(stdin_fd, "rb", closefd=True)
     return anyio.wrap_file(TextIOWrapper(stdin_buffer, encoding="utf-8", errors="replace")), True
@@ -51,7 +51,7 @@ def _wrap_stdout() -> tuple[anyio.AsyncFile[str], bool]:
     except (AttributeError, OSError, UnsupportedOperation):
         # Match the fileno-less stdin fallback for in-memory test streams and
         # embedders that provide file-like stdout objects.
-        return anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8")), False
+        return anyio.wrap_file(sys.stdout), False
 
     stdout_buffer = os.fdopen(stdout_fd, "wb", closefd=True)
     return anyio.wrap_file(TextIOWrapper(stdout_buffer, encoding="utf-8")), True
