@@ -82,20 +82,20 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
         # still cold-starting — long before it can Popen the child (job membership
         # is inherited at CreateProcess, never acquired retroactively).
         #
-        # The child is spawned through the base interpreter, not `sys.executable`:
-        # in launcher-wrapped venvs (uv's `python.exe` is a trampoline that runs
-        # the real interpreter inside its own Job machinery) the extra launcher
-        # layer proved fatal to grandchildren on CI runners — they booted and then
-        # died tracelessly inside the launcher's private job. The contract under
-        # test is unchanged: the child still inherits the SDK's Job at
-        # CreateProcess. After stdin EOF ends the server, it reports the child's
-        # `poll()` status — `None` means the child was alive when the server
-        # exited; an exit or NTSTATUS code names whatever killed it.
+        # The child's stdin must be decoupled from the server's (DEVNULL): CPython
+        # startup queries fd 0, the server's stdin is a synchronous pipe object,
+        # and Windows serializes that query behind the server's pending blocking
+        # `sys.stdin.read()` — with an inherited stdin the child freezes at
+        # interpreter startup until the next inbound byte or EOF. (The same goes
+        # for any Windows stdio server spawning Python children without
+        # redirecting their stdin.) After stdin EOF ends the server, it reports
+        # the child's `poll()` status — `None` means the child was alive when the
+        # server exited; an exit or NTSTATUS code names whatever killed it.
         server = (
             f"import socket, subprocess, sys\n"
-            f"exe = getattr(sys, '_base_executable', None) or sys.executable\n"
             f"try:\n"
-            f"    p = subprocess.Popen([exe, '-c', {child!r}], stderr=sys.stderr)\n"
+            f"    p = subprocess.Popen([sys.executable, '-c', {child!r}], "
+            f"stdin=subprocess.DEVNULL, stderr=sys.stderr)\n"
             f"except BaseException as exc:\n"
             f"    print(exc, file=sys.stderr, flush=True)\n"
             f"    raise\n"
