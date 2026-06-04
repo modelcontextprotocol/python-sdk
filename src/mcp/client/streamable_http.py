@@ -359,9 +359,11 @@ class StreamableHTTPTransport:
                     is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning response/error
-                # break the loop
+                # break the loop. Drain the SSE stream to EOF instead of
+                # closing early — an aclose() before EOF leaves the keepalive
+                # connection in a half-drained state, causing ~260ms latency
+                # on the next request that reuses the same connection.
                 if is_complete:
-                    await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
