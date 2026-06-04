@@ -120,7 +120,10 @@ child processes the server leaves behind are no longer killed on POSIX — their
 lifetime is the server's business. The old behavior was a side effect of a shutdown
 wait gated on the stdio pipes closing rather than on process exit: a child holding
 an inherited pipe made a well-behaved server look hung, so its whole process tree
-was killed. A server that does not exit within the grace period is still terminated
+was killed. (That gating is an asyncio behavior specific to Python 3.11+ — on
+Python 3.10 and the trio backend the old wait already resolved on process exit, so
+the spurious kill never fired there.) A server that does not exit within the grace
+period is still terminated
 along with its entire process group. On Windows, children stay in the server's Job
 Object and are still killed at shutdown — now deterministically when the job handle
 is closed, rather than whenever the handle happened to be garbage-collected.

@@ -126,6 +126,12 @@ class StdioServerParameters(BaseModel):
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+    Raises:
+        OSError: If the server process cannot be spawned (for example, the command
+            does not exist or is not executable).
+        ValueError: If the spawn parameters are invalid (for example, an embedded
+            NUL byte in the command or an argument).
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -168,7 +174,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     # Shutdown's final cancellation targets these instead of the task group's own
     # scope: cancelling the host scope would deliver the cancellation by throwing
     # through the caller's suspended frames, and Python 3.11's tracer loses
-    # coverage events after such a throw() traversal (python/cpython#106749).
+    # coverage events after such a throw() traversal (python/cpython#106749;
+    # 3.11-only — see the sunset note in `_wait_for_process_exit`).
     # These scope exactly the work the pipe tasks own.
     reader_scope = anyio.CancelScope()
     writer_scope = anyio.CancelScope()
@@ -261,9 +268,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             # being cancelled — a cancellation that skipped it would leak the server
             # process (and its children) and could block forever on the way out.
             # Every wait inside the shield is time-bounded. The shield holds against
-            # anyio-level cancellation and one native task.cancel(); a second native
-            # cancel delivered mid-cleanup can still abort it — there is no
-            # backend-neutral way to refuse repeated native cancellation.
+            # anyio-level cancellation; a native task.cancel() delivered while the
+            # cleanup is in progress can still abort it — there is no backend-neutral
+            # way to refuse native cancellation.
             with anyio.CancelScope(shield=True):
                 # Let the writer hand any message the transport already accepted to
                 # the server's stdin before that stdin closes; a zero-buffer send
@@ -377,19 +384,22 @@ def _close_subprocess_transport(process: Process | FallbackProcess) -> None:
 async def _wait_for_process_exit(process: Process | FallbackProcess, timeout: float) -> bool:
     """Wait for the process itself to die, returning whether it did within `timeout`.
 
-    Deliberately does not use `process.wait()`: on the asyncio backend that resolves
-    only once the process has exited *and* every one of its pipes has closed — and
-    pipes are inherited by the server's own children, so a well-behaved server that
-    exits instantly but leaves a background child alive would be misclassified as
-    hung and get its whole tree terminated. `returncode` reflects process death
-    alone.
+    Deliberately does not use `process.wait()`: on asyncio under Python 3.11+ it
+    resolves only once the process has exited *and* every one of its pipes has
+    closed (3.10 and trio resolve on exit alone) — and pipes are inherited by the
+    server's own children, so a well-behaved server that exits instantly but leaves
+    a background child alive would be misclassified as hung and get its whole tree
+    terminated. `returncode` reflects process death alone on every backend.
     """
     # Implemented as a plain deadline loop rather than `anyio.move_on_after()`: a
     # cancel scope's deadline fires by throwing a cancellation through every frame
     # suspended in the await chain, including the caller's, and Python 3.11's tracer
     # loses coverage events in a frame resumed after such a throw() traversal
     # (python/cpython#106749). With no cancel scope, the timeout path completes a
-    # normal `sleep()` and returns, so no frame is ever thrown through.
+    # normal `sleep()` and returns, so no frame is ever thrown through. The tracer
+    # bug is 3.11-only (fixed in 3.12, wontfix on 3.11): revert this and the other
+    # workaround sites that cite it to their natural cancel-scope forms when
+    # Python 3.11 support is dropped.
     deadline = anyio.current_time() + timeout
     while process.returncode is None:
         if anyio.current_time() >= deadline:

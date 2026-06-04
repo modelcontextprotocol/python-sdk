@@ -210,15 +210,16 @@ async def _next_message(read_stream: MemoryObjectReceiveStream[SessionMessage | 
 
 @pytest.mark.anyio
 async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Framing survives arbitrary chunk boundaries: a message split mid-byte and two
-    messages packed into one chunk are each delivered exactly once, and a trailing
-    line without a newline is not delivered.
+    """Framing survives arbitrary chunk boundaries: a message split mid-byte, two
+    messages packed into one chunk, and a CRLF-terminated message are each delivered
+    exactly once, and a trailing line without a newline is not delivered.
 
     A real pipe delivers short writes as whole lines, so only an in-process stdout
     can pin the reassembly buffer deterministically.
     """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+    ping2 = JSONRPCRequest(jsonrpc="2.0", id=2, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
 
     install_fake_process(monkeypatch, process)
@@ -226,13 +227,17 @@ async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch:
     with anyio.fail_after(5):
         async with stdio_client(FAKE_PARAMS) as (read_stream, _):
             # Split the first message mid-bytes, pack the rest of it together with
-            # the whole second message and a partial third into one chunk.
+            # the whole second message, a CRLF-framed third (the SDK's own server
+            # emits \r\n on Windows; jiter treats the \r as JSON whitespace), and a
+            # partial fourth into one chunk.
             wire = _line(ping)
+            crlf_wire = ping2.model_dump_json(by_alias=True, exclude_unset=True).encode() + b"\r\n"
             await process.feed(wire[:7])
-            await process.feed(wire[7:] + _line(pong) + b'{"jsonrpc": "2.0", "id": 99')
+            await process.feed(wire[7:] + _line(pong) + crlf_wire + b'{"jsonrpc": "2.0", "id": 99')
 
             assert await _next_message(read_stream) == ping
             assert await _next_message(read_stream) == pong
+            assert await _next_message(read_stream) == ping2
 
             # The partial trailing message is dropped at EOF rather than delivered
             # broken: EOF ends the read stream with nothing further on it.
@@ -411,8 +416,8 @@ async def test_cancelling_the_client_still_runs_the_full_shutdown(monkeypatch: p
 @pytest.mark.anyio
 async def test_writing_after_the_server_dies_reports_clean_closure(monkeypatch: pytest.MonkeyPatch) -> None:
     """A send racing the server's death must not surface a raw backend exception
-    (ConnectionResetError in an exception group); the death is reported through the
-    read stream's closure and the transport still shuts down cleanly."""
+    (ConnectionResetError in an exception group) out of the context manager; the
+    transport still shuts down cleanly."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
 
@@ -471,6 +476,9 @@ async def test_spawn_failure_propagates_the_error_and_leaks_no_streams(monkeypat
             pass  # pragma: no cover
 
     assert exc_info.value.errno == errno.EACCES
+    # Drop the ExceptionInfo before collecting: its traceback references the suspended
+    # stdio_client frame, which would keep leaked streams alive across the collect.
+    del exc_info
     gc.collect()
 
 
@@ -822,8 +830,8 @@ async def test_an_eperm_group_that_outlives_the_grace_period_is_still_sigkilled(
 ) -> None:
     """Even when every probe reports EPERM, the SIGKILL escalation still fires after
     the grace period (and its own EPERM is tolerated) — pre-fix, EPERM at SIGTERM
-    returned early and a SIGTERM-ignoring server survived shutdown forever. The tiny
-    timeout is the time-based grace period under test."""
+    abandoned the group escalation for a leader-only kill, leaking every other group
+    member. The tiny timeout is the time-based grace period under test."""
     calls: list[tuple[int, int]] = []
 
     def fake_killpg(pgid: int, sig: int) -> None:
@@ -841,6 +849,53 @@ async def test_an_eperm_group_that_outlives_the_grace_period_is_still_sigkilled(
     assert calls[0] == (stub.pid, signal.SIGTERM)
     assert calls[-1] == (stub.pid, signal.SIGKILL)
     assert set(calls[1:-1]) == {(stub.pid, 0)}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX killpg semantics")
+# Excluded from coverage for the same Windows-runner reason as above.
+async def test_the_grace_wait_reads_returncode_so_trio_can_reap_the_leaders_zombie(  # pragma: lax no cover
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wait between SIGTERM and SIGKILL reads `process.returncode` while it polls:
+    on trio that property calls `Popen.poll()`, and that reap is what stops the
+    leader's zombie from keeping the process group alive for the full timeout (see the
+    comment in `terminate_posix_process_tree`). Regression pin for the read itself, on
+    both backends — the reaping side effect is trio's documented `returncode`
+    behaviour, deliberately not re-tested here."""
+
+    calls: list[tuple[int, int]] = []
+
+    def fake_killpg(pgid: int, sig: int) -> None:
+        # SIGTERM is accepted and every liveness probe reports survivors, so the
+        # grace wait runs to its (tiny) timeout and the SIGKILL escalation fires.
+        calls.append((pgid, sig))
+
+    class _ReadCountingProcess:
+        """A live-forever leader whose `returncode` property counts its reads."""
+
+        pid = 54321
+
+        def __init__(self) -> None:
+            self.returncode_reads = 0
+
+        @property
+        def returncode(self) -> int | None:
+            self.returncode_reads += 1
+            return None
+
+    monkeypatch.setattr(posix_utilities.os, "killpg", fake_killpg)
+    stub = _ReadCountingProcess()
+
+    with anyio.fail_after(5):
+        await terminate_posix_process_tree(cast(anyio.abc.Process, stub), timeout_seconds=0.05)
+
+    # The wait ran to its deadline (the escalation fired)...
+    assert calls[0] == (stub.pid, signal.SIGTERM)
+    assert calls[-1] == (stub.pid, signal.SIGKILL)
+    # ...and `returncode` was read while it polled — the read that reaps on trio.
+    assert stub.returncode_reads >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -1056,6 +1111,8 @@ async def test_terminating_an_already_exited_process_is_a_no_op() -> None:  # pr
     proc = await _create_platform_compatible_process(sys.executable, ["-c", "pass"])
     assert isinstance(proc, anyio.abc.Process)
 
+    # The bound covers one interpreter cold start on a loaded runner; a healthy run
+    # takes well under a second.
     with anyio.fail_after(10.0):
         await _wait_until_exited(proc)
         await _terminate_process_tree(proc)

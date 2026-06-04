@@ -33,8 +33,20 @@ else:
 _EXIT_POLL_INTERVAL = 0.01
 
 # The Job Object each spawned process was assigned to, so the process tree can be
-# terminated through it later. Keyed weakly: if a process object goes away without
-# explicit termination, the entry goes with it.
+# terminated through it later.
+#
+# Values must stay the pywin32 `PyHANDLE` returned by `CreateJobObject`, never a
+# detached int: on abandoned-shutdown paths where neither pop site runs, the dying
+# weak entry drops the last reference to the `PyHANDLE`, whose destructor closes
+# the OS handle — and `KILL_ON_JOB_CLOSE` then reaps the orphaned tree. That
+# destructor-close is the only backstop on those paths; storing anything but the
+# `PyHANDLE` would turn it into a permanent handle leak.
+#
+# Keys rely on anyio's `Process` being weakref-able and identity-hashed (it is a
+# `dataclass(eq=False)` without `__slots__`); if that ever changes, registration
+# fails loudly with a `TypeError` rather than silently. Entries are written once,
+# after assignment can no longer fail, and consumed via `pop()` on the event
+# loop — no locking needed.
 _process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = weakref.WeakKeyDictionary()
 
 
@@ -80,11 +92,11 @@ class FallbackProcess:
 
     def __init__(self, popen_obj: subprocess.Popen[bytes]):
         self.popen: subprocess.Popen[bytes] = popen_obj
-        self.stdin_raw = popen_obj.stdin
-        self.stdout_raw = popen_obj.stdout
+        stdin = popen_obj.stdin
+        stdout = popen_obj.stdout
 
-        self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
-        self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        self.stdin = FileWriteStream(cast(BinaryIO, stdin)) if stdin else None
+        self.stdout = FileReadStream(cast(BinaryIO, stdout)) if stdout else None
 
     async def wait(self) -> int:
         """Wait for process exit by polling.
@@ -133,8 +145,11 @@ async def create_windows_process(
     when using the SelectorEventLoop, which does not support async subprocesses.
     In that case, we fall back to using subprocess.Popen.
 
-    The process is automatically added to a Job Object to ensure all child
-    processes are terminated when the parent is terminated.
+    The process is added to a Job Object so that child processes are terminated
+    with it. Children the server spawns before the assignment completes — a
+    window of two API calls against the server's interpreter cold start — are
+    not captured: job membership is inherited at process creation, never
+    acquired retroactively.
 
     Args:
         command (str): The executable to run
@@ -160,7 +175,11 @@ async def create_windows_process(
         process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
 
     # Created only after a successful spawn: a failed spawn raises before any job
-    # exists, so there is no handle to leak on that path.
+    # exists, so there is no handle to leak on that path. Children the server
+    # spawns before AssignProcessToJobObject completes land outside the job
+    # (membership is inherited at CreateProcess, never acquired retroactively);
+    # the window is two API calls racing the server's interpreter cold start. If
+    # it ever bites, the fix is a CREATE_SUSPENDED spawn -> assign -> resume.
     job = _create_job_object()
     _maybe_assign_process_to_job(process, job)
     return process
@@ -239,8 +258,11 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object
             win32job.AssignProcessToJobObject(job, process_handle)
         finally:
             win32api.CloseHandle(process_handle)
-        # Recorded only once nothing else can fail, so the failure branch below can
-        # assume the job is unregistered and just close it.
+        # Recorded only after the process-handle close above. If that close failed
+        # post-assignment, the except below would close the job handle and
+        # KILL_ON_JOB_CLOSE would take the just-assigned healthy server with it —
+        # accepted, because CloseHandle cannot realistically fail on a handle
+        # OpenProcess just returned.
         _process_jobs[process] = job
     except pywintypes.error:
         logger.warning("Failed to assign process %d to Job Object", process.pid, exc_info=True)
