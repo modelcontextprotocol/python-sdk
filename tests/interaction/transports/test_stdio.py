@@ -26,6 +26,7 @@ import anyio
 import pytest
 from inline_snapshot import snapshot
 
+from mcp.client import stdio
 from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.server.stdio import stdio_server
@@ -51,10 +52,20 @@ _REPO_ROOT = Path(__file__).parents[3]
 @requirement("transport:stdio")
 @requirement("transport:stdio:clean-shutdown")
 @requirement("transport:stdio:stderr-passthrough")
-async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess() -> None:
+async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A Client connected over stdio initializes, calls a tool with arguments, receives the
     server's log notification before the call returns, and the server exits when the transport
     closes its stdin."""
+    # After shutdown closes the child's stdin, the child must unwind its run loop, write the
+    # clean-exit line asserted below, and let coverage's atexit hook persist the subprocess data
+    # file (enabled by the COVERAGE_ passthrough below) before the grace period expires. The
+    # production 2s default proved too tight on slow Windows runners: the escalation killed the
+    # child mid-atexit — after the asserted stderr line, so the test stayed green — and the
+    # silently missing data file tripped the 100% coverage gate. The timeout is not under test.
+    monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 10.0)
+
     received: list[LoggingMessageNotificationParams] = []
 
     async def collect(params: LoggingMessageNotificationParams) -> None:
