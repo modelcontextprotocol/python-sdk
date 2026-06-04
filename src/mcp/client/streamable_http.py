@@ -342,9 +342,9 @@ class StreamableHTTPTransport:
         assert isinstance(ctx.session_message.message, JSONRPCRequest)
         original_request_id = ctx.session_message.message.id
 
+        response_complete = False
         try:
             event_source = EventSource(response)
-            response_complete = False
             async for sse in event_source.aiter_sse():  # pragma: no branch
                 # Track last event ID for potential reconnection
                 if sse.id:
@@ -371,7 +371,9 @@ class StreamableHTTPTransport:
             if response_complete:
                 return  # Normal completion, no reconnect needed
         except Exception:
-            logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+            logger.debug("SSE stream ended", exc_info=True)
+            if response_complete:
+                return
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:  # pragma: no branch
@@ -403,6 +405,7 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
+        response_complete = False
         try:
             async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
                 event_source.response.raise_for_status()
@@ -411,7 +414,6 @@ class StreamableHTTPTransport:
                 # Track for potential further reconnection
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
-                response_complete = False
 
                 async for sse in event_source.aiter_sse():
                     if sse.id:  # pragma: no branch
@@ -438,6 +440,8 @@ class StreamableHTTPTransport:
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
         except Exception as e:
             logger.debug(f"Reconnection failed: {e}")
+            if response_complete:
+                return
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
