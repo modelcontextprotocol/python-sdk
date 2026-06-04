@@ -98,9 +98,13 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     assert received == snapshot(
         [LoggingMessageNotificationParams(level="info", logger="echo", data="echoing across\nprocesses")]
     )
-    # The server writes this line only after its run loop returns on stdin close: seeing it proves
-    # a self-exit, not the terminate escalation. The capture itself proves stderr passthrough.
-    assert captured_stderr == snapshot("stdio-echo: clean exit\n")
+    # The server writes this line only after its run loop returns, which happens when stdin closes:
+    # seeing it as the final stderr line proves the process exited on its own rather than via the
+    # transport's terminate escalation, without a timing-based assertion. The capture itself proves
+    # stderr passthrough: the transport routes the child's stderr to the caller's `errlog` without
+    # consuming it. Some lowest-direct dependency combinations can emit import-time warnings before
+    # the server starts, so do not require this to be the only stderr line.
+    assert captured_stderr.splitlines(keepends=True)[-1:] == snapshot(["stdio-echo: clean exit\n"])
 
 
 @requirement("transport:stdio:stream-purity")
