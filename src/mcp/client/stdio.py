@@ -1,3 +1,14 @@
+"""stdio client transport: run an MCP server as a subprocess and exchange
+newline-delimited JSON-RPC messages with it over stdin/stdout.
+
+Two pipe tasks bridge the server's pipes to the session's in-memory streams.
+Shutdown follows the MCP spec sequence — close the server's stdin, give it a
+grace period to exit on its own, then terminate its whole process tree
+(process group on POSIX, Job Object on Windows). The sequence runs inside a
+cancellation shield with every wait bounded, so a cancelled caller can
+neither leak a live server process nor hang on one.
+"""
+
 import logging
 import os
 import sys
@@ -8,7 +19,6 @@ from typing import Literal, TextIO
 import anyio
 import anyio.lowlevel
 from anyio.abc import AsyncResource, Process
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
@@ -45,7 +55,7 @@ DEFAULT_INHERITED_ENV_VARS = (
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
 
-# How long the server gets to exit on its own after its stdin is closed, before its
+# How long the server gets to exit on its own after its stdin closes, before its
 # process tree is terminated.
 PROCESS_TERMINATION_TIMEOUT = 2.0
 
@@ -53,16 +63,15 @@ PROCESS_TERMINATION_TIMEOUT = 2.0
 # Windows tree termination is already a hard kill, so this only stretches POSIX.
 FORCE_KILL_TIMEOUT = 2.0
 
-# How long to wait for the event loop to observe the death of a killed process; only
-# a process that even SIGKILL cannot collect (uninterruptible I/O) runs this out.
+# How long to wait for the event loop to observe the death of a killed process;
+# only a process that survives even SIGKILL (uninterruptible I/O) runs this out.
 _KILL_REAP_TIMEOUT = 2.0
 
-# How long the writer task gets to flush already-accepted outbound messages to the
-# server's stdin before shutdown closes it; only a wedged pipe (full, with its
-# reader gone) makes it run out.
+# How long the writer task gets to flush already-accepted messages to the server's
+# stdin before shutdown closes it; only a wedged pipe makes it run out.
 _WRITER_FLUSH_TIMEOUT = 0.5
 
-# How often to poll for process death while waiting out the grace period.
+# How often to poll `returncode` while waiting for the process to die.
 _EXIT_POLL_INTERVAL = 0.01
 
 
@@ -135,42 +144,33 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
-        env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
+        env=get_default_environment() | (server.env or {}),
         errlog=errlog,
         cwd=server.cwd,
     )
 
-    # The spawn succeeded; from here until the task group is entered there must be
-    # no await — a cancellation delivered in that gap would leak the live process.
-    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+    # The spawn succeeded; no awaits from here until the task group is entered,
+    # or a cancellation delivered in the gap would leak the live process.
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-    write_stream: MemoryObjectSendStream[SessionMessage]
-    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
-
-    # Flipped by the shutdown sequence so the pipe tasks can tell expected
-    # teardown noise from genuine mid-session transport failures.
+    # Flipped by shutdown so the pipe tasks can tell expected teardown noise from
+    # genuine mid-session transport failures.
     shutting_down = False
-    # Set when stdin_writer finishes, so shutdown can wait (bounded) for messages
-    # the transport already accepted to be flushed before it closes stdin.
+    # Set when the writer task finishes, so shutdown can wait (bounded) for already-
+    # accepted messages to be flushed before it closes the server's stdin.
     writer_done = anyio.Event()
 
     async def stdout_reader() -> None:
         assert process.stdout, "Opened process is missing stdout"
 
-        stdout = TextReceiveStream(
-            process.stdout,
-            encoding=server.encoding,
-            errors=server.encoding_error_handler,
-        )
+        stdout = TextReceiveStream(process.stdout, encoding=server.encoding, errors=server.encoding_error_handler)
         try:
             async with read_stream_writer:
-                # Phase 1: parse one line at a time and deliver it over the
-                # zero-buffer stream; no read-ahead while a send is blocked.
-                buffer = ""
                 try:
+                    # Parse lines and deliver them over the zero-buffer stream;
+                    # never read ahead while a delivery is blocked.
+                    buffer = ""
                     async for chunk in stdout:
                         lines = (buffer + chunk).split("\n")
                         buffer = lines.pop()
@@ -178,35 +178,16 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             try:
                                 await read_stream_writer.send(_parse_line(line))
                             except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-                                # The read stream is gone (shutdown closed it, or
-                                # the caller did); stop delivering. The drain below
-                                # still runs on the way out.
-                                return
+                                return  # the session is gone; only the drain below remains
                 finally:
-                    # Phase 2: keep consuming stdout without delivering, so a server
-                    # flushing its remaining output during shutdown does not block on
-                    # a full pipe and miss its chance to exit within the grace period.
-                    # Shielded so caller cancellation cannot skip the drain (bounded:
-                    # shutdown closes process.stdout), and raw bytes so non-UTF-8 in
-                    # a dying server's flush cannot abort it.
-                    with anyio.CancelScope(shield=True):
-                        with suppress(
-                            anyio.EndOfStream,
-                            anyio.ClosedResourceError,
-                            anyio.BrokenResourceError,
-                            ConnectionError,
-                            OSError,
-                        ):
-                            while True:
-                                await process.stdout.receive()
+                    await _drain_stdout(process)
         except anyio.ClosedResourceError:
-            # Our own shutdown closed/poisoned the stdout stream under the read.
-            pass
+            pass  # our own shutdown closed the stdout stream under the read
         except (anyio.BrokenResourceError, ConnectionError):
-            # The stdout pipe itself failed; a shutdown kill can tear down a pending
-            # read (ConnectionResetError on the proactor backend), while mid-session
-            # it is a real transport failure worth a log line. Either way the session
-            # observes a clean closure when this task's exit closes the read stream.
+            # The stdout pipe itself failed: expected when a shutdown kill tears
+            # down a pending read, a real transport failure otherwise. Either way
+            # the session sees clean closure when this task's exit closes the
+            # read stream.
             if not shutting_down:
                 logger.exception("Reading from the MCP server's stdout failed mid-session")
 
@@ -217,51 +198,35 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
-                    await process.stdin.send(
-                        (json + "\n").encode(
-                            encoding=server.encoding,
-                            errors=server.encoding_error_handler,
-                        )
-                    )
+                    data = (json + "\n").encode(encoding=server.encoding, errors=server.encoding_error_handler)
+                    await process.stdin.send(data)
         except (anyio.ClosedResourceError, anyio.BrokenResourceError, OSError):
-            # The pipe is gone: the server died, closed its stdin, or shutdown closed
-            # it under a racing write (the exact exception varies by platform and
-            # backend). The server may well still be alive, so close the read stream
-            # to tell the session the connection is over; a silently swallowed write
-            # would leave a request waiting forever for its response.
+            # The pipe is gone: the server died, closed its stdin, or shutdown
+            # closed it under a racing write. The server may well still be alive,
+            # so close the read stream to tell the session the connection is over;
+            # a silently dropped write would leave its request waiting forever.
             await read_stream_writer.aclose()
         finally:
             writer_done.set()
 
     async def shutdown() -> None:
-        """Wind the transport down, leaving no live server process behind.
-
-        1. Close the session's read stream, unblocking the reader from any
-           undelivered message so it drains stdout for the rest of shutdown
-           (see the drain note in `stdout_reader`). Draining before the flush
-           wait below is what lets a wedged writer's flush succeed: a server
-           blocked writing its stdout cannot get to reading its stdin.
-        2. Close the session's write stream, then wait (bounded by
-           `_WRITER_FLUSH_TIMEOUT`) for the writer task to hand any message the
-           transport already accepted to the server's stdin before that stdin
-           closes; a zero-buffer send completes at the rendezvous, before the
-           writer has written.
-        3. Stop the server process: close its stdin, give it a grace period to
-           exit on its own, and terminate its process tree if it does not
-           (see `_stop_server_process`).
-        4. Close every transport stream.
-        5. Give tasks unblocked by the closes above one scheduling pass so they
-           run their exit/except paths (deterministic ClosedResourceError
-           handling) before the caller cancels them.
-        """
+        """Stop traffic, flush, stop the server process, release the streams."""
+        # Unblock the reader from any undelivered message: from here on it only
+        # drains stdout, which a server stuck writing needs in order to get back
+        # to its stdin and exit — and which lets a wedged writer's flush below
+        # complete (a server blocked on stdout cannot be reading its stdin).
         read_stream.close()
+        # Stop accepting messages, then give the writer a bounded window to hand
+        # anything the transport already accepted to the server's stdin.
         write_stream.close()
         with anyio.move_on_after(_WRITER_FLUSH_TIMEOUT) as flush_scope:
             await writer_done.wait()
         if flush_scope.cancelled_caught:
-            await anyio.lowlevel.cancel_shielded_checkpoint()  # heal gh-106749
+            await anyio.lowlevel.cancel_shielded_checkpoint()  # resync coverage on 3.11 (gh-106749)
         await _stop_server_process(process)
         await _aclose_all(read_stream, write_stream, read_stream_writer, write_stream_reader)
+        # One scheduling pass so tasks unblocked by the closes above exit through
+        # their normal except paths before the caller cancels them.
         await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg:
@@ -271,27 +236,19 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             yield read_stream, write_stream
         finally:
             shutting_down = True
-            # Shutdown must run to completion even when the caller is being
-            # cancelled (skipping it would leak the server process); every wait
-            # inside the shield is time-bounded, except that on the Windows
-            # SelectorEventLoop fallback a worker thread parked in synchronous
-            # pipe I/O (a read, write, or close) ignores cancellation and anyio
-            # waits for it — a pre-existing limitation with no portable fix.
-            # A native task.cancel() delivered mid-cleanup can still abort the
-            # cleanup: the shield only holds against anyio-level cancellation.
+            # Shutdown must finish even when the caller is being cancelled —
+            # skipping it would leak the server process; every wait inside is
+            # bounded. Two known limits: a native task.cancel() can still abort
+            # this (the shield only holds against anyio-level cancellation), and
+            # the Windows SelectorEventLoop fallback's worker threads ignore
+            # cancellation while parked in synchronous pipe I/O.
             with anyio.CancelScope(shield=True):
                 await shutdown()
-            # Cancel the pipe tasks so the join cannot hang on a write into a pipe
-            # whose read end a kill-surviving descendant still holds. (Same Windows
-            # fallback caveat as above: a worker thread parked in synchronous pipe
-            # I/O can still hold the join.)
+            # Unstick the pipe tasks: a kill-surviving descendant that still holds
+            # a pipe end could otherwise block the task-group join forever.
             tg.cancel_scope.cancel()
-    # The cancel above is delivered via `coro.throw()` into this task at
-    # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
-    # trace events for the outer await chain and desyncs coverage's CTracer
-    # past the caller's frame. Yielding once here resumes via `.send()`,
-    # which re-stamps the missing `'call'` events and resyncs the tracer.
-    # Shielded so a pending outer cancel is not re-delivered at this point.
+    # That cancel is delivered into this frame via throw() at the join, which
+    # desyncs coverage on CPython 3.11 (gh-106749); one shielded yield resyncs it.
     await anyio.lowlevel.cancel_shielded_checkpoint()
 
 
@@ -305,90 +262,94 @@ def _parse_line(line: str) -> SessionMessage | Exception:
     return SessionMessage(message)
 
 
-async def _stop_server_process(process: ServerProcess) -> None:
-    """Stop the server process following the MCP stdio shutdown sequence.
+async def _drain_stdout(process: ServerProcess) -> None:
+    """Consume and discard the server's remaining stdout.
 
-    The close-stdin, then SIGTERM, then SIGKILL escalation order is spec text:
+    Runs for the rest of shutdown so a server flushing buffered output cannot
+    block on a full pipe and miss its grace-period chance to exit. Reads raw
+    bytes (a dying server's flush may not be valid UTF-8); shielded so caller
+    cancellation cannot skip it; ends when shutdown closes the pipe.
+    """
+    assert process.stdout
+    with anyio.CancelScope(shield=True):
+        with suppress(
+            anyio.EndOfStream,
+            anyio.ClosedResourceError,
+            anyio.BrokenResourceError,
+            ConnectionError,
+            OSError,
+        ):
+            while True:
+                await process.stdout.receive()
+
+
+async def _stop_server_process(process: ServerProcess) -> None:
+    """Stop the server process, leaving nothing alive and nothing leaked.
+
+    The close-stdin, then terminate, then kill escalation order is spec text:
     https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#shutdown
     The numeric timeouts and the tree-wide scope of the kill (process group on
-    POSIX, Job Object on Windows, not just the spawned process) are SDK policy.
-
-    1. Close the server's stdin so it can exit on its own.
-    2. Give it `PROCESS_TERMINATION_TIMEOUT` seconds to exit.
-    3. Otherwise terminate its whole process tree and wait (bounded) for the
-       death to be observed, logging if even that fails.
-    4. Release the OS-level pipe/transport resources deterministically.
+    POSIX, Job Object on Windows) are SDK policy.
     """
-    if process.stdin:  # pragma: no branch
-        try:
-            await process.stdin.aclose()
-        except (OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
-            # stdin is already closed or the pipe is already gone, which is fine
-            pass
+    assert process.stdin and process.stdout, "server process is spawned with pipes"
 
-    exited = await _wait_for_process_exit(process, PROCESS_TERMINATION_TIMEOUT)
-    if not exited:
+    # Close the server's stdin so it can exit on its own, and give it a grace
+    # period to do so.
+    await _close_pipe(process.stdin)
+    if not await _wait_for_process_exit(process, PROCESS_TERMINATION_TIMEOUT):
         await _terminate_process_tree(process)
-        # Wait (bounded) for the kill to be observed by the event loop: on asyncio,
-        # `returncode` flips only once the child watcher's callback has been
-        # delivered, and that delivery is also what lets the subprocess transport
-        # close instead of leaking a ResourceWarning into whatever runs next.
+        # Wait for the event loop to observe the death: that observation is also
+        # what lets the subprocess transport close instead of warning at GC time.
         if not await _wait_for_process_exit(process, _KILL_REAP_TIMEOUT):
-            # SIGKILL/job termination cannot be refused, but it can stall
-            # (uninterruptible I/O, an unsignalable group member); leave a trace
-            # rather than abandoning the process silently.
             logger.warning("MCP server process %d is still alive after the kill escalation; abandoning it", process.pid)
 
-    # Drop the Job Object handle now so Windows reaps surviving job members
-    # deterministically instead of at GC time (see `close_process_job`); no-op
-    # on POSIX, which deliberately leaves a graceful server's children alive.
+    # Closing the Job Object handle reaps surviving job members now rather than at
+    # GC time; no-op on POSIX, where a graceful server's children are left alive.
     close_process_job(process)
 
-    # Something that inherited the stdout pipe (an orphaned grandchild, say) can
-    # hold it open past the process's death, so the reader might never see EOF.
-    # Closing our wrapper poisons the Python-level reader either way; the OS-level
-    # pipe end itself lives until the transport close below.
-    if process.stdout:  # pragma: no branch
-        try:
-            await process.stdout.aclose()
-        except (OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
-            # The pipe may already be broken or contended (the Windows fallback
-            # closes it in a worker thread); the reader is poisoned either way.
-            pass
+    # A kill survivor that inherited the stdout pipe can hold it open past the
+    # server's death, so the reader might never see EOF; closing our wrapper
+    # poisons the reader (ending its drain) regardless.
+    await _close_pipe(process.stdout)
 
     _close_subprocess_transport(process)
 
 
-async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool:
-    """Wait for the process itself to die, returning whether it did within `timeout`.
+async def _close_pipe(stream: AsyncResource) -> None:
+    """Close one of the process's pipe streams, tolerating a pipe that is already
+    closed, broken, or contended by a worker thread."""
+    with suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+        await stream.aclose()
 
-    Deliberately does not use `process.wait()`: on asyncio under Python 3.11+ it
-    resolves only once the process has exited *and* every one of its pipes has
-    closed (3.10 and trio resolve on exit alone), and pipes are inherited by the
-    server's own children, so a well-behaved server that exits instantly but leaves
-    a background child alive would be misclassified as hung and get its whole tree
-    terminated. `returncode` reflects process death alone on every backend.
+
+async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool:
+    """Whether the process itself died within `timeout` seconds.
+
+    Polls `returncode` rather than awaiting `process.wait()`: on asyncio under
+    Python 3.11+, `wait()` returns only once the process has exited *and* every
+    pipe has closed — and the server's own children inherit its pipes, so a
+    well-behaved server that exits instantly but leaves a background child alive
+    would be misclassified as hung and get its whole tree terminated.
+    `returncode` reflects process death alone on every backend.
     """
-    with anyio.move_on_after(timeout):
-        while process.returncode is None:
-            await anyio.sleep(_EXIT_POLL_INTERVAL)
-        return True
-    await anyio.lowlevel.cancel_shielded_checkpoint()  # heal gh-106749 after the throw
-    # Re-check: the process may have died during the very poll interval the
-    # deadline cut short, and a dead process must not be escalated.
-    return process.returncode is not None
+    deadline = anyio.current_time() + timeout
+    while process.returncode is None:
+        if anyio.current_time() >= deadline:
+            return False
+        await anyio.sleep(_EXIT_POLL_INTERVAL)
+    return True
 
 
 async def _terminate_process_tree(process: ServerProcess) -> None:
-    """Terminate a process and all its children using platform-specific methods.
+    """Terminate the process and all its descendants.
 
-    Unix: SIGTERM to the process group, escalating to SIGKILL after
-    `FORCE_KILL_TIMEOUT`. Windows: immediate Job Object termination.
+    POSIX: SIGTERM to the process group, SIGKILL after `FORCE_KILL_TIMEOUT`.
+    Windows: immediate Job Object termination (already a hard kill).
     """
     if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process)
     else:  # pragma: lax no cover
-        # Windows-only FallbackProcess never reaches the POSIX path.
+        # The Windows-only FallbackProcess never reaches the POSIX path.
         assert isinstance(process, Process)
         await terminate_posix_process_tree(process, FORCE_KILL_TIMEOUT)
 
@@ -396,24 +357,18 @@ async def _terminate_process_tree(process: ServerProcess) -> None:
 def _close_subprocess_transport(process: ServerProcess) -> None:
     """Deterministically release the asyncio subprocess transport, if there is one.
 
-    On asyncio the transport (and the OS-level pipe fds it owns) is otherwise
-    closed only once the process has exited and every pipe has reported EOF. A
-    surviving descendant that inherited a pipe end (deliberately left alive on
-    POSIX when the server exited gracefully) would keep the fds and the transport
-    open until garbage collection, which warns. Nothing public exposes the
-    transport, hence the private attribute walk. trio and the Windows fallback
-    close the real fds in their stream wrappers' `aclose()` and take the early
-    return here.
+    On asyncio the transport (which owns the OS-level pipe fds) otherwise closes
+    only once every pipe reports EOF, so a surviving descendant holding a pipe end
+    would keep it open until garbage collection, which warns. Nothing public
+    exposes the transport, hence the private attribute walk; trio and the Windows
+    fallback close their fds in the stream wrappers and take the early return.
     """
     transport = getattr(getattr(process, "_process", None), "_transport", None)
     # Duck-typed: uvloop's UVProcessTransport is not an asyncio.SubprocessTransport.
     close = getattr(transport, "close", None)
     if callable(close):
-        # Unflushed stdin bytes defer the write-pipe close until their holder
-        # exits, but close() still marks the transport closed, so nothing warns
-        # at GC and the residual fd is bounded by the survivor's lifetime.
-        # CPython <= 3.12's close() can raise PermissionError re-killing a
-        # setuid child; 3.13+ suppresses it internally.
+        # CPython <= 3.12's close() can raise PermissionError re-killing a setuid
+        # child; 3.13+ suppresses it internally.
         with suppress(PermissionError):
             close()
 

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import weakref
+from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO, TextIO, TypeAlias, cast
 
@@ -32,12 +33,12 @@ else:
 # which would make every timeout around it ineffective.
 _EXIT_POLL_INTERVAL = 0.01
 
-# The Job Object each spawned process was assigned to, so the process tree can be
+# The Job Object each spawned process was assigned to, so its process tree can be
 # terminated through it later. Values must stay the pywin32 `PyHANDLE` returned by
-# `CreateJobObject`, never a detached int: on abandoned-shutdown paths where
-# neither pop site runs, the dying weak entry drops the last reference and the
-# `PyHANDLE` destructor closes the OS handle, which is what makes
-# `KILL_ON_JOB_CLOSE` reap the orphaned tree.
+# `CreateJobObject`, never a detached int: if neither pop site runs (an abandoned
+# shutdown), the dying weak entry drops the last reference and the `PyHANDLE`
+# destructor closes the OS handle, which is what makes `KILL_ON_JOB_CLOSE` reap
+# the orphaned tree.
 _process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = weakref.WeakKeyDictionary()
 
 
@@ -168,12 +169,11 @@ async def create_windows_process(
         # Windows event loops without async subprocess support (SelectorEventLoop)
         process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
 
-    # Created only after a successful spawn: a failed spawn raises before any job
-    # exists, so there is no handle to leak on that path. Children the server
-    # spawns before AssignProcessToJobObject completes land outside the job
-    # (membership is inherited at CreateProcess, never acquired retroactively);
-    # the window is two API calls racing the server's interpreter cold start. If
-    # it ever bites, the fix is a CREATE_SUSPENDED spawn -> assign -> resume.
+    # Created only after a successful spawn (a failed spawn raises before any job
+    # exists, so no handle can leak). Children the server spawns before
+    # AssignProcessToJobObject completes land outside the job — membership is
+    # inherited at CreateProcess, never acquired retroactively. If that window
+    # ever bites, the fix is a CREATE_SUSPENDED spawn -> assign -> resume.
     job = _create_job_object()
     _maybe_assign_process_to_job(process, job)
     return process
@@ -221,10 +221,7 @@ def _create_job_object() -> object | None:
         # If creation succeeded but configuration failed, close the handle rather
         # than leaving it to be reclaimed whenever the GC gets to it.
         if job is not None:
-            try:
-                win32api.CloseHandle(job)
-            except pywintypes.error:
-                pass
+            _close_job_handle(job)
         return None
 
 
@@ -252,37 +249,31 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object
             win32job.AssignProcessToJobObject(job, process_handle)
         finally:
             win32api.CloseHandle(process_handle)
-        # Recorded after the CloseHandle above: had that close failed, the except
-        # below would close the job and KILL_ON_JOB_CLOSE would take the server.
+        # Recorded only after the CloseHandle above succeeded: had it failed, the
+        # except below would close the job and KILL_ON_JOB_CLOSE would take the
+        # server with it.
         _process_jobs[process] = job
     except pywintypes.error:
         logger.warning("Failed to assign process %d to Job Object", process.pid, exc_info=True)
-        try:
-            win32api.CloseHandle(job)
-        except pywintypes.error:
-            pass
+        _close_job_handle(job)
 
 
 def close_process_job(process: Process | FallbackProcess) -> None:
     """Close the process's Job Object handle, if it still has one.
 
     The job is created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so closing the
-    handle also kills any job members that are still alive. Calling this at the end
-    of shutdown makes that reaping deterministic instead of GC-timed (when the
-    handle would happen to be collected). This is a deliberate divergence from
-    POSIX, where a well-behaved server's surviving background children are left
-    alive. No-op on POSIX and when no job was assigned (or it was already closed by
-    tree termination).
+    handle also kills any job members still alive — deterministically, instead of
+    whenever the GC would have collected the handle. This is a deliberate
+    divergence from POSIX, where a well-behaved server's surviving children are
+    left alive. No-op on POSIX and when no job was assigned (or tree termination
+    already closed it).
     """
     if sys.platform != "win32":
         return
 
     job = _process_jobs.pop(process, None)
-    if job is not None and win32api:
-        try:
-            win32api.CloseHandle(job)
-        except pywintypes.error:
-            pass
+    if job is not None:
+        _close_job_handle(job)
 
 
 async def terminate_windows_process_tree(process: Process | FallbackProcess) -> None:
@@ -291,9 +282,8 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
     If the process was assigned to a Job Object at spawn, the job is terminated,
     which kills every process in it immediately. Otherwise only the process itself
     is terminated. Both are immediate hard kills: Windows offers no portable
-    equivalent of SIGTERM for a whole tree, so unlike POSIX there is no graceful
-    phase here; the stdin-close grace period in the client shutdown is the
-    server's opportunity to exit cleanly.
+    equivalent of SIGTERM for a whole tree, so the stdin-close grace period in the
+    client shutdown is the server's opportunity to exit cleanly.
     """
     if sys.platform != "win32":
         return
@@ -301,16 +291,10 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
     job = _process_jobs.pop(process, None)
     if job is not None and win32job:
         try:
-            win32job.TerminateJobObject(job, 1)
-        except pywintypes.error:
-            # Job might already be terminated
-            pass
+            with suppress(pywintypes.error):  # the job might already be terminated
+                win32job.TerminateJobObject(job, 1)
         finally:
-            if win32api:
-                try:
-                    win32api.CloseHandle(job)
-                except pywintypes.error:
-                    pass
+            _close_job_handle(job)
 
     # Terminate the process directly too: it may have no job (creation or
     # assignment failed), in which case the job path above did nothing.
@@ -318,3 +302,10 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
         process.terminate()
     except OSError:
         pass
+
+
+def _close_job_handle(job: object) -> None:
+    """Close a Job Object handle, tolerating one that is already closed."""
+    if win32api and pywintypes:
+        with suppress(pywintypes.error):
+            win32api.CloseHandle(job)
