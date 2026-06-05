@@ -66,6 +66,27 @@ def _encode_header_value(value: str) -> str:
     return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
 
+def _get_default_origin(url: str) -> str | None:
+    """Derive a same-origin ``Origin`` value for *url*.
+
+    Browsers always send an ``Origin`` on cross-origin-capable requests; a server-to-server
+    client sends none. Emitting a correct same-origin value matches browser behavior and
+    satisfies servers that gate state-changing requests on a present, same-origin ``Origin``
+    (defense-in-depth against DNS-rebinding/CSRF), without weakening any server's posture.
+
+    The value is built from ``httpx.URL`` so it uses the exact scheme/host/port normalization
+    httpx applies to the ``Host`` header (default ports dropped, IPv6 hosts bracketed, userinfo
+    stripped). That keeps ``Origin`` and ``Host`` byte-for-byte consistent even for inputs like
+    ``https://host:443/mcp``, where naive parsing keeps a redundant ``:443`` that would *not*
+    match the ``Host`` httpx sends. Returns ``None`` for non-HTTP(S) URLs or URLs without an
+    authority, where no meaningful web origin exists.
+    """
+    parsed = httpx.URL(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc.decode('ascii')}"
+
+
 class StreamableHTTPError(Exception):
     """Base exception for StreamableHTTP transport errors."""
 
@@ -88,17 +109,22 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str, protocol_version: str | None = None) -> None:
+    def __init__(
+        self, url: str, default_origin: str | None = None, protocol_version: str | None = None
+    ) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            default_origin: ``Origin`` header to send when the caller has not configured one
+                on the HTTP client. See ``_get_default_origin``.
             protocol_version: Pin the MCP-Protocol-Version header from the first request.
                 Only honoured for stateless 2026-07-28+ sessions that never send
                 initialize; for earlier (stateful) versions the header is populated
                 from the negotiated InitializeResult, so a pre-2026 value is ignored.
         """
         self.url = url
+        self.default_origin = default_origin
         self.session_id: str | None = None
         self.protocol_version: str | None = protocol_version if protocol_version in MODERN_PROTOCOL_VERSIONS else None
 
@@ -134,6 +160,9 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        # Same-origin Origin for servers that gate on it; only when the caller set none.
+        if self.default_origin:
+            headers["origin"] = self.default_origin
         # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
@@ -597,7 +626,10 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url, protocol_version=protocol_version)
+    # Only supply a default Origin when the caller hasn't set one, so an explicit Origin
+    # (e.g. a multi-tenant proxy's) always wins. The client's own headers are left untouched.
+    default_origin = None if "origin" in client.headers else _get_default_origin(url)
+    transport = StreamableHTTPTransport(url, default_origin=default_origin, protocol_version=protocol_version)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

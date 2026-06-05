@@ -22,13 +22,14 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import ServerSentEvent
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.routing import Mount
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 from starlette.types import Message, Scope
 
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import StreamableHTTPTransport, _get_default_origin, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     GET_STREAM_KEY,
@@ -362,6 +363,65 @@ def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx.
     return httpx.AsyncClient(
         transport=StreamingASGITransport(app), base_url=BASE_URL, headers=headers, follow_redirects=True
     )
+
+
+def test_get_default_origin_normalizes_authority() -> None:
+    """The default Origin matches the Host header httpx emits for the same URL."""
+    # Default ports are dropped, so Origin "https://h:443" can't mismatch the Host "h".
+    assert _get_default_origin("https://example.com:443/mcp?token=abc") == "https://example.com"
+    assert _get_default_origin("http://example.com:80/mcp") == "http://example.com"
+    # Non-default ports kept; IPv6 hosts bracketed; userinfo stripped.
+    assert _get_default_origin("https://example.com:8443/mcp") == "https://example.com:8443"
+    assert _get_default_origin("http://user:pass@[::1]:8080/mcp") == "http://[::1]:8080"
+
+
+def test_get_default_origin_returns_none_without_web_origin() -> None:
+    """URLs with no meaningful web origin yield no Origin header."""
+    assert _get_default_origin("ws://example.com/mcp") is None  # non-HTTP scheme
+    assert _get_default_origin("http:///mcp") is None  # no authority
+
+
+def _make_origin_recording_app(seen: anyio.Event, recorded: dict[str, str | None]) -> Starlette:
+    async def mcp_endpoint(request: Request) -> Response:
+        recorded["origin"] = request.headers.get("origin")
+        recorded["host"] = request.headers.get("host")
+        seen.set()
+        return Response(status_code=202)
+
+    return Starlette(routes=[Route("/mcp", endpoint=mcp_endpoint, methods=["POST"])])
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_sends_same_origin_by_default() -> None:
+    """The client sends a same-origin Origin derived from the URL, matching the Host it emits."""
+    seen = anyio.Event()
+    recorded: dict[str, str | None] = {}
+    async with make_client(_make_origin_recording_app(seen, recorded)) as client:
+        async with streamable_http_client(f"{BASE_URL}/mcp", http_client=client) as (_read_stream, write_stream):
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            with anyio.fail_after(5):
+                await seen.wait()
+
+    assert recorded["origin"] == BASE_URL
+    assert recorded["origin"] is not None
+    assert recorded["origin"].split("://", 1)[1] == recorded["host"]  # Origin host == Host header
+    assert "origin" not in client.headers  # caller's client is left untouched
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_preserves_custom_origin() -> None:
+    """A caller-configured Origin always wins over the derived default."""
+    seen = anyio.Event()
+    recorded: dict[str, str | None] = {}
+    app = _make_origin_recording_app(seen, recorded)
+    async with make_client(app, headers={"Origin": "https://proxy.example"}) as client:
+        async with streamable_http_client(f"{BASE_URL}/mcp", http_client=client) as (_read_stream, write_stream):
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            with anyio.fail_after(5):
+                await seen.wait()
+
+    assert recorded["origin"] == "https://proxy.example"
+    assert client.headers["origin"] == "https://proxy.example"
 
 
 # Test fixtures
