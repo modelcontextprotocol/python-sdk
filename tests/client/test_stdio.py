@@ -558,3 +558,68 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+@pytest.mark.anyio
+async def test_is_jupyter_notebook_returns_false_without_ipykernel():
+    """_is_jupyter_notebook returns False when ipykernel is not importable."""
+    from mcp.client.stdio import _is_jupyter_notebook
+
+    # ipykernel is not installed in the test environment
+    assert _is_jupyter_notebook() is False
+
+
+@pytest.mark.anyio
+async def test_is_jupyter_notebook_returns_true_with_mocked_jupyter(monkeypatch):
+    """_is_jupyter_notebook returns True when ZMQInteractiveShell is active."""
+    import types
+
+    # Create a fake ZMQInteractiveShell class
+    fake_zmq_module = types.ModuleType("ipykernel.zmqshell")
+
+    class FakeZMQShell:
+        pass
+
+    fake_zmq_module.ZMQInteractiveShell = FakeZMQShell  # type: ignore[attr-defined]
+
+    # Create a fake ipykernel module
+    fake_ipykernel = types.ModuleType("ipykernel")
+    fake_ipykernel.zmqshell = fake_zmq_module  # type: ignore[attr-defined]
+
+    # Create a fake IPython module with get_ipython returning our shell
+    fake_ipython = types.ModuleType("IPython")
+    fake_ipython.get_ipython = lambda: FakeZMQShell()  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "ipykernel", fake_ipykernel)
+    monkeypatch.setitem(sys.modules, "ipykernel.zmqshell", fake_zmq_module)
+    monkeypatch.setitem(sys.modules, "IPython", fake_ipython)
+
+    from mcp.client.stdio import _is_jupyter_notebook
+
+    assert _is_jupyter_notebook() is True
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_writes_ansi_when_in_jupyter(monkeypatch):
+    """stderr_reader uses ANSI escape codes when running in Jupyter."""
+    captured_lines: list[str] = []
+
+    def fake_print(*args, **kwargs):
+        captured_lines.append(str(args[0]) if args else "")
+
+    monkeypatch.setattr("builtins.print", fake_print)
+    monkeypatch.setattr("mcp.client.stdio._is_jupyter_notebook", lambda: True)
+
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stderr.write('errline\\n'); sys.stderr.flush()"],
+    )
+
+    async with stdio_client(server) as (read_stream, _write_stream):
+        with anyio.fail_after(3.0):
+            async for _ in read_stream:
+                pass
+
+    # At least one line should contain ANSI red escape codes
+    ansi_lines = [l for l in captured_lines if "\033[91m" in l]
+    assert len(ansi_lines) > 0, f"Expected ANSI-colored stderr, got: {captured_lines}"
