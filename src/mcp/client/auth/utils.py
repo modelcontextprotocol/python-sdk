@@ -1,4 +1,6 @@
+import ipaddress
 import re
+from typing import Literal
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
@@ -215,6 +217,41 @@ def create_oauth_metadata_request(url: str) -> Request:
     return Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Return True if host is a loopback address (localhost, 127.0.0.0/8, or ::1)."""
+    if host == "localhost":
+        return True
+    try:
+        # pydantic keeps IPv6 hosts bracketed (e.g. "[::1]"); ipaddress wants them bare.
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def infer_application_type(redirect_uris: list[AnyUrl] | None) -> Literal["native", "web"] | None:
+    """Infer the OIDC application_type from a client's redirect URIs (SEP-837).
+
+    Loopback redirect URIs (localhost, 127.0.0.0/8, ::1) and private-use URI schemes
+    identify a native application; an http(s) URL with a non-loopback host identifies
+    a web application. A mix of both is ambiguous, so the type is left unset for the
+    authorization server to decide.
+    """
+    if not redirect_uris:
+        return None
+
+    has_native = False
+    has_web = False
+    for uri in redirect_uris:
+        if uri.scheme in ("http", "https") and not _is_loopback_host(uri.host or ""):
+            has_web = True
+        else:
+            has_native = True
+
+    if has_native and has_web:
+        return None
+    return "native" if has_native else "web"
+
+
 def create_client_registration_request(
     auth_server_metadata: OAuthMetadata | None, client_metadata: OAuthClientMetadata, auth_base_url: str
 ) -> Request:
@@ -226,6 +263,14 @@ def create_client_registration_request(
         registration_url = urljoin(auth_base_url, "/register")
 
     registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+    # SEP-837: OIDC servers assume application_type "web" when it is omitted, which can
+    # reject the loopback redirect URIs native clients use. Send a type inferred from
+    # the redirect URIs when the caller did not set one explicitly.
+    if "application_type" not in registration_data:
+        application_type = infer_application_type(client_metadata.redirect_uris)
+        if application_type is not None:
+            registration_data["application_type"] = application_type
 
     return Request("POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"})
 

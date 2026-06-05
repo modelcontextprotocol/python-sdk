@@ -205,6 +205,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
             "scope": "mcp",
             "client_name": "interaction-suite",
             "software_id": "interaction-test-suite",
+            "application_type": "native",
         }
     )
 

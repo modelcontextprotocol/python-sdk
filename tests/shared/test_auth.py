@@ -138,3 +138,24 @@ def test_invalid_non_empty_url_still_rejected():
     }
     with pytest.raises(ValidationError):
         OAuthClientMetadata.model_validate(data)
+
+
+def test_application_type_defaults_to_none():
+    """SEP-837 application_type is optional; the client infers it when unset."""
+    metadata = OAuthClientMetadata.model_validate({"redirect_uris": ["http://localhost:3030/callback"]})
+    assert metadata.application_type is None
+
+
+@pytest.mark.parametrize("application_type", ["native", "web"])
+def test_application_type_accepts_valid_values(application_type: str):
+    metadata = OAuthClientMetadata.model_validate(
+        {"redirect_uris": ["http://localhost:3030/callback"], "application_type": application_type}
+    )
+    assert metadata.application_type == application_type
+
+
+def test_application_type_rejects_invalid_value():
+    with pytest.raises(ValidationError):
+        OAuthClientMetadata.model_validate(
+            {"redirect_uris": ["http://localhost:3030/callback"], "application_type": "desktop"}
+        )

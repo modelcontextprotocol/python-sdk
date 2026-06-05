@@ -54,6 +54,12 @@ class OAuthClientMetadata(BaseModel):
     response_types: list[str] = ["code"]
     scope: str | None = None
 
+    # OpenID Connect application type (OIDC Dynamic Client Registration 1.0 §2).
+    # OIDC servers assume "web" when this is omitted (SEP-837), which can reject the
+    # loopback redirect URIs native clients rely on. Left None here; the client
+    # infers it from redirect_uris at registration time when no value is set.
+    application_type: Literal["native", "web"] | None = None
+
     # these fields are currently unused, but we support & store them for potential
     # future use
     client_name: str | None = None

@@ -1,6 +1,7 @@
 """Tests for refactored OAuth client authentication implementation."""
 
 import base64
+import json
 import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -23,6 +24,7 @@ from mcp.client.auth.utils import (
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
     handle_registration_response,
+    infer_application_type,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
 )
@@ -1026,6 +1028,61 @@ class TestCreateClientRegistrationRequest:
 
         assert str(request.url) == "https://auth.example.com/register"
         assert request.method == "POST"
+
+
+@pytest.mark.parametrize(
+    ("redirect_uris", "expected"),
+    [
+        (["http://localhost:3030/callback"], "native"),
+        (["http://127.0.0.1:3030/callback"], "native"),
+        (["http://[::1]:3030/callback"], "native"),
+        (["com.example.app:/oauth2redirect"], "native"),
+        (["https://app.example.com/callback"], "web"),
+        (["http://localhost:3030/callback", "https://app.example.com/callback"], None),
+    ],
+)
+def test_infer_application_type(redirect_uris: list[str], expected: str | None):
+    """SEP-837: native for loopback or private-use redirect URIs, web for remote hosts."""
+    assert infer_application_type([AnyUrl(uri) for uri in redirect_uris]) == expected
+
+
+def test_infer_application_type_without_redirect_uris():
+    assert infer_application_type([]) is None
+    assert infer_application_type(None) is None
+
+
+def test_create_client_registration_request_infers_native_application_type():
+    """A loopback redirect URI registers the client as a native application (SEP-837)."""
+    client_metadata = OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")])
+
+    request = create_client_registration_request(None, client_metadata, "https://auth.example.com")
+
+    assert json.loads(request.content)["application_type"] == "native"
+
+
+def test_create_client_registration_request_preserves_explicit_application_type():
+    """An explicit application_type is sent as-is, without inference overriding it."""
+    client_metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")], application_type="web"
+    )
+
+    request = create_client_registration_request(None, client_metadata, "https://auth.example.com")
+
+    assert json.loads(request.content)["application_type"] == "web"
+
+
+def test_create_client_registration_request_omits_ambiguous_application_type():
+    """Redirect URIs that mix native and web styles leave application_type unset."""
+    client_metadata = OAuthClientMetadata(
+        redirect_uris=[
+            AnyUrl("http://localhost:3030/callback"),
+            AnyUrl("https://app.example.com/callback"),
+        ]
+    )
+
+    request = create_client_registration_request(None, client_metadata, "https://auth.example.com")
+
+    assert "application_type" not in json.loads(request.content)
 
 
 class TestAuthFlow:
