@@ -770,6 +770,8 @@ def test_streamable_http_transport_init_validation():
 def test_get_default_origin_derives_origin_from_url():
     assert _get_default_origin("https://example.com:8443/mcp?token=abc") == "https://example.com:8443"
     assert _get_default_origin("http://user:pass@[::1]:8080/mcp") == "http://[::1]:8080"
+    assert _get_default_origin("ws://example.com/mcp") is None
+    assert _get_default_origin("/mcp") is None
 
 
 @pytest.mark.anyio
