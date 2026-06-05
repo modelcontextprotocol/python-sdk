@@ -42,10 +42,11 @@ def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> d
 class Connection(TypedServerRequestMixin):
     """Per-client connection state and standalone-stream `Outbound`.
 
-    Constructed by `ServerRunner` once per connection. The peer-info fields are
-    `None` until `initialize` completes; `initialized` is set then. In
-    stateless deployments the runner sets `initialized` immediately and
-    peer-info remains `None` (no handshake reaches a stateless connection).
+    Constructed by `ServerRunner` once per connection. The peer-info fields
+    are `None` until `initialize` completes; `initialized` is set later, when
+    the client's `notifications/initialized` follow-up arrives. In stateless
+    deployments the runner sets `initialized` immediately and peer-info
+    remains `None` (no handshake reaches a stateless connection).
     """
 
     def __init__(self, outbound: Outbound, *, has_standalone_channel: bool, session_id: str | None = None) -> None:
@@ -57,20 +58,24 @@ class Connection(TypedServerRequestMixin):
         """The full `initialize` request params; `None` before initialization."""
         self.protocol_version: str | None = None
         self.initialized: anyio.Event = anyio.Event()
+        """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
+        the point from which the spec permits server-initiated requests beyond
+        ping/logging. Pre-set on stateless connections."""
 
         self.state: dict[str, Any] = {}
-        """Per-connection scratch state. Handlers and middleware may read and
-        write freely; persists across requests on this connection."""
+        """Per-connection scratch state; persists across requests on this connection."""
 
         self.exit_stack: AsyncExitStack = AsyncExitStack()
-        """Cleanup stack unwound by `ServerRunner` when the connection closes.
+        """Per-connection teardown, unwound LIFO (shielded) when the connection
+        closes. Push cleanup from handlers or middleware; exceptions are logged
+        and swallowed."""
 
-        Push context managers (`await exit_stack.enter_async_context(...)`)
-        or callbacks (`exit_stack.push_async_callback(...)`) from handlers or
-        middleware to register per-connection teardown. Unwound LIFO after
-        `dispatcher.run()` returns, shielded from cancellation. Exceptions
-        raised by callbacks are logged and swallowed; they never propagate
-        out of `ServerRunner.run()`."""
+    @property
+    def initialize_accepted(self) -> bool:
+        """True once the inbound request gate is open: `initialize` recorded the
+        peer info, or the handshake completed outright (stateless birth, or a
+        bare `notifications/initialized`). Derived, never stored."""
+        return self.client_params is not None or self.initialized.is_set()
 
     async def send_raw_request(
         self,

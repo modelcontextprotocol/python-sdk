@@ -65,22 +65,13 @@ LifespanT = TypeVar("LifespanT", default=Any)
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
 
 _EXIT_STACK_CLOSE_TIMEOUT: float = 5
-"""Grace period in seconds for `connection.exit_stack` teardown in `run()`.
-
-The unwind is shielded from outer cancellation so per-connection cleanup runs
-even when the server is being torn down; the shield must be bounded or a
-misbehaving cleanup callback would hang shutdown indefinitely."""
+"""Bound for the shielded exit-stack unwind in `run()`; a hung cleanup
+callback must not wedge shutdown."""
 
 
 def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
-    """Lift `_meta` from raw params with the same key-aliasing pydantic applies.
-
-    `RequestParams` only declares `meta` (alias `_meta`) and `MCPModel` does
-    not forbid extras, so this validate ignores everything else and never
-    rejects on the caller's other fields. Returns `None` for absent or
-    malformed `_meta` so context construction is independent of params
-    validity (which `_on_request` checks separately).
-    """
+    """Lift `_meta` from raw params; `None` when absent or malformed, so
+    context construction is independent of params validity."""
     if not params or "_meta" not in params:
         return None
     try:
@@ -149,11 +140,8 @@ def _dump_result(result: Any) -> dict[str, Any]:
     if result is None:
         return {}
     if isinstance(result, ErrorData):
-        # The existing `BaseSession._send_response` treats a returned
-        # `ErrorData` as a JSON-RPC error, not a success result. Handler
-        # returns are converted inside `_on_request`'s `_inner` (so
-        # `Server.middleware` observes the raise); this branch is the boundary
-        # check for middleware that itself returns `ErrorData`.
+        # ErrorData is a JSON-RPC error, not a success result. Handler returns
+        # already raise in `_inner`; this catches middleware returning one.
         raise MCPError.from_error_data(result)
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -179,19 +167,15 @@ class ServerRunner(Generic[LifespanT]):
     connection: Connection = field(init=False)
     session: ServerSession = field(init=False)
     """Connection-scoped: the same instance reaches every request as `ctx.session`."""
-    _initialized: bool = field(init=False)
 
     def __post_init__(self) -> None:
-        self._initialized = self.stateless
         if self.init_options is None:
             self.init_options = self.server.create_initialization_options()
         self.connection = Connection(
             self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
         )
         if self.stateless:
-            # Keep the public event in lockstep with the gate flag so a handler
-            # awaiting `connection.initialized` does not hang on a stateless
-            # connection (where no `initialize` exchange ever arrives).
+            # No handshake ever arrives on a stateless connection; born ready.
             self.connection.initialized.set()
         self.session = ServerSession(self.dispatcher, self.connection, stateless=self.stateless)
 
@@ -214,11 +198,8 @@ class ServerRunner(Generic[LifespanT]):
                 try:
                     await self.connection.exit_stack.aclose()
                 except Exception:
-                    # Top-level boundary: a cleanup callback raising must not
-                    # escape `run()` - it would crash stdio servers on a normal
-                    # disconnect and, via raise-in-finally, mask the original
-                    # exception from `dispatcher.run()` (including the
-                    # CancelledError that SHTTP idle-timeout teardown checks).
+                    # Raising here would mask dispatcher.run()'s exception and
+                    # crash stdio servers on normal disconnect.
                     logger.exception("connection exit_stack cleanup raised")
             if scope.cancelled_caught:
                 logger.warning(
@@ -245,48 +226,27 @@ class ServerRunner(Generic[LifespanT]):
         ctx = self._make_context(dctx, _extract_meta(params))
 
         async def _inner() -> HandlerResult:
-            # TODO(maxisbey): pinned compat. `BaseSession._receive_loop`
-            # validates every inbound request against the spec `ClientRequest`
-            # discriminated union *before* handler lookup, so a spec method
-            # with malformed params surfaces as INVALID_PARAMS via the
-            # dispatcher's ValidationError boundary even when no handler is
-            # registered. v2 wanted to decouple the runner from the spec union;
-            # revisit once the suite's divergence entry is resolved. Gated on
-            # spec methods so custom methods registered via
-            # `add_request_handler` still route (the existing server rejects
-            # those too, but nothing pins that and routing is strictly better).
+            # TODO(maxisbey): pinned compat: spec methods are validated against
+            # the ClientRequest union before lookup, so malformed params are
+            # INVALID_PARAMS even with no handler registered.
             if method in _SPEC_CLIENT_METHODS:
                 payload: dict[str, Any] = {"method": method}
                 if params is not None:
                     payload["params"] = dict(params)
                 client_request_adapter.validate_python(payload, by_name=False)
-            # TODO(maxisbey): rework initialization into a pure incoming
-            # middleware, and add an outgoing-middleware seam whose default
-            # chain blocks server-to-client requests when the negotiated
-            # protocol version requires initialization and the connection is
-            # neither initialized nor stateless. Until then, note that
-            # `initialize` is handled inline (the dispatcher's read loop is
-            # parked until this whole call - middleware included - returns),
-            # so awaiting a peer response anywhere on this path deadlocks the
-            # connection.
+            # TODO(maxisbey): the 2026-07-28 spec drops the handshake; this branch and
+            # the gate become a per-version legacy path then. Initialize runs inline
+            # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
                 return self._handle_initialize(params)
-            if not self._initialized and method not in _INIT_EXEMPT:
-                # TODO(maxisbey): pinned compat. The existing server has no
-                # dedicated pre-init check; the request dies in ClientRequest
-                # validation, so the client sees the generic invalid-params
-                # shape.
+            if not self.connection.initialize_accepted and method not in _INIT_EXEMPT:
+                # Pinned compat: the same error shape the union validation produced.
                 raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
             entry = self.server.get_request_handler(method)
             if entry is None:
                 raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
-            # ValidationError propagates; the dispatcher's exception boundary
-            # maps it to INVALID_PARAMS. Absent wire params reach the handler
-            # as None (matches the existing `Server._handle_request`, where
-            # `req.params` is None for optional-params requests like
-            # tools/list); the empty-dict validate is a required-field check
-            # so a required-params model still surfaces as INVALID_PARAMS
-            # rather than reaching the handler as None.
+            # Absent params reach the handler as None; the empty-dict validate
+            # still enforces required fields (pinned compat).
             if params is None:
                 entry.params_type.model_validate({}, by_name=False)
                 typed_params = None
@@ -294,17 +254,17 @@ class ServerRunner(Generic[LifespanT]):
                 typed_params = entry.params_type.model_validate(params, by_name=False)
             result = await entry.handler(ctx, typed_params)
             if isinstance(result, ErrorData):
-                # A handler-returned `ErrorData` is a JSON-RPC error, not a
-                # success result (matches `BaseSession._send_response`). Raise
-                # here, inside the middleware chain, so `Server.middleware`
-                # observes the failure as a raised `MCPError` out of
-                # `call_next()` per the `ServerMiddleware` contract instead of
-                # a successful-looking `ErrorData` return.
+                # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
             return result
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
-        return _dump_result(await call())
+        result = _dump_result(await call())
+        if method == "initialize":
+            # Commit only on chain success, so a middleware veto leaves no state.
+            # Race-free: the read loop is parked until this call returns.
+            self.connection.client_params, self.connection.protocol_version = self._negotiate_initialize(params)
+        return result
 
     async def _on_notify(
         self,
@@ -316,35 +276,24 @@ class ServerRunner(Generic[LifespanT]):
 
         async def _inner() -> None:
             if method == "notifications/initialized":
-                # Validate against the spec params model *before* flipping the
-                # init state, so a malformed initialized notification drops
-                # like any other malformed notification and leaves the
-                # connection uninitialized (the existing server validated the
-                # full `ClientNotification` union before dispatch). On
-                # success, fall through to the registry so a handler
-                # registered for this method observes an initialized
-                # connection.
+                # Validate before committing so a malformed notification leaves
+                # state untouched; then fall through so a registered handler
+                # observes an initialized connection.
                 if params is not None:
                     try:
                         NotificationParams.model_validate(params, by_name=False)
                     except ValidationError:
                         logger.warning("dropped %r: malformed params", method)
                         return
-                self._initialized = True
                 self.connection.initialized.set()
-            elif not self._initialized:
+            elif not self.connection.initialize_accepted:
                 logger.debug("dropped %s: received before initialization", method)
                 return
             entry = self.server.get_notification_handler(method)
             if entry is None:
                 logger.debug("no handler for notification %s", method)
                 return
-            # Absent wire params reach the handler as None, not an empty model
-            # (matches the existing `Server._handle_notification`). The
-            # empty-dict validate is a required-field check: a required-params
-            # model (e.g. ProgressNotificationParams) takes the
-            # malformed-params drop path instead of reaching a non-Optional
-            # handler as None.
+            # Same absent-params contract as requests.
             try:
                 if params is None:
                     entry.params_type.model_validate({}, by_name=False)
@@ -360,11 +309,8 @@ class ServerRunner(Generic[LifespanT]):
         try:
             await call()
         except Exception:
-            # Top-level boundary: a notification handler (or middleware)
-            # crashing must not tear down the connection (it runs as a bare
-            # task in the dispatcher's task group; an uncaught exception would
-            # cancel every sibling, including the read loop and in-flight
-            # requests). Middleware sees the raise out of `call_next()` first.
+            # A crashing handler must not cancel the dispatcher's task group;
+            # middleware saw the raise out of call_next() first.
             logger.exception("notification handler for %r raised", method)
 
     def _compose_server_middleware(
@@ -407,17 +353,20 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
 
-    def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
+    @staticmethod
+    def _negotiate_initialize(params: Mapping[str, Any] | None) -> tuple[InitializeRequestParams, str]:
+        """Validate `initialize` params and pick the protocol version."""
         init = InitializeRequestParams.model_validate(params or {}, by_name=False)
-        self.connection.client_params = init
         requested = init.protocol_version
         negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
-        self.connection.protocol_version = negotiated
-        self._initialized = True
-        self.connection.initialized.set()
+        return init, negotiated
+
+    def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
+        """Build the `initialize` result; state commits later in `_on_request`."""
+        _, negotiated = self._negotiate_initialize(params)
         assert self.init_options is not None
         opts = self.init_options
-        result = InitializeResult(
+        return InitializeResult(
             protocol_version=negotiated,
             capabilities=opts.capabilities,
             server_info=Implementation(
@@ -430,4 +379,3 @@ class ServerRunner(Generic[LifespanT]):
             ),
             instructions=opts.instructions,
         )
-        return result

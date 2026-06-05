@@ -27,6 +27,7 @@ from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
@@ -141,7 +142,20 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
     assert runner.connection.client_params is not None
     assert runner.connection.client_params.client_info.name == "test-client"
     assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
-    assert runner._initialized is True
+    assert runner.connection.initialize_accepted is True
+
+
+@pytest.mark.anyio
+async def test_runner_initialize_opens_gate_but_event_fires_only_after_initialized_notification(server: SrvT):
+    """`initialize` commits the gate flag and peer info, but the public
+    `connection.initialized` event waits for `notifications/initialized` (the
+    point from which the spec permits server-initiated requests)."""
+    async with connected_runner(server, initialized=False) as (client, runner):
+        await client.send_raw_request("initialize", _initialize_params())
+        assert runner.connection.initialize_accepted is True
+        assert not runner.connection.initialized.is_set()
+        await client.notify("notifications/initialized", None)
+        await runner.connection.initialized.wait()
 
 
 @pytest.mark.anyio
@@ -257,7 +271,7 @@ async def test_runner_on_notify_initialized_sets_flag_and_connection_event(serve
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.notify("notifications/initialized", None)
         await runner.connection.initialized.wait()
-    assert runner._initialized is True
+    assert runner.connection.initialize_accepted is True
 
 
 @pytest.mark.anyio
@@ -269,7 +283,7 @@ async def test_runner_on_notify_malformed_initialized_does_not_initialize(
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.notify("notifications/initialized", {"_meta": 42})
         await anyio.wait_all_tasks_blocked()
-        assert runner._initialized is False
+        assert runner.connection.initialize_accepted is False
         assert not runner.connection.initialized.is_set()
     assert "dropped 'notifications/initialized': malformed params" in caplog.text
 
@@ -282,7 +296,7 @@ async def test_runner_on_notify_initialized_routes_to_registered_handler_after_s
     delivered = anyio.Event()
 
     async def on_initialized(ctx: Ctx, params: NotificationParams | None) -> None:
-        seen.append(runner._initialized and runner.connection.initialized.is_set())
+        seen.append(runner.connection.initialize_accepted and runner.connection.initialized.is_set())
         delivered.set()
 
     server.add_notification_handler("notifications/initialized", NotificationParams, on_initialized)
@@ -481,6 +495,34 @@ async def test_runner_server_middleware_wraps_every_request_including_initialize
 
 
 @pytest.mark.anyio
+async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_connection_uninitialized(server: SrvT):
+    """A middleware failure after `call_next()` on `initialize` reaches the
+    client as an error and skips the state commit: the pre-init gate stays
+    closed and `connection.initialized` never fires."""
+
+    async def reject_initialize(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        result = await call_next()
+        if method == "initialize":
+            raise MCPError(code=INTERNAL_ERROR, message="rejected by middleware")
+        return result
+
+    server.middleware.append(reject_initialize)
+    async with connected_runner(server, initialized=False) as (client, runner):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", _initialize_params())
+        assert exc.value.error.message == "rejected by middleware"
+        with pytest.raises(MCPError) as gate_exc:
+            await client.send_raw_request("tools/list", None)
+        assert gate_exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+        # ping passes through the middleware untouched
+        assert await client.send_raw_request("ping", None) == {}
+    assert runner.connection.initialize_accepted is False
+    assert runner.connection.client_params is None
+    assert runner.connection.protocol_version is None
+    assert not runner.connection.initialized.is_set()
+
+
+@pytest.mark.anyio
 async def test_runner_server_middleware_observes_method_not_found_via_call_next_raise(server: SrvT):
     seen: list[tuple[str, type[BaseException] | None]] = []
 
@@ -661,7 +703,7 @@ async def test_runner_stateless_connection_initialized_event_set_on_construction
     `await connection.initialized.wait()` does not hang when no handshake
     arrives."""
     async with connected_runner(server, initialized=False, stateless=True, has_standalone_channel=False) as (_, runner):
-        assert runner._initialized is True
+        assert runner.connection.initialize_accepted is True
         assert runner.connection.initialized.is_set()
         await runner.connection.initialized.wait()
 
