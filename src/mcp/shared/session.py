@@ -20,6 +20,7 @@ from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMe
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
@@ -287,6 +288,12 @@ class BaseSession(
         raise NotImplementedError
 
     @property
+    def _receive_request_methods(self) -> frozenset[str]:
+        """Method names in the receive-request union; anything else is
+        answered with METHOD_NOT_FOUND before validation is attempted."""
+        raise NotImplementedError
+
+    @property
     def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
         raise NotImplementedError
 
@@ -297,6 +304,18 @@ class BaseSession(
                 async def _handle_session_message(message: SessionMessage) -> None:
                     sender_context: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
                     if isinstance(message.message, JSONRPCRequest):
+                        if message.message.method not in self._receive_request_methods:
+                            # Unknown methods are METHOD_NOT_FOUND (-32601) per
+                            # JSON-RPC 2.0, not validation failures (-32602).
+                            error_response = JSONRPCError(
+                                jsonrpc="2.0",
+                                id=message.message.id,
+                                error=ErrorData(
+                                    code=METHOD_NOT_FOUND, message="Method not found", data=message.message.method
+                                ),
+                            )
+                            await self._write_stream.send(SessionMessage(message=error_response))
+                            return
                         try:
                             validated_request = self._receive_request_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),

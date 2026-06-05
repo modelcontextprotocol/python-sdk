@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any, Protocol, cast, get_args
 
 import anyio.lowlevel
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
@@ -95,6 +95,13 @@ async def _default_logging_callback(
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
+_SERVER_REQUEST_METHODS: frozenset[str] = frozenset(
+    cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(types.ServerRequest)
+)
+"""Method names in the spec `ServerRequest` union, derived from the
+discriminator literal on each arm. Requests for any other method are answered
+with METHOD_NOT_FOUND instead of failing union validation."""
+
 
 class ClientSession(
     BaseSession[
@@ -133,6 +140,10 @@ class ClientSession(
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
         return types.server_request_adapter
+
+    @property
+    def _receive_request_methods(self) -> frozenset[str]:
+        return _SERVER_REQUEST_METHODS
 
     @property
     def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
