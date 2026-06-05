@@ -50,6 +50,17 @@ class ServerSession:
         """The client's `initialize` request params; `None` before initialization."""
         return self._connection.client_params
 
+    @property
+    def protocol_version(self) -> str | None:
+        """The protocol version negotiated during `initialize`.
+
+        `None` before initialization completes, and always `None` on stateless
+        connections (no handshake reaches them; on streamable HTTP the
+        per-request version is the `MCP-Protocol-Version` header, available
+        via `ctx.request.headers`).
+        """
+        return self._connection.protocol_version
+
     async def send_request(
         self,
         request: types.ServerRequest,
