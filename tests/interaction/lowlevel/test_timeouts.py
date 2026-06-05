@@ -1,8 +1,9 @@
 """Request timeouts against the low-level Server, driven through the public client API.
 
 The handler blocks on an event that is never set, so the awaited response can never arrive and
-any positive timeout fires deterministically on the next event-loop pass. The timeout is therefore
-set to an effectively-zero duration: the tests add no wall-clock time to the suite. (Zero itself
+any positive timeout fires deterministically on the next event-loop pass. Per-request timeouts are
+set to an effectively-zero duration; the session-level test runs on trio's virtual clock instead
+(see the comment there). Either way the tests add no wall-clock time to the suite. (Zero itself
 cannot be used: a falsy read_timeout_seconds is silently treated as "no timeout".)
 """
 
@@ -12,6 +13,7 @@ from typing import Any
 import anyio
 import pytest
 from inline_snapshot import snapshot
+from trio.testing import MockClock
 
 from mcp import McpError, types
 from mcp.server.lowlevel import Server
@@ -82,7 +84,19 @@ async def test_session_serves_requests_after_timeout(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="still alive")]))
 
 
+# A session-level timeout cannot use the effectively-zero pattern above: it also governs the
+# initialize handshake, which must complete before the blocked tool call can wait the timeout
+# out in full. Any real-clock margin is a bet against CI scheduler stalls (a 50ms value lost
+# that bet in CI; the in-process handshake tail reaches ~190ms on a loaded windows runner), so
+# this test runs on trio's virtual clock instead. With autojump, time advances only when every
+# task is blocked: the handshake always has a runnable task and therefore cannot time out no
+# matter how slow the runner, and once the tool call blocks on the never-answered request the
+# run goes idle and the clock jumps straight to the deadline — deterministic, with no real wait.
 @requirement("protocol:timeout:session-default")
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
 async def test_session_level_timeout_applies_to_every_request(connect: Connect) -> None:
     """A read timeout configured on the client applies to requests that do not set their own."""
     server: Server[Any] = Server("blocker")
@@ -93,12 +107,6 @@ async def test_session_level_timeout_applies_to_every_request(connect: Connect) 
         await anyio.Event().wait()  # blocks until the session is torn down
         raise NotImplementedError  # unreachable
 
-    # The one real wall-clock wait in the suite, and it cannot be made effectively zero like the
-    # per-request timeouts: a session-level timeout also governs the initialize handshake, so the
-    # value must be long enough for the in-process handshake to complete before the blocked tool
-    # call waits it out in full. 50ms buys a ~50x safety margin over the handshake's actual
-    # latency; lowering it only erodes the margin against CI scheduler jitter without saving
-    # anything perceptible.
     async with connect(server, read_timeout_seconds=timedelta(seconds=0.05)) as client:
         with pytest.raises(McpError) as exc_info:
             await client.call_tool("block", {})
