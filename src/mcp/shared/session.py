@@ -19,6 +19,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.types import (
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
     CancelledNotification,
@@ -182,6 +183,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _propagate_errors: dict[RequestId, BaseException]
 
     def __init__(
         self,
@@ -198,6 +200,7 @@ class BaseSession(
         self._in_flight = {}
         self._progress_callbacks = {}
         self._exit_stack = AsyncExitStack()
+        self._propagate_errors = {}
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -277,6 +280,11 @@ class BaseSession(
                     class_name = request.__class__.__name__
                     message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
                     raise MCPError(code=REQUEST_TIMEOUT, message=message)
+                except anyio.EndOfStream:
+                    propagate = self._propagate_errors.pop(request_id, None)
+                    if propagate is not None:
+                        raise propagate from None
+                    raise
 
                 if isinstance(response_or_error, JSONRPCError):
                     raise MCPError.from_jsonrpc_error(response_or_error)
@@ -356,7 +364,20 @@ class BaseSession(
 
                             if not responder._completed:  # type: ignore[reportPrivateUsage]
                                 await self._handle_incoming(responder)
-                        except Exception:
+                        except Exception as e:
+                            if getattr(e, "__mcp_propagate__", False):
+                                error_response = JSONRPCError(
+                                    jsonrpc="2.0",
+                                    id=message.message.id,
+                                    error=ErrorData(code=INTERNAL_ERROR, message="Handler raised", data=""),
+                                )
+                                await self._write_stream.send(SessionMessage(message=error_response))
+                                self._in_flight.pop(message.message.id, None)
+                                for in_flight_id, stream in list(self._response_streams.items()):
+                                    self._propagate_errors[in_flight_id] = e
+                                    await stream.aclose()
+                                return
+
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
                             logging.warning("Failed to validate request", exc_info=True)
