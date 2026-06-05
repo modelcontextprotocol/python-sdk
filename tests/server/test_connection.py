@@ -12,6 +12,7 @@ from typing import Any
 
 import anyio
 import pytest
+from pydantic import ValidationError
 
 from mcp.server.connection import Connection
 from mcp.shared.dispatcher import CallOptions
@@ -134,6 +135,13 @@ async def test_connection_send_request_with_result_type_kwarg_validates_custom_t
     conn = Connection(out, has_standalone_channel=True)
     result = await conn.send_request(PingRequest(), result_type=EmptyResult)
     assert isinstance(result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_connection_send_request_nonconforming_result_raises_validation_error():
+    conn = Connection(StubOutbound(result={"bogus": 1}), has_standalone_channel=True)
+    with pytest.raises(ValidationError):
+        await conn.send_request(ListRootsRequest())
 
 
 @pytest.mark.anyio

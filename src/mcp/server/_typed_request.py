@@ -79,6 +79,7 @@ class TypedServerRequestMixin:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
             KeyError: `result_type` omitted for a non-spec request type.
         """
         raw = await self.send_raw_request(req.method, dump_params(req.params), opts)

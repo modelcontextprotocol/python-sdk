@@ -125,6 +125,7 @@ class ClientPeerMixin:
             MCPError: The peer responded with an error.
             NoBackChannelError: The host's transport context has no
                 back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         params = CreateMessageRequestParams(
             messages=messages,
@@ -156,6 +157,7 @@ class ClientPeerMixin:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
@@ -175,6 +177,7 @@ class ClientPeerMixin:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         params = ElicitRequestURLParams(message=message, url=url, elicitation_id=elicitation_id)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
@@ -188,6 +191,7 @@ class ClientPeerMixin:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
         return ListRootsResult.model_validate(result, by_name=False)

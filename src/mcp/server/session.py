@@ -65,9 +65,11 @@ class ServerSession:
         streamable HTTP; it is the only metadata field honored here.
 
         Raises:
+            MCPError: The peer responded with an error.
             NoBackChannelError: If there is no related request to ride on and
                 the connection has no standalone channel (stateless HTTP), so
                 a response could never arrive.
+            pydantic.ValidationError: The peer's result does not match `result_type`.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
