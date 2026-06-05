@@ -1182,27 +1182,31 @@ Tasks are expected to return as a separate MCP extension in a future release.
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
 
-### Extra fields no longer allowed on top-level MCP types
+### Extra fields on MCP types are no longer preserved
 
-MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
+In v1, MCP protocol types were configured with `extra="allow"`: unknown fields passed to a constructor or received from a peer were kept on the model and re-serialized on output.
+
+In v2, MCP types silently ignore extra fields. Unknown constructor keyword arguments and unknown keys in wire data are dropped during validation — no error is raised, and the values do not round-trip:
 
 ```python
-# This will now raise a validation error
 from mcp.types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
     arguments={},
-    unknown_field="value",  # ValidationError: extra fields not permitted
+    unknown_field="value",  # silently ignored, not stored
 )
+"unknown_field" in params.model_dump()  # False
 
-# Extra fields are still allowed in _meta
+# _meta remains the supported place for custom data, per the MCP spec
 params = CallToolRequestParams(
     name="my_tool",
     arguments={},
-    _meta={"my_custom_key": "value", "another": 123},  # OK
+    _meta={"my_custom_key": "value", "another": 123},  # OK, preserved
 )
 ```
+
+If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
 ## New Features
 
