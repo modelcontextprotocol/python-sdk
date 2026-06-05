@@ -12,6 +12,7 @@ neither leak a live server process nor hang on one.
 import logging
 import os
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal, TextIO
@@ -23,6 +24,7 @@ from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
 from mcp import types
+from mcp.client._transport import TransportStreams
 from mcp.os.posix.utilities import terminate_posix_process_tree
 from mcp.os.win32.utilities import (
     ServerProcess,
@@ -129,7 +131,9 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
+async def stdio_client(
+    server: StdioServerParameters, errlog: TextIO = sys.stderr
+) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
 

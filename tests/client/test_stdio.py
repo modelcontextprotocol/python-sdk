@@ -29,6 +29,7 @@ import trio.testing
 from anyio.streams.memory import MemoryObjectReceiveStream
 
 from mcp.client import stdio
+from mcp.client._transport import ReadStream
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
     _EXIT_POLL_INTERVAL,
@@ -224,7 +225,7 @@ def _line(message: JSONRPCMessage) -> bytes:
     return (message.model_dump_json(by_alias=True, exclude_unset=True) + "\n").encode()
 
 
-async def _next_message(read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]) -> JSONRPCMessage:
+async def _next_message(read_stream: ReadStream[SessionMessage | Exception]) -> JSONRPCMessage:
     received = await read_stream.receive()
     assert isinstance(received, SessionMessage)
     return received.message

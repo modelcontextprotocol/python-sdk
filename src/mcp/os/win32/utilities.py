@@ -82,7 +82,7 @@ class FallbackProcess:
     so that MCP clients expecting async streams can work properly.
     """
 
-    def __init__(self, popen_obj: subprocess.Popen[bytes]):
+    def __init__(self, popen_obj: subprocess.Popen[bytes]) -> None:
         self.popen: subprocess.Popen[bytes] = popen_obj
         stdin = popen_obj.stdin
         stdout = popen_obj.stdout
