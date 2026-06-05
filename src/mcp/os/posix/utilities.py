@@ -44,8 +44,12 @@ async def terminate_posix_process_tree(process: Process, timeout_seconds: float 
         # enough, and the rest may well have been signalled (current XNU also raises
         # it for all-zombie groups, where Linux succeeds). On no platform does it
         # mean the group is gone, so fall through to the grace wait and SIGKILL
-        # escalation (both tolerate EPERM) instead of giving up.
-        logger.exception("No permission to signal some of process group %d; waiting for it to exit anyway", pgid)
+        # escalation (both tolerate EPERM) instead of giving up. A warning rather
+        # than an error: on macOS this can simply mean the group already exited
+        # cleanly and is waiting to be reaped.
+        logger.warning(
+            "No permission to signal some of process group %d; waiting for it to exit anyway", pgid, exc_info=True
+        )
 
     with anyio.move_on_after(timeout_seconds):
         while True:

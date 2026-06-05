@@ -63,6 +63,10 @@ class _FakeStdin:
         self._process = process
 
     async def send(self, data: bytes) -> None:
+        if self._process.stdin_send_gate is not None:
+            # A full pipe whose reader is busy elsewhere: the write completes
+            # only once the test's gate opens.
+            await self._process.stdin_send_gate.wait()
         if self._process.stdin_send_blocks:
             # A pipe whose reader stopped reading: the write never completes.
             await anyio.sleep_forever()
@@ -91,19 +95,23 @@ class _FakeStdout:
         *,
         eof_error: Exception | None = None,
         aclose_error: Exception | None = None,
+        on_receive: Callable[[], None],
     ) -> None:
         self._inner = inner
         self._eof_error = eof_error
         self._aclose_error = aclose_error
+        self._on_receive = on_receive
 
     async def receive(self) -> bytes:
         try:
-            return await self._inner.receive()
+            chunk = await self._inner.receive()
         except anyio.EndOfStream:
             if self._eof_error is not None:
                 # A hard-killed pipe surfaces a reset, not EOF, on the proactor loop.
                 raise self._eof_error from None
             raise
+        self._on_receive()
+        return chunk
 
     async def aclose(self) -> None:
         await self._inner.aclose()
@@ -128,11 +136,18 @@ class FakeProcess:
         stdin_aclose_error: Exception | None = None,
         stdin_send_error: Exception | None = None,
         stdin_send_blocks: bool = False,
+        stdin_send_gate: anyio.Event | None = None,
         stdout_eof_error: Exception | None = None,
         stdout_aclose_error: Exception | None = None,
+        on_stdout_receive: Callable[[], None] | None = None,
     ) -> None:
         self._stdout_send, stdout_receive = anyio.create_memory_object_stream[bytes](math.inf)
-        self.stdout = _FakeStdout(stdout_receive, eof_error=stdout_eof_error, aclose_error=stdout_aclose_error)
+        self.stdout = _FakeStdout(
+            stdout_receive,
+            eof_error=stdout_eof_error,
+            aclose_error=stdout_aclose_error,
+            on_receive=self._dispatch_stdout_receive,
+        )
         self.pid = 424242
         self.written: list[bytes] = []
         self.stdin_closed = anyio.Event()
@@ -141,7 +156,14 @@ class FakeProcess:
         self.stdin_aclose_error = stdin_aclose_error
         self.stdin_send_error = stdin_send_error
         self.stdin_send_blocks = stdin_send_blocks
+        self.stdin_send_gate = stdin_send_gate
+        self.on_stdout_receive = on_stdout_receive
         self.stdin = _FakeStdin(self)
+
+    def _dispatch_stdout_receive(self) -> None:
+        # Late-bound so a test can assign `on_stdout_receive` after construction.
+        if self.on_stdout_receive is not None:
+            self.on_stdout_receive()
 
     async def feed(self, data: bytes) -> None:
         """Make `data` readable on the fake process's stdout."""
@@ -381,6 +403,39 @@ def test_escalation_fires_once_and_only_after_the_grace_period(monkeypatch: pyte
         <= virtual_elapsed
         <= stdio.PROCESS_TERMINATION_TIMEOUT + _EXIT_POLL_INTERVAL + 1e-9
     ), virtual_elapsed
+
+
+def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A server that exits during the very poll interval the grace deadline cuts
+    short is dead, not hung: the timed-out grace wait must re-check `returncode`
+    before deciding to escalate, so this server is never terminated.
+
+    Runs on trio's MockClock (see the escalation-bound test above). The grace is
+    set to end mid-interval (0.105 with 0.01 polls) and the fake dies at 0.102
+    after its stdin closes, strictly between the last in-window poll (0.10) and
+    the deadline (0.105), so no two timers collide."""
+    process = FakeProcess()
+    terminated = install_fake_process(monkeypatch, process, grace_period=0.105)
+
+    async def run_client() -> None:
+        with anyio.fail_after(5):  # virtual seconds
+            async with anyio.create_task_group() as tg:
+
+                async def die_late() -> None:
+                    await anyio.sleep(0.102)
+                    process.exit(0)
+
+                # The grace wait starts when stdin closes; anchor the death there.
+                process.on_stdin_close = lambda: tg.start_soon(die_late)
+                # no branch: the tracer drops this nested async-with's arcs under
+                # trio's MockClock even though the body runs.
+                async with stdio_client(FAKE_PARAMS):  # pragma: no branch
+                    pass
+
+    trio.run(run_client, clock=trio.testing.MockClock(autojump_threshold=0))
+
+    assert terminated == []
+    assert process.returncode == 0
 
 
 @pytest.mark.anyio
@@ -672,6 +727,123 @@ async def test_undelivered_server_output_is_drained_at_shutdown_so_the_server_ca
             assert process.pending_stdout_chunks() == 2
 
     assert terminated == [process]
+    assert process.pending_stdout_chunks() == 0
+
+
+@pytest.mark.anyio
+async def test_shutdown_drains_stdout_first_so_a_wedged_writers_flush_can_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A server wedged writing its stdout cannot get to reading its stdin, so a
+    client write can sit in a full pipe while the reader holds an undelivered
+    message. Shutdown must unblock the reader's drain before waiting out the
+    writer flush: the drain is what unwedges the server and lets the flush
+    complete, instead of the whole flush window burning against a stuck pipe."""
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+    received = 0
+    stdin_gate = anyio.Event()
+
+    def unwedge_once_drained() -> None:
+        # The fake accepts the client's write only once all three of its own
+        # output chunks have been consumed, like a real server whose blocked
+        # stdout write must complete before its stdin read can run.
+        nonlocal received
+        received += 1
+        if received == 3:
+            stdin_gate.set()
+
+    process = FakeProcess(
+        on_stdin_close=lambda: process.exit(0),
+        stdin_send_gate=stdin_gate,
+        on_stdout_receive=unwedge_once_drained,
+    )
+    terminated = install_fake_process(monkeypatch, process)
+    # Make a flush wait that never gets unwedged unmistakable: it would outlast
+    # the whole test budget.
+    monkeypatch.setattr(stdio, "_WRITER_FLUSH_TIMEOUT", 30.0)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS) as (_read_stream, write_stream):
+            # The reader parks delivering a message nobody receives, with more
+            # chunks backed up behind it; the writer parks in the gated send.
+            await process.feed(_line(ping))
+            await process.feed(_line(pong))
+            await process.feed(_line(ping))
+            await write_stream.send(SessionMessage(ping))
+            await anyio.wait_all_tasks_blocked()
+
+    assert terminated == []
+    assert len(process.written) == 1
+    assert process.pending_stdout_chunks() == 0
+
+
+@pytest.mark.anyio
+async def test_cancellation_with_undelivered_backlog_still_drains_and_spares_the_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancellation must not skip the shutdown drain: a well-behaved server that
+    can only exit once its remaining output is consumed (a real one blocks on a
+    full stdout pipe) still exits within the grace period and is never terminated."""
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+    process = FakeProcess()
+    terminated = install_fake_process(monkeypatch, process)
+
+    def exit_when_flushed() -> None:
+        # The fake exits only once its stdin has closed AND its output backlog
+        # has been consumed, like a real server wedged writing its stdout.
+        if process.stdin_closed.is_set() and process.pending_stdout_chunks() == 0:
+            process.exit(0)
+
+    process.on_stdin_close = exit_when_flushed
+    process.on_stdout_receive = exit_when_flushed
+
+    entered = anyio.Event()
+    # Cancel a scope owned by the client's task, not the test's task group (see
+    # test_cancelling_the_client_still_runs_the_full_shutdown).
+    cancel_scope = anyio.CancelScope()
+
+    async def run_client_until_cancelled() -> None:
+        with cancel_scope:
+            async with stdio_client(FAKE_PARAMS):
+                await process.feed(_line(ping))
+                await process.feed(_line(pong))
+                await process.feed(_line(ping))
+                entered.set()
+                await anyio.sleep_forever()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_client_until_cancelled)
+            await entered.wait()
+            cancel_scope.cancel()
+
+    assert process.pending_stdout_chunks() == 0
+    assert terminated == []
+
+
+@pytest.mark.anyio
+async def test_invalid_utf8_flushed_by_a_dying_server_does_not_break_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shutdown drain consumes raw bytes: a server flushing non-UTF-8 output
+    (a crash dump, say) on its way out must not abort the drain or surface a
+    UnicodeDecodeError out of the context manager."""
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    terminated = install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS):
+            # Park the reader delivering a message nobody receives, then queue
+            # bytes that are not valid UTF-8 behind it.
+            await process.feed(_line(ping))
+            await anyio.wait_all_tasks_blocked()
+            await process.feed(b"\xff\xfe not utf-8\n")
+
+    assert terminated == []
     assert process.pending_stdout_chunks() == 0
 
 
@@ -1016,7 +1188,8 @@ def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> No
     if sys.platform == "win32":
         return
     for process in spawned:
-        with suppress(ProcessLookupError):
+        # macOS killpg raises EPERM for a group holding only unreaped zombies.
+        with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
 
 

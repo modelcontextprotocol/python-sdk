@@ -90,7 +90,8 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
             errlog=errlog,
         )
 
-        with anyio.fail_after(10):
+        # Must exceed session time plus the patched PROCESS_TERMINATION_TIMEOUT (10s).
+        with anyio.fail_after(20):
             async with Client(transport, logging_callback=collect) as client:
                 assert client.initialize_result.server_info.name == "stdio-echo"
                 result = await client.call_tool("echo", {"text": "across\nprocesses"})

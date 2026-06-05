@@ -140,6 +140,11 @@ pipe lingered until garbage collection); and a failed write to a server that is
 still running now surfaces as a closed connection (`CONNECTION_CLOSED`) on the read
 side instead of leaving requests waiting indefinitely.
 
+`terminate_posix_process_tree` now requires the process to lead its own process
+group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
+per-process terminate/kill fallback are gone. The win32 utilities logger is now
+named `mcp.os.win32.utilities` (was `client.stdio.win32`).
+
 ### Removed type aliases and classes
 
 The following deprecated type aliases and classes have been removed from `mcp.types`:

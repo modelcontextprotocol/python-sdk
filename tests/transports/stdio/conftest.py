@@ -78,5 +78,6 @@ def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> No
     if sys.platform == "win32":
         return
     for process in spawned:
-        with suppress(ProcessLookupError):
+        # macOS killpg raises EPERM for a group holding only unreaped zombies.
+        with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)

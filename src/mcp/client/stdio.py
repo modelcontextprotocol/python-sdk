@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import sys
@@ -176,15 +175,30 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                         lines = (buffer + chunk).split("\n")
                         buffer = lines.pop()
                         for line in lines:
-                            await read_stream_writer.send(_parse_line(line))
-                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-                    # The read stream is gone (shutdown closed it, or the caller did).
+                            try:
+                                await read_stream_writer.send(_parse_line(line))
+                            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                # The read stream is gone (shutdown closed it, or
+                                # the caller did); stop delivering. The drain below
+                                # still runs on the way out.
+                                return
+                finally:
                     # Phase 2: keep consuming stdout without delivering, so a server
                     # flushing its remaining output during shutdown does not block on
                     # a full pipe and miss its chance to exit within the grace period.
-                    with suppress(anyio.EndOfStream):
-                        while True:
-                            await stdout.receive()
+                    # Shielded so caller cancellation cannot skip the drain (bounded:
+                    # shutdown closes process.stdout), and raw bytes so non-UTF-8 in
+                    # a dying server's flush cannot abort it.
+                    with anyio.CancelScope(shield=True):
+                        with suppress(
+                            anyio.EndOfStream,
+                            anyio.ClosedResourceError,
+                            anyio.BrokenResourceError,
+                            ConnectionError,
+                            OSError,
+                        ):
+                            while True:
+                                await process.stdout.receive()
         except anyio.ClosedResourceError:
             # Our own shutdown closed/poisoned the stdout stream under the read.
             pass
@@ -222,14 +236,16 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     async def shutdown() -> None:
         """Wind the transport down, leaving no live server process behind.
 
-        1. Close the session's write stream, then wait (bounded by
+        1. Close the session's read stream, unblocking the reader from any
+           undelivered message so it drains stdout for the rest of shutdown
+           (see the drain note in `stdout_reader`). Draining before the flush
+           wait below is what lets a wedged writer's flush succeed: a server
+           blocked writing its stdout cannot get to reading its stdin.
+        2. Close the session's write stream, then wait (bounded by
            `_WRITER_FLUSH_TIMEOUT`) for the writer task to hand any message the
            transport already accepted to the server's stdin before that stdin
            closes; a zero-buffer send completes at the rendezvous, before the
            writer has written.
-        2. Close the session's read stream, unblocking the reader from any
-           undelivered message so it drains stdout for the rest of shutdown
-           (see the drain note in `stdout_reader`).
         3. Stop the server process: close its stdin, give it a grace period to
            exit on its own, and terminate its process tree if it does not
            (see `_stop_server_process`).
@@ -238,12 +254,12 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
            run their exit/except paths (deterministic ClosedResourceError
            handling) before the caller cancels them.
         """
+        read_stream.close()
         write_stream.close()
         with anyio.move_on_after(_WRITER_FLUSH_TIMEOUT) as flush_scope:
             await writer_done.wait()
         if flush_scope.cancelled_caught:
             await anyio.lowlevel.cancel_shielded_checkpoint()  # heal gh-106749
-        read_stream.close()
         await _stop_server_process(process)
         await _aclose_all(read_stream, write_stream, read_stream_writer, write_stream_reader)
         await anyio.lowlevel.checkpoint()
@@ -257,15 +273,18 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             shutting_down = True
             # Shutdown must run to completion even when the caller is being
             # cancelled (skipping it would leak the server process); every wait
-            # inside the shield is time-bounded. A native task.cancel() delivered
-            # mid-cleanup can still abort it: the shield only holds against
-            # anyio-level cancellation.
+            # inside the shield is time-bounded, except that on the Windows
+            # SelectorEventLoop fallback a worker thread parked in synchronous
+            # pipe I/O (a read, write, or close) ignores cancellation and anyio
+            # waits for it — a pre-existing limitation with no portable fix.
+            # A native task.cancel() delivered mid-cleanup can still abort the
+            # cleanup: the shield only holds against anyio-level cancellation.
             with anyio.CancelScope(shield=True):
                 await shutdown()
             # Cancel the pipe tasks so the join cannot hang on a write into a pipe
-            # whose read end a kill-surviving descendant still holds. (The Windows
-            # fallback's reader thread parked in a synchronous ReadFile ignores
-            # cancellation; anyio waits for it, with no portable way to abandon it.)
+            # whose read end a kill-surviving descendant still holds. (Same Windows
+            # fallback caveat as above: a worker thread parked in synchronous pipe
+            # I/O can still hold the join.)
             tg.cancel_scope.cancel()
     # The cancel above is delivered via `coro.throw()` into this task at
     # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
@@ -355,7 +374,9 @@ async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool
             await anyio.sleep(_EXIT_POLL_INTERVAL)
         return True
     await anyio.lowlevel.cancel_shielded_checkpoint()  # heal gh-106749 after the throw
-    return False
+    # Re-check: the process may have died during the very poll interval the
+    # deadline cut short, and a dead process must not be escalated.
+    return process.returncode is not None
 
 
 async def _terminate_process_tree(process: ServerProcess) -> None:
@@ -385,11 +406,16 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
     return here.
     """
     transport = getattr(getattr(process, "_process", None), "_transport", None)
-    if isinstance(transport, asyncio.SubprocessTransport):
+    # Duck-typed: uvloop's UVProcessTransport is not an asyncio.SubprocessTransport.
+    close = getattr(transport, "close", None)
+    if callable(close):
         # Unflushed stdin bytes defer the write-pipe close until their holder
         # exits, but close() still marks the transport closed, so nothing warns
         # at GC and the residual fd is bounded by the survivor's lifetime.
-        transport.close()
+        # CPython <= 3.12's close() can raise PermissionError re-killing a
+        # setuid child; 3.13+ suppresses it internally.
+        with suppress(PermissionError):
+            close()
 
 
 def _get_executable_command(command: str) -> str:
