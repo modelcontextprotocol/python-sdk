@@ -1,4 +1,4 @@
-"""Test the elicitation feature using stdio transport."""
+"""Test the elicitation feature over the in-memory client transport."""
 
 from typing import Any
 
@@ -58,9 +58,9 @@ async def call_tool_and_assert(
 
 
 @pytest.mark.anyio
-async def test_stdio_elicitation():
-    """Test the elicitation feature using stdio transport."""
-    mcp = MCPServer(name="StdioElicitationServer")
+async def test_elicitation_accept_returns_the_users_answer_to_the_tool():
+    """An accepted elicitation delivers the user's content back to the requesting tool."""
+    mcp = MCPServer(name="ElicitationServer")
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
@@ -76,9 +76,9 @@ async def test_stdio_elicitation():
 
 
 @pytest.mark.anyio
-async def test_stdio_elicitation_decline():
-    """Test elicitation with user declining."""
-    mcp = MCPServer(name="StdioElicitationDeclineServer")
+async def test_elicitation_decline_reaches_the_tool_without_content():
+    """A declined elicitation reports the decline to the tool, with no content attached."""
+    mcp = MCPServer(name="ElicitationDeclineServer")
     create_ask_user_tool(mcp)
 
     async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
