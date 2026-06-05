@@ -468,6 +468,30 @@ async def my_tool(x: int, ctx: Context) -> str:
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
+### `MCPServer.call_tool()` return type corrected
+
+`MCPServer.call_tool()`'s return type signature has been corrected from `Sequence[ContentBlock] | dict[str, Any]` to match what the internal tool manager actually returns when converting tool results. The union is now defined once as the `ToolResult` type alias (`mcp.server.mcpserver.server.ToolResult`), so the signature has a single source of truth:
+
+```python
+ToolResult: TypeAlias = CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]
+```
+
+**Before (v1):**
+
+```python
+async def call_tool(
+    self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
+) -> Sequence[ContentBlock] | dict[str, Any]:
+```
+
+**After (v2):**
+
+```python
+async def call_tool(
+    self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
+) -> ToolResult:
+```
+
 ### Registering lowlevel handlers on `MCPServer` (workaround)
 
 `MCPServer` does not expose public APIs for `subscribe_resource`, `unsubscribe_resource`, or `set_logging_level` handlers. In v1, the workaround was to reach into the private lowlevel server and use its decorator methods:

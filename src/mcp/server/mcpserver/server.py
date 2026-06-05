@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -75,6 +74,15 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+
+ToolResult: TypeAlias = CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]
+"""Result of invoking a tool via `MCPServer.call_tool`. One of:
+
+- `CallToolResult`: the tool returned a `CallToolResult` directly.
+- `Sequence[ContentBlock]`: unstructured content from a tool with no output schema.
+- `tuple[Sequence[ContentBlock], dict[str, Any]]`: unstructured content paired with
+  structured content from a tool that has an output schema.
+"""
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -309,7 +317,7 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            result: ToolResult = await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
@@ -321,14 +329,6 @@ class MCPServer(Generic[LifespanResultT]):
             return CallToolResult(
                 content=list(unstructured_content),  # type: ignore[arg-type]
                 structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
             )
         return CallToolResult(content=list(result))
 
@@ -399,8 +399,15 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Call a tool by name with arguments."""
+    ) -> ToolResult:
+        """Call a tool by name with arguments.
+
+        Returns:
+            ToolResult: One of a `CallToolResult` (returned directly by the tool), a
+                `Sequence[ContentBlock]` (unstructured content from a tool with no output schema),
+                or a `tuple[Sequence[ContentBlock], dict[str, Any]]` (unstructured content paired
+                with structured content from a tool that has an output schema).
+        """
         if context is None:
             context = Context(mcp_server=self)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
