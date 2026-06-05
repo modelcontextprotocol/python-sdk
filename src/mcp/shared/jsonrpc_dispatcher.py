@@ -259,15 +259,15 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
+        # Request methods handled inline in the read loop (awaited before the
+        # next message is dequeued) instead of spawned concurrently. Use for
+        # methods whose side effects must be observable to the next message,
+        # e.g. `initialize`, so a pipelined follow-up sees the initialized state.
+        # Only suitable for handlers that complete quickly, since inline handling
+        # blocks dequeuing; a handler that awaits the peer (`send_raw_request`)
+        # while inline will deadlock because the parked read loop cannot dequeue
+        # the response.
         self._inline_methods = inline_methods
-        """Request methods handled inline in the read loop (awaited before the
-        next message is dequeued) instead of spawned concurrently. Use for
-        methods whose side effects must be observable to the next message,
-        e.g. `initialize`, so a pipelined follow-up sees the initialized state.
-        Only suitable for handlers that complete quickly, since inline handling
-        blocks dequeuing; a handler that awaits the peer (`send_raw_request`)
-        while inline will deadlock because the parked read loop cannot dequeue
-        the response."""
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}

@@ -49,26 +49,39 @@ class Connection(TypedServerRequestMixin):
     remains `None` (no handshake reaches a stateless connection).
     """
 
+    has_standalone_channel: bool
+    session_id: str | None
+
+    client_params: InitializeRequestParams | None
+    """The full `initialize` request params; `None` before initialization."""
+
+    protocol_version: str | None
+
+    initialized: anyio.Event
+    """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
+    the point from which the spec permits server-initiated requests beyond
+    ping/logging. Pre-set on stateless connections."""
+
+    state: dict[str, Any]
+    """Per-connection scratch state; persists across requests on this connection."""
+
+    exit_stack: AsyncExitStack
+    """Per-connection teardown, unwound LIFO (shielded) when the connection
+    closes. Push cleanup from handlers or middleware; exceptions are logged
+    and swallowed."""
+
     def __init__(self, outbound: Outbound, *, has_standalone_channel: bool, session_id: str | None = None) -> None:
         self._outbound = outbound
         self.has_standalone_channel = has_standalone_channel
-        self.session_id: str | None = session_id
+        self.session_id = session_id
 
-        self.client_params: InitializeRequestParams | None = None
-        """The full `initialize` request params; `None` before initialization."""
-        self.protocol_version: str | None = None
-        self.initialized: anyio.Event = anyio.Event()
-        """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
-        the point from which the spec permits server-initiated requests beyond
-        ping/logging. Pre-set on stateless connections."""
+        self.client_params = None
+        self.protocol_version = None
+        self.initialized = anyio.Event()
 
-        self.state: dict[str, Any] = {}
-        """Per-connection scratch state; persists across requests on this connection."""
+        self.state = {}
 
-        self.exit_stack: AsyncExitStack = AsyncExitStack()
-        """Per-connection teardown, unwound LIFO (shielded) when the connection
-        closes. Push cleanup from handlers or middleware; exceptions are logged
-        and swallowed."""
+        self.exit_stack = AsyncExitStack()
 
     @property
     def initialize_accepted(self) -> bool:
