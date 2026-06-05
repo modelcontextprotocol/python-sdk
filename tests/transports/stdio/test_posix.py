@@ -1,5 +1,4 @@
-"""POSIX-only stdio lifecycle tests: a gracefully-exited server's children
-survive the client shutdown.
+"""POSIX-only stdio lifecycle tests: a gracefully-exited server's children survive the client shutdown.
 
 SDK-defined policy, not spec-mandated (docs/migration.md, "`stdio_client` no
 longer kills children of a gracefully-exited server on POSIX"). Windows has the
@@ -32,10 +31,10 @@ async def test_a_gracefully_exiting_servers_child_survives_the_client_shutdown( 
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """A server that exits on stdin closure keeps its background child: the client
-    never escalates, and the child is still running after `stdio_client` returns.
+    """A server that exits on stdin closure keeps its background child running after `stdio_client` returns.
 
-    SDK-defined policy per docs/migration.md; regression for the pre-fix client that
+    The client never escalates against the gracefully-exited server. SDK-defined
+    policy per docs/migration.md; regression for the pre-fix client that
     tree-killed the child. The Windows twin in test_windows.py pins the opposite outcome.
     """
     sock, port = await open_liveness_listener()
@@ -67,12 +66,12 @@ async def test_a_gracefully_exiting_servers_child_survives_the_client_shutdown( 
 @pytest.mark.usefixtures("spawned_processes")  # failure-path safety net for the parked child
 # lax no cover: same Windows-runner coverage-gate reason as above.
 async def test_a_surviving_childs_write_to_the_inherited_stdout_fails_with_epipe() -> None:  # pragma: lax no cover
-    """A surviving child writing to the stdout pipe it inherited from the server gets
-    EPIPE once the client is gone: the pipe's only read end was the client's, and
-    shutdown closed it deterministically rather than at GC time.
+    """A surviving child writing to the stdout pipe it inherited from the server gets EPIPE once the client is gone.
 
-    Pins the docs/migration.md claim "a surviving child that keeps writing to an
-    inherited stdout receives EPIPE/SIGPIPE once the client is gone" (SDK-defined).
+    The pipe's only read end was the client's, and shutdown closed it
+    deterministically rather than at GC time. Pins the docs/migration.md claim
+    "a surviving child that keeps writing to an inherited stdout receives
+    EPIPE/SIGPIPE once the client is gone" (SDK-defined).
 
     Steps: the server hands its stdio pipes to a child and exits on stdin closure;
     the child parks on its socket until `stdio_client` has fully exited (so the

@@ -36,8 +36,10 @@ async def test_a_server_that_exits_on_stdin_close_is_reaped_and_never_terminated
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """The happy path: closing stdin alone shuts a well-behaved server down -- it
-    exits with code 0 and the escalation seam is never invoked."""
+    """The happy path: closing stdin alone shuts a well-behaved server down.
+
+    The server exits with code 0 and the escalation seam is never invoked.
+    """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
         stack.push_async_callback(sock.aclose)
@@ -71,9 +73,11 @@ async def test_cancelling_the_client_mid_session_terminates_the_whole_server_tre
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """Cancellation (a client timeout, app shutdown) still runs the full shutdown
-    against a real process tree: a server that ignores stdin closure is escalated
-    against, and its child dies with it."""
+    """Cancellation still runs the full shutdown against a real process tree.
+
+    Cancellation here stands in for a client timeout or app shutdown: a server that
+    ignores stdin closure is escalated against, and its child dies with it.
+    """
     monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 0.2)
 
     async with AsyncExitStack() as stack:
@@ -125,9 +129,11 @@ async def test_a_server_that_exits_mid_session_keeps_its_own_exit_code(
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """A server that dies on its own mid-session is reaped with the exit code it
-    chose: the client surfaces the child's true status rather than synthesizing
-    one, and the escalation seam confirms nothing was terminated along the way."""
+    """A server that dies on its own mid-session is reaped with the exit code it chose.
+
+    The client surfaces the child's true status rather than synthesizing one, and
+    the escalation seam confirms nothing was terminated along the way.
+    """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
         stack.push_async_callback(sock.aclose)
@@ -159,9 +165,11 @@ async def test_server_stderr_output_reaches_the_errlog_file(
     tmp_path: Path,
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """What the server writes to stderr lands in the file passed as `errlog`. The
-    spawn hands over errlog's file descriptor as the child's stderr, so it must be
-    a real file -- an in-memory StringIO has no fileno."""
+    """What the server writes to stderr lands in the file passed as `errlog`.
+
+    The spawn hands over errlog's file descriptor as the child's stderr, so it must
+    be a real file -- an in-memory StringIO has no fileno.
+    """
     marker = "stdio-lifecycle stderr marker 4242"
 
     async with AsyncExitStack() as stack:
@@ -201,8 +209,9 @@ async def test_server_stderr_output_reaches_the_errlog_file(
 # lax no cover: Windows runners enforce 100% per job but lack os.waitid and skip this
 # test; test_windows.py's SelectorEventLoop lifecycle test exercises the property there.
 def test_fallback_process_reports_death_through_returncode_without_a_wait_call() -> None:  # pragma: lax no cover
-    """`FallbackProcess.returncode` observes process death on its own -- pre-fix it
-    returned Popen's cached value, which stays None until someone calls wait()/poll().
+    """`FallbackProcess.returncode` observes process death on its own.
+
+    Pre-fix it returned Popen's cached value, which stays None until someone calls wait()/poll().
 
     `os.waitid(WEXITED | WNOWAIT)` waits for the child to become reapable without
     reaping it or priming Popen's cache (which would mask the regression); the
@@ -231,10 +240,12 @@ def test_fallback_process_reports_death_through_returncode_without_a_wait_call()
 
 @pytest.mark.anyio
 async def test_fallback_process_wait_is_cancellable_while_the_child_lives() -> None:
-    """`FallbackProcess.wait()` honours cancellation while the child is still
-    running -- pre-fix it parked `Popen.wait()` in a worker thread anyio will not
-    abandon, which blocks every cancellation aimed at it. Runs everywhere: the
-    wrapper holds a plain Popen."""
+    """`FallbackProcess.wait()` honours cancellation while the child is still running.
+
+    Pre-fix it parked `Popen.wait()` in a worker thread anyio will not abandon,
+    which blocks every cancellation aimed at it. Runs everywhere: the wrapper holds
+    a plain Popen.
+    """
     popen = subprocess.Popen(
         [sys.executable, "-c", "import sys; sys.stdin.read()"],
         stdin=subprocess.PIPE,

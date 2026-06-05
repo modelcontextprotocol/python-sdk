@@ -50,9 +50,12 @@ _REPO_ROOT = Path(__file__).parents[3]
 async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Client connected over stdio initializes, calls a tool with arguments, receives the
-    server's log notification before the call returns, and the server exits when the transport
-    closes its stdin."""
+    """A stdio-subprocess Client round-trips a tool call, a notification, and a clean exit.
+
+    The Client initializes, calls a tool with arguments, and receives the server's log
+    notification before the call returns; the server exits when the transport closes its
+    stdin.
+    """
     # After stdin closes, the child must unwind, write the clean-exit line, and let coverage's
     # atexit hook persist its subprocess data file before escalation. The production 2s default
     # was too tight on slow Windows runners: the child was killed mid-atexit (test stayed green)
@@ -103,9 +106,11 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
 @requirement("transport:stdio:stream-purity")
 @requirement("transport:stdio:no-embedded-newlines")
 async def test_stdio_server_writes_one_jsonrpc_message_per_line() -> None:
-    """Everything `stdio_server` writes is a valid JSON-RPC message on its own newline-terminated
-    line, with payload newlines JSON-escaped. This proves the transport's own framing; it does not
-    guard `sys.stdout` against handler code (see the divergence on `transport:stdio:stream-purity`).
+    """Every `stdio_server` write is one valid JSON-RPC message on its own line.
+
+    Each line is newline-terminated with payload newlines JSON-escaped. This proves the
+    transport's own framing; it does not guard `sys.stdout` against handler code (see the
+    divergence on `transport:stdio:stream-purity`).
     """
     captured = io.StringIO()
     sent_line = json.dumps(initialize_body(request_id=1)) + "\n"

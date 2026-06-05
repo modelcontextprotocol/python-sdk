@@ -42,8 +42,10 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """A server that exits cleanly on stdin closure leaves a child behind; on Windows
-    shutdown's close of the server's Job Object handle (`close_process_job` +
+    """A gracefully-exited server's child is killed deterministically when shutdown closes the job handle.
+
+    The server exits cleanly on stdin closure, leaving a child behind; shutdown's
+    close of the server's Job Object handle (`close_process_job` +
     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) kills that child deterministically, not at
     GC time. Documented divergence from POSIX (docs/migration.md; the POSIX twin is
     test_posix.py::test_a_gracefully_exiting_servers_child_survives_the_client_shutdown).
@@ -154,9 +156,11 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """Under a `SelectorEventLoop` (no asyncio subprocess support), `stdio_client`
-    falls back to the Popen-based `FallbackProcess` wrapper and a well-behaved
-    server still completes the full clean lifecycle: spawn, liveness, exit on stdin
+    """Under a `SelectorEventLoop`, `stdio_client` falls back to `FallbackProcess` and still exits cleanly.
+
+    A selector event loop has no asyncio subprocess support, so `stdio_client`
+    falls back to the Popen-based `FallbackProcess` wrapper; a well-behaved server
+    still completes the full clean lifecycle: spawn, liveness, exit on stdin
     closure, reaped, never escalated against.
 
     The `isinstance` check is the engagement proof: if a future anyio gains selector
@@ -195,11 +199,13 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
 
 
 async def test_a_native_server_emitting_crlf_line_endings_round_trips_messages() -> None:  # pragma: no cover
-    """A text-mode Windows server frames its output with \\r\\n (`TextIOWrapper`'s
-    `newline=None` translates "\\n" to `os.linesep`), and the client still parses
-    each line: the reader splits on "\\n" only and the JSON parser tolerates the
-    trailing "\\r" as whitespace. The SDK's own server writes through such a
-    wrapper, so this tolerance is load-bearing for Windows interop.
+    """The client round-trips messages from a text-mode Windows server that frames its output with \\r\\n.
+
+    `TextIOWrapper`'s `newline=None` translates "\\n" to `os.linesep`, so such a
+    server emits \\r\\n; the client still parses each line because the reader
+    splits on "\\n" only and the JSON parser tolerates the trailing "\\r" as
+    whitespace. The SDK's own server writes through such a wrapper, so this
+    tolerance is load-bearing for Windows interop.
 
     tests/issues/test_552_windows_hang.py exercises the same wire form implicitly
     through `initialize()`; this test is the explicit owner of the framing claim.

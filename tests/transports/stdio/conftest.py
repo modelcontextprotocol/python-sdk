@@ -1,6 +1,8 @@
-"""Fixtures for the stdio lifecycle suite: recording seams around `stdio_client`'s
-spawn and tree-termination internals (the real implementations still run), plus a
-teardown that keeps a crashed test from orphaning its sleep-forever subprocesses.
+"""Fixtures for the stdio lifecycle suite.
+
+Provides recording seams around `stdio_client`'s spawn and tree-termination
+internals (the real implementations still run), plus a teardown that keeps a
+crashed test from orphaning its sleep-forever subprocesses.
 """
 
 import os
@@ -49,8 +51,7 @@ def spawned_processes(
 
 @pytest.fixture
 def terminate_calls(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc.Process | FallbackProcess]:
-    """Record every invocation of `stdio_client`'s tree-termination seam; the real
-    termination still runs.
+    """Record every invocation of `stdio_client`'s tree-termination seam; the real termination still runs.
 
     An empty list after the context exits proves the graceful path: a FIN looks the
     same whether the peer exited on stdin closure or was killed.

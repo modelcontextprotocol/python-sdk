@@ -1,10 +1,11 @@
-"""stdio client transport: run an MCP server as a subprocess and exchange
-newline-delimited JSON-RPC messages with it over stdin/stdout.
+"""stdio client transport.
 
-Two pipe tasks bridge the server's pipes to the session's in-memory streams.
-Shutdown follows the MCP spec sequence (close stdin, wait, then kill the
-process tree) inside a cancellation shield with every wait bounded, so a
-cancelled caller can neither leak a live server process nor hang on one.
+Runs an MCP server as a subprocess and exchanges newline-delimited JSON-RPC
+messages with it over stdin/stdout. Two pipe tasks bridge the server's pipes
+to the session's in-memory streams; shutdown follows the MCP spec sequence
+(close stdin, wait, then kill the process tree) inside a cancellation shield
+with every wait bounded, so a cancelled caller can neither leak a live server
+process nor hang on one.
 """
 
 import logging
@@ -72,7 +73,7 @@ _EXIT_POLL_INTERVAL = 0.01
 
 
 def get_default_environment() -> dict[str, str]:
-    """Return only the environment variables that are safe to inherit."""
+    """Returns only the environment variables that are safe to inherit."""
     env: dict[str, str] = {}
 
     for key in DEFAULT_INHERITED_ENV_VARS:
@@ -113,11 +114,11 @@ class StdioServerParameters(BaseModel):
 async def stdio_client(
     server: StdioServerParameters, errlog: TextIO = sys.stderr
 ) -> AsyncGenerator[TransportStreams, None]:
-    """Spawn an MCP server subprocess and connect to it over stdin/stdout.
+    """Spawns an MCP server subprocess and connects to it over stdin/stdout.
 
     Raises:
-        OSError: if the server process cannot be spawned.
-        ValueError: if the spawn parameters are invalid (embedded NUL bytes).
+        OSError: If the server process cannot be spawned.
+        ValueError: If the spawn parameters are invalid (embedded NUL bytes).
     """
     command = _get_executable_command(server.command)
 
@@ -181,7 +182,7 @@ async def stdio_client(
             writer_done.set()
 
     async def shutdown() -> None:
-        """Stop traffic, flush, stop the server process, release the streams."""
+        """Winds the transport down: stop traffic, flush, stop the server, release the streams."""
         # Unblock the reader into its drain: a server stuck writing stdout cannot
         # read its stdin, so draining is what lets the flush below complete.
         read_stream.close()
@@ -215,7 +216,7 @@ async def stdio_client(
 
 
 def _parse_line(line: str) -> SessionMessage | Exception:
-    """Parse one stdout line; parse errors are returned as values for the session."""
+    """Parses one stdout line, returning parse errors as values for the session to surface."""
     try:
         message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
     except ValueError as exc:
@@ -225,8 +226,12 @@ def _parse_line(line: str) -> SessionMessage | Exception:
 
 
 async def _drain_stdout(process: ServerProcess) -> None:
-    """Consume leftover stdout so a flushing server cannot block on a full pipe
-    and miss its chance to exit; shielded, raw bytes, ends when shutdown closes it."""
+    """Consumes and discards the server's remaining stdout.
+
+    Keeps a server flushing buffered output from blocking on a full pipe and
+    missing its chance to exit; shielded, raw bytes, ends when shutdown closes
+    the pipe.
+    """
     assert process.stdout
     with anyio.CancelScope(shield=True):
         with suppress(
@@ -241,7 +246,7 @@ async def _drain_stdout(process: ServerProcess) -> None:
 
 
 async def _stop_server_process(process: ServerProcess) -> None:
-    """Close stdin, give the server a grace period, then kill its whole tree.
+    """Closes stdin, waits out the grace period, then kills the whole tree.
 
     The escalation order is spec text; timeouts and tree-wide scope are SDK policy:
     https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#shutdown
@@ -263,13 +268,13 @@ async def _stop_server_process(process: ServerProcess) -> None:
 
 
 async def _close_pipe(stream: AsyncResource) -> None:
-    """Close a pipe stream, tolerating one already closed, broken, or contended."""
+    """Closes a pipe stream, tolerating one already closed, broken, or contended."""
     with suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
         await stream.aclose()
 
 
 async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool:
-    """Whether the process died within timeout, by polling returncode.
+    """Returns whether the process died within the timeout, by polling returncode.
 
     Not process.wait(): on asyncio 3.11+ it also waits for pipe EOF, and a
     child that inherited the pipes makes an exited server look hung.
@@ -283,8 +288,11 @@ async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool
 
 
 async def _terminate_process_tree(process: ServerProcess) -> None:
-    """Kill the process tree: SIGTERM then SIGKILL to the POSIX process group,
-    or immediate Job Object termination on Windows."""
+    """Kills the process and all its descendants.
+
+    POSIX: SIGTERM to the process group, SIGKILL after FORCE_KILL_TIMEOUT.
+    Windows: immediate Job Object termination (already a hard kill).
+    """
     if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process)
     else:  # pragma: lax no cover
@@ -294,9 +302,12 @@ async def _terminate_process_tree(process: ServerProcess) -> None:
 
 
 def _close_subprocess_transport(process: ServerProcess) -> None:
-    """Close the asyncio subprocess transport, which otherwise stays open (and
-    warns at GC) while a surviving descendant holds a pipe; nothing public
-    exposes it, hence the attribute walk. No-op on trio and the fallback."""
+    """Closes the asyncio subprocess transport, if there is one.
+
+    The transport otherwise stays open (and warns at GC) while a surviving
+    descendant holds a pipe end; nothing public exposes it, hence the attribute
+    walk. No-op on trio and the Windows fallback.
+    """
     transport = getattr(getattr(process, "_process", None), "_transport", None)
     # Duck-typed: uvloop's UVProcessTransport is not an asyncio.SubprocessTransport.
     close = getattr(transport, "close", None)
@@ -307,7 +318,7 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
 
 
 def _get_executable_command(command: str) -> str:
-    """Normalize the command for the current platform."""
+    """Normalizes the command for the current platform."""
     if sys.platform == "win32":  # pragma: no cover
         return get_windows_executable_command(command)
     else:  # pragma: lax no cover
@@ -321,8 +332,10 @@ async def _create_platform_compatible_process(
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
-    """Spawn the server in its own kill scope: a new session/process group on
-    POSIX, a Job Object on Windows."""
+    """Spawns the server in its own kill scope.
+
+    A new session/process group on POSIX, a Job Object on Windows.
+    """
     if sys.platform == "win32":  # pragma: no cover
         return await create_windows_process(command, args, env, errlog, cwd)
     else:  # pragma: lax no cover
@@ -336,6 +349,6 @@ async def _create_platform_compatible_process(
 
 
 async def _aclose_all(*streams: AsyncResource) -> None:
-    """Close every given stream."""
+    """Closes every given stream."""
     for stream in streams:
         await stream.aclose()

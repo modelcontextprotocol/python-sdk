@@ -16,8 +16,11 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_m
 
 @pytest.mark.anyio
 async def test_stdio_server_round_trips_messages_over_injected_streams() -> None:
-    """stdio_server parses one JSON-RPC message per stdin line and writes each
-    outgoing message as exactly one line, driven over injected in-process streams."""
+    """stdio_server frames JSON-RPC messages as one line each in both directions.
+
+    Parses one message per stdin line and writes each outgoing message as exactly one
+    line, driven over injected in-process streams.
+    """
     stdin = io.StringIO()
     stdout = io.StringIO()
 
@@ -65,8 +68,11 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
 
 @pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Non-UTF-8 stdin bytes are replaced with U+FFFD, fail JSON parsing, and arrive as an
-    in-stream exception; subsequent valid messages are still processed."""
+    """Non-UTF-8 stdin bytes surface as an in-stream exception without killing the stream.
+
+    Invalid bytes are replaced with U+FFFD, fail JSON parsing, and arrive as an in-stream
+    exception; subsequent valid messages are still processed.
+    """
     # \xff\xfe are invalid UTF-8 start bytes.
     valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     raw_stdin = io.BytesIO(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
@@ -91,8 +97,10 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 class _KeepOpenBytesIO(io.BytesIO):
-    """A BytesIO that survives its TextIOWrapper being closed, so the test can read
-    what was written after `run()` has torn the wrapper down."""
+    """A BytesIO that survives its TextIOWrapper being closed.
+
+    Lets the test read what was written after `run()` has torn the wrapper down.
+    """
 
     def close(self) -> None:
         pass
@@ -117,8 +125,11 @@ def _run_stdio_bounded(server: MCPServer) -> None:
 
 
 def test_mcpserver_run_stdio_serves_until_stdin_closes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`MCPServer.run("stdio")` answers a request over the process's stdio and returns
-    when stdin reaches EOF, rather than serving forever."""
+    """`MCPServer.run("stdio")` serves over process stdio and returns at stdin EOF.
+
+    Answers a request over the process's stdio and returns when stdin reaches EOF,
+    rather than serving forever.
+    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     stdin_bytes = io.BytesIO(ping.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
     captured = _KeepOpenBytesIO()
@@ -133,8 +144,10 @@ def test_mcpserver_run_stdio_serves_until_stdin_closes(monkeypatch: pytest.Monke
 
 def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Code after `yield` in a lifespan runs when stdin EOF ends `run("stdio")`.
+
     Regression lock for the issue #1027 shutdown chain: the run loop must end on
-    stdin EOF and unwind the lifespan rather than be killed before returning."""
+    stdin EOF and unwind the lifespan rather than be killed before returning.
+    """
     events: list[str] = []
 
     @asynccontextmanager

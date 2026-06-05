@@ -15,9 +15,11 @@ from mcp.types import LATEST_PROTOCOL_VERSION, InitializeResult
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")  # pragma: no cover
 @pytest.mark.anyio
 async def test_initialize_succeeds_and_shutdown_returns_after_the_server_exits_mid_session():
-    """Initialize completes and shutdown returns against a server that exits mid-session,
-    the proactor pipe scenario that hung on Windows 11 (issue #552). The positive assertion
-    matters: a session that errors quickly would also "not hang"."""
+    """Initialize completes and shutdown returns when the server exits mid-session.
+
+    This is the proactor pipe scenario that hung on Windows 11 (issue #552). The positive
+    assertion matters: a session that errors quickly would also "not hang".
+    """
     # A minimal server: answer initialize correctly, then exit.
     server_script = dedent(f"""
         import json

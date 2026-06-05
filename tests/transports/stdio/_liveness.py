@@ -17,8 +17,9 @@ import pytest
 
 
 def connect_back_script(port: int, *, echo: bool = False) -> str:
-    """Return a `python -c` script body that connects to 127.0.0.1:`port` and
-    sends `b'alive'`, then blocks forever -- or, with `echo=True`, echoes every
+    """Return a `python -c` script body that connects to 127.0.0.1:`port` and sends `b'alive'`.
+
+    After the banner the script blocks forever -- or, with `echo=True`, echoes every
     received chunk back so `assert_peer_echoes` can prove the process still runs.
     """
     # lax no cover: echo mode is used only by POSIX-gated tests; Windows runners enforce 100% per job.
@@ -41,9 +42,11 @@ async def open_liveness_listener() -> tuple[anyio.abc.SocketListener, int]:
 
 
 async def accept_alive(sock: anyio.abc.SocketListener) -> anyio.abc.SocketStream:
-    """Accept one connection and assert the peer sent `b'alive'`, reading until the
-    full 5-byte banner arrives (TCP may legally split even a tiny send). Callers
-    bound this with `anyio.fail_after` to catch a subprocess that never started.
+    """Accept one connection and assert the peer sent `b'alive'`.
+
+    Reads until the full 5-byte banner arrives (TCP may legally split even a tiny
+    send). Callers bound this with `anyio.fail_after` to catch a subprocess that
+    never started.
     """
     stream = await sock.accept()
     msg = b""
@@ -60,8 +63,9 @@ async def assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
 
 
 async def assert_peer_echoes(stream: anyio.abc.SocketStream) -> None:  # pragma: lax no cover
-    """Assert the peer holding the other end of `stream` is still running, by
-    round-tripping one echo through it (the peer must use `echo=True`). A dead
+    """Assert the peer holding the other end of `stream` is still running.
+
+    Round-trips one echo through the stream (the peer must use `echo=True`); a dead
     process can never answer, so this cannot pass spuriously.
 
     lax no cover: only POSIX-gated survival tests call this; Windows runners
