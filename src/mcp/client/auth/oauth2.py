@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -51,6 +51,12 @@ from mcp.shared.auth_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _url_with_query_params(url: str, params: dict[str, str]) -> str:
+    parsed = urlparse(url)
+    query = urlencode([*parse_qsl(parsed.query, keep_blank_values=True), *params.items()])
+    return urlunparse(parsed._replace(query=query))
 
 
 class PKCEParameters(BaseModel):
@@ -325,14 +331,14 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
 
-        if not self.context.client_info:
+        if not self.context.client_info or not self.context.client_info.client_id:
             raise OAuthFlowError("No client info available for authorization")  # pragma: no cover
 
         # Generate PKCE parameters
         pkce_params = PKCEParameters.generate()
         state = secrets.token_urlsafe(32)
 
-        auth_params = {
+        auth_params: dict[str, str] = {
             "response_type": "code",
             "client_id": self.context.client_info.client_id,
             "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
@@ -353,7 +359,7 @@ class OAuthClientProvider(httpx.Auth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = _url_with_query_params(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
