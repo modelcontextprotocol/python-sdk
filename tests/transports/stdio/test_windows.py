@@ -6,11 +6,9 @@ policy in test_posix.py), the SelectorEventLoop fallback wrapper, and the CRLF
 line endings a native text-mode server emits. Synchronization is kernel-level
 only (liveness sockets); see `_liveness`.
 
-These bodies run solely on windows-latest CI legs, so each test function carries
-the same no-cover exclusion as tests/issues/test_552_windows_hang.py: the per-job
-100% coverage gate on non-Windows runners would otherwise count them as uncovered,
-and strict-no-cover (which would object to an executed excluded line) is skipped
-on the Windows runners where they do execute.
+Per-test no-cover pragmas (as in tests/issues/test_552_windows_hang.py): bodies run
+only on windows-latest CI legs, the per-job 100% gate would count them uncovered on
+non-Windows runners, and strict-no-cover is skipped on Windows where they execute.
 """
 
 import asyncio
@@ -45,52 +43,40 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
     """A server that exits cleanly on stdin closure leaves a child behind; on Windows
-    that child is killed when shutdown closes the server's Job Object handle
-    (`close_process_job` + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) — deterministically,
-    not whenever the handle happens to be garbage-collected. This is the documented
-    divergence from POSIX, where the identical scenario leaves the child alive
-    (docs/migration.md, "stdio_client no longer kills children of a gracefully-exited
-    server on POSIX"; the POSIX twin is
+    shutdown's close of the server's Job Object handle (`close_process_job` +
+    `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) kills that child deterministically, not at
+    GC time. Documented divergence from POSIX (docs/migration.md; the POSIX twin is
     test_posix.py::test_a_gracefully_exiting_servers_child_survives_the_client_shutdown).
 
-    `terminate_calls == []` is the load-bearing distinction: it proves the child died
-    through the graceful path's job-handle close and not through the escalation's
-    `TerminateJobObject` — the two kills are indistinguishable on the socket.
+    `terminate_calls == []` is the load-bearing distinction: the child died through
+    the graceful path's job-handle close, not the escalation's `TerminateJobObject`;
+    the two kills are indistinguishable on the socket.
 
-    The server connects back too (not just the child), the child's stderr is routed
-    into the server's, and both are captured through `errlog`; the child prints a
-    startup marker there, and the server reports the child's `poll()` status after
-    stdin EOF ends it. A timeout failure then reports how many connections arrived
-    (so which process never showed), how long the spawn took, and the captured
-    stderr verbatim — including the child's fate — since xdist swallows subprocess
-    stderr on CI, and without the capture a broken spawn chain is undiagnosable
-    there.
+    Both processes connect back and their stderr is captured via `errlog`, so a
+    timeout failure can report which process never showed and the child's fate
+    (xdist swallows subprocess stderr on CI).
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
         stack.push_async_callback(sock.aclose)
 
-        # The startup marker (and any child traceback, via the Popen's
-        # stderr=sys.stderr below) lands in errlog, splitting "child never
-        # spawned/started" from "child started but could not connect".
+        # The startup marker (and any child traceback, via stderr=sys.stderr below)
+        # lands in errlog, splitting "never started" from "started but never connected".
         child = "import sys\nprint('child-started', file=sys.stderr, flush=True)\n" + connect_back_script(port)
-        # The server spawns a child (its Popen failure, if any, is surfaced on
-        # stderr), connects back itself, then exits as soon as its stdin closes —
-        # the well-behaved graceful path, so the escalation never runs. The child
-        # inherits Job membership because the SDK assigns the server to the Job
-        # synchronously after the spawn returns, while the server's interpreter is
-        # still cold-starting — long before it can Popen the child (job membership
-        # is inherited at CreateProcess, never acquired retroactively).
+        # The server spawns a child, connects back itself, then exits as soon as
+        # its stdin closes: the graceful path, so the escalation never runs.
+        # The child inherits Job membership: the SDK assigns the server to the Job
+        # synchronously after spawn, long before the cold-starting interpreter can
+        # Popen the child (membership is inherited at CreateProcess, never
+        # acquired retroactively).
         #
-        # The child's stdin must be decoupled from the server's (DEVNULL): CPython
-        # startup queries fd 0, the server's stdin is a synchronous pipe object,
-        # and Windows serializes that query behind the server's pending blocking
-        # `sys.stdin.read()` — with an inherited stdin the child freezes at
-        # interpreter startup until the next inbound byte or EOF. (The same goes
-        # for any Windows stdio server spawning Python children without
-        # redirecting their stdin.) After stdin EOF ends the server, it reports
-        # the child's `poll()` status — `None` means the child was alive when the
-        # server exited; an exit or NTSTATUS code names whatever killed it.
+        # The child's stdin must be DEVNULL: CPython startup queries fd 0, and
+        # Windows serializes that query behind the server's pending blocking
+        # `sys.stdin.read()` on the inherited pipe, so the child would freeze at
+        # interpreter startup until the next inbound byte or EOF.
+        #
+        # After stdin EOF ends the server, it reports the child's `poll()` status:
+        # `None` means alive at server exit; an exit/NTSTATUS code names the killer.
         server = (
             f"import socket, subprocess, sys\n"
             f"try:\n"
@@ -116,8 +102,8 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
             spawn_started = anyio.current_time()
             entered_at: float | None = None
             try:
-                # The bound covers two Python interpreter cold starts on a loaded
-                # runner; a healthy run takes well under a second.
+                # Two interpreter cold starts on a loaded runner; healthy runs
+                # take well under a second.
                 with anyio.fail_after(15.0):
                     async with stdio_client(server_params, errlog=errlog):
                         entered_at = anyio.current_time()
@@ -128,11 +114,9 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
                             stack.push_async_callback(stream.aclose)
                             streams.append(stream)
             except TimeoutError:
-                # By the time this clause runs, `stdio_client.__aexit__` has already
-                # completed its shielded shutdown on the way out of the `async
-                # with`: stdin closed, the server printed its `child-rc` line and
-                # exited. The stderr read below therefore carries the child's fate,
-                # not a mid-flight snapshot.
+                # `stdio_client.__aexit__` has already completed its shielded shutdown,
+                # so the stderr read carries the server's final `child-rc` line, not a
+                # mid-flight snapshot.
                 missing_leg = "the server never ran its connect line" if not streams else "the child never connected"
                 spawn_split = (
                     "the context never entered"
@@ -144,15 +128,12 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
                     f"{spawn_split}; server stderr: {server_stderr()!r}"
                 )
 
-            # Both peers connected and the context has fully exited, closing the
-            # job handle. KILL_ON_JOB_CLOSE must have killed the child, and the
-            # server died with its graceful exit: both sockets close. The
-            # `spawned_processes` recording is load-bearing here beyond
-            # observability: `_process_jobs` is weak-keyed, and the recorded strong
-            # reference pins the process object (and with it the job-handle entry)
-            # across this assertion window — without it, a GC between context exit
-            # and this assert could close the handle itself and mask a regression
-            # in the deterministic close.
+            # Context exit closed the job handle: KILL_ON_JOB_CLOSE killed the
+            # child and the server exited gracefully, so both sockets close.
+            # The `spawned_processes` strong reference is load-bearing: `_process_jobs`
+            # is weak-keyed, so without it a GC between context exit and this assert
+            # could close the job handle itself and mask a regression in the
+            # deterministic close.
             try:
                 for stream in streams:
                     await assert_stream_closed(stream)
@@ -166,9 +147,8 @@ async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_c
             assert terminate_calls == [], server_stderr()
 
 
-# Overrides the suite-wide plain-"asyncio" anyio_backend fixture for this test only:
-# a selector event loop cannot run asyncio subprocesses, which is exactly the
-# environment that forces stdio_client onto the FallbackProcess path.
+# Overrides the suite-wide anyio_backend fixture for this test only: a selector
+# event loop cannot run asyncio subprocesses, forcing stdio_client onto FallbackProcess.
 @pytest.mark.parametrize("anyio_backend", [("asyncio", {"loop_factory": asyncio.SelectorEventLoop})])
 async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits_cleanly(  # pragma: no cover
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
@@ -180,13 +160,10 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
     closure, reaped, never escalated against.
 
     The `isinstance` check is the engagement proof: if a future anyio gains selector
-    subprocess support, the spawn silently returns a normal Process and this test
-    would otherwise stop testing the fallback stack without failing. A hang here
-    (a `fail_after` TimeoutError — or, if the reader thread is truly parked in a
-    synchronous `ReadFile`, a hard hang that `fail_after` cannot interrupt) most
-    likely means that known fallback hazard, documented in `stdio_client`'s
-    shutdown comment — which is why this test pins only the clean-exit path, never
-    a kill path.
+    subprocess support, the spawn would silently return a normal Process. A hang here
+    most likely means the known fallback hazard documented in `stdio_client`'s
+    shutdown comment (reader thread parked in a synchronous `ReadFile`), which is
+    why this test pins only the clean-exit path, never a kill path.
     """
     async with AsyncExitStack() as stack:
         sock, port = await open_liveness_listener()
@@ -220,15 +197,14 @@ async def test_a_selector_event_loop_session_uses_the_fallback_process_and_exits
 async def test_a_native_server_emitting_crlf_line_endings_round_trips_messages() -> None:  # pragma: no cover
     """A text-mode Windows server frames its output with \\r\\n (`TextIOWrapper`'s
     `newline=None` translates "\\n" to `os.linesep`), and the client still parses
-    each line: the reader splits on "\\n" only, so the trailing "\\r" reaches the
-    JSON parser and is tolerated as whitespace. The SDK's own server writes through
-    exactly such a wrapper, so this tolerance is load-bearing for Windows interop.
+    each line: the reader splits on "\\n" only and the JSON parser tolerates the
+    trailing "\\r" as whitespace. The SDK's own server writes through such a
+    wrapper, so this tolerance is load-bearing for Windows interop.
 
     tests/issues/test_552_windows_hang.py exercises the same wire form implicitly
-    through `initialize()`; this test is the explicit owner of the framing claim,
-    driving `stdio_client`'s public streams with no session on top.
+    through `initialize()`; this test is the explicit owner of the framing claim.
     """
-    # Read one request, answer it via print() — which emits \r\n on Windows — then
+    # Read one request, answer it via print() (which emits \r\n on Windows), then
     # exit when stdin closes. json.loads/dumps keep the script free of SDK imports.
     server = (
         "import json, sys\n"

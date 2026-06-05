@@ -1,7 +1,6 @@
-"""Fixtures for the stdio lifecycle suite: recording seams around the spawn and
-tree-termination internals of `stdio_client` (the real implementations still run),
-plus the failure-path safety net that keeps a crashed test from orphaning its
-sleep-forever subprocesses.
+"""Fixtures for the stdio lifecycle suite: recording seams around `stdio_client`'s
+spawn and tree-termination internals (the real implementations still run), plus a
+teardown that keeps a crashed test from orphaning its sleep-forever subprocesses.
 """
 
 import os
@@ -26,13 +25,9 @@ def spawned_processes(
 ) -> Generator[list[anyio.abc.Process | FallbackProcess]]:
     """Record every process `stdio_client` spawns; the real spawn still runs.
 
-    Tests inspect the recorded processes afterwards (exit codes, concrete type on
-    the Windows fallback path). Teardown SIGKILLs each spawn-time process group on
-    POSIX, in both of its roles: failure-path safety net (a test that dies mid-body
-    cannot orphan its sleep-forever descendants for an hour) and the reaper for
-    tests that deliberately leave a survivor running, like the POSIX survival
-    test's echo child. On Windows there is no process group to signal (the Job
-    Object covers strays).
+    Teardown SIGKILLs each spawn-time process group on POSIX: the safety net for a
+    test that dies mid-body and the reaper for deliberate survivors. On Windows
+    there is no group to signal (the Job Object covers strays).
     """
     spawned: list[anyio.abc.Process | FallbackProcess] = []
 
@@ -57,9 +52,8 @@ def terminate_calls(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc.Process |
     """Record every invocation of `stdio_client`'s tree-termination seam; the real
     termination still runs.
 
-    An empty list after the context exits proves the graceful path: the server was
-    never escalated against, which a socket signal alone cannot establish (a FIN
-    looks the same whether the peer exited on stdin closure or was killed).
+    An empty list after the context exits proves the graceful path: a FIN looks the
+    same whether the peer exited on stdin closure or was killed.
     """
     terminated: list[anyio.abc.Process | FallbackProcess] = []
 
@@ -71,8 +65,7 @@ def terminate_calls(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc.Process |
     return terminated
 
 
-# Excluded from coverage (lax: exempt from strict-no-cover): registered on every
-# platform but a no-op on Windows, whose runners enforce 100% coverage per job.
+# lax no cover: registered on every platform but a no-op on Windows, whose runners enforce 100% per job.
 def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> None:  # pragma: lax no cover
     """SIGKILL each spawn-time process group; see `spawned_processes`."""
     if sys.platform == "win32":

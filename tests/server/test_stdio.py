@@ -65,12 +65,8 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
 
 @pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Non-UTF-8 bytes on stdin must not crash the server.
-
-    Invalid bytes are replaced with U+FFFD, which then fails JSON parsing and
-    is delivered as an in-stream exception. Subsequent valid messages must
-    still be processed.
-    """
+    """Non-UTF-8 stdin bytes are replaced with U+FFFD, fail JSON parsing, and arrive as an
+    in-stream exception; subsequent valid messages are still processed."""
     # \xff\xfe are invalid UTF-8 start bytes.
     valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     raw_stdin = io.BytesIO(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
@@ -103,15 +99,12 @@ class _KeepOpenBytesIO(io.BytesIO):
 
 
 def _run_stdio_bounded(server: MCPServer) -> None:
-    """Call the blocking `server.run("stdio")` with a deadline, failing instead of hanging.
+    """Run the blocking `server.run("stdio")` in a daemon thread joined with a 5s bound.
 
-    `run()` creates its own event loop, so a sync test has no async frame to arm
-    `anyio.fail_after` from; a daemon thread joined with the suite's standard 5s
-    bound is the sync analogue. `join()` returns as soon as `run()` does — the
-    timeout only fires if the run loop regresses into never returning on stdin EOF,
-    turning a silent CI hang into a red test. An exception escaping `run()` fails
-    the test too: pytest reports it as `PytestUnhandledThreadExceptionWarning`,
-    which `filterwarnings = ["error"]` escalates.
+    `run()` creates its own event loop, so a sync test cannot arm `anyio.fail_after`;
+    the join timeout turns a run loop that never returns on stdin EOF into a red test
+    instead of a silent CI hang. An exception escaping `run()` still fails the test:
+    pytest's unhandled-thread warning is escalated by `filterwarnings = ["error"]`.
     """
 
     def target() -> None:
@@ -140,11 +133,8 @@ def test_mcpserver_run_stdio_serves_until_stdin_closes(monkeypatch: pytest.Monke
 
 def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Code after `yield` in a lifespan runs when stdin EOF ends `run("stdio")`.
-
-    Regression lock for the shutdown chain behind issue #1027: the run loop must end
-    on stdin EOF and unwind the lifespan — were the process killed before the run
-    loop returned, the cleanup entry would never be appended.
-    """
+    Regression lock for the issue #1027 shutdown chain: the run loop must end on
+    stdin EOF and unwind the lifespan rather than be killed before returning."""
     events: list[str] = []
 
     @asynccontextmanager

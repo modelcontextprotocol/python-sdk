@@ -28,59 +28,36 @@ else:
     win32job = None
     pywintypes = None
 
-# How often FallbackProcess polls the underlying Popen for exit. Polling keeps the
-# wait cancellable: a thread blocked in Popen.wait() cannot be cancelled by anyio,
-# which would make every timeout around it ineffective.
+# How often FallbackProcess polls the underlying Popen for exit.
 _EXIT_POLL_INTERVAL = 0.01
 
-# The Job Object each spawned process was assigned to, so its process tree can be
-# terminated through it later. Values must stay the pywin32 `PyHANDLE` returned by
-# `CreateJobObject`, never a detached int: if neither pop site runs (an abandoned
-# shutdown), the dying weak entry drops the last reference and the `PyHANDLE`
-# destructor closes the OS handle, which is what makes `KILL_ON_JOB_CLOSE` reap
-# the orphaned tree.
+# Job Object handle per spawned process, for tree termination at shutdown.
+# Values stay pywin32 PyHANDLEs: if no pop site ever runs, the dying weak entry
+# drops the last reference and the PyHANDLE destructor closes the handle, which
+# is what makes KILL_ON_JOB_CLOSE reap an abandoned tree.
 _process_jobs: "weakref.WeakKeyDictionary[Process | FallbackProcess, object]" = weakref.WeakKeyDictionary()
 
 
 def get_windows_executable_command(command: str) -> str:
-    """Get the correct executable command normalized for Windows.
-
-    On Windows, commands might exist with specific extensions (.exe, .cmd, etc.)
-    that need to be located for proper execution.
-
-    Args:
-        command: Base command (e.g., 'uvx', 'npx')
-
-    Returns:
-        str: Windows-appropriate command path
-    """
+    """Resolve the command to a Windows executable path, trying the bare name
+    first and then the common script extensions (.cmd, .bat, .exe, .ps1)."""
     try:
-        # First check if command exists in PATH as-is
         if command_path := shutil.which(command):
             return command_path
 
-        # Check for Windows-specific extensions
         for ext in [".cmd", ".bat", ".exe", ".ps1"]:
             ext_version = f"{command}{ext}"
             if ext_path := shutil.which(ext_version):
                 return ext_path
 
-        # For regular commands or if we couldn't find special versions
         return command
     except OSError:
-        # Handle file system errors during path resolution
-        # (permissions, broken symlinks, etc.)
-        return command
+        return command  # path probing failed (permissions, broken symlinks)
 
 
 class FallbackProcess:
-    """A fallback process wrapper for Windows to handle async I/O
-    when using subprocess.Popen, which provides sync-only FileIO objects.
-
-    This wraps stdin and stdout into async-compatible
-    streams (FileReadStream, FileWriteStream),
-    so that MCP clients expecting async streams can work properly.
-    """
+    """Async wrapper around subprocess.Popen for Windows event loops without
+    async subprocess support (SelectorEventLoop)."""
 
     def __init__(self, popen_obj: subprocess.Popen[bytes]) -> None:
         self.popen: subprocess.Popen[bytes] = popen_obj
@@ -91,11 +68,8 @@ class FallbackProcess:
         self.stdout = FileReadStream(cast(BinaryIO, stdout)) if stdout else None
 
     async def wait(self) -> int:
-        """Wait for process exit by polling.
-
-        `Popen.wait()` in a worker thread cannot be cancelled by anyio, which would
-        defeat every timeout placed around this call; polling keeps it cancellable.
-        """
+        """Wait for exit by polling; a thread blocked in Popen.wait() cannot be
+        cancelled by anyio, which would defeat every timeout around this call."""
         while (returncode := self.popen.poll()) is None:
             await anyio.sleep(_EXIT_POLL_INTERVAL)
         return returncode
@@ -105,7 +79,7 @@ class FallbackProcess:
         self.popen.terminate()
 
     def kill(self) -> None:
-        """Kill the subprocess (on Windows this is the same hard kill as terminate)."""
+        """Kill the subprocess (same hard kill as terminate on Windows)."""
         self.popen.kill()
 
     @property
@@ -115,11 +89,8 @@ class FallbackProcess:
 
     @property
     def returncode(self) -> int | None:
-        """Return the exit code, or `None` if the process has not yet terminated.
-
-        Polls the underlying `Popen` so the value updates as soon as the process
-        dies, without anyone having to call `wait()`.
-        """
+        """Exit code, or None while running; polls Popen so death is observable
+        without anyone calling wait()."""
         return self.popen.poll()
 
 
@@ -135,27 +106,9 @@ async def create_windows_process(
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
-    """Creates a subprocess in a Windows-compatible way with Job Object support.
-
-    Attempts to use anyio's open_process for async subprocess creation.
-    In some cases this will throw NotImplementedError on Windows, e.g.,
-    when using the SelectorEventLoop, which does not support async subprocesses.
-    In that case, we fall back to using subprocess.Popen.
-
-    The process is added to a Job Object so that child processes are terminated
-    with it; children spawned before the assignment completes are not captured
-    (see the inline note below).
-
-    Args:
-        command (str): The executable to run
-        args (list[str]): List of command line arguments
-        env (dict[str, str] | None): Environment variables
-        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr)
-        cwd (Path | str | None): Working directory for the subprocess
-
-    Returns:
-        Process | FallbackProcess: Async-compatible subprocess with stdin and stdout streams
-    """
+    """Spawn the server inside a Job Object so its children can be terminated
+    with it; falls back to subprocess.Popen on event loops without async
+    subprocess support."""
     try:
         process = await anyio.open_process(
             [command, *args],
@@ -169,11 +122,9 @@ async def create_windows_process(
         # Windows event loops without async subprocess support (SelectorEventLoop)
         process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
 
-    # Created only after a successful spawn (a failed spawn raises before any job
-    # exists, so no handle can leak). Children the server spawns before
-    # AssignProcessToJobObject completes land outside the job — membership is
-    # inherited at CreateProcess, never acquired retroactively. If that window
-    # ever bites, the fix is a CREATE_SUSPENDED spawn -> assign -> resume.
+    # Children spawned before the assignment completes land outside the job
+    # (membership is inherited at CreateProcess, never acquired retroactively);
+    # if that ever bites, the fix is a CREATE_SUSPENDED spawn -> assign -> resume.
     job = _create_job_object()
     _maybe_assign_process_to_job(process, job)
     return process
@@ -186,10 +137,7 @@ async def _create_windows_fallback_process(
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
-    """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
-
-    This function wraps the sync subprocess.Popen in an async-compatible interface.
-    """
+    """Spawn via subprocess.Popen and wrap it in FallbackProcess."""
     popen_obj = subprocess.Popen(
         [command, *args],
         stdin=subprocess.PIPE,
@@ -218,20 +166,15 @@ def _create_job_object() -> object | None:
         return job
     except pywintypes.error:
         logger.warning("Failed to create Job Object for process tree management", exc_info=True)
-        # If creation succeeded but configuration failed, close the handle rather
-        # than leaving it to be reclaimed whenever the GC gets to it.
+        # If creation succeeded but configuration failed, close the handle now.
         if job is not None:
             _close_job_handle(job)
         return None
 
 
 def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object | None) -> None:
-    """Try to assign a process to a job object.
-
-    On success the job is recorded for the process so that
-    `terminate_windows_process_tree` can terminate the whole tree through it.
-    If assignment fails for any reason, the job handle is closed.
-    """
+    """Assign the process to the job and record it for tree termination; on
+    any failure the job handle is closed instead."""
     if job is None:
         return
 
@@ -249,9 +192,8 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object
             win32job.AssignProcessToJobObject(job, process_handle)
         finally:
             win32api.CloseHandle(process_handle)
-        # Recorded only after the CloseHandle above succeeded: had it failed, the
-        # except below would close the job and KILL_ON_JOB_CLOSE would take the
-        # server with it.
+        # Record only after the CloseHandle above succeeded: had it failed, the
+        # except below would close the job and KILL_ON_JOB_CLOSE takes the server.
         _process_jobs[process] = job
     except pywintypes.error:
         logger.warning("Failed to assign process %d to Job Object", process.pid, exc_info=True)
@@ -259,15 +201,9 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: object
 
 
 def close_process_job(process: Process | FallbackProcess) -> None:
-    """Close the process's Job Object handle, if it still has one.
-
-    The job is created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so closing the
-    handle also kills any job members still alive — deterministically, instead of
-    whenever the GC would have collected the handle. This is a deliberate
-    divergence from POSIX, where a well-behaved server's surviving children are
-    left alive. No-op on POSIX and when no job was assigned (or tree termination
-    already closed it).
-    """
+    """Close the process's Job Object handle, killing any members still alive
+    (KILL_ON_JOB_CLOSE) deterministically rather than at GC time; a deliberate
+    divergence from POSIX, where a graceful server's children are left alive."""
     if sys.platform != "win32":
         return
 
@@ -277,14 +213,9 @@ def close_process_job(process: Process | FallbackProcess) -> None:
 
 
 async def terminate_windows_process_tree(process: Process | FallbackProcess) -> None:
-    """Terminate a process and all its children on Windows.
-
-    If the process was assigned to a Job Object at spawn, the job is terminated,
-    which kills every process in it immediately. Otherwise only the process itself
-    is terminated. Both are immediate hard kills: Windows offers no portable
-    equivalent of SIGTERM for a whole tree, so the stdin-close grace period in the
-    client shutdown is the server's opportunity to exit cleanly.
-    """
+    """Terminate the job (an immediate hard kill of every member), or just the
+    process if it has no job. Windows has no tree-wide SIGTERM; the stdin-close
+    grace period is the server's chance to exit cleanly."""
     if sys.platform != "win32":
         return
 
@@ -296,8 +227,7 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess) -> 
         finally:
             _close_job_handle(job)
 
-    # Terminate the process directly too: it may have no job (creation or
-    # assignment failed), in which case the job path above did nothing.
+    # The process may have no job (creation or assignment failed); kill it directly too.
     try:
         process.terminate()
     except OSError:
