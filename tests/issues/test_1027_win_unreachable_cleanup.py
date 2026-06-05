@@ -195,7 +195,7 @@ async def test_stdin_close_triggers_cleanup():
         # This test manually manages the process to verify stdin-based shutdown
         # Start the server process
         process = await _create_platform_compatible_process(
-            command=sys.executable, args=[server_script], env=None, errlog=sys.stderr, cwd=None
+            command=sys.executable, args=[server_script], env=None, cwd=None
         )
 
         # Wait for server to start

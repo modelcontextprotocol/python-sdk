@@ -173,7 +173,7 @@ async def create_windows_process(
             creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
             if hasattr(subprocess, "CREATE_NO_WINDOW")
             else 0,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
         )
     except NotImplementedError:
@@ -184,7 +184,7 @@ async def create_windows_process(
         process = await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
         )
 
@@ -209,7 +209,7 @@ async def _create_windows_fallback_process(
             [command, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             env=env,
             cwd=cwd,
             bufsize=0,  # Unbuffered output
@@ -221,7 +221,7 @@ async def _create_windows_fallback_process(
             [command, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             env=env,
             cwd=cwd,
             bufsize=0,

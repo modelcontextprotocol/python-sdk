@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,22 @@ from mcp.os.win32.utilities import (
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _is_jupyter_notebook() -> bool:
+    """Check if running in a Jupyter notebook environment.
+
+    Returns True when running inside Jupyter Notebook, JupyterLab, or
+    any IPython kernel that uses ZMQ for communication.
+    """
+    try:
+        from ipykernel.zmqshell import ZMQInteractiveShell  # type: ignore
+        from IPython import get_ipython  # type: ignore
+
+        return isinstance(get_ipython(), ZMQInteractiveShell)  # type: ignore[no-untyped-def]
+    except Exception:
+        return False
+
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -123,7 +140,6 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             command=command,
             args=server.args,
             env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
-            errlog=errlog,
             cwd=server.cwd,
         )
     except OSError:
@@ -177,9 +193,32 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
+    async def stderr_reader():
+        """Read stderr from the process and forward to errlog.
+
+        In Jupyter notebook environments, sys.stderr cannot reliably be used
+        as a subprocess file descriptor. By always piping stderr and reading
+        it asynchronously, we ensure output is visible in all environments:
+        Jupyter gets ANSI-colored print output; other environments write
+        directly to the errlog stream (defaulting to sys.stderr).
+        """
+        assert process.stderr, "Opened process is missing stderr"
+
+        in_jupyter = _is_jupyter_notebook()
+        try:
+            async for line in process.stderr:
+                text = line.decode(errors="replace").rstrip("\n")
+                if in_jupyter:
+                    print(f"\033[91m{text}\033[0m")
+                else:
+                    print(text, file=errlog)
+        except anyio.ClosedResourceError:  # pragma: lax no cover
+            await anyio.lowlevel.checkpoint()
+
     async with anyio.create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -230,21 +269,24 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ):
     """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
+
+    Stderr is always piped so that the caller can read it asynchronously.
+    This is required because sys.stderr may not be a valid subprocess file
+    descriptor in environments such as Jupyter notebooks.
     """
     if sys.platform == "win32":  # pragma: no cover
-        process = await create_windows_process(command, args, env, errlog, cwd)
+        process = await create_windows_process(command, args, env, cwd=cwd)
     else:  # pragma: lax no cover
         process = await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
             start_new_session=True,
         )
