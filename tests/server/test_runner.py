@@ -169,6 +169,33 @@ async def test_runner_gates_requests_before_initialize(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_unknown_method_before_initialize_raises_method_not_found(server: SrvT):
+    """An unknown method is METHOD_NOT_FOUND even before initialize: JSON-RPC
+    2.0 reserves -32601 for it, and clients probing a server before the
+    handshake key off that code. The init gate only applies to methods the
+    server actually knows."""
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("x/unknown", None)
+        assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="x/unknown")
+
+
+@pytest.mark.anyio
+async def test_runner_custom_method_with_handler_is_still_gated_before_initialize(server: SrvT):
+    """A custom-registered method is a known method: before initialize it is
+    rejected by the init gate, not answered with METHOD_NOT_FOUND."""
+
+    async def greet(ctx: Ctx, params: RequestParams | None) -> Any:
+        raise NotImplementedError  # the gate rejects the request first
+
+    server.add_request_handler("custom/greet", RequestParams, greet)
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("custom/greet", None)
+        assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+
+
+@pytest.mark.anyio
 async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
     async with connected_runner(server) as (client, runner):
         result = await client.send_raw_request("tools/list", None)
@@ -186,7 +213,7 @@ async def test_runner_spec_method_with_no_handler_raises_method_not_found(server
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("resources/list", None)
-    assert exc.value.error.code == METHOD_NOT_FOUND
+    assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/list")
 
 
 @pytest.mark.anyio
@@ -196,7 +223,7 @@ async def test_runner_non_spec_method_with_no_handler_raises_method_not_found(se
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("nonexistent/method", None)
-    assert exc.value.error.code == METHOD_NOT_FOUND
+    assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="nonexistent/method")
 
 
 @pytest.mark.anyio
