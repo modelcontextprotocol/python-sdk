@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
-import anyio.lowlevel
 from anyio.abc import TaskStatus
 from starlette.requests import Request
 from starlette.responses import Response
@@ -22,6 +21,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -140,13 +140,7 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
                 self._session_owners.clear()
-        # The cancel above is delivered via `coro.throw()` into this task at
-        # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
-        # trace events for the outer await chain and desyncs coverage's CTracer
-        # past the caller's frame. Yielding once here resumes via `.send()`,
-        # which re-stamps the missing `'call'` events and resyncs the tracer.
-        # Shielded so a pending outer cancel is not re-delivered at this point.
-        await anyio.lowlevel.cancel_shielded_checkpoint()
+        await resync_tracer()
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.

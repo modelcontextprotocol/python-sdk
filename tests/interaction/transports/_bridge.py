@@ -31,10 +31,11 @@ from types import TracebackType
 
 import anyio
 import anyio.abc
-import anyio.lowlevel
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream
 from starlette.types import ASGIApp, Message, Scope
+
+from mcp.shared._compat import resync_tracer
 
 
 class _StreamingResponseBody(httpx.AsyncByteStream):
@@ -89,10 +90,7 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
         if self._cancel_on_close:
             self._task_group.cancel_scope.cancel()
         await self._task_group.__aexit__(exc_type, exc_value, traceback)
-        # gh-106749: the cancel above is delivered via coro.throw() on
-        # CPython 3.11; resume via .send() so coverage's CTracer re-syncs
-        # for whatever the caller does after this context manager exits.
-        await anyio.lowlevel.cancel_shielded_checkpoint()
+        await resync_tracer()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         assert isinstance(request.stream, httpx.AsyncByteStream)

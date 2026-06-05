@@ -9,13 +9,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import anyio
-import anyio.lowlevel
 import httpx
 from anyio.abc import TaskGroup
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -587,10 +587,4 @@ async def streamable_http_client(
                 if transport.session_id and terminate_on_close:
                     await transport.terminate_session(client)
                 tg.cancel_scope.cancel()
-        # The cancel above is delivered via `coro.throw()` into this task at
-        # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
-        # trace events for the outer await chain and desyncs coverage's CTracer
-        # past the caller's frame. Yielding once here resumes via `.send()`,
-        # which re-stamps the missing `'call'` events and resyncs the tracer.
-        # Shielded so a pending outer cancel is not re-delivered at this point.
-        await anyio.lowlevel.cancel_shielded_checkpoint()
+        await resync_tracer()

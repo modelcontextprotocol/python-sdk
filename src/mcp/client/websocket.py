@@ -3,13 +3,13 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import anyio
-import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
 from mcp import types
+from mcp.shared._compat import resync_tracer
 from mcp.shared.message import SessionMessage
 
 
@@ -84,10 +84,4 @@ async def websocket_client(
 
             # Once the caller's 'async with' block exits, we shut down
             tg.cancel_scope.cancel()
-        # The cancel above is delivered via `coro.throw()` into this task at
-        # the task-group join; on CPython 3.11 (gh-106749) that drops `'call'`
-        # trace events for the outer await chain and desyncs coverage's CTracer
-        # past the caller's frame. Yielding once here resumes via `.send()`,
-        # which re-stamps the missing `'call'` events and resyncs the tracer.
-        # Shielded so a pending outer cancel is not re-delivered at this point.
-        await anyio.lowlevel.cancel_shielded_checkpoint()
+        await resync_tracer()

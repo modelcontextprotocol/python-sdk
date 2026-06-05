@@ -16,7 +16,6 @@ from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
 import anyio
-import anyio.lowlevel
 import httpx
 import pytest
 from httpx_sse import ServerSentEvent
@@ -41,6 +40,7 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context import RequestContext
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
@@ -1188,10 +1188,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
                     # Kill the client session while tool is waiting on lock
                     tg.cancel_scope.cancel()
 
-    # gh-106749 heal: the cancel above is delivered via coro.throw() on
-    # CPython 3.11; resume via .send() so coverage's CTracer re-syncs before
-    # the second session's lines.
-    await anyio.lowlevel.cancel_shielded_checkpoint()
+    await resync_tracer()
 
     async with make_client(app, headers=headers) as httpx_client2:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client2) as (
