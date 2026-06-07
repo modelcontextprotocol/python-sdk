@@ -13,6 +13,10 @@ class ResourceError(MCPServerError):
     """Error in resource operations."""
 
 
+class ResourceNotFoundError(ResourceError):
+    """Requested resource does not exist."""
+
+
 class ToolError(MCPServerError):
     """Error in tool operations."""
 

@@ -37,6 +37,9 @@ class JSONRPCResponse(BaseModel):
 
 
 # MCP-specific error codes in the range [-32000, -32099]
+RESOURCE_NOT_FOUND = -32002
+"""Error code indicating that a requested resource does not exist."""
+
 URL_ELICITATION_REQUIRED = -32042
 """Error code indicating that a URL mode elicitation is required before the request can be processed."""
 

@@ -19,6 +19,7 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    RESOURCE_NOT_FOUND,
     AudioContent,
     BlobResourceContents,
     Completion,
@@ -730,8 +731,10 @@ class TestServerResources:
         mcp = MCPServer()
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+            with pytest.raises(MCPError, match="Unknown resource: unknown://missing") as exc_info:
                 await client.read_resource("unknown://missing")
+
+        assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
     async def test_read_resource_error(self):
         """Test that resource read errors are properly wrapped in MCPError."""
@@ -742,8 +745,10 @@ class TestServerResources:
             raise ValueError("Resource read failed")
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Error reading resource resource://failing"):
+            with pytest.raises(MCPError, match="Error reading resource resource://failing") as exc_info:
                 await client.read_resource("resource://failing")
+
+        assert exc_info.value.error.code == 0
 
     async def test_binary_resource(self):
         mcp = MCPServer()
