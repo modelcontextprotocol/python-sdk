@@ -295,9 +295,9 @@ class MCPServer(Generic[LifespanResultT]):
             match transport:
                 case "stdio":
                     anyio.run(self.run_stdio_async)
-                case "sse":  # pragma: no cover
+                case "sse":
                     anyio.run(lambda: self.run_sse_async(**kwargs))
-                case "streamable-http":  # pragma: no cover
+                case "streamable-http":
                     anyio.run(lambda: self.run_streamable_http_async(**kwargs))
         except KeyboardInterrupt:
             return
