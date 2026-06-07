@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
@@ -74,7 +74,8 @@ class OAuthClientMetadata(BaseModel):
         # AnyUrl equality is type-strict. Store the declared base type so later
         # redirect_uri membership checks compare URLs, not URL wrapper classes.
         if isinstance(v, list | tuple):
-            return [str(item) if isinstance(item, AnyUrl) else item for item in v]
+            items = cast("list[object] | tuple[object, ...]", v)
+            return [str(item) if isinstance(item, AnyUrl) else item for item in items]
         return v
 
     @field_validator(
