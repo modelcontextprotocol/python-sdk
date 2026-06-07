@@ -169,6 +169,50 @@ async def test_client_session_group_skips_unsupported_capabilities(
 
 
 @pytest.mark.anyio
+@pytest.mark.anyio
+async def test_client_session_group_skips_unsupported_tools(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "TestServer"
+
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    mock_prompt = mock.Mock(spec=types.Prompt)
+    mock_prompt.name = "prompt"
+
+    mock_resource = mock.Mock(spec=types.Resource)
+    mock_resource.name = "resource"
+
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt])
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource])
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[])
+
+    capabilities = mock.Mock()
+    capabilities.tools = None
+    capabilities.prompts = object()
+    capabilities.resources = object()
+
+    initialize_result = mock.Mock()
+    initialize_result.capabilities = capabilities
+    mock_session.initialize_result = initialize_result
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+
+    await group._aggregate_components(
+        mock_server_info,
+        mock_session,
+    )
+
+    mock_session.list_tools.assert_not_awaited()
+    mock_session.list_prompts.assert_awaited_once()
+    mock_session.list_resources.assert_awaited_once()
+
+    assert "prompt" in group.prompts
+    assert "resource" in group.resources
+
+
+@pytest.mark.anyio
 async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):
     """Test connecting with a component name hook."""
     # --- Mock Dependencies ---
