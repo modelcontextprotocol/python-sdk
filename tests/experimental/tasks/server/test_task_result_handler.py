@@ -68,6 +68,29 @@ async def test_handle_returns_result_for_completed_task(
 
 
 @pytest.mark.anyio
+async def test_handle_omits_none_fields_from_completed_task_payload(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    """Test task result payloads omit optional None fields instead of serializing null."""
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    result = CallToolResult(content=[TextContent(type="text", text="Done!")])
+    await store.store_result(task.taskId, result)
+    await store.update_task(task.taskId, status="completed")
+
+    mock_session = Mock()
+    mock_session.send_message = AsyncMock()
+
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task.taskId))
+    response = await handler.handle(request, mock_session, "req-1")
+
+    payload = response.model_dump(by_alias=True, mode="json")
+    assert payload["content"] == [{"type": "text", "text": "Done!"}]
+    assert "annotations" not in payload["content"][0]
+    assert "_meta" not in payload["content"][0]
+    assert "io.modelcontextprotocol/related-task" in payload["_meta"]
+
+
+@pytest.mark.anyio
 async def test_handle_raises_for_nonexistent_task(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
