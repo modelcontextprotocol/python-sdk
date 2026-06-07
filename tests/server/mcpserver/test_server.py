@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -72,6 +72,16 @@ class TestServer:
 
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
+
+    @pytest.mark.parametrize("transport", ["stdio", "sse", "streamable-http"])
+    def test_run_suppresses_keyboard_interrupt(self, transport: str):
+        mcp = MCPServer("test")
+        transport_name = cast(Literal["stdio", "sse", "streamable-http"], transport)
+
+        with patch("mcp.server.mcpserver.server.anyio.run", side_effect=KeyboardInterrupt) as run:
+            mcp.run(transport=transport_name)
+
+        run.assert_called_once()
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
