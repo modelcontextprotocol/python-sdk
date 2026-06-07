@@ -1,4 +1,5 @@
 import io
+import json
 import sys
 import threading
 from collections.abc import AsyncIterator
@@ -7,11 +8,12 @@ from io import TextIOWrapper
 
 import anyio
 import pytest
+from anyio.lowlevel import checkpoint
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
 
 
 @pytest.mark.anyio
@@ -140,6 +142,59 @@ def test_mcpserver_run_stdio_serves_until_stdin_closes(monkeypatch: pytest.Monke
 
     response = jsonrpc_message_adapter.validate_json(captured.getvalue().decode().strip())
     assert response == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+
+def test_mcpserver_run_stdio_drains_in_flight_tool_responses_after_stdin_eof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stdin EOF must not drop responses for requests the server already accepted."""
+    server = MCPServer(name="DrainStdioServer")
+
+    @server.tool()
+    async def slow_echo(text: str) -> str:
+        await checkpoint()
+        return text
+
+    payload_lines = [
+        JSONRPCRequest(
+            jsonrpc="2.0",
+            id=0,
+            method="initialize",
+            params={
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "stdio-replay", "version": "0.1"},
+            },
+        ).model_dump_json(by_alias=True, exclude_none=True),
+        JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized", params={}).model_dump_json(
+            by_alias=True, exclude_none=True
+        ),
+        JSONRPCRequest(
+            jsonrpc="2.0",
+            id=1,
+            method="tools/call",
+            params={"name": "slow_echo", "arguments": {"text": "first"}},
+        ).model_dump_json(by_alias=True, exclude_none=True),
+        JSONRPCRequest(
+            jsonrpc="2.0",
+            id=2,
+            method="tools/call",
+            params={"name": "slow_echo", "arguments": {"text": "second"}},
+        ).model_dump_json(by_alias=True, exclude_none=True),
+    ]
+    stdin_bytes = io.BytesIO(("\n".join(payload_lines) + "\n").encode())
+    captured = _KeepOpenBytesIO()
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin_bytes, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(captured, encoding="utf-8"))
+
+    _run_stdio_bounded(server)
+
+    output = captured.getvalue().decode()
+    responses = [json.loads(line) for line in output.splitlines() if line]
+
+    assert [response["id"] for response in responses] == [0, 1, 2]
+    assert responses[1]["result"]["content"][0]["text"] == "first"
+    assert responses[2]["result"]["content"][0]["text"] == "second"
 
 
 def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatch: pytest.MonkeyPatch) -> None:

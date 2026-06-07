@@ -239,6 +239,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
         on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
+        drain_in_flight_on_read_eof: bool = False,
+        read_eof_response_drain_timeout: float = 5.0,
     ) -> None:
         """Wire a dispatcher over a transport's `SessionMessage` stream pair.
 
@@ -264,12 +266,23 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
+        self._drain_in_flight_on_read_eof = drain_in_flight_on_read_eof
+        self._read_eof_response_drain_timeout = read_eof_response_drain_timeout
+        # Request methods handled inline in the read loop (awaited before the
+        # next message is dequeued) instead of spawned concurrently. Use for
+        # methods whose side effects must be observable to the next message,
+        # e.g. `initialize`, so a pipelined follow-up sees the initialized state.
+        # Only suitable for handlers that complete quickly, since inline handling
+        # blocks dequeuing; a handler that awaits the peer (`send_raw_request`)
+        # while inline will deadlock because the parked read loop cannot dequeue
+        # the response.
         self._inline_methods = inline_methods
         self._on_stream_exception = on_stream_exception
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._responses_in_flight: set[RequestId] = set()
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
         self._closed = False
@@ -451,6 +464,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                             except anyio.ClosedResourceError:
                                 # Receive end closed under us (stateless SHTTP teardown); same as EOF.
                                 logger.debug("read stream closed by transport; treating as EOF")
+                        if self._drain_in_flight_on_read_eof:
+                            with anyio.move_on_after(self._read_eof_response_drain_timeout) as scope:
+                                while self._in_flight or self._responses_in_flight:
+                                    await anyio.sleep(0)
+                            if scope.cancelled_caught:
+                                logger.debug("timed out draining in-flight responses after read EOF")
                         # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
                         self._running = False
                         self._closed = True
@@ -722,16 +741,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         await self._write_stream.send(SessionMessage(message=message, metadata=metadata))
 
     async def _write_result(self, request_id: RequestId, result: dict[str, Any]) -> None:
+        key = _coerce_id(request_id)
+        self._responses_in_flight.add(key)
         try:
             await self._write(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped result for %r: write stream closed", request_id)
+        finally:
+            self._responses_in_flight.discard(key)
 
     async def _write_error(self, request_id: RequestId, error: ErrorData) -> None:
+        key = _coerce_id(request_id)
+        self._responses_in_flight.add(key)
         try:
             await self._write(JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped error for %r: write stream closed", request_id)
+        finally:
+            self._responses_in_flight.discard(key)
 
     async def _final_write(
         self,

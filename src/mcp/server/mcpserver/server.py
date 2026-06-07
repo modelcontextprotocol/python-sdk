@@ -838,6 +838,7 @@ class MCPServer(Generic[LifespanResultT]):
                 read_stream,
                 write_stream,
                 self._lowlevel_server.create_initialization_options(),
+                drain_in_flight_on_read_eof=True,
             )
 
     async def run_sse_async(  # pragma: no cover

@@ -447,6 +447,8 @@ async def serve_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    drain_in_flight_on_read_eof: bool = False,
+    read_eof_response_drain_timeout: float = 5.0,
 ) -> None:
     """Drive ``server`` in loop mode over a stream pair until the channel closes.
 
@@ -460,6 +462,8 @@ async def serve_loop(
         read_stream,
         write_stream,
         raise_handler_exceptions=raise_exceptions,
+        drain_in_flight_on_read_eof=drain_in_flight_on_read_eof,
+        read_eof_response_drain_timeout=read_eof_response_drain_timeout,
         # Handle `initialize` inline so a client that pipelines it with the
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
         # state instead of failing the init-gate.
