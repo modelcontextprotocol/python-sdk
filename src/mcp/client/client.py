@@ -26,10 +26,14 @@ from mcp.types import (
     ListToolsResult,
     LoggingLevel,
     PaginatedRequestParams,
+    Prompt,
     PromptReference,
     ReadResourceResult,
     RequestParamsMeta,
+    Resource,
+    ResourceTemplate,
     ResourceTemplateReference,
+    Tool,
 )
 
 
@@ -301,6 +305,79 @@ class Client:
     async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
         """List available tools from the server."""
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+
+    async def list_all_tools(self, *, meta: RequestParamsMeta | None = None) -> ListToolsResult:
+        """List all available tools from the server, draining pagination automatically.
+
+        Follows ``next_cursor`` until the server returns no more pages and
+        returns a single :class:`ListToolsResult` whose ``tools`` list contains
+        every tool across all pages.
+
+        The tool output-schema cache is populated as a side effect (same as
+        :meth:`list_tools`).
+        """
+        all_tools: list[Tool] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_tools(cursor=cursor, meta=meta)
+            all_tools.extend(result.tools)
+            if result.next_cursor is None:
+                break
+            cursor = result.next_cursor
+        return ListToolsResult(tools=all_tools)
+
+    async def list_all_resources(self, *, meta: RequestParamsMeta | None = None) -> ListResourcesResult:
+        """List all available resources from the server, draining pagination automatically.
+
+        Follows ``next_cursor`` until the server returns no more pages and
+        returns a single :class:`ListResourcesResult` whose ``resources`` list
+        contains every resource across all pages.
+        """
+        all_resources: list[Resource] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_resources(cursor=cursor, meta=meta)
+            all_resources.extend(result.resources)
+            if result.next_cursor is None:
+                break
+            cursor = result.next_cursor
+        return ListResourcesResult(resources=all_resources)
+
+    async def list_all_resource_templates(
+        self, *, meta: RequestParamsMeta | None = None
+    ) -> ListResourceTemplatesResult:
+        """List all available resource templates from the server, draining pagination automatically.
+
+        Follows ``next_cursor`` until the server returns no more pages and
+        returns a single :class:`ListResourceTemplatesResult` whose
+        ``resource_templates`` list contains every template across all pages.
+        """
+        all_templates: list[ResourceTemplate] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_resource_templates(cursor=cursor, meta=meta)
+            all_templates.extend(result.resource_templates)
+            if result.next_cursor is None:
+                break
+            cursor = result.next_cursor
+        return ListResourceTemplatesResult(resource_templates=all_templates)
+
+    async def list_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> ListPromptsResult:
+        """List all available prompts from the server, draining pagination automatically.
+
+        Follows ``next_cursor`` until the server returns no more pages and
+        returns a single :class:`ListPromptsResult` whose ``prompts`` list
+        contains every prompt across all pages.
+        """
+        all_prompts: list[Prompt] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_prompts(cursor=cursor, meta=meta)
+            all_prompts.extend(result.prompts)
+            if result.next_cursor is None:
+                break
+            cursor = result.next_cursor
+        return ListPromptsResult(prompts=all_prompts)
 
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
