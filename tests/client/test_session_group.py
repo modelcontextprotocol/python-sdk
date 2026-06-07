@@ -126,6 +126,49 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
 
 
 @pytest.mark.anyio
+
+@pytest.mark.anyio
+async def test_client_session_group_skips_unsupported_capabilities(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    """Only query capabilities advertised by the server."""
+
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "ToolsOnlyServer"
+
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    mock_tool = mock.Mock(spec=types.Tool)
+    mock_tool.name = "ping"
+
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool])
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    capabilities = mock.Mock()
+    capabilities.tools = object()
+    capabilities.prompts = None
+    capabilities.resources = None
+
+    initialize_result = mock.Mock()
+    initialize_result.capabilities = capabilities
+
+    mock_session.initialize_result = initialize_result
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+
+    await group._aggregate_components(
+        mock_server_info,
+        mock_session,
+    )
+
+    mock_session.list_tools.assert_awaited_once()
+    mock_session.list_prompts.assert_not_awaited()
+    mock_session.list_resources.assert_not_awaited()
+
+    assert "ping" in group.tools
+
+@pytest.mark.anyio
 async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):
     """Test connecting with a component name hook."""
     # --- Mock Dependencies ---
