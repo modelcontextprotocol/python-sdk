@@ -67,6 +67,16 @@ class OAuthClientMetadata(BaseModel):
     software_id: str | None = None
     software_version: str | None = None
 
+    @field_validator("redirect_uris", mode="before")
+    @classmethod
+    def _coerce_redirect_uris_to_any_url(cls, v: object) -> object:
+        # Pydantic v2 keeps AnyUrl subclasses such as AnyHttpUrl as-is, while
+        # AnyUrl equality is type-strict. Store the declared base type so later
+        # redirect_uri membership checks compare URLs, not URL wrapper classes.
+        if isinstance(v, list | tuple):
+            return [str(item) if isinstance(item, AnyUrl) else item for item in v]
+        return v
+
     @field_validator(
         "client_uri",
         "logo_uri",
