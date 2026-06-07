@@ -126,7 +126,6 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
 
 
 @pytest.mark.anyio
-
 @pytest.mark.anyio
 async def test_client_session_group_skips_unsupported_capabilities(
     mock_exit_stack: contextlib.AsyncExitStack,
@@ -167,6 +166,7 @@ async def test_client_session_group_skips_unsupported_capabilities(
     mock_session.list_resources.assert_not_awaited()
 
     assert "ping" in group.tools
+
 
 @pytest.mark.anyio
 async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):

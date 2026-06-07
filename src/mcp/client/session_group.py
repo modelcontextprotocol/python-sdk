@@ -345,11 +345,7 @@ class ClientSessionGroup:
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query capabilities negotiated during initialize().
-        capabilities = (
-            session.initialize_result.capabilities
-            if session.initialize_result is not None
-            else None
-        )
+        capabilities = session.initialize_result.capabilities if session.initialize_result is not None else None
         # Query the server for its prompts and aggregate to list.
         if capabilities is None or capabilities.prompts is not None:
             try:
