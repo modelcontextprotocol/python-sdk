@@ -2,7 +2,7 @@
 
 from typing import Any, Protocol
 
-import httpx
+from mcp.shared._httpx import httpx
 
 __all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
 

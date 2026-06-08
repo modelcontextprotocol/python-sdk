@@ -9,13 +9,13 @@ from typing import Any
 
 import anyio
 import anyio.to_thread
-import httpx
 import pydantic
 import pydantic_core
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared._httpx import httpx
 from mcp.types import Annotations, Icon
 
 

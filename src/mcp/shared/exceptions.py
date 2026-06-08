@@ -41,6 +41,16 @@ class MCPError(Exception):
         return self.message
 
 
+class MCPDeprecationWarning(UserWarning):
+    """A custom deprecation warning for MCP.
+
+    Unlike the built-in DeprecationWarning, this inherits from UserWarning to ensure it is visible by default, helping
+    users discover deprecated features without needing to enable warnings explicitly.
+
+    Reference: https://sethmlarson.dev/deprecations-via-warnings-dont-work-for-python-libraries
+    """
+
+
 class StatelessModeNotSupported(RuntimeError):
     """Raised when attempting to use a method that is not supported in stateless mode.
 

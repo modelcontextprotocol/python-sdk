@@ -13,11 +13,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
 
-import httpx
 import jwt
 from pydantic import BaseModel, Field
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
+from mcp.shared._httpx import httpx
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 

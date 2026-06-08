@@ -205,6 +205,14 @@ filterwarnings = [
     "error",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # `mcp` prefers `httpx2`; importing `mcp.shared._httpx` warns when falling back to
+    # `httpx`. The lockfile pins `httpx`, so CI always exercises the fallback. We match on
+    # the message string only — naming the category would force pytest's filter parser to
+    # `__import__` the module hosting `MCPDeprecationWarning`, which cascades through
+    # `mcp/__init__.py` and triggers the very warning we're trying to filter (the same trap
+    # pydantic-ai documents). The dedicated test in `tests/shared/test_httpx_shim.py` covers
+    # emission. Remove this entry once `httpx2` is the dependency and the fallback is dropped.
+    "ignore:Using `httpx` with `mcp` is deprecated",
 ]
 
 [tool.markdown.lint]

@@ -15,7 +15,6 @@ from typing import Any, Protocol
 from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
-import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
@@ -37,6 +36,7 @@ from mcp.client.auth.utils import (
     should_use_client_metadata_url,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared._httpx import httpx
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
