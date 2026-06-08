@@ -38,12 +38,12 @@ class _NoCloseTextIOWrapper(TextIOWrapper):
     print() or input() calls in the parent process.
     """
 
-    def close(self) -> None:
+    def close(self) -> None:  # pragma: lax no cover
         # Intentionally not closing the underlying buffer.
         # The standard process handles should outlive the server.
         pass
 
-    def __del__(self) -> None:
+    def __del__(self) -> None:  # pragma: lax no cover
         # Prevent TextIOWrapper.__del__ from calling close().
         pass
 
