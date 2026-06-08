@@ -21,6 +21,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    CallToolResult,
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -303,6 +304,30 @@ class TestServerTools:
             # Check structured content - int return type should have structured output
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
+
+    async def test_call_tool_returns_declared_result_shapes(self):
+        mcp = MCPServer()
+
+        @mcp.tool()
+        def direct_result() -> CallToolResult:
+            return CallToolResult(content=[TextContent(text="direct")])
+
+        @mcp.tool(structured_output=False)
+        def unstructured() -> str:
+            return "plain"
+
+        @mcp.tool()
+        def structured() -> int:
+            return 3
+
+        direct = await mcp.call_tool("direct_result", {})
+        assert direct == CallToolResult(content=[TextContent(text="direct")])
+
+        bare_content = await mcp.call_tool("unstructured", {})
+        assert bare_content == [TextContent(text="plain")]
+
+        structured_result = await mcp.call_tool("structured", {})
+        assert structured_result == ([TextContent(text="3")], {"result": 3})
 
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image
