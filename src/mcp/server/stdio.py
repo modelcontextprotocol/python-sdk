@@ -29,6 +29,25 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
+class _NoCloseTextIOWrapper(TextIOWrapper):
+    """A TextIOWrapper that does not close the underlying buffer on garbage collection.
+
+    Standard TextIOWrapper calls close() in __del__, which closes the underlying
+    buffer. When wrapping sys.stdin.buffer or sys.stdout.buffer, this causes the
+    real process stdio to be closed after the server exits, breaking subsequent
+    print() or input() calls in the parent process.
+    """
+
+    def close(self) -> None:
+        # Intentionally not closing the underlying buffer.
+        # The standard process handles should outlive the server.
+        pass
+
+    def __del__(self) -> None:
+        # Prevent TextIOWrapper.__del__ from calling close().
+        pass
+
+
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Server transport for stdio: this communicates with an MCP client by reading
@@ -39,9 +58,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        stdin = anyio.wrap_file(_NoCloseTextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = anyio.wrap_file(_NoCloseTextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
