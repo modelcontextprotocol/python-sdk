@@ -1,5 +1,5 @@
 from .base import Resource
-from .resource_manager import ResourceManager
+from .resource_manager import ResourceManager, UnknownResourceError
 from .templates import ResourceTemplate
 from .types import (
     BinaryResource,
@@ -20,4 +20,5 @@ __all__ = [
     "DirectoryResource",
     "ResourceTemplate",
     "ResourceManager",
+    "UnknownResourceError",
 ]

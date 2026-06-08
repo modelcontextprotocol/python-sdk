@@ -6,6 +6,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
 from mcp.types import (
+    RESOURCE_NOT_FOUND,
     ErrorData,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -114,7 +115,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
     """Reading a URI that matches no registered resource fails with a JSON-RPC error.
 
-    The spec reserves -32002 for resource-not-found; see the divergence note on the requirement.
+    The spec reserves -32002 for resource-not-found.
     """
     mcp = MCPServer("library")
 
@@ -127,7 +128,9 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown resource: config://missing"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=RESOURCE_NOT_FOUND, message="Unknown resource: config://missing")
+    )
 
 
 @requirement("mcpserver:resource:read-throws-surfaced")
@@ -149,6 +152,24 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
             await client.read_resource("res://boom")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource res://boom"))
+
+
+@requirement("mcpserver:resource:read-throws-surfaced")
+async def test_templated_resource_function_that_raises_is_not_reported_as_missing(connect: Connect) -> None:
+    """A matching resource template that raises is a read failure, not a missing resource."""
+    mcp = MCPServer("library")
+
+    @mcp.resource("users://{user_id}/profile")
+    def user_profile(user_id: str) -> str:
+        raise RuntimeError(f"profile unavailable for {user_id}")
+
+    async with connect(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("users://42/profile")
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=0, message="Error reading resource users://42/profile")
+    )
 
 
 @requirement("mcpserver:resource:duplicate-name")

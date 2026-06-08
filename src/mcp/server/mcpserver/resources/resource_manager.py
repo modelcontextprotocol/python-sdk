@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class UnknownResourceError(ValueError):
+    """Raised when no registered resource or resource template matches a URI."""
+
+
 class ResourceManager:
     """Manages MCPServer resources."""
 
@@ -95,7 +99,7 @@ class ResourceManager:
                 except Exception as e:  # pragma: no cover
                     raise ValueError(f"Error creating resource from template: {e}")
 
-        raise ValueError(f"Unknown resource: {uri}")
+        raise UnknownResourceError(f"Unknown resource: {uri}")
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""

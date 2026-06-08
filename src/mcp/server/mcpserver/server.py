@@ -33,7 +33,7 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager, UnknownResourceError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -44,6 +44,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    RESOURCE_NOT_FOUND,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -447,8 +448,11 @@ class MCPServer(Generic[LifespanResultT]):
             context = Context(mcp_server=self)
         try:
             resource = await self._resource_manager.get_resource(uri, context)
+        except UnknownResourceError as exc:
+            raise MCPError(RESOURCE_NOT_FOUND, f"Unknown resource: {uri}") from exc
         except ValueError as exc:
-            raise ResourceError(f"Unknown resource: {uri}") from exc
+            logger.exception(f"Error getting resource {uri}")
+            raise ResourceError(f"Error reading resource {uri}") from exc
 
         try:
             content = await resource.read()
