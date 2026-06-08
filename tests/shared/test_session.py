@@ -416,3 +416,95 @@ async def test_null_id_error_does_not_affect_pending_request():
     # Pending request completed successfully
     assert len(result_holder) == 1
     assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_send_request_sends_cancelled_notification_on_timeout():
+    """Client must send notifications/cancelled when a request times out.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2507.
+    """
+    cancelled_notifications: list[SessionMessage] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, _ = server_streams
+
+        async def mock_server():
+            async for message in server_read:  # pragma: no branch
+                assert isinstance(message, SessionMessage)
+                if isinstance(message.message, types.JSONRPCNotification):
+                    cancelled_notifications.append(message)
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                read_timeout_seconds=0.1,
+            ) as client_session,
+        ):
+            tg.start_soon(mock_server)
+
+            with pytest.raises(MCPError, match="Timed out"):
+                await client_session.send_ping()
+
+            await anyio.sleep(0.05)
+            tg.cancel_scope.cancel()
+
+    assert len(cancelled_notifications) == 1
+    notif = cancelled_notifications[0].message
+    assert isinstance(notif, types.JSONRPCNotification)
+    assert notif.method == "notifications/cancelled"
+    assert notif.params is not None
+    assert notif.params.get("reason") == "request timed out"
+
+
+@pytest.mark.anyio
+async def test_send_request_sends_cancelled_notification_on_caller_cancel():
+    """Client must send notifications/cancelled when caller cancels the request.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2507.
+    """
+    cancelled_notifications: list[SessionMessage] = []
+    ev_request_sent = anyio.Event()
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, _ = server_streams
+
+        async def mock_server():
+            async for message in server_read:  # pragma: no branch
+                assert isinstance(message, SessionMessage)
+                if isinstance(message.message, JSONRPCRequest):
+                    ev_request_sent.set()
+                if isinstance(message.message, types.JSONRPCNotification):
+                    cancelled_notifications.append(message)
+
+        async def make_request(client_session: ClientSession):
+            await client_session.send_ping()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+            ) as client_session,
+        ):
+            tg.start_soon(mock_server)
+
+            async with anyio.create_task_group() as request_tg:
+                request_tg.start_soon(make_request, client_session)
+                with anyio.fail_after(1):
+                    await ev_request_sent.wait()
+                request_tg.cancel_scope.cancel()
+
+            await anyio.sleep(0.05)
+            tg.cancel_scope.cancel()
+
+    assert len(cancelled_notifications) == 1
+    notif = cancelled_notifications[0].message
+    assert isinstance(notif, types.JSONRPCNotification)
+    assert notif.method == "notifications/cancelled"
+    assert notif.params is not None
+    assert notif.params.get("reason") == "request cancelled by caller"
