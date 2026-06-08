@@ -48,18 +48,22 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
 
     async def stdin_reader():
         try:
-            async with read_stream_writer:
-                async for line in stdin:
-                    try:
-                        message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                    except Exception as exc:
-                        await read_stream_writer.send(exc)
-                        continue
+            async for line in stdin:
+                try:
+                    message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
+                except Exception as exc:
+                    await read_stream_writer.send(exc)
+                    continue
 
-                    session_message = SessionMessage(message)
-                    await read_stream_writer.send(session_message)
+                session_message = SessionMessage(message)
+                await read_stream_writer.send(session_message)
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
+        finally:
+            # Close the read stream to signal EOF to the server.  Any pending
+            # server responses are already buffered in write_stream_reader and
+            # will drain through stdout_writer before the task group exits.
+            await read_stream_writer.aclose()
 
     async def stdout_writer():
         try:
