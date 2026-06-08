@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import anyio
 import httpx
@@ -353,7 +353,14 @@ class OAuthClientProvider(httpx.Auth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        auth_endpoint_parts = urlsplit(auth_endpoint)
+        authorization_query = urlencode(
+            [
+                *parse_qsl(auth_endpoint_parts.query, keep_blank_values=True),
+                *auth_params.items(),
+            ]
+        )
+        authorization_url = urlunsplit(auth_endpoint_parts._replace(query=authorization_query))
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback

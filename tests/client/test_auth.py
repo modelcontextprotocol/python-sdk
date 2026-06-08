@@ -264,6 +264,50 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
+    async def test_authorization_endpoint_query_params_are_preserved(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """OAuth authorization endpoints may already carry provider-specific query params."""
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_state
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+
+            assert params["prompt"] == ["select_account"]
+            assert params["response_type"] == ["code"]
+            assert params["client_id"] == ["test_client"]
+
+            captured_state = params.get("state", [None])[0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+        provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize?prompt=select_account"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        )
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        auth_code, code_verifier = await provider._perform_authorization_code_grant()
+
+        assert auth_code == "test_auth_code"
+        assert code_verifier
+
+    @pytest.mark.anyio
     async def test_build_protected_resource_discovery_urls(
         self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
     ):
