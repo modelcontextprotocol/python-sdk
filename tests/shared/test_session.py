@@ -99,6 +99,19 @@ async def test_request_cancellation():
 
 
 @pytest.mark.anyio
+async def test_cancel_notification_for_unknown_request_id():
+    """Sending notifications/cancelled for a request ID with no pending stream is a no-op."""
+    server = Server(name="test server")
+    async with Client(server) as client:
+        # ID 99999 has no pending send_request, so no response stream exists.
+        # Should return without raising.
+        with anyio.fail_after(1):
+            await client.session.send_notification(
+                CancelledNotification(params=CancelledNotificationParams(request_id=99999))
+            )
+
+
+@pytest.mark.anyio
 async def test_response_id_type_mismatch_string_to_int():
     """Test that responses with string IDs are correctly matched to requests sent with
     integer IDs.
