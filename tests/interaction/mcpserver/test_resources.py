@@ -167,9 +167,7 @@ async def test_templated_resource_function_that_raises_is_not_reported_as_missin
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("users://42/profile")
 
-    assert exc_info.value.error == snapshot(
-        ErrorData(code=0, message="Error reading resource users://42/profile")
-    )
+    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource users://42/profile"))
 
 
 @requirement("mcpserver:resource:duplicate-name")
