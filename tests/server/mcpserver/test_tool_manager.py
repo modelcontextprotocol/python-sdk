@@ -328,6 +328,40 @@ class TestToolSchema:
         assert "ctx" not in tool.fn_metadata.arg_model.model_fields
 
 
+def test_context_arg_excluded_from_callable_object_schema():
+    class MyTool:
+        def __init__(self):
+            self.__name__ = "MyTool"
+
+        async def __call__(self, query: str, ctx: Context) -> str:  # pragma: no cover
+            return query
+
+    manager = ToolManager()
+    tool = manager.add_tool(MyTool())
+
+    assert tool.context_kwarg == "ctx"
+    assert "ctx" not in json.dumps(tool.parameters)
+    assert "Context" not in json.dumps(tool.parameters)
+    assert "ctx" not in tool.fn_metadata.arg_model.model_fields
+
+
+@pytest.mark.anyio
+async def test_context_injected_into_callable_object():
+    class MyTool:
+        def __init__(self):
+            self.__name__ = "MyTool"
+
+        async def __call__(self, query: str, ctx: Context) -> str:
+            assert isinstance(ctx, Context)
+            return query
+
+    manager = ToolManager()
+    manager.add_tool(MyTool())
+
+    result = await manager.call_tool("MyTool", {"query": "hello"}, context=Context())
+    assert result == "hello"
+
+
 class TestContextHandling:
     """Test context handling in the tool manager."""
 
