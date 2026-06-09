@@ -334,7 +334,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": method, "jsonrpc.request.id": request_id},
+                attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
             ):
                 # Inject W3C trace context into _meta (SEP-414). With a no-op
                 # tracer this writes nothing, but `_meta` itself is still

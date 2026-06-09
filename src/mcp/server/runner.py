@@ -128,6 +128,10 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
             except MCPError as e:
                 span.set_status(StatusCode.ERROR, e.error.message)
                 raise
+            except ValidationError:
+                # Mirror the sanitized wire response; pydantic messages carry client input.
+                span.set_status(StatusCode.ERROR, "Invalid request parameters")
+                raise
             except Exception as e:
                 span.record_exception(e)
                 span.set_status(StatusCode.ERROR, str(e))

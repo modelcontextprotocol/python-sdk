@@ -218,7 +218,7 @@ class BaseSession(
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": str(request_id)},
             ):
                 # Inject W3C trace context into _meta (SEP-414).
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})

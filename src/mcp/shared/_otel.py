@@ -40,6 +40,13 @@ def inject_trace_context(meta: dict[str, Any]) -> None:
     inject(meta)
 
 
-def extract_trace_context(meta: dict[str, Any]) -> Context:
-    """Extract W3C trace context from a `_meta` dict."""
-    return extract(meta)
+def extract_trace_context(meta: dict[str, Any]) -> Context | None:
+    """Extract W3C trace context from a `_meta` dict.
+
+    Returns `None` when the carrier is malformed; telemetry parsing must
+    never fail the request it annotates.
+    """
+    try:
+        return extract(meta)
+    except (TypeError, ValueError):
+        return None

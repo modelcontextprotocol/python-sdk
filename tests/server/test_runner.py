@@ -790,6 +790,42 @@ async def test_otel_trace_context_propagates_client_to_server(server: SrvT, span
     assert client_span.context is not None and server_span.context is not None
     assert server_span.parent.span_id == client_span.context.span_id
     assert server_span.context.trace_id == client_span.context.trace_id
+    assert client_span.attributes is not None and server_span.attributes is not None
+    assert client_span.attributes["jsonrpc.request.id"] == server_span.attributes["jsonrpc.request.id"]
+
+
+@pytest.mark.anyio
+async def test_otel_middleware_malformed_traceparent_degrades_to_no_parent(server: SrvT, spans: SpanCapture):
+    """A non-string traceparent in `_meta` must not fail the request; the
+    server span simply gets no parent."""
+
+    def break_traceparent(next_on_request: OnRequest) -> OnRequest:
+        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
+            mangled = {"_meta": {"traceparent": 123}} if method == "tools/list" else params
+            return await next_on_request(dctx, method, mangled)
+
+        return wrapped
+
+    async with connected_runner(server, dispatch_middleware=[break_traceparent, otel_middleware]) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/list", None)
+    [server_span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert server_span.parent is None
+
+
+@pytest.mark.anyio
+async def test_otel_middleware_validation_failure_sets_sanitized_status(server: SrvT, spans: SpanCapture):
+    """Malformed params set the sanitized wire message as span status and do
+    not record the pydantic exception (it carries client input)."""
+    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
+        spans.clear()
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": 123})
+    assert exc.value.error.code == INVALID_PARAMS
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.status.description == "Invalid request parameters"
+    assert not span.events
 
 
 @pytest.mark.anyio
