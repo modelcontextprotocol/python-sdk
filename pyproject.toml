@@ -50,7 +50,6 @@ dependencies = [
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
-ws = ["websockets>=15.0.1"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -79,8 +78,8 @@ build-constraint-dependencies = [
 
 [dependency-groups]
 dev = [
-    # We add mcp[cli,ws] so `uv sync` considers the extras.
-    "mcp[cli,ws]",
+    # We add mcp[cli] so `uv sync` considers the extras.
+    "mcp[cli]",
     "pyright>=1.1.400",
     "pytest>=8.4.0",
     "ruff>=0.8.5",
@@ -209,9 +208,6 @@ addopts = """
 """
 filterwarnings = [
     "error",
-    # This should be fixed on Uvicorn's side.
-    "ignore::DeprecationWarning:websockets",
-    "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
 ]
