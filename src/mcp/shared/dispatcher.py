@@ -84,9 +84,9 @@ class Outbound(Protocol):
     """Anything that can send requests and notifications to the peer.
 
     Both `Dispatcher` (top-level outbound) and `DispatchContext` (back-channel
-    during an inbound request) extend this. The MCP type layer (`ClientPeerMixin`,
-    `Connection`, `Context`) builds typed `send_request` / convenience methods
-    on top of this raw channel.
+    during an inbound request) extend this. The MCP type layer (`ClientPeer`,
+    `Connection`) builds typed `send_request` / convenience methods on top of
+    this raw channel.
     """
 
     async def send_raw_request(

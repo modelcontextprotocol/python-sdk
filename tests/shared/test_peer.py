@@ -1,8 +1,8 @@
-"""Tests for `ClientPeerMixin` and `ClientPeer`.
+"""Tests for `ClientPeer`.
 
-Each ClientPeerMixin method is tested by wrapping a `DirectDispatcher` in `ClientPeer`,
-calling the typed method, and asserting (a) the right method+params went out
-and (b) the return value is the typed result model.
+Each typed method is tested by wrapping a `DirectDispatcher` in `ClientPeer`,
+calling it, and asserting (a) the right method+params went out and (b) the
+return value is the typed result model.
 """
 
 from collections.abc import Mapping

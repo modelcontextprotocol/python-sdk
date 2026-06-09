@@ -16,19 +16,46 @@ there's no channel; `ping` is the only spec-sanctioned standalone request.
 import logging
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from typing import Any
+from typing import Any, TypeVar, overload
 
 import anyio
+from pydantic import BaseModel
 
-from mcp.server._typed_request import TypedServerRequestMixin
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
-from mcp.types import ClientCapabilities, InitializeRequestParams, LoggingLevel
+from mcp.types import (
+    ClientCapabilities,
+    CreateMessageRequest,
+    CreateMessageResult,
+    ElicitRequest,
+    ElicitResult,
+    EmptyResult,
+    InitializeRequestParams,
+    ListRootsRequest,
+    ListRootsResult,
+    LoggingLevel,
+    PingRequest,
+    Request,
+)
 
 __all__ = ["Connection"]
 
 logger = logging.getLogger(__name__)
+
+ResultT = TypeVar("ResultT", bound=BaseModel)
+
+# Result types for the spec's server-to-client request set, used by
+# `Connection.send_request` to infer the result type. If the spec's request
+# set grows substantially, consider declaring the result mapping on the
+# request types themselves (a `__mcp_result__` ClassVar read via a structural
+# protocol) so this table and the overload ladder don't need maintaining.
+_RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
+    CreateMessageRequest: CreateMessageResult,
+    ElicitRequest: ElicitResult,
+    ListRootsRequest: ListRootsResult,
+    PingRequest: EmptyResult,
+}
 
 
 def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> dict[str, Any] | None:
@@ -39,7 +66,7 @@ def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> d
     return out
 
 
-class Connection(TypedServerRequestMixin):
+class Connection:
     """Per-client connection state and standalone-stream `Outbound`.
 
     Constructed by `ServerRunner` once per connection. The peer-info fields
@@ -98,10 +125,10 @@ class Connection(TypedServerRequestMixin):
     ) -> dict[str, Any]:
         """Send a raw request on the standalone stream.
 
-        Low-level `Outbound` channel. Prefer the typed `send_request` (from
-        `TypedServerRequestMixin`) or the convenience methods below; use this
-        directly only for off-spec messages. `opts` carries per-call `timeout`
-        / `on_progress` / resumption hints; see `CallOptions`.
+        Low-level `Outbound` channel. Prefer the typed `send_request` or the
+        convenience methods below; use this directly only for off-spec
+        messages. `opts` carries per-call `timeout` / `on_progress` /
+        resumption hints; see `CallOptions`.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -110,6 +137,42 @@ class Connection(TypedServerRequestMixin):
         if not self.has_standalone_channel:
             raise NoBackChannelError(method)
         return await self._outbound.send_raw_request(method, params, opts)
+
+    @overload
+    async def send_request(
+        self, req: CreateMessageRequest, *, opts: CallOptions | None = None
+    ) -> CreateMessageResult: ...
+    @overload
+    async def send_request(self, req: ElicitRequest, *, opts: CallOptions | None = None) -> ElicitResult: ...
+    @overload
+    async def send_request(self, req: ListRootsRequest, *, opts: CallOptions | None = None) -> ListRootsResult: ...
+    @overload
+    async def send_request(self, req: PingRequest, *, opts: CallOptions | None = None) -> EmptyResult: ...
+    @overload
+    async def send_request(
+        self, req: Request[Any, Any], *, result_type: type[ResultT], opts: CallOptions | None = None
+    ) -> ResultT: ...
+    async def send_request(
+        self,
+        req: Request[Any, Any],
+        *,
+        result_type: type[BaseModel] | None = None,
+        opts: CallOptions | None = None,
+    ) -> BaseModel:
+        """Send a typed server-to-client request and return its typed result.
+
+        For spec request types the result type is inferred. For custom requests
+        pass `result_type=` explicitly.
+
+        Raises:
+            MCPError: The peer responded with an error.
+            NoBackChannelError: No back-channel for server-initiated requests.
+            pydantic.ValidationError: The peer's result does not match the expected result type.
+            KeyError: `result_type` omitted for a non-spec request type.
+        """
+        raw = await self.send_raw_request(req.method, dump_params(req.params), opts)
+        cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
+        return cls.model_validate(raw, by_name=False)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         """Send a best-effort notification on the standalone stream.

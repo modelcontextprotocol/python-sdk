@@ -5,13 +5,12 @@ from typing import Any, Generic, Protocol
 from pydantic import BaseModel
 from typing_extensions import TypeVar
 
-from mcp.server._typed_request import TypedServerRequestMixin
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.message import CloseSSEStreamCallback
-from mcp.shared.peer import ClientPeerMixin, Meta
+from mcp.shared.peer import Meta
 from mcp.shared.transport_context import TransportContext
 from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
@@ -43,16 +42,14 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
 LifespanT_co = TypeVar("LifespanT_co", default=Any, covariant=True)
 
 
-class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequestMixin, Generic[LifespanT_co]):
+class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
     """Server-side per-request context.
 
-    Composes `BaseContext` (forwards to `DispatchContext`, satisfies `Outbound`),
-    `ClientPeerMixin` (kwarg-style `sample`/`elicit_*`/`list_roots`/`ping`),
-    and `TypedServerRequestMixin` (typed `send_request(req) -> Result`). Adds
-    `lifespan` and `connection`.
+    Extends `BaseContext` (transport metadata, the raw back-channel, progress
+    reporting) with `lifespan`, `connection`, and request-scoped `log`.
 
-    Constructed by `ServerRunner` per inbound request and handed to the user's
-    handler.
+    Not currently constructed by `ServerRunner`, which hands handlers a
+    `ServerRequestContext` instead.
     """
 
     def __init__(

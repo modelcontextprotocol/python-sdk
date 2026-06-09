@@ -4,10 +4,9 @@ Composition over a `DispatchContext`: forwards the transport metadata, the
 back-channel (`send_raw_request`/`notify`), progress reporting, and the cancel
 event. Adds `meta` (the inbound request's `_meta` field).
 
-Satisfies `Outbound`, so `ClientPeerMixin` works on it (the server-side `Context`
-mixes that in directly). Shared between client and server: the server's
-`Context` extends this with `lifespan`/`connection`; `ClientContext` is just an
-alias.
+Satisfies `Outbound`, so `ClientPeer` can wrap it. Shared between client and
+server: the server's `Context` extends this with `lifespan`/`connection`;
+`ClientContext` is just an alias.
 """
 
 from collections.abc import Mapping

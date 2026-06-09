@@ -2,7 +2,7 @@
 
 `BaseContext` is composition over a `DispatchContext` - it forwards
 `transport`/`cancel_requested`/`send_raw_request`/`notify`/`progress`
-and adds `meta`. It must satisfy `Outbound` so `ClientPeerMixin` works on it.
+and adds `meta`. It must satisfy `Outbound` so `ClientPeer` can wrap it.
 """
 
 from collections.abc import Mapping

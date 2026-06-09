@@ -1,13 +1,12 @@
 """Typed MCP request sugar over an `Outbound`.
 
-`ClientPeerMixin` defines the server-to-client request methods (sampling,
-elicitation, roots, ping) once. Any class that satisfies `Outbound` (i.e. has
-`send_raw_request` and `notify`) can mix it in and get the typed methods for
-free - `Context`, or the bare `ClientPeer` wrapper below.
+`ClientPeer` wraps any `Outbound` (anything with `send_raw_request` and
+`notify`) and exposes the server-to-client request methods (sampling,
+elicitation, roots, ping) as typed methods.
 
-The mixin does no capability gating: it builds the params, calls
-`self.send_raw_request(method, params)`, and parses the result into the typed
-model. Gating (and `NoBackChannelError`) is the host's `send_raw_request`'s job.
+`ClientPeer` does no capability gating: it builds the params, calls
+`send_raw_request(method, params)`, and parses the result into the typed
+model. Gating (and `NoBackChannelError`) is the wrapped `Outbound`'s job.
 """
 
 from collections.abc import Mapping
@@ -34,7 +33,7 @@ from mcp.types import (
     ToolChoice,
 )
 
-__all__ = ["ClientPeer", "ClientPeerMixin", "Meta"]
+__all__ = ["ClientPeer", "Meta"]
 
 Meta = dict[str, Any]
 """Type alias for the `_meta` field carried on request/notification params."""
@@ -43,9 +42,9 @@ Meta = dict[str, Any]
 def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, Any] | None:
     """Serialize a params model to a wire dict, merging `meta` into `_meta`.
 
-    Shared by `ClientPeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
-    typed convenience method gets the same `_meta` handling. `meta` keys take
-    precedence over any `_meta` already present on the model.
+    Shared by `ClientPeer` and `Connection` so every typed convenience method
+    gets the same `_meta` handling. `meta` keys take precedence over any
+    `_meta` already present on the model.
 
     `meta` is serialized through `RequestParams` so Python field names emit
     their wire aliases: an inbound `ctx.meta` carries `progress_token` (the
@@ -61,17 +60,31 @@ def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, 
     return out
 
 
-class ClientPeerMixin:
-    """Typed server-to-client request methods.
+class ClientPeer:
+    """Typed server-to-client request methods over a wrapped `Outbound`.
 
-    Each method constrains `self` to `Outbound` so the mixin can be applied
-    to anything with `send_raw_request`/`notify` - pyright checks the host
-    class structurally at the call site.
+    Use this when you have a bare dispatcher (or any `Outbound`) and want the
+    typed methods (`sample`, `elicit_form`, `elicit_url`, `list_roots`,
+    `ping`) without writing your own host class.
     """
+
+    def __init__(self, outbound: Outbound) -> None:
+        self._outbound = outbound
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        return await self._outbound.send_raw_request(method, params, opts)
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        await self._outbound.notify(method, params)
 
     @overload
     async def sample(
-        self: Outbound,
+        self,
         messages: list[SamplingMessage],
         *,
         max_tokens: int,
@@ -88,7 +101,7 @@ class ClientPeerMixin:
     ) -> CreateMessageResult: ...
     @overload
     async def sample(
-        self: Outbound,
+        self,
         messages: list[SamplingMessage],
         *,
         max_tokens: int,
@@ -104,7 +117,7 @@ class ClientPeerMixin:
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
     async def sample(
-        self: Outbound,
+        self,
         messages: list[SamplingMessage],
         *,
         max_tokens: int,
@@ -123,8 +136,7 @@ class ClientPeerMixin:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: The host's transport context has no
-                back-channel for server-initiated requests.
+            NoBackChannelError: No back-channel for server-initiated requests.
             pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         params = CreateMessageRequestParams(
@@ -145,7 +157,7 @@ class ClientPeerMixin:
         return CreateMessageResult.model_validate(result, by_name=False)
 
     async def elicit_form(
-        self: Outbound,
+        self,
         message: str,
         requested_schema: ElicitRequestedSchema,
         *,
@@ -164,7 +176,7 @@ class ClientPeerMixin:
         return ElicitResult.model_validate(result, by_name=False)
 
     async def elicit_url(
-        self: Outbound,
+        self,
         message: str,
         url: str,
         elicitation_id: str,
@@ -183,9 +195,7 @@ class ClientPeerMixin:
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result, by_name=False)
 
-    async def list_roots(
-        self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None
-    ) -> ListRootsResult:
+    async def list_roots(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> ListRootsResult:
         """Send a `roots/list` request.
 
         Raises:
@@ -196,7 +206,7 @@ class ClientPeerMixin:
         result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
         return ListRootsResult.model_validate(result, by_name=False)
 
-    async def ping(self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
+    async def ping(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
         """Send a `ping` request and ignore the result.
 
         Raises:
@@ -204,26 +214,3 @@ class ClientPeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         await self.send_raw_request("ping", dump_params(None, meta), opts)
-
-
-class ClientPeer(ClientPeerMixin):
-    """Standalone wrapper that gives any `Outbound` the `ClientPeerMixin` sugar.
-
-    `Context` mixes `ClientPeerMixin` in directly; use `ClientPeer` when you
-    have a bare dispatcher (or any `Outbound`) and want the typed methods
-    without writing your own host class.
-    """
-
-    def __init__(self, outbound: Outbound) -> None:
-        self._outbound = outbound
-
-    async def send_raw_request(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        opts: CallOptions | None = None,
-    ) -> dict[str, Any]:
-        return await self._outbound.send_raw_request(method, params, opts)
-
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        await self._outbound.notify(method, params)
