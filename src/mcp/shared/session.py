@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
@@ -13,6 +12,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.shared._compat import resync_tracer
 from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
@@ -80,7 +80,6 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_meta: RequestParamsMeta | None,
         request: ReceiveRequestT,
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
-        on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
         context: contextvars.Context | None = None,
     ) -> None:
@@ -91,15 +90,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self.context = context
         self._session = session
         self._completed = False
-        self._cancel_scope = anyio.CancelScope()
-        self._on_complete = on_complete
         self._entered = False  # Track if we're in a context manager
 
     def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
-        """Enter the context manager, enabling request cancellation tracking."""
         self._entered = True
-        self._cancel_scope = anyio.CancelScope()
-        self._cancel_scope.__enter__()
         return self
 
     def __exit__(
@@ -108,15 +102,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        """Exit the context manager, performing cleanup and notifying completion."""
-        try:
-            if self._completed:
-                self._on_complete(self)
-        finally:
-            self._entered = False
-            if not self._cancel_scope:  # pragma: no cover
-                raise RuntimeError("No active cancel scope")
-            self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
+        self._entered = False
 
     async def respond(self, response: SendResultT | ErrorData) -> None:
         """Send a response for this request.
@@ -130,36 +116,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
         assert not self._completed, "Request already responded to"
-
-        if not self.cancelled:  # pragma: no branch
-            self._completed = True
-
-            await self._session._send_response(  # type: ignore[reportPrivateUsage]
-                request_id=self.request_id, response=response
-            )
-
-    async def cancel(self) -> None:
-        """Cancel this request and mark it as completed."""
-        if not self._entered:  # pragma: no cover
-            raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:  # pragma: no cover
-            raise RuntimeError("No active cancel scope")
-
-        self._cancel_scope.cancel()
-        self._completed = True  # Mark as completed so it's removed from in_flight
-        # Send an error response to indicate cancellation
+        self._completed = True
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
-            request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled"),
+            request_id=self.request_id, response=response
         )
-
-    @property
-    def in_flight(self) -> bool:  # pragma: no cover
-        return not self._completed and not self.cancelled
-
-    @property
-    def cancelled(self) -> bool:
-        return self._cancel_scope.cancel_called
 
 
 class BaseSession(
@@ -180,7 +140,6 @@ class BaseSession(
 
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
     _request_id: int
-    _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
 
     def __init__(
@@ -195,7 +154,6 @@ class BaseSession(
         self._response_streams = {}
         self._request_id = 0
         self._session_read_timeout_seconds = read_timeout_seconds
-        self._in_flight = {}
         self._progress_callbacks = {}
         self._exit_stack = AsyncExitStack()
 
@@ -216,7 +174,9 @@ class BaseSession(
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
         self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        await resync_tracer()
+        return result
 
     async def send_request(
         self,
@@ -258,7 +218,7 @@ class BaseSession(
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": str(request_id)},
             ):
                 # Inject W3C trace context into _meta (SEP-414).
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
@@ -347,15 +307,10 @@ class BaseSession(
                                 request_meta=validated_request.params.meta if validated_request.params else None,
                                 request=validated_request,
                                 session=self,
-                                on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
                                 context=sender_context,
                             )
-                            self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)
-
-                            if not responder._completed:  # type: ignore[reportPrivateUsage]
-                                await self._handle_incoming(responder)
                         except Exception:
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
@@ -375,33 +330,36 @@ class BaseSession(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
-                            # Handle cancellation notifications
                             if isinstance(notification, CancelledNotification):
-                                cancelled_id = notification.params.request_id
-                                if cancelled_id in self._in_flight:  # pragma: no branch
-                                    await self._in_flight[cancelled_id].cancel()
-                            else:
-                                # Handle progress notifications callback
-                                if isinstance(notification, ProgressNotification):
-                                    progress_token = notification.params.progress_token
-                                    # If there is a progress callback for this token,
-                                    # call it with the progress information
-                                    if progress_token in self._progress_callbacks:
-                                        callback = self._progress_callbacks[progress_token]
-                                        try:
-                                            await callback(
-                                                notification.params.progress,
-                                                notification.params.total,
-                                                notification.params.message,
-                                            )
-                                        except Exception:
-                                            logging.exception("Progress callback raised an exception")
-                                await self._received_notification(notification)
-                                await self._handle_incoming(notification)
+                                # ClientSession runs server-initiated requests
+                                # inline in this loop, so by the time a peer
+                                # cancellation is read there is nothing left to
+                                # cancel. Consume it here so message_handler
+                                # keeps the contract it had before the
+                                # dispatcher swap removed _in_flight.
+                                return
+                            # Handle progress notifications callback
+                            if isinstance(notification, ProgressNotification):
+                                progress_token = notification.params.progress_token
+                                # If there is a progress callback for this token,
+                                # call it with the progress information
+                                if progress_token in self._progress_callbacks:
+                                    callback = self._progress_callbacks[progress_token]
+                                    try:
+                                        await callback(
+                                            notification.params.progress,
+                                            notification.params.total,
+                                            notification.params.message,
+                                        )
+                                    except Exception:
+                                        logging.exception("Progress callback raised an exception")
+                            await self._received_notification(notification)
+                            await self._handle_incoming(notification)
                         except Exception:
                             # For other validation errors, log and continue
-                            logging.warning(  # pragma: no cover
-                                f"Failed to validate notification:. Message was: {message.message}",
+                            logging.warning(
+                                "Failed to validate notification: %s",
+                                message.message,
                                 exc_info=True,
                             )
                     else:  # Response or error

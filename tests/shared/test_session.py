@@ -24,19 +24,6 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_in_flight_requests_cleared_after_completion():
-    """Verify that _in_flight is empty after all requests complete."""
-    server = Server(name="test server")
-    async with Client(server) as client:
-        # Send a request and wait for response
-        response = await client.send_ping()
-        assert isinstance(response, EmptyResult)
-
-        # Verify _in_flight is empty
-        assert len(client.session._in_flight) == 0
-
-
-@pytest.mark.anyio
 async def test_request_cancellation():
     """Test that requests can be cancelled while in-flight."""
     ev_tool_called = anyio.Event()

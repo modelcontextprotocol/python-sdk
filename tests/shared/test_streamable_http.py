@@ -40,6 +40,7 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context import RequestContext
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
@@ -1186,6 +1187,8 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
 
                     # Kill the client session while tool is waiting on lock
                     tg.cancel_scope.cancel()
+
+    await resync_tracer()
 
     async with make_client(app, headers=headers) as httpx_client2:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client2) as (

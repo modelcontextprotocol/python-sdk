@@ -15,6 +15,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -586,3 +587,4 @@ async def streamable_http_client(
                 if transport.session_id and terminate_on_close:
                     await transport.terminate_session(client)
                 tg.cancel_scope.cancel()
+        await resync_tracer()

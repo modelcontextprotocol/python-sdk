@@ -163,4 +163,4 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
         with anyio.fail_after(5):
             await delivered.wait()
 
-    assert received == snapshot([None])
+    assert received == snapshot([types.NotificationParams()])

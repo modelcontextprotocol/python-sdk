@@ -878,6 +878,7 @@ dev = [
     { name = "inline-snapshot" },
     { name = "logfire" },
     { name = "mcp", extra = ["cli"] },
+    { name = "opentelemetry-sdk" },
     { name = "pillow" },
     { name = "pyright" },
     { name = "pytest" },
@@ -900,7 +901,8 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anyio", specifier = ">=4.9" },
+    { name = "anyio", marker = "python_full_version < '3.14'", specifier = ">=4.9" },
+    { name = "anyio", marker = "python_full_version >= '3.14'", specifier = ">=4.10" },
     { name = "httpx", specifier = ">=0.27.1,<1.0.0" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "jsonschema", specifier = ">=4.20.0" },
@@ -929,6 +931,7 @@ dev = [
     { name = "inline-snapshot", specifier = ">=0.23.0" },
     { name = "logfire", specifier = ">=3.0.0" },
     { name = "mcp", extras = ["cli"], editable = "." },
+    { name = "opentelemetry-sdk", specifier = ">=1.39.1" },
     { name = "pillow", specifier = ">=12.0" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.4.0" },
