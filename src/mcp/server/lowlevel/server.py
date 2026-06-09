@@ -258,10 +258,13 @@ class Server(Generic[LifespanResultT]):
 
         `params_type` is the model incoming params are validated against
         before the handler is invoked. It should subclass `RequestParams` so
-        `_meta` parses uniformly. Replaces any existing handler for the same
-        method, except `initialize`, which is reserved: the runner owns the
-        handshake, so registering it raises `ValueError`. Use
-        `Server.middleware` to observe or wrap initialization.
+        `_meta` parses uniformly. A message with no `params` member validates
+        `{}` against `params_type`: models with required fields reject it as
+        INVALID_PARAMS, all-optional models reach the handler with their
+        defaults - the handler never receives `None`. Replaces any existing
+        handler for the same method, except `initialize`, which is reserved:
+        the runner owns the handshake, so registering it raises `ValueError`.
+        Use `Server.middleware` to observe or wrap initialization.
         """
         if method == "initialize":
             raise ValueError(
@@ -279,7 +282,9 @@ class Server(Generic[LifespanResultT]):
         """Register a notification handler for `method`.
 
         `params_type` should subclass `NotificationParams` so `_meta`
-        parses uniformly. Replaces any existing handler. A handler for
+        parses uniformly. Absent params follow the same contract as requests:
+        `{}` is validated, so the handler receives the model with its defaults,
+        never `None`. Replaces any existing handler. A handler for
         `notifications/initialized` runs after the runner has marked the
         connection initialized.
         """

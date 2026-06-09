@@ -817,7 +817,7 @@ If you need to check whether a handler is registered, track this yourself — th
 
 ### Lowlevel `Server`: `add_request_handler` is now public and takes `params_type`
 
-The private `_add_request_handler(method, handler)` escape hatch is now the public `add_request_handler(method, params_type, handler)`, alongside a matching `add_notification_handler`. Each takes a `params_type` model that incoming params are validated against before the handler runs.
+The private `_add_request_handler(method, handler)` escape hatch is now the public `add_request_handler(method, params_type, handler)`, alongside a matching `add_notification_handler`. Each takes a `params_type` model that incoming params are validated against before the handler runs. A message with no `params` member validates `{}` against the model, so handlers never receive `None`: all-optional models arrive with their defaults, and models with required fields reject the message as `INVALID_PARAMS` before the handler runs (matching the Go SDK).
 
 ```python
 # Before (v1 / earlier v2 prereleases)

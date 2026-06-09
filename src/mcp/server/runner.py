@@ -245,13 +245,9 @@ class ServerRunner(Generic[LifespanT]):
             entry = self.server.get_request_handler(method)
             if entry is None:
                 raise MCPError(code=METHOD_NOT_FOUND, message="Method not found")
-            # Absent params reach the handler as None; the empty-dict validate
-            # still enforces required fields (pinned compat).
-            if params is None:
-                entry.params_type.model_validate({}, by_name=False)
-                typed_params = None
-            else:
-                typed_params = entry.params_type.model_validate(params, by_name=False)
+            # Absent params validate as {} (required fields still reject), so
+            # the handler receives the model with its defaults, never None.
+            typed_params = entry.params_type.model_validate({} if params is None else params, by_name=False)
             result = await entry.handler(ctx, typed_params)
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
@@ -295,11 +291,7 @@ class ServerRunner(Generic[LifespanT]):
                 return
             # Same absent-params contract as requests.
             try:
-                if params is None:
-                    entry.params_type.model_validate({}, by_name=False)
-                    typed_params = None
-                else:
-                    typed_params = entry.params_type.model_validate(params, by_name=False)
+                typed_params = entry.params_type.model_validate({} if params is None else params, by_name=False)
             except ValidationError:
                 logger.warning("dropped %r: malformed params", method)
                 return

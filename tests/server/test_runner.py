@@ -332,8 +332,8 @@ async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
         await client.notify("notifications/roots/list_changed", {})
         await delivered.wait()
     assert isinstance(seen[0][0], ServerRequestContext)
-    # Absent wire params reach the handler as None; present-but-empty validates.
-    assert seen[0][1] is None
+    # Absent and present-but-empty wire params both validate to the defaults model.
+    assert seen[0][1] == NotificationParams()
     assert isinstance(seen[1][1], NotificationParams)
 
 
@@ -394,9 +394,9 @@ async def test_runner_on_notify_drops_absent_params_when_model_requires_them(
 
 
 @pytest.mark.anyio
-async def test_runner_absent_wire_params_reaches_request_handler_as_none():
+async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_model():
     """A request with no `params` member on the wire reaches the handler as
-    `None`, matching the previous server and the `| None` handler annotation.
+    the params model with its defaults, never `None`.
 
     The in-SDK client always attaches `_meta`, so a dispatch middleware
     forwards `params=None` to model what an external client sends.
@@ -416,7 +416,7 @@ async def test_runner_absent_wire_params_reaches_request_handler_as_none():
     server: SrvT = Server(name="s", on_list_tools=list_tools)
     async with connected_runner(server, dispatch_middleware=[drop_params]) as (client, _):
         await client.send_raw_request("tools/list", None)
-    assert seen == [None]
+    assert seen == [PaginatedRequestParams()]
 
 
 @pytest.mark.anyio
@@ -458,7 +458,7 @@ async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: Sr
         await client.notify("notifications/unknown", None)  # no handler: dropped
         await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
         await anyio.wait_all_tasks_blocked()
-    assert seen == [None]  # only the post-init one reached the handler
+    assert seen == [NotificationParams()]  # only the post-init one reached the handler
 
 
 @pytest.mark.anyio
