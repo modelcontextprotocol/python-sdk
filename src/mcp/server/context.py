@@ -15,6 +15,7 @@ from mcp.shared.peer import ClientPeerMixin, Meta
 from mcp.shared.transport_context import TransportContext
 from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
+# Invariant: parameterizes a mutable dataclass field; dict default matches the default lifespan.
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
 RequestT = TypeVar("RequestT", default=Any)
 
@@ -38,10 +39,11 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
 
 
-LifespanT = TypeVar("LifespanT", default=Any, covariant=True)
+# Covariant: `lifespan` is exposed read-only, so a `Context[AppState]` passes as `Context[object]`.
+LifespanT_co = TypeVar("LifespanT_co", default=Any, covariant=True)
 
 
-class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequestMixin, Generic[LifespanT]):
+class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequestMixin, Generic[LifespanT_co]):
     """Server-side per-request context.
 
     Composes `BaseContext` (forwards to `DispatchContext`, satisfies `Outbound`),
@@ -57,7 +59,7 @@ class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequest
         self,
         dctx: DispatchContext[TransportContext],
         *,
-        lifespan: LifespanT,
+        lifespan: LifespanT_co,
         connection: Connection,
         meta: RequestParamsMeta | None = None,
     ) -> None:
@@ -66,7 +68,7 @@ class Context(BaseContext[TransportContext], ClientPeerMixin, TypedServerRequest
         self._connection = connection
 
     @property
-    def lifespan(self) -> LifespanT:
+    def lifespan(self) -> LifespanT_co:
         """The server-wide lifespan output (what `Server(..., lifespan=...)` yielded)."""
         return self._lifespan
 
