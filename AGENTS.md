@@ -4,10 +4,12 @@
 
 <!-- TODO: drop this section once v2 ships and main becomes the stable line -->
 
-- `main` is currently the V2 rework. Breaking changes are expected here — when removing or
-  replacing an API, delete it outright and document the change in
-  `docs/migration.md`. Do not add `@deprecated` shims or backward-compat layers
-  on `main`.
+- `main` is currently the V2 rework.
+- Breaking changes are expected here — removing or replacing an API must be
+  intentional. Adding a replacement API or `@deprecated` shim must likewise be
+  a deliberate design choice, not bolted on for free.
+- Breaking changes (including those softened by a backwards-compatibility
+  shim) must be documented in `docs/migration.md`.
 - `v1.x` is the release branch for the current stable line. Backport PRs target
   this branch and use a `[v1.x]` title prefix.
 - `README.md` is frozen at v1 (a pre-commit hook rejects edits). Edit
@@ -117,7 +119,8 @@ What the existing pragmas mean:
 
 ## Breaking Changes
 
-When making breaking changes, document them in `docs/migration.md`. Include:
+When making breaking changes, document them in `docs/migration.md` — including
+changes softened by a backwards-compatibility shim. Include:
 
 - What changed
 - Why it changed
