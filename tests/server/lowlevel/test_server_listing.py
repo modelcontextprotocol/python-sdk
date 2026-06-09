@@ -32,6 +32,8 @@ async def test_list_prompts_basic() -> None:
     async with Client(server) as client:
         result = await client.list_prompts()
         assert result.prompts == test_prompts
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
 
 
 @pytest.mark.anyio
@@ -51,6 +53,8 @@ async def test_list_resources_basic() -> None:
     async with Client(server) as client:
         result = await client.list_resources()
         assert result.resources == test_resources
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
 
 
 @pytest.mark.anyio
@@ -89,6 +93,8 @@ async def test_list_tools_basic() -> None:
     async with Client(server) as client:
         result = await client.list_tools()
         assert result.tools == test_tools
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
 
 
 @pytest.mark.anyio
@@ -104,6 +110,8 @@ async def test_list_prompts_empty() -> None:
     async with Client(server) as client:
         result = await client.list_prompts()
         assert result.prompts == []
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
 
 
 @pytest.mark.anyio
@@ -119,6 +127,8 @@ async def test_list_resources_empty() -> None:
     async with Client(server) as client:
         result = await client.list_resources()
         assert result.resources == []
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
 
 
 @pytest.mark.anyio
@@ -132,3 +142,18 @@ async def test_list_tools_empty() -> None:
     async with Client(server) as client:
         result = await client.list_tools()
         assert result.tools == []
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
+
+
+@pytest.mark.anyio
+async def test_list_tools_can_return_explicit_cache_hints() -> None:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=1_000, cache_scope="private")
+
+    server = Server("test", on_list_tools=handle_list_tools)
+    async with Client(server) as client:
+        result = await client.list_tools()
+
+    assert result.ttl_ms == 1_000
+    assert result.cache_scope == "private"

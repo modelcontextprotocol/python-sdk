@@ -12,6 +12,9 @@ from mcp.types._types import (
     AudioContent,
     BaseMetadata,
     BlobResourceContents,
+    CacheablePaginatedResult,
+    CacheableResult,
+    CacheScope,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -182,6 +185,8 @@ __all__ = [
     "StopReason",
     # Base classes
     "BaseMetadata",
+    "CacheablePaginatedResult",
+    "CacheableResult",
     "Request",
     "Notification",
     "Result",
@@ -240,6 +245,7 @@ __all__ = [
     "Tool",
     "ToolAnnotations",
     "ToolChoice",
+    "CacheScope",
     # Requests
     "CallToolRequest",
     "CallToolRequestParams",

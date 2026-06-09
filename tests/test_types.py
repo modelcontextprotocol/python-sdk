@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -12,10 +13,15 @@ from mcp.types import (
     InitializeRequest,
     InitializeRequestParams,
     JSONRPCRequest,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
+    ReadResourceResult,
     SamplingCapability,
     SamplingMessage,
     TextContent,
+    TextResourceContents,
     Tool,
     ToolChoice,
     ToolResultContent,
@@ -360,3 +366,69 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_cacheable_results_serialize_default_cache_hints() -> None:
+    models = [
+        ListToolsResult(tools=[]),
+        ListPromptsResult(prompts=[]),
+        ListResourcesResult(resources=[]),
+        ListResourceTemplatesResult(resource_templates=[]),
+        ReadResourceResult(contents=[]),
+    ]
+
+    for model in models:
+        serialized = model.model_dump(mode="json", by_alias=True, exclude_none=True)
+        assert serialized["ttlMs"] == 0
+        assert serialized["cacheScope"] == "public"
+
+
+def test_cacheable_results_accept_explicit_cache_hints() -> None:
+    result = ListToolsResult(tools=[], ttl_ms=60_000, cache_scope="private")
+
+    assert result.ttl_ms == 60_000
+    assert result.cache_scope == "private"
+    assert result.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "ttlMs": 60_000,
+        "cacheScope": "private",
+        "tools": [],
+    }
+
+
+def test_cacheable_results_parse_camel_case_cache_hints() -> None:
+    result = ReadResourceResult.model_validate(
+        {
+            "ttlMs": 250,
+            "cacheScope": "private",
+            "contents": [
+                {
+                    "uri": "file:///a.txt",
+                    "mimeType": "text/plain",
+                    "text": "hello",
+                }
+            ],
+        }
+    )
+
+    assert result.ttl_ms == 250
+    assert result.cache_scope == "private"
+    assert result.contents == [TextResourceContents(uri="file:///a.txt", mime_type="text/plain", text="hello")]
+
+
+def test_cacheable_results_keep_legacy_missing_hints_usable() -> None:
+    result = ListResourcesResult.model_validate({"resources": [{"uri": "file:///a.txt", "name": "A"}]})
+
+    assert result.ttl_ms == 0
+    assert result.cache_scope == "public"
+    assert result.resources[0].uri == "file:///a.txt"
+    assert result.resources[0].name == "A"
+
+
+def test_cacheable_results_reject_negative_ttl() -> None:
+    with pytest.raises(ValidationError):
+        ListPromptsResult.model_validate({"ttlMs": -1, "cacheScope": "public", "prompts": []})
+
+
+def test_cacheable_results_reject_invalid_cache_scope() -> None:
+    with pytest.raises(ValidationError):
+        ListToolsResult.model_validate({"ttlMs": 1, "cacheScope": "shared", "tools": []})

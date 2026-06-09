@@ -194,6 +194,28 @@ async def test_closing_the_transport_fails_in_flight_requests_with_connection_cl
     assert errors == snapshot([ErrorData(code=CONNECTION_CLOSED, message="Connection closed")])
 
 
+@requirement("tools:list:cache-hints")
+async def test_list_tools_response_includes_cache_hints_on_the_wire() -> None:
+    recording = RecordingTransport(InMemoryTransport(_echo_server()))
+
+    async with Client(recording) as client:
+        await client.list_tools()
+
+    sent_requests = [message.message for message in recording.sent if isinstance(message.message, JSONRPCRequest)]
+    list_tools_request = next(request for request in sent_requests if request.method == "tools/list")
+
+    received_responses = [
+        message.message
+        for message in recording.received
+        if isinstance(message, SessionMessage) and isinstance(message.message, JSONRPCResponse)
+    ]
+    list_tools_response = next(response for response in received_responses if response.id == list_tools_request.id)
+
+    assert isinstance(list_tools_response.result, dict)
+    assert list_tools_response.result["ttlMs"] == 0
+    assert list_tools_response.result["cacheScope"] == "public"
+
+
 @requirement("protocol:error:invalid-params")
 async def test_malformed_request_params_are_answered_with_invalid_params() -> None:
     """A request whose params fail validation is answered with -32602 Invalid params.

@@ -44,6 +44,38 @@ from mcp.types import (
 pytestmark = pytest.mark.anyio
 
 
+async def test_mcpserver_list_and_read_results_include_default_cache_hints() -> None:
+    mcp = MCPServer("cache-hints")
+
+    @mcp.tool()
+    def ping() -> str:
+        return "pong"
+
+    @mcp.prompt()
+    def greet(name: str) -> str:
+        return f"Hello, {name}"
+
+    @mcp.resource("file:///hello.txt")
+    def hello() -> str:
+        return "hello"
+
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+        prompts = await client.list_prompts()
+        resources = await client.list_resources()
+        templates = await client.list_resource_templates()
+        content = await client.read_resource("file:///hello.txt")
+        tool_result = await client.call_tool("ping", {})
+        prompt_result = await client.get_prompt("greet", {"name": "Ada"})
+
+    for result in (tools, prompts, resources, templates, content):
+        assert result.ttl_ms == 0
+        assert result.cache_scope == "public"
+
+    assert tool_result.content == [TextContent(text="pong")]
+    assert prompt_result.messages == [PromptMessage(role="user", content=TextContent(text="Hello, Ada"))]
+
+
 class TestServer:
     async def test_create_server(self):
         mcp = MCPServer(

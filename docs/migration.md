@@ -221,6 +221,17 @@ Common renames:
 
 Because `populate_by_name=True` is set, the old camelCase names still work as constructor kwargs (e.g., `Tool(inputSchema={...})` is accepted), but attribute access must use snake_case (`tool.input_schema`).
 
+### Cache hints on list and resource-read results
+
+`ListToolsResult`, `ListPromptsResult`, `ListResourcesResult`, `ListResourceTemplatesResult`, and `ReadResourceResult` now expose SEP-2549 cache hints:
+
+- `ttlMs`: non-negative time-to-live value in milliseconds, represented as a JSON number; `0` means the response should be considered immediately stale.
+- `cacheScope`: either `"public"` or `"private"`.
+
+Existing Python code that constructs these models without cache fields continues to work because the SDK defaults to `ttlMs=0` and `cacheScope="public"`. Clients parsing older server responses that omit these fields will also receive those defaults.
+
+Code or tests that compare exact JSON payloads should update expected list/read result objects to include the new fields.
+
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
 The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
