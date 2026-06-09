@@ -396,9 +396,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 
     assert result == snapshot(
         CallToolResult(
-            content=[
-                TextContent(text="ValueError: The last message must contain only tool_result content if any is present")
-            ]
+            content=[TextContent(text="ValueError: A message must contain only tool_result content if any is present")]
         )
     )
 
