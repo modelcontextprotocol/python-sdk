@@ -9,10 +9,10 @@ import logging
 import secrets
 import string
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -51,6 +51,13 @@ from mcp.shared.auth_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _append_url_query_params(url: str, params: Mapping[str, str]) -> str:
+    parsed = urlparse(url)
+    query_params = parse_qsl(parsed.query, keep_blank_values=True)
+    query_params.extend(params.items())
+    return urlunparse(parsed._replace(query=urlencode(query_params)))
 
 
 class PKCEParameters(BaseModel):
@@ -327,14 +334,17 @@ class OAuthClientProvider(httpx.Auth):
 
         if not self.context.client_info:
             raise OAuthFlowError("No client info available for authorization")  # pragma: no cover
+        client_id = self.context.client_info.client_id
+        if not client_id:
+            raise OAuthFlowError("No client ID available for authorization")  # pragma: no cover
 
         # Generate PKCE parameters
         pkce_params = PKCEParameters.generate()
         state = secrets.token_urlsafe(32)
 
-        auth_params = {
+        auth_params: dict[str, str] = {
             "response_type": "code",
-            "client_id": self.context.client_info.client_id,
+            "client_id": client_id,
             "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
             "state": state,
             "code_challenge": pkce_params.code_challenge,
@@ -345,15 +355,16 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.should_include_resource_param(self.context.protocol_version):
             auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        if self.context.client_metadata.scope:  # pragma: no branch
-            auth_params["scope"] = self.context.client_metadata.scope
+        scope = self.context.client_metadata.scope
+        if scope:  # pragma: no branch
+            auth_params["scope"] = scope
 
             # OIDC requires prompt=consent when offline_access is requested
             # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
-            if "offline_access" in self.context.client_metadata.scope.split():
+            if "offline_access" in scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = _append_url_query_params(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback

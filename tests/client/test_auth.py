@@ -607,6 +607,52 @@ class TestOAuthFallback:
         assert "client_secret=test_secret" in content
 
     @pytest.mark.anyio
+    async def test_authorization_endpoint_preserves_existing_query_params(
+        self, oauth_provider: OAuthClientProvider
+    ):
+        """Authorization endpoint query params should survive OAuth parameter injection."""
+        captured_auth_url: str | None = None
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_auth_url, captured_state
+            captured_auth_url = url
+            captured_state = parse_qs(urlparse(url).query)["state"][0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        oauth_provider.context.redirect_handler = redirect_handler
+        oauth_provider.context.callback_handler = callback_handler
+        oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://test.salesforce.com"),
+            authorization_endpoint=AnyHttpUrl(
+                "https://test.salesforce.com/services/oauth2/authorize?prompt=select_account"
+            ),
+            token_endpoint=AnyHttpUrl("https://test.salesforce.com/services/oauth2/token"),
+        )
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        auth_code, code_verifier = await oauth_provider._perform_authorization_code_grant()
+
+        assert auth_code == "test_auth_code"
+        assert code_verifier
+        assert captured_auth_url is not None
+        parsed = urlparse(captured_auth_url)
+        params = parse_qs(parsed.query)
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "test.salesforce.com"
+        assert parsed.path == "/services/oauth2/authorize"
+        assert params["prompt"] == ["select_account"]
+        assert params["response_type"] == ["code"]
+        assert params["client_id"] == ["test_client"]
+        assert params["redirect_uri"] == ["http://localhost:3030/callback"]
+
+    @pytest.mark.anyio
     async def test_refresh_token_request(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
         """Test refresh token request building."""
         # Set up required context
