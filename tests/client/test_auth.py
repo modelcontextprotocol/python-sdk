@@ -607,9 +607,7 @@ class TestOAuthFallback:
         assert "client_secret=test_secret" in content
 
     @pytest.mark.anyio
-    async def test_authorization_endpoint_preserves_existing_query_params(
-        self, oauth_provider: OAuthClientProvider
-    ):
+    async def test_authorization_endpoint_preserves_existing_query_params(self, oauth_provider: OAuthClientProvider):
         """Authorization endpoint query params should survive OAuth parameter injection."""
         captured_auth_url: str | None = None
         captured_state: str | None = None
