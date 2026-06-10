@@ -42,17 +42,50 @@ jobs:
               return null;
             }
 
-            // Get previous release (next in the list since they're sorted by date desc)
-            const previousRelease = releases[currentIndex + 1];
+            const major = tag => (tag.match(/^v?(\d+)/) || [])[1];
 
-            if (!previousRelease) {
-              console.log('No previous release found, this might be the first release');
-              return null;
+            // Releases are sorted by date, but with multiple release lines
+            // (v1.x and the v2 pre-release series) the most recent release may
+            // be on a different branch. Walk older releases until we find one
+            // whose tag is an ancestor of the current tag AND on the same
+            // major line, so the compare never spans branches. For the first
+            // release of a new major line no such release exists, and we skip
+            // commenting rather than compare across the entire new line's
+            // history. per_page=1 because only comparison.status is needed
+            // here; the commits are fetched in the next step.
+            for (const candidate of releases.slice(currentIndex + 1)) {
+              let comparison;
+              try {
+                ({ data: comparison } = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: candidate.tag_name,
+                  head: currentTag,
+                  per_page: 1
+                }));
+              } catch (error) {
+                console.log(`Skipping ${candidate.tag_name}: compare failed (${error.message})`);
+                continue;
+              }
+
+              // 'identical' covers a release re-cut on the same commit; it
+              // yields an empty commit range downstream, hence no comments.
+              if (comparison.status !== 'ahead' && comparison.status !== 'identical') {
+                console.log(`Skipping ${candidate.tag_name}: not an ancestor of ${currentTag} (status: ${comparison.status})`);
+                continue;
+              }
+
+              if (major(candidate.tag_name) === undefined || major(candidate.tag_name) !== major(currentTag)) {
+                console.log(`Skipping ${candidate.tag_name}: different release line (${major(candidate.tag_name)} vs ${major(currentTag)})`);
+                continue;
+              }
+
+              console.log(`Found previous release: ${candidate.tag_name}`);
+              return candidate.tag_name;
             }
 
-            console.log(`Found previous release: ${previousRelease.tag_name}`);
-
-            return previousRelease.tag_name;
+            console.log(`No previous release found for ${currentTag} on its major line (it may be the first); skipping comments`);
+            return null;
 
       - name: Get merged PRs between releases
         id: get_prs
@@ -72,15 +105,21 @@ jobs:
 
             console.log(`Finding PRs between ${previousTag} and ${currentTag}`);
 
-            // Get commits between previous and current release
-            const comparison = await github.rest.repos.compareCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              base: previousTag,
-              head: currentTag
-            });
-
-            const commits = comparison.data.commits;
+            // Get commits between previous and current release. A single
+            // compare response caps the commit list, so paginate.
+            const commits = [];
+            for (let page = 1; ; page++) {
+              const { data: comparison } = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: previousTag,
+                head: currentTag,
+                per_page: 100,
+                page
+              });
+              commits.push(...comparison.commits);
+              if (comparison.commits.length < 100) break;
+            }
             console.log(`Found ${commits.length} commits`);
 
             // Get PRs associated with each commit using GitHub API
@@ -114,13 +153,15 @@ jobs:
           PR_NUMBERS_JSON: ${{ steps.get_prs.outputs.result }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_IS_PRERELEASE: ${{ github.event.release.prerelease }}
         with:
           script: |
             const prNumbers = JSON.parse(process.env.PR_NUMBERS_JSON);
             const releaseTag = process.env.RELEASE_TAG;
             const releaseUrl = process.env.RELEASE_URL;
+            const releaseKind = process.env.RELEASE_IS_PRERELEASE === 'true' ? 'pre-release' : 'release';
 
-            const comment = `This pull request is included in [${releaseTag}](${releaseUrl})`;
+            const comment = `This pull request is included in ${releaseKind} [${releaseTag}](${releaseUrl})`;
 
             let commentedCount = 0;
 
@@ -135,7 +176,7 @@ jobs:
                 });
 
                 const alreadyCommented = comments.some(c =>
-                  c.user.type === 'Bot' && c.body.includes(releaseTag)
+                  c.user.type === 'Bot' && c.body.includes(`[${releaseTag}]`)
                 );
 
                 if (alreadyCommented) {

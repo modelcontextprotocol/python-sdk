@@ -15,12 +15,13 @@
 
 <!-- TODO(v2): Move this content back to README.md when v2 is released -->
 
-> [!IMPORTANT]
-> **This documents v2 of the SDK (currently in development, pre-alpha on `main`).**
+> **⚠️ Important: this documents v2 of the SDK, which is in alpha.** Pre-releases are published to PyPI as `2.0.0aN`.
 >
-> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+> v2 is a major rework with breaking changes — see the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md). Each pre-release may itself contain breaking changes until the API stabilizes. We expect to enter beta once the SDK targets the 2026-07-28 revision of the MCP specification; there is no committed date for the stable v2 release.
 >
-> For v1 documentation (the current stable release), see [`README.md`](README.md).
+> **v1.x remains the recommended version for production use.** Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0aN` or `pip install --pre mcp`), so existing installs are unaffected. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+>
+> For v1 documentation (the current stable release), see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md).
 
 <!-- omit in toc -->
 ## Table of Contents
@@ -1052,7 +1053,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
 <!-- /snippet-source -->
 
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-auth/).
 
 **Architecture:**
 
@@ -1060,7 +1061,7 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
-See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+See [TokenVerifier](https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ### MCPServer Properties
 
@@ -1339,8 +1340,8 @@ _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https:/
 
 For low level server with Streamable HTTP implementations, see:
 
-- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+- Stateful server: [`examples/servers/simple-streamablehttp/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
 
@@ -2088,7 +2089,7 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
 
-See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
+See the [simple-pagination example](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-pagination) for a complete implementation.
 
 ### Writing MCP Clients
 
@@ -2397,7 +2398,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
 <!-- /snippet-source -->
 
-For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+For a complete working example, see [`examples/clients/simple-auth-client/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/clients/simple-auth-client/).
 
 ### Parsing Tool Results
 
@@ -2499,7 +2500,7 @@ MCP servers declare capabilities during initialization:
 
 ## Contributing
 
-We are passionate about supporting contributors of all levels of experience and would love to see you get involved in the project. See the [contributing guide](CONTRIBUTING.md) to get started.
+We are passionate about supporting contributors of all levels of experience and would love to see you get involved in the project. See the [contributing guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/CONTRIBUTING.md) to get started.
 
 ## License
 
