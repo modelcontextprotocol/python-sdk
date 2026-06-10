@@ -85,7 +85,7 @@
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
-[docs-url]: https://modelcontextprotocol.github.io/python-sdk/
+[docs-url]: https://py.sdk.modelcontextprotocol.io/v2/
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
@@ -116,14 +116,16 @@ If you haven't created a uv-managed project yet, create one:
    Then add MCP to your project dependencies:
 
    ```bash
-   uv add "mcp[cli]"
+   uv add "mcp[cli]==2.0.0a1"
    ```
 
 Alternatively, for projects using pip for dependencies:
 
 ```bash
-pip install "mcp[cli]"
+pip install "mcp[cli]==2.0.0a1"
 ```
+
+> While v2 is in pre-release, you must pin the version explicitly: unpinned installs resolve to the latest stable v1.x release, which these docs do not describe. Check the [release history](https://pypi.org/project/mcp/#history) for the newest pre-release. The same applies to ad-hoc commands: use `uv run --with "mcp==2.0.0a1"` rather than `uv run --with mcp`.
 
 ### Running the standalone MCP development tools
 
@@ -189,7 +191,7 @@ _Full example: [examples/snippets/servers/mcpserver_quickstart.py](https://githu
 You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run --with mcp examples/snippets/servers/mcpserver_quickstart.py
+uv run --with "mcp==2.0.0a1" examples/snippets/servers/mcpserver_quickstart.py
 ```
 
 Then add it to Claude Code:
@@ -605,8 +607,8 @@ from mcp.server.mcpserver import MCPServer, Icon
 # Create an icon from a file path or URL
 icon = Icon(
     src="icon.png",
-    mimeType="image/png",
-    sizes="64x64"
+    mime_type="image/png",
+    sizes=["64x64"]
 )
 
 # Add icons to server
@@ -926,7 +928,8 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
-- `validation_error`: Any validation error message
+
+If the client returns data that doesn't match the schema, `elicit()` raises a `pydantic.ValidationError`.
 
 ### Sampling
 
@@ -1099,7 +1102,7 @@ The session object accessible via `ctx.session` provides advanced control over c
 
 - `ctx.session.client_params` - Client initialization parameters and declared capabilities
 - `await ctx.session.send_log_message(level, data, logger)` - Send log messages with full control
-- `await ctx.session.create_message(messages, max_tokens)` - Request LLM sampling/completion
+- `await ctx.session.create_message(messages, max_tokens=...)` - Request LLM sampling/completion (`max_tokens` is keyword-only)
 - `await ctx.session.send_progress_notification(token, progress, total, message)` - Direct progress updates
 - `await ctx.session.send_resource_updated(uri)` - Notify clients that a specific resource changed
 - `await ctx.session.send_resource_list_changed()` - Notify clients that the resource list changed
@@ -1129,9 +1132,9 @@ The request context accessible via `ctx.request_context` contains request-specif
   - Database connections, configuration objects, shared services
   - Type-safe access to resources defined in your server's lifespan function
 - `ctx.request_context.meta` - Request metadata from the client including:
-  - `progressToken` - Token for progress notifications
+  - `progress_token` - Token for progress notifications
   - Other client-provided metadata
-- `ctx.request_context.request` - The original MCP request object for advanced processing
+- `ctx.request_context.request` - Data the transport attached to this message (for example the HTTP request object on HTTP transports; `None` on stdio)
 - `ctx.request_context.request_id` - Unique identifier for this request
 
 ```python
@@ -2158,7 +2161,7 @@ async def run():
             # Read a resource (greeting resource from mcpserver_quickstart)
             resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
-            if isinstance(content_block, types.TextContent):
+            if isinstance(content_block, types.TextResourceContents):
                 print(f"Resource content: {content_block.text}")
 
             # Call a tool (add tool from mcpserver_quickstart)
@@ -2404,6 +2407,7 @@ For a complete working example, see [`examples/clients/simple-auth-client/`](htt
 
 When calling tools through MCP, the `CallToolResult` object contains the tool's response in a structured format. Understanding how to parse this result is essential for properly handling tool outputs.
 
+<!-- snippet-source examples/snippets/clients/parsing_tool_results.py -->
 ```python
 """examples/snippets/clients/parsing_tool_results.py"""
 
@@ -2415,9 +2419,7 @@ from mcp.client.stdio import stdio_client
 
 async def parse_tool_results():
     """Demonstrates how to parse different types of content in CallToolResult."""
-    server_params = StdioServerParameters(
-        command="python", args=["path/to/mcp_server.py"]
-    )
+    server_params = StdioServerParameters(command="python", args=["path/to/mcp_server.py"])
 
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -2431,9 +2433,9 @@ async def parse_tool_results():
 
             # Example 2: Parsing structured content from JSON tools
             result = await session.call_tool("get_user", {"id": "123"})
-            if hasattr(result, "structuredContent") and result.structuredContent:
+            if hasattr(result, "structured_content") and result.structured_content:
                 # Access structured data directly
-                user_data = result.structuredContent
+                user_data = result.structured_content
                 print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
 
             # Example 3: Parsing embedded resources
@@ -2443,18 +2445,18 @@ async def parse_tool_results():
                     resource = content.resource
                     if isinstance(resource, types.TextResourceContents):
                         print(f"Config from {resource.uri}: {resource.text}")
-                    elif isinstance(resource, types.BlobResourceContents):
+                    else:
                         print(f"Binary data from {resource.uri}")
 
             # Example 4: Parsing image content
             result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
             for content in result.content:
                 if isinstance(content, types.ImageContent):
-                    print(f"Image ({content.mimeType}): {len(content.data)} bytes")
+                    print(f"Image ({content.mime_type}): {len(content.data)} bytes")
 
             # Example 5: Handling errors
             result = await session.call_tool("failing_tool", {})
-            if result.isError:
+            if result.is_error:
                 print("Tool execution failed!")
                 for content in result.content:
                     if isinstance(content, types.TextContent):
@@ -2468,6 +2470,9 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+_Full example: [examples/snippets/clients/parsing_tool_results.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/parsing_tool_results.py)_
+<!-- /snippet-source -->
 
 ### MCP Primitives
 
@@ -2493,7 +2498,7 @@ MCP servers declare capabilities during initialization:
 
 ## Documentation
 
-- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [API Reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)

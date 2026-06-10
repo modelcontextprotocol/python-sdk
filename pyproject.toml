@@ -11,7 +11,7 @@ maintainers = [
     { name = "Max Isbey", email = "maxisbey@anthropic.com" },
     { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
 ]
-keywords = ["git", "mcp", "llm", "automation"]
+keywords = ["mcp", "llm", "automation"]
 license = { text = "MIT" }
 classifiers = [
     "Development Status :: 3 - Alpha",
