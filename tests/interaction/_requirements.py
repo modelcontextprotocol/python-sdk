@@ -681,6 +681,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
         ),
     ),
+    "mcpserver:tool:call-tool-result-direct": Requirement(
+        source="issue:#2695",
+        behavior="A tool function may return a ready-made CallToolResult and have it passed through.",
+    ),
     "mcpserver:tool:input-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior=(
@@ -725,6 +729,13 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "params); MCPServer reports a tool execution error (isError true) instead. The low-level "
                 "path follows the spec example (see tools:call:unknown-name)."
             ),
+        ),
+    ),
+    "mcpserver:tool:unstructured-content": Requirement(
+        source="issue:#2695",
+        behavior=(
+            "A tool function that returns unstructured content blocks without an output schema is returned as "
+            "ordinary result content, not structured content."
         ),
     ),
     "mcpserver:tool:url-elicitation-error": Requirement(

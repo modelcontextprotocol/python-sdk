@@ -212,6 +212,38 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
     )
 
 
+@requirement("mcpserver:tool:call-tool-result-direct")
+async def test_tool_returning_call_tool_result_passes_through(connect: Connect) -> None:
+    """A tool may return a fully formed CallToolResult when it needs to control the wire result."""
+    mcp = MCPServer("direct")
+
+    @mcp.tool()
+    def report() -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ready")], structured_content={"status": "ready"})
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("report", {})
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="ready")], structured_content={"status": "ready"})
+    )
+
+
+@requirement("mcpserver:tool:unstructured-content")
+async def test_tool_without_output_schema_returns_unstructured_content(connect: Connect) -> None:
+    """Without an output schema, MCPServer wraps content blocks as unstructured result content."""
+    mcp = MCPServer("raw-content")
+
+    @mcp.tool()
+    def raw_blocks():
+        return [TextContent(text="raw")]
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("raw_blocks", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="raw")]))
+
+
 @requirement("mcpserver:tool:input-validation")
 async def test_call_tool_invalid_arguments_become_error_result(connect: Connect) -> None:
     """Arguments that fail validation against the tool's signature are reported as an is_error

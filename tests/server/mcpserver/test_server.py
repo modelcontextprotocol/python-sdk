@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.server import ToolResult
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -72,6 +73,9 @@ class TestServer:
 
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
+
+    def test_call_tool_return_annotation_lists_reachable_shapes(self):
+        assert get_type_hints(MCPServer.call_tool)["return"] == ToolResult
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
