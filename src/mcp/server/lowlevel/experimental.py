@@ -129,7 +129,8 @@ class ExperimentalHandlers:
 
     def _requestor_session_scope(self) -> str | None:
         """Return the task session scope of the session making the current request."""
-        return self._server.request_context.session.experimental.task_session_scope
+        session = self._server.request_context.session
+        return session._experimental.task_session_scope  # pyright: ignore[reportPrivateUsage]
 
     def _require_task_in_requestor_scope(self, task_id: str) -> None:
         """Reject task IDs that belong to a different session.

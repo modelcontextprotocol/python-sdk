@@ -1,12 +1,13 @@
 # Experimental Features
 
-!!! warning "Experimental APIs"
+!!! warning "Deprecated"
 
-    The features in this section are experimental and may change without notice.
-    They track the evolving MCP specification and are not yet stable.
+    The experimental tasks API is deprecated and will be removed in mcp 2.0.
+    Tasks (SEP-1686) were removed from the MCP specification and are expected
+    to return as a separate MCP extension in a future release.
 
 This section documents experimental features in the MCP Python SDK. These features
-implement draft specifications that are still being refined.
+are deprecated and remain available on the 1.x line only for existing users.
 
 ## Available Experimental Features
 
@@ -36,8 +37,10 @@ async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
 result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
 ```
 
+Accessing the `.experimental` properties emits a `DeprecationWarning`.
+
 ## Providing Feedback
 
-Since these features are experimental, feedback is especially valuable. If you encounter
-issues or have suggestions, please open an issue on the
+If you rely on these features and have feedback on their deprecation or the planned
+MCP extension, please open an issue on the
 [python-sdk repository](https://github.com/modelcontextprotocol/python-sdk/issues).

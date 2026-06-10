@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
+from typing_extensions import deprecated
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
@@ -15,6 +16,10 @@ from mcp.shared.message import SessionMessage
 logger = logging.getLogger(__name__)
 
 
+@deprecated(
+    "The WebSocket client transport is deprecated and will be removed in mcp 2.0. WebSocket was never part of"
+    " the MCP specification; use the streamable HTTP transport (`streamable_http_client`) instead."
+)
 @asynccontextmanager
 async def websocket_client(
     url: str,
@@ -24,6 +29,9 @@ async def websocket_client(
 ]:
     """
     WebSocket client transport for MCP, symmetrical to the server version.
+
+    Deprecated: this transport will be removed in mcp 2.0. WebSocket was never
+    part of the MCP specification; use the streamable HTTP transport instead.
 
     Connects to 'url' using the 'mcp' subprotocol, then yields:
         (read_stream, write_stream)

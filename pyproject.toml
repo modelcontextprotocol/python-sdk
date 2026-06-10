@@ -107,7 +107,13 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
+    # The experimental tasks API and the WebSocket transport are deprecated; the suites and
+    # examples that cover them intentionally use the deprecated APIs.
+    { root = "tests/experimental", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false, reportDeprecated = false },
+    { root = "tests/shared/test_ws.py", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false, reportDeprecated = false },
     { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "examples/servers/simple-task", reportUnusedFunction = false, reportDeprecated = false },
+    { root = "examples/servers/simple-task-interactive", reportUnusedFunction = false, reportDeprecated = false },
     { root = "examples/servers", reportUnusedFunction = false },
     { root = "examples/snippets/clients/logging_client.py", reportUndefinedVariable = false, reportUnknownArgumentType = false },
     { root = "examples/snippets/clients/roots_example.py", reportUndefinedVariable = false, reportUnknownArgumentType = false, reportArgumentType = false },

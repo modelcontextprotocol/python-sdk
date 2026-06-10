@@ -80,7 +80,7 @@ import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
-from typing_extensions import TypeVar
+from typing_extensions import TypeVar, deprecated
 
 import mcp.types as types
 from mcp.server.experimental.request_context import Experimental
@@ -244,10 +244,16 @@ class Server(Generic[LifespanResultT, RequestT]):
         return request_ctx.get()
 
     @property
+    @deprecated(
+        "The experimental tasks API is deprecated and will be removed in mcp 2.0: tasks (SEP-1686) were removed"
+        " from the MCP specification and are expected to return as a separate MCP extension."
+    )
     def experimental(self) -> ExperimentalHandlers:
         """Experimental APIs for tasks and other features.
 
-        WARNING: These APIs are experimental and may change without notice.
+        Deprecated: the experimental tasks API will be removed in mcp 2.0. Tasks
+        (SEP-1686) were removed from the MCP specification and are expected to
+        return as a separate MCP extension.
         """
 
         # We create this inline so we only add these capabilities _if_ they're actually used

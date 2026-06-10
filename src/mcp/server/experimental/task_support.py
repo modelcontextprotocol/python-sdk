@@ -106,8 +106,10 @@ class TaskSupport:
             stateless: Whether the session belongs to a stateless server run
         """
         session.add_response_router(self.handler)
-        if not stateless and session.experimental.task_session_scope is None:
-            session.experimental.task_session_scope = new_session_scope()
+        if not stateless:
+            features = session._experimental  # pyright: ignore[reportPrivateUsage]
+            if features.task_session_scope is None:
+                features.task_session_scope = new_session_scope()
 
     @classmethod
     def in_memory(cls) -> "TaskSupport":
