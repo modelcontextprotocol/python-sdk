@@ -1,5 +1,7 @@
 """Tests for OAuth 2.0 shared code."""
 
+from typing import Any
+
 import pytest
 from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
@@ -130,10 +132,19 @@ def test_information_full_inherits_coercion():
     assert info.jwks_uri is None
 
 
-def test_redirect_uris_normalize_any_url_subtypes():
+@pytest.mark.parametrize(
+    "redirect_uris",
+    [
+        [AnyHttpUrl("https://example.com/callback")],
+        (AnyHttpUrl("https://example.com/callback"),),
+        {AnyHttpUrl("https://example.com/callback")},
+        frozenset({AnyHttpUrl("https://example.com/callback")}),
+    ],
+)
+def test_redirect_uris_normalize_any_url_subtypes(redirect_uris: Any):
     info = OAuthClientInformationFull(
         client_id="abc123",
-        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+        redirect_uris=redirect_uris,
     )
 
     assert info.validate_redirect_uri(AnyUrl("https://example.com/callback")) == AnyUrl("https://example.com/callback")

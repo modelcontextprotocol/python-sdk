@@ -73,8 +73,8 @@ class OAuthClientMetadata(BaseModel):
         # Pydantic v2 keeps AnyUrl subclasses such as AnyHttpUrl as-is, while
         # AnyUrl equality is type-strict. Store the declared base type so later
         # redirect_uri membership checks compare URLs, not URL wrapper classes.
-        if isinstance(v, list | tuple):
-            items = cast("list[object] | tuple[object, ...]", v)
+        if isinstance(v, list | tuple | set | frozenset):
+            items = cast("list[object] | tuple[object, ...] | set[object] | frozenset[object]", v)
             return [str(item) if isinstance(item, AnyUrl) else item for item in items]
         return v
 
