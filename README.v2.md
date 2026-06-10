@@ -15,13 +15,13 @@
 
 <!-- TODO(v2): Move this content back to README.md when v2 is released -->
 
-> **⚠️ Important: this documents v2 of the SDK, which is in alpha.** Pre-releases are published to PyPI as `2.0.0aN`.
+> **Important: this documents v2 of the SDK, which is in alpha.** Pre-releases are published to PyPI as `2.0.0aN`, and each alpha may contain breaking changes from the previous one.
 >
-> v2 is a major rework with breaking changes — see the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md). Each pre-release may itself contain breaking changes until the API stabilizes. We expect to enter beta once the SDK targets the 2026-07-28 revision of the MCP specification; there is no committed date for the stable v2 release.
+> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for what's changed. We're targeting a beta on 2026-06-30 and a stable v2 on 2026-07-27, alongside the spec release. Before stable, we plan to add a significant set of backwards compatibility shims so the final upgrade is much smaller than today's diff.
 >
-> **v1.x remains the recommended version for production use.** Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0aN` or `pip install --pre mcp`), so existing installs are unaffected. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+> **v1.x is the only stable release line and remains recommended for production.** It is in maintenance mode and continues to receive critical bug fixes and security patches. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0aN`), so existing installs are unaffected. **If your package depends on `mcp`, add an upper bound (`mcp>=1.x,<2`) before the stable release lands.**
 >
-> For v1 documentation (the current stable release), see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md).
+> Try the alpha and tell us what breaks: [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX). For v1 documentation, see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md).
 
 <!-- omit in toc -->
 ## Table of Contents
