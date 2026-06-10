@@ -75,6 +75,7 @@ class ClientSessionParameters:
 
     read_timeout_seconds: float | None = None
     sampling_callback: SamplingFnT | None = None
+    sampling_capabilities: types.SamplingCapability | None = None
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
     logging_callback: LoggingFnT | None = None
@@ -305,6 +306,7 @@ class ClientSessionGroup:
                     write,
                     read_timeout_seconds=session_params.read_timeout_seconds,
                     sampling_callback=session_params.sampling_callback,
+                    sampling_capabilities=session_params.sampling_capabilities,
                     elicitation_callback=session_params.elicitation_callback,
                     list_roots_callback=session_params.list_roots_callback,
                     logging_callback=session_params.logging_callback,

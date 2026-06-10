@@ -12,6 +12,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
+from mcp.client import ClientRequestContext
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
@@ -111,6 +112,38 @@ async def test_client_is_initialized(app: MCPServer):
             )
         )
         assert client.initialize_result.server_info.name == "test"
+
+
+async def test_client_forwards_sampling_capabilities():
+    """Test that Client forwards fine-grained sampling capabilities to ClientSession."""
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="capabilities", input_schema={"type": "object"})])
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "capabilities"
+        assert ctx.session.client_params is not None
+        sampling = ctx.session.client_params.capabilities.sampling
+        has_context = sampling is not None and sampling.context is not None
+        return CallToolResult(content=[TextContent(text=str(has_context).lower())])
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult:
+        raise NotImplementedError
+
+    server = Server("introspector", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+
+    async with Client(
+        server,
+        sampling_callback=sampling_callback,
+        sampling_capabilities=types.SamplingCapability(context=types.SamplingContextCapability()),
+    ) as client:
+        result = await client.call_tool("capabilities", {})
+
+    assert result == CallToolResult(content=[TextContent(text="true")])
 
 
 async def test_client_with_simple_server(simple_server: Server):

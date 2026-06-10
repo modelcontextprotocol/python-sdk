@@ -373,6 +373,7 @@ async def test_client_session_group_establish_session_parameterized(
                 mock_write_stream,
                 read_timeout_seconds=None,
                 sampling_callback=None,
+                sampling_capabilities=None,
                 elicitation_callback=None,
                 list_roots_callback=None,
                 logging_callback=None,

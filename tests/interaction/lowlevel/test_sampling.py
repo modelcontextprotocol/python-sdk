@@ -23,7 +23,9 @@ from mcp.types import (
     ModelHint,
     ModelPreferences,
     SamplingCapability,
+    SamplingContextCapability,
     SamplingMessage,
+    SamplingToolsCapability,
     TextContent,
     ToolResultContent,
     ToolUseContent,
@@ -91,9 +93,9 @@ async def test_create_message_round_trip(connect: Connect) -> None:
 async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged.
 
-    The client has not declared the sampling.context capability (Client cannot declare it), yet
-    include_context="thisServer" reaches the callback regardless: the spec's SHOULD NOT is not
-    enforced. See the divergence note on `sampling:context:server-gated-by-capability`.
+    This client intentionally has not declared the sampling.context capability, yet
+    include_context="thisServer" reaches the callback regardless. See the divergence note on
+    `sampling:context:server-gated-by-capability`.
     """
     received: list[CreateMessageRequestParams] = []
 
@@ -312,8 +314,8 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
-    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
-    expose it), so the server-side validator rejects the request before anything reaches the wire.
+    The client supports plain sampling but does not declare the tools sub-capability, so the
+    server-side validator rejects the request before anything reaches the wire.
     """
 
     async def list_tools(
@@ -346,6 +348,82 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
 
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="-32602: Client does not support sampling tools capability")])
+    )
+
+
+@requirement("sampling:create:tools")
+@requirement("sampling:result:with-tools-array-content")
+async def test_create_message_with_tools_reaches_supporting_client(connect: Connect) -> None:
+    """A tool-enabled sampling request reaches a client that declared sampling.tools."""
+    received: list[CreateMessageRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "ask_model"
+        result = await ctx.session.create_message(
+            messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],
+            max_tokens=100,
+            tools=[
+                types.Tool(
+                    name="get_weather",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"city": {"type": "string"}},
+                        "required": ["city"],
+                    },
+                )
+            ],
+            tool_choice=types.ToolChoice(mode="required"),
+        )
+        assert isinstance(result, CreateMessageResultWithTools)
+        content = result.content_as_list
+        assert isinstance(content[0], ToolUseContent)
+        return CallToolResult(content=[TextContent(text=f"{result.stop_reason}: {content[0].name}")])
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResultWithTools:
+        received.append(params)
+        return CreateMessageResultWithTools(
+            role="assistant",
+            content=[ToolUseContent(id="call-1", name="get_weather", input={"city": "London"})],
+            model="mock-llm-1",
+            stop_reason="toolUse",
+        )
+
+    async with connect(
+        server,
+        sampling_callback=sampling_callback,
+        sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
+    ) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="toolUse: get_weather")]))
+    assert received == snapshot(
+        [
+            CreateMessageRequestParams(
+                _meta={},
+                messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],
+                max_tokens=100,
+                tools=[
+                    types.Tool(
+                        name="get_weather",
+                        input_schema={
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                            "required": ["city"],
+                        },
+                    )
+                ],
+                tool_choice=types.ToolChoice(mode="required"),
+            )
+        ]
     )
 
 
@@ -406,8 +484,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 async def test_a_client_with_a_sampling_callback_declares_the_sampling_capability(connect: Connect) -> None:
     """A client connecting with a sampling callback advertises the sampling capability to the server.
 
-    Client cannot declare any sub-capabilities (it does not expose ClientSession's
-    sampling_capabilities parameter), so the snapshot pins an empty SamplingCapability.
+    Without explicit sampling_capabilities, the snapshot pins an empty SamplingCapability.
     """
     captured: list[SamplingCapability | None] = []
 
@@ -434,6 +511,40 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
         await client.call_tool("capabilities", {})
 
     assert captured == snapshot([SamplingCapability()])
+
+
+@requirement("sampling:capability:declare")
+async def test_a_client_can_declare_sampling_context_capability(connect: Connect) -> None:
+    """A client can advertise the sampling.context sub-capability when configured."""
+    captured: list[SamplingCapability | None] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="capabilities", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "capabilities"
+        assert ctx.session.client_params is not None
+        captured.append(ctx.session.client_params.capabilities.sampling)
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        """Registered only so the sampling capability is advertised; never called."""
+        raise NotImplementedError
+
+    async with connect(
+        server,
+        sampling_callback=sampling_callback,
+        sampling_capabilities=SamplingCapability(context=SamplingContextCapability()),
+    ) as client:
+        await client.call_tool("capabilities", {})
+
+    assert captured == snapshot([SamplingCapability(context=SamplingContextCapability())])
 
 
 @requirement("sampling:create-message:audio-content")
