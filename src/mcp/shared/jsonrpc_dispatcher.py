@@ -24,13 +24,14 @@ import contextvars
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, TypeVar, cast, overload
+from typing import Any, Generic, Literal, cast
 
 import anyio
 import anyio.abc
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
+from typing_extensions import TypeVar
 
 from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
@@ -70,7 +71,7 @@ Those writes run inside a shield because the surrounding scope is already
 cancelled; without a bound, a wedged transport write would turn the shield
 into an uncancellable hang (and block shutdown indefinitely)."""
 
-TransportT = TypeVar("TransportT", bound=TransportContext)
+TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
 """How inbound `notifications/cancelled` is applied to a running handler.
@@ -236,29 +237,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     conformance at the class definition rather than at first use.
     """
 
-    @overload
-    def __init__(
-        self: JSONRPCDispatcher[TransportContext],
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
-        *,
-        peer_cancel_mode: PeerCancelMode = "interrupt",
-        raise_handler_exceptions: bool = False,
-        inline_methods: frozenset[str] = frozenset(),
-        on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
-    ) -> None: ...
-    @overload
-    def __init__(
-        self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
-        *,
-        transport_builder: Callable[[MessageMetadata], TransportT],
-        peer_cancel_mode: PeerCancelMode = "interrupt",
-        raise_handler_exceptions: bool = False,
-        inline_methods: frozenset[str] = frozenset(),
-        on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
-    ) -> None: ...
     def __init__(
         self,
         read_stream: ReadStream[SessionMessage | Exception],
@@ -272,9 +250,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
-        # The overloads guarantee that when `transport_builder` is omitted,
-        # `TransportT` is `TransportContext`, so the default is type-correct;
-        # pyright can't see across overloads, hence the cast.
+        # When `transport_builder` is omitted, `TransportT` falls back to its
+        # default (`TransportContext`), so the default builder is type-correct;
+        # pyright can't connect the two, hence the cast.
         self._transport_builder = cast(
             "Callable[[MessageMetadata], TransportT]",
             transport_builder or _default_transport_builder,
