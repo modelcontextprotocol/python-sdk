@@ -40,6 +40,53 @@ async def test_response_chunks_arrive_as_the_application_sends_them() -> None:
     assert chunks == [b"first", b"second"]
 
 
+async def test_a_second_response_after_the_first_completes_is_invisible_to_the_client() -> None:
+    """Only the first complete response reaches the client; a trailing start/body pair is dropped.
+
+    Starlette's `request_response` produces exactly this sequence when an endpoint's
+    sub-application has already sent a complete rejection response (the legacy SSE transport's
+    request validation): the endpoint still returns a `Response`, which sends a second response.
+    """
+
+    async def double_responding_app(scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        assert (await receive())["type"] == "http.request"
+        await send({"type": "http.response.start", "status": 421, "headers": [(b"content-type", b"text/plain")]})
+        await send({"type": "http.response.body", "body": b"rejected", "more_body": False})
+        await send({"type": "http.response.start", "status": 200, "headers": [(b"x-late", b"yes")]})
+        await send({"type": "http.response.body", "body": b"too late", "more_body": False})
+
+    transport = StreamingASGITransport(double_responding_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
+        response = await http.get("/double")
+
+    assert response.status_code == 421
+    assert response.text == "rejected"
+    assert "x-late" not in response.headers
+
+
+async def test_body_chunks_after_the_final_chunk_are_ignored() -> None:
+    """Extra body chunks after `more_body: False` neither reach the client nor fail the application."""
+    application_finished = anyio.Event()
+
+    async def overflowing_app(scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        assert (await receive())["type"] == "http.request"
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"complete", "more_body": False})
+        await send({"type": "http.response.body", "body": b"overflow", "more_body": True})
+        application_finished.set()
+
+    transport = StreamingASGITransport(overflowing_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
+        response = await http.get("/overflow")
+        with anyio.fail_after(5):
+            await application_finished.wait()
+
+    assert response.status_code == 200
+    assert response.text == "complete"
+
+
 async def test_closing_the_response_delivers_a_disconnect_to_the_application() -> None:
     """A client that closes the response early is seen by the application as an http.disconnect."""
     seen_after_request: list[Message] = []
