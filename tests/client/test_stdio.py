@@ -242,16 +242,26 @@ async def _wait_for_first_write(path: str) -> None:
 async def _wait_for_writes_to_stop(path: str) -> None:
     """Poll until the file at *path* stops growing.
 
-    Returns once two consecutive samples taken 0.3 seconds apart (three times the
-    writers' 0.1 second write interval) observe the same size. The sentinel forces
-    at least one full sampling interval before the first comparison. If the file
+    Returns once the size is unchanged across three successive 0.3 second gaps
+    (each three times the writers' 0.1 second write interval), so a writer that
+    is merely starved of CPU for a single gap is not mistaken for a terminated
+    one. Any observed growth resets the consecutive-stable counter. The sentinel
+    forces at least one non-stable iteration before counting starts. If the file
     never stops growing, the timeout fails the test: a writer that survives
     _terminate_process_tree is a genuine cleanup failure that must not be masked.
     """
     last_size = -1
+    stable_pairs = 0
     with anyio.fail_after(15):
-        while os.path.getsize(path) != last_size:
-            last_size = os.path.getsize(path)
+        while True:
+            current_size = os.path.getsize(path)
+            if current_size == last_size:
+                stable_pairs += 1
+            else:
+                stable_pairs = 0
+                last_size = current_size
+            if stable_pairs == 3:
+                return
             await anyio.sleep(0.3)
 
 
@@ -328,6 +338,7 @@ class TestChildProcessCleanup:
 
         # Start the parent process
         proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        tree_killed = False
 
         try:
             # Wait for the parent to start and the child to reach its write loop
@@ -339,13 +350,13 @@ class TestChildProcessCleanup:
 
             # Terminate using our function
             await _terminate_process_tree(proc)
+            tree_killed = True
 
             # Verify the child stopped writing; a survivor times out and fails the test
             await _wait_for_writes_to_stop(marker_file)
         finally:
-            # Terminate again so no failure above can leak the spawned tree
-            # (safe: _terminate_process_tree tolerates an already-dead tree)
-            await _terminate_process_tree(proc)
+            if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
+                await _terminate_process_tree(proc)
             # Clean up files
             for f in [marker_file, parent_marker]:
                 try:
@@ -417,6 +428,7 @@ class TestChildProcessCleanup:
 
         # Start the parent process
         proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        tree_killed = False
 
         try:
             # Wait for every level of the tree to reach its write loop
@@ -426,14 +438,14 @@ class TestChildProcessCleanup:
 
             # Terminate the whole tree
             await _terminate_process_tree(proc)
+            tree_killed = True
 
             # Verify every level stopped writing; a survivor times out and fails the test
             for file_path in (parent_file, child_file, grandchild_file):
                 await _wait_for_writes_to_stop(file_path)
         finally:
-            # Terminate again so no failure above can leak the spawned tree
-            # (safe: _terminate_process_tree tolerates an already-dead tree)
-            await _terminate_process_tree(proc)
+            if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
+                await _terminate_process_tree(proc)
             # Clean up all marker files
             for f in [parent_file, child_file, grandchild_file]:
                 try:
@@ -489,6 +501,7 @@ class TestChildProcessCleanup:
 
         # Start the parent process
         proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+        tree_killed = False
 
         try:
             # Wait for the child to reach its write loop
@@ -497,13 +510,13 @@ class TestChildProcessCleanup:
 
             # Terminate - this will kill the process group even if parent exits first
             await _terminate_process_tree(proc)
+            tree_killed = True
 
             # Verify the child stopped writing; a survivor times out and fails the test
             await _wait_for_writes_to_stop(marker_file)
         finally:
-            # Terminate again so no failure above can leak the spawned tree
-            # (safe: _terminate_process_tree tolerates an already-dead tree)
-            await _terminate_process_tree(proc)
+            if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
+                await _terminate_process_tree(proc)
             # Clean up marker file
             try:
                 os.unlink(marker_file)
