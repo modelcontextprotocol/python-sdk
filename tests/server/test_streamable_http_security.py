@@ -1,10 +1,12 @@
 """Tests for StreamableHTTP server DNS rebinding protection."""
 
-from collections.abc import AsyncIterator
+import gc
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 
 import httpx
 import pytest
+from sse_starlette.sse import AppStatus
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
@@ -23,16 +25,49 @@ BASE_URL = "http://127.0.0.1:8000"
 # run in process; the old subprocess harness never observed them. The interaction suite registers
 # the same two scoped filters globally from tests/interaction/conftest.py (see the comment there),
 # but they only take effect when that package's conftest is loaded; these markers keep the tests
-# that complete the initialize handshake passing in isolated runs. Markers are item-scoped, so
-# they cannot cover the GC flush at session cleanup: an isolated run without xdist (`-n 0`) still
-# exits nonzero after all tests pass. The default xdist runs (addopts has `-n auto`) are
-# unaffected, as are full-suite runs, where the interaction conftest's ini-level filters apply.
-# The filters are scoped to anyio's MemoryObject*Stream leak signature so an unrelated leak
-# still fails the suite.
+# that complete the initialize handshake passing in isolated runs. The filters are scoped to
+# anyio's MemoryObject*Stream leak signature so an unrelated leak still fails the suite.
 pytestmark = [
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"),
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _collect_leaked_streams() -> Iterator[None]:
+    """Garbage-collect each test's leaked memory streams inside its own teardown.
+
+    The filterwarnings marks above only apply while a test in this file is the
+    active warning context. The leaked streams sit in reference cycles, so without
+    a forced collection their deallocator warnings fire wherever the garbage
+    collector happens to run next: during an unrelated test (failing it, since the
+    global ``filterwarnings = ["error"]`` has no ignore there) or at pytest's
+    session-unconfigure unraisable sweep (exit code 1 after all tests passed when
+    running without xdist, e.g. ``-n 0`` for ``--pdb`` debugging).
+    """
+    yield
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def _reset_sse_starlette_exit_event() -> Iterator[None]:
+    """Reset sse-starlette's module-global exit Event around each test.
+
+    sse-starlette <3.0 (allowed by this branch's dependency floor; CI's lowest-direct leg
+    installs it) stores an `anyio.Event` on the `AppStatus` class the first time an
+    `EventSourceResponse` runs; that Event is bound to the test's event loop and breaks every
+    subsequent in-process SSE response. sse-starlette 3.x switched to a ContextVar and has no
+    such attribute. Resetting on both sides of the test keeps this module immune to a stale
+    Event left behind by an earlier test on the same worker as well as cleaning up after its
+    own. This mirrors the autouse fixtures in tests/shared/test_sse.py and
+    tests/interaction/conftest.py.
+    """
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
+        # setattr keeps pyright happy: the locked sse-starlette 3.x has no such attribute.
+        setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
+    yield
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
+        setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
 
 
 @asynccontextmanager

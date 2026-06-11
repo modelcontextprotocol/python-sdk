@@ -19,6 +19,7 @@ import httpx
 import pytest
 from httpx_sse import ServerSentEvent
 from pydantic import AnyUrl
+from sse_starlette.sse import AppStatus
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
@@ -86,6 +87,27 @@ def _collect_leaked_streams() -> Iterator[None]:
     """
     yield
     gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def _reset_sse_starlette_exit_event() -> Iterator[None]:
+    """Reset sse-starlette's module-global exit Event around each test.
+
+    sse-starlette <3.0 (allowed by this branch's dependency floor; CI's lowest-direct leg
+    installs it) stores an `anyio.Event` on the `AppStatus` class the first time an
+    `EventSourceResponse` runs; that Event is bound to the test's event loop and breaks every
+    subsequent in-process SSE response. sse-starlette 3.x switched to a ContextVar and has no
+    such attribute. Resetting on both sides of the test keeps this module immune to a stale
+    Event left behind by an earlier test on the same worker as well as cleaning up after its
+    own. This mirrors the autouse fixtures in tests/shared/test_sse.py and
+    tests/interaction/conftest.py.
+    """
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
+        # setattr keeps pyright happy: the locked sse-starlette 3.x has no such attribute.
+        setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
+    yield
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
+        setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
 
 
 # Test constants
