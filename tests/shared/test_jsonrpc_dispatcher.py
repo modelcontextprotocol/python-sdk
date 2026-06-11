@@ -310,6 +310,62 @@ async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
 
 
 @pytest.mark.anyio
+async def test_run_closes_write_stream_after_clean_eof_without_drain_timeout():
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv,
+        s2c_send,
+        close_write_stream_on_read_close=False,
+        read_eof_drain_timeout_seconds=None,
+    )
+    on_request, on_notify = echo_handlers(Recorder())
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, c2s_send, c2s_recv, s2c_send, s2c_recv:
+            await tg.start(server.run, on_request, on_notify)
+            c2s_send.close()
+            with pytest.raises(anyio.EndOfStream):  # pragma: no branch
+                await s2c_recv.receive()
+
+
+@pytest.mark.anyio
+async def test_run_drains_in_flight_handlers_on_clean_eof_without_timeout():
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv,
+        s2c_send,
+        close_write_stream_on_read_close=False,
+        read_eof_drain_timeout_seconds=None,
+    )
+    handler_started = anyio.Event()
+    handler_allowed_to_finish = anyio.Event()
+
+    async def handle_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        await handler_allowed_to_finish.wait()
+        return {"drained": True}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, c2s_send, c2s_recv, s2c_send, s2c_recv:
+            await tg.start(server.run, handle_request, on_notify)
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="x", params=None)))
+            await handler_started.wait()
+            c2s_send.close()
+            handler_allowed_to_finish.set()
+
+            response = await s2c_recv.receive()
+            assert isinstance(response, SessionMessage)
+            assert isinstance(response.message, JSONRPCResponse)
+            assert response.message.id == 1
+            assert response.message.result == {"drained": True}
+
+
+@pytest.mark.anyio
 async def test_run_closes_write_stream_on_exit():
     """run() owns both streams; the write end is released once the EOF teardown completes."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
