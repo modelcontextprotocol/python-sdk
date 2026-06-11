@@ -34,7 +34,7 @@ from pydantic import ValidationError
 
 from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import CallOptions, Dispatcher, OnNotify, OnRequest, ProgressFnT
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import (
     ClientMessageMetadata,
@@ -186,6 +186,18 @@ def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
             await fn(progress, total, message)
         except Exception:
             logger.exception("progress callback raised")
+
+    return _wrapped
+
+
+def _contained_notify(fn: OnNotify) -> OnNotify:
+    """Wrap a notification handler so it can't crash the dispatcher (same boundary as `_shielded_progress`)."""
+
+    async def _wrapped(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        try:
+            await fn(dctx, method, params)
+        except Exception:
+            logger.exception("notification handler for %r raised", method)
 
     return _wrapped
 
@@ -619,7 +631,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx, _dispatcher=self, _request_id=None, message_metadata=metadata
         )
-        self._spawn(on_notify, dctx, msg.method, msg.params, sender_ctx=sender_ctx)
+        self._spawn(_contained_notify(on_notify), dctx, msg.method, msg.params, sender_ctx=sender_ctx)
 
     def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:
         pending = self._pending.get(_coerce_id(request_id)) if request_id is not None else None

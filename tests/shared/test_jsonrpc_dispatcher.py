@@ -611,6 +611,56 @@ async def test_caller_cancel_courtesy_write_is_bounded_when_the_transport_is_wed
 
 
 @pytest.mark.anyio
+async def test_notification_handler_exception_is_contained(caplog: pytest.LogCaptureFixture):
+    """A raising notification handler costs only that notification, never the connection.
+
+    The handler runs as a bare task in the dispatcher's task group; without containment its
+    exception would cancel the read loop and every in-flight request. The TypeScript, C#, and
+    Go engines all contain notification-handler failures the same way.
+    """
+
+    async def server_on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise RuntimeError("notify boom")
+
+    async with running_pair(jsonrpc_pair, server_on_notify=server_on_notify) as (client, *_):
+        with anyio.fail_after(5):
+            await client.notify("boom", None)
+            # The connection survived: a full round-trip still works.
+            result = await client.send_raw_request("ping", None)
+    assert result == {"echoed": "ping", "params": {}}
+    assert "notification handler for 'boom' raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_spawned_notification_handlers_run_concurrently():
+    """Notification handlers are spawned, not serialized: a parked one does not block the next.
+
+    The first handler waits for the second to have started - serialized dispatch would deadlock
+    here. This matches the TypeScript and C# engines (fire-and-forget); handlers needing
+    mutual ordering must coordinate themselves.
+    """
+    second_started = anyio.Event()
+    completed: list[str] = []
+    done = anyio.Event()
+
+    async def server_on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        if method == "first":
+            await second_started.wait()
+        else:
+            second_started.set()
+        completed.append(method)
+        if len(completed) == 2:
+            done.set()
+
+    async with running_pair(jsonrpc_pair, server_on_notify=server_on_notify) as (client, *_):
+        with anyio.fail_after(5):
+            await client.notify("first", None)
+            await client.notify("second", None)
+            await done.wait()
+    assert completed == ["second", "first"]
+
+
+@pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_request_metadata():
     """Transport-attached metadata (HTTP request, SSE close hooks) is readable off the dispatch context."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
