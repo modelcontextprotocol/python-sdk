@@ -9,6 +9,7 @@ import time
 
 import anyio
 import pytest
+from anyio.abc import Process
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import (
@@ -17,6 +18,7 @@ from mcp.client.stdio import (
     _terminate_process_tree,
     stdio_client,
 )
+from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -265,6 +267,39 @@ async def _wait_for_writes_to_stop(path: str) -> None:
             await anyio.sleep(0.3)
 
 
+async def _dispose_process(proc: Process | FallbackProcess) -> None:
+    """Reap a dead process and close its pipe streams inside the test that spawned it.
+
+    Without this, the subprocess transports stay referenced by the per-test event
+    loop, become garbage only after that loop closes, and their GC-time
+    ResourceWarnings fire during a later test on the same worker (on Windows
+    proactor the warning can itself die in __repr__ on a closed pipe). An in-test
+    gc.collect() cannot catch that, so the process is reaped and closed
+    deterministically here. Draining stdout to EOF guarantees the event loop has
+    observed the pipe closure (anyio's reader aclose alone does not close the
+    underlying transport), which lets asyncio close the subprocess transport
+    before the test returns.
+
+    Precondition: the WHOLE process tree must already be confirmed dead. wait()
+    tolerates an already-exited process and returns promptly, but on the Windows
+    fallback path it runs popen.wait in a thread and is effectively uncancellable,
+    and stdout only reaches EOF once every tree member that inherited the pipe
+    handle is gone. The timeout fails the test rather than hanging it if that
+    precondition is ever violated.
+    """
+    with anyio.fail_after(15):
+        await proc.wait()
+        assert proc.stdin is not None
+        await proc.stdin.aclose()
+        assert proc.stdout is not None
+        while True:
+            try:
+                await proc.stdout.receive()
+            except anyio.EndOfStream:
+                break
+        await proc.stdout.aclose()
+
+
 class TestChildProcessCleanup:
     """
     Tests for child process cleanup functionality using _terminate_process_tree.
@@ -354,9 +389,13 @@ class TestChildProcessCleanup:
 
             # Verify the child stopped writing; a survivor times out and fails the test
             await _wait_for_writes_to_stop(marker_file)
+
+            # Tree is dead: reap and close the process so nothing leaks into later tests
+            await _dispose_process(proc)
         finally:
             if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
                 await _terminate_process_tree(proc)
+                await _dispose_process(proc)
             # Clean up files
             for f in [marker_file, parent_marker]:
                 try:
@@ -443,9 +482,13 @@ class TestChildProcessCleanup:
             # Verify every level stopped writing; a survivor times out and fails the test
             for file_path in (parent_file, child_file, grandchild_file):
                 await _wait_for_writes_to_stop(file_path)
+
+            # Tree is dead: reap and close the process so nothing leaks into later tests
+            await _dispose_process(proc)
         finally:
             if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
                 await _terminate_process_tree(proc)
+                await _dispose_process(proc)
             # Clean up all marker files
             for f in [parent_file, child_file, grandchild_file]:
                 try:
@@ -514,9 +557,13 @@ class TestChildProcessCleanup:
 
             # Verify the child stopped writing; a survivor times out and fails the test
             await _wait_for_writes_to_stop(marker_file)
+
+            # Tree is dead: reap and close the process so nothing leaks into later tests
+            await _dispose_process(proc)
         finally:
             if not tree_killed:  # pragma: no cover - cleanup only reached when the test failed mid-flight
                 await _terminate_process_tree(proc)
+                await _dispose_process(proc)
             # Clean up marker file
             try:
                 os.unlink(marker_file)
