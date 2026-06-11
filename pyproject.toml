@@ -2,7 +2,7 @@
 name = "mcp"
 dynamic = ["version"]
 description = "Model Context Protocol SDK"
-readme = "README.md"
+readme = "README.v2.md"
 requires-python = ">=3.10"
 authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 maintainers = [
@@ -11,10 +11,10 @@ maintainers = [
     { name = "Max Isbey", email = "maxisbey@anthropic.com" },
     { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
 ]
-keywords = ["git", "mcp", "llm", "automation"]
+keywords = ["mcp", "llm", "automation"]
 license = { text = "MIT" }
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
