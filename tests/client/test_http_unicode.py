@@ -5,6 +5,7 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 (server→client and client→server) using the streamable HTTP transport.
 """
 
+import gc
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -30,15 +31,31 @@ BASE_URL = "http://127.0.0.1:8000"
 # run in process; the old subprocess harness never observed them. The interaction suite registers
 # the same two scoped filters globally from tests/interaction/conftest.py (see the comment there),
 # but they only take effect when that package's conftest is loaded; these markers keep the tests
-# themselves passing in isolated runs. Markers are item-scoped, so they cannot cover the GC
-# flush at session cleanup: an isolated run without xdist (`-n 0`) still exits nonzero after all
-# tests pass. The default xdist runs (addopts has `-n auto`) are unaffected, as are full-suite
-# runs, where the interaction conftest's ini-level filters apply. The filters are scoped to
-# anyio's MemoryObject*Stream leak signature so an unrelated leak still fails the suite.
+# themselves passing in isolated runs. Markers are item-scoped, so the autouse
+# `_collect_leaked_streams` fixture below garbage-collects each test's leaks inside its own
+# teardown, where these filters apply; without it, leaks GC'd at session cleanup escape the
+# scoped ignores. The filters are scoped to anyio's MemoryObject*Stream leak signature so an
+# unrelated leak still fails the suite.
 pytestmark = [
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"),
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _collect_leaked_streams() -> Iterator[None]:
+    """Garbage-collect each test's leaked memory streams inside its own teardown.
+
+    The filterwarnings marks above only apply while a test in this file is the
+    active warning context. The leaked streams sit in reference cycles, so without
+    a forced collection their deallocator warnings fire wherever the garbage
+    collector happens to run next: during an unrelated test (failing it, since the
+    global ``filterwarnings = ["error"]`` has no ignore there) or at pytest's
+    session-unconfigure unraisable sweep (exit code 1 after all tests passed when
+    running without xdist, e.g. ``-n 0`` for ``--pdb`` debugging).
+    """
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)
