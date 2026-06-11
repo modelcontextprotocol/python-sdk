@@ -27,14 +27,17 @@ def pytest_configure(config: pytest.Config) -> None:
     # only test on the trio backend. v1's streamable-HTTP client abandons its httpx/httpx-sse
     # response generators when the session task group is cancelled at teardown; asyncio finalizes
     # abandoned async generators silently at loop shutdown, but trio's finalizer warns about each
-    # one (`Async generator ... was garbage collected before it had been exhausted`). The fixes
-    # live in `src/` on `main` and are out of scope for this tests-only backport. The filters are
-    # scoped to the two known httpx generator signatures so an unrelated leak still fails the suite.
+    # one (`Async generator ... was garbage collected before it had been exhausted`). Abandoning
+    # `EventSource.aiter_sse` abandons the whole generator chain nested under it (`aiter_lines` ->
+    # `aiter_text` -> `aiter_bytes` -> `aiter_raw`), and which links the finalizer reports depends
+    # on GC timing and Python version. The fixes live in `src/` on `main` and are out of scope for
+    # this tests-only backport. The filters are scoped to the httpx/httpx-sse generator signatures
+    # (every generator in that chain lives on `Response` or `EventSource`) so an unrelated leak
+    # still fails the suite.
     config.addinivalue_line("filterwarnings", "ignore:Async generator 'httpx:ResourceWarning")
     config.addinivalue_line(
         "filterwarnings",
-        "ignore:.*async_generator object (Response.aiter_text|EventSource.aiter_sse)"
-        ":pytest.PytestUnraisableExceptionWarning",
+        "ignore:.*async_generator object (Response|EventSource).aiter_:pytest.PytestUnraisableExceptionWarning",
     )
 
 

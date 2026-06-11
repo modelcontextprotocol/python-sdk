@@ -27,6 +27,8 @@ _CITED_PATH = re.compile(r"(?:tests|src)/[\w./-]*\w")
 _HARNESS_SELF_TESTS = {
     "tests.interaction.lowlevel.test_wire.test_recording_read_stream_ends_iteration_when_the_sender_closes",
     "tests.interaction.transports.test_bridge.test_response_chunks_arrive_as_the_application_sends_them",
+    "tests.interaction.transports.test_bridge.test_a_second_response_after_the_first_completes_is_invisible_to_the_client",
+    "tests.interaction.transports.test_bridge.test_body_chunks_after_the_final_chunk_are_ignored",
     "tests.interaction.transports.test_bridge.test_closing_the_response_delivers_a_disconnect_to_the_application",
     "tests.interaction.transports.test_bridge.test_an_application_failure_before_the_response_starts_fails_the_request",
     "tests.interaction.transports.test_bridge.test_disabling_cancel_on_close_lets_the_application_finish_after_disconnect",

@@ -12,6 +12,8 @@ The behavioural contract, pinned by `test_bridge.py`:
 
 - The request body is buffered before the application is invoked (MCP requests are small JSON
   documents); the response streams chunk by chunk.
+- The response ends at the first `http.response.body` whose `more_body` is falsy; anything the
+  application sends after that is ignored, exactly as a real server's client never observes it.
 - Closing the response — or the whole client — delivers `http.disconnect` to the application,
   exactly as a real server sees when its peer goes away.
 - An exception the application raises before sending `http.response.start` fails the originating
@@ -116,6 +118,7 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
         request_delivered = False
         client_disconnected = anyio.Event()
         response_started = anyio.Event()
+        response_complete = False
         response_status = 0
         response_headers: list[tuple[bytes, bytes]] = []
         application_error: Exception | None = None
@@ -130,7 +133,14 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
             return {"type": "http.disconnect"}
 
         async def send_response(message: Message) -> None:
-            nonlocal response_status, response_headers
+            nonlocal response_complete, response_status, response_headers
+            if response_complete:
+                # The response ended with the final body chunk below; a real server's client never
+                # observes anything sent after that, so drop it. Starlette's `request_response`
+                # makes this path real: an endpoint whose sub-application already sent a complete
+                # rejection response (the legacy SSE transport's request validation) still returns
+                # a `Response`, which sends a trailing second start/body pair.
+                return
             if message["type"] == "http.response.start":
                 response_status = message["status"]
                 response_headers = list(message.get("headers", []))
@@ -141,6 +151,7 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
             if body:
                 await chunk_writer.send(body)
             if not message.get("more_body", False):
+                response_complete = True
                 await chunk_writer.aclose()
 
         async def run_application() -> None:
