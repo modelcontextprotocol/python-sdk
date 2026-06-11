@@ -900,8 +900,8 @@ async def test_progress_callback_exception_is_swallowed(caplog: pytest.LogCaptur
 
 
 @pytest.mark.anyio
-async def test_from_dispatcher_runs_over_direct_dispatch():
-    """A session built with from_dispatcher works without a stream pair (in-process embedding)."""
+async def test_dispatcher_keyword_runs_over_direct_dispatch():
+    """A session built with dispatcher= works without a stream pair (in-process embedding)."""
     from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
     from mcp.shared.dispatcher import DispatchContext
     from mcp.shared.transport_context import TransportContext
@@ -921,7 +921,7 @@ async def test_from_dispatcher_runs_over_direct_dispatch():
     ) -> None:
         notified.append(method)
 
-    session = ClientSession.from_dispatcher(client_side)
+    session = ClientSession(dispatcher=client_side)
     results: list[types.EmptyResult] = []
     async with anyio.create_task_group() as tg:
         await tg.start(server_side.run, server_on_request, server_on_notify)
@@ -936,6 +936,27 @@ async def test_from_dispatcher_runs_over_direct_dispatch():
         server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
+
+
+def test_constructor_rejects_streams_and_dispatcher_together():
+    from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+
+    client_side, _server_side = create_direct_dispatcher_pair()
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    with pytest.raises(ValueError, match="not both"):
+        ClientSession(s2c_recv, dispatcher=client_side)
+    s2c_send.close()
+    s2c_recv.close()
+
+
+def test_constructor_requires_both_streams_without_dispatcher():
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    with pytest.raises(ValueError, match="read_stream and write_stream are required"):
+        ClientSession(s2c_recv)
+    with pytest.raises(ValueError, match="read_stream and write_stream are required"):
+        ClientSession()
+    s2c_send.close()
+    s2c_recv.close()
 
 
 @pytest.mark.anyio

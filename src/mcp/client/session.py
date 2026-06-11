@@ -117,19 +117,25 @@ answered with METHOD_NOT_FOUND instead of failing union validation."""
 
 
 class ClientSession:
-    """Client half of an MCP connection, running on `JSONRPCDispatcher`.
+    """Client half of an MCP connection, running on a `Dispatcher`.
 
-    Construct it over a transport's stream pair, enter it as an async context
-    manager, then call `initialize()`. The receive loop, request correlation,
-    and per-request concurrency live in the dispatcher; this class owns the
-    MCP type layer: typed requests, the initialize handshake, and routing
-    server-initiated traffic to the constructor callbacks.
+    Construct it over a transport's stream pair (or pass a pre-built
+    `dispatcher=` instead, e.g. a `DirectDispatcher` for in-process
+    embedding), enter it as an async context manager, then call
+    `initialize()`. The receive loop, request correlation, and per-request
+    concurrency live in the dispatcher; this class owns the MCP type layer:
+    typed requests, the initialize handshake, and routing server-initiated
+    traffic to the constructor callbacks.
+
+    Transport-level `Exception` items reach `message_handler` only when the
+    session builds its own dispatcher from streams, where it wires the
+    dispatcher's `on_stream_exception` itself.
     """
 
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception] | None = None,
+        write_stream: WriteStream[SessionMessage] | None = None,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -139,69 +145,7 @@ class ClientSession:
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
-    ) -> None:
-        self._init_state(
-            read_timeout_seconds=read_timeout_seconds,
-            sampling_callback=sampling_callback,
-            elicitation_callback=elicitation_callback,
-            list_roots_callback=list_roots_callback,
-            logging_callback=logging_callback,
-            message_handler=message_handler,
-            client_info=client_info,
-            sampling_capabilities=sampling_capabilities,
-        )
-        # Built here (inert until run() starts in __aenter__) so notifications
-        # can be sent before entering the context manager, as before.
-        self._dispatcher: Dispatcher[Any] = JSONRPCDispatcher(
-            read_stream, write_stream, on_stream_exception=self._on_stream_exception
-        )
-
-    @classmethod
-    def from_dispatcher(
-        cls,
-        dispatcher: Dispatcher[Any],
-        *,
-        read_timeout_seconds: float | None = None,
-        sampling_callback: SamplingFnT | None = None,
-        elicitation_callback: ElicitationFnT | None = None,
-        list_roots_callback: ListRootsFnT | None = None,
-        logging_callback: LoggingFnT | None = None,
-        message_handler: MessageHandlerFnT | None = None,
-        client_info: types.Implementation | None = None,
-        sampling_capabilities: types.SamplingCapability | None = None,
-    ) -> Self:
-        """Build a session over a pre-built dispatcher instead of a stream pair.
-
-        For embedding a server in-process (`DirectDispatcher`) or transports
-        that construct their own dispatcher. Transport-level `Exception` items
-        reach `message_handler` only on the stream constructor, where the
-        session wires the dispatcher's `on_stream_exception` itself.
-        """
-        self = cls.__new__(cls)
-        self._init_state(
-            read_timeout_seconds=read_timeout_seconds,
-            sampling_callback=sampling_callback,
-            elicitation_callback=elicitation_callback,
-            list_roots_callback=list_roots_callback,
-            logging_callback=logging_callback,
-            message_handler=message_handler,
-            client_info=client_info,
-            sampling_capabilities=sampling_capabilities,
-        )
-        self._dispatcher = dispatcher
-        return self
-
-    def _init_state(
-        self,
-        *,
-        read_timeout_seconds: float | None,
-        sampling_callback: SamplingFnT | None,
-        elicitation_callback: ElicitationFnT | None,
-        list_roots_callback: ListRootsFnT | None,
-        logging_callback: LoggingFnT | None,
-        message_handler: MessageHandlerFnT | None,
-        client_info: types.Implementation | None,
-        sampling_capabilities: types.SamplingCapability | None,
+        dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -214,6 +158,18 @@ class ClientSession:
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._task_group: anyio.abc.TaskGroup | None = None
+        if dispatcher is not None:
+            if read_stream is not None or write_stream is not None:
+                raise ValueError("pass read_stream/write_stream or dispatcher, not both")
+            self._dispatcher: Dispatcher[Any] = dispatcher
+        else:
+            if read_stream is None or write_stream is None:
+                raise ValueError("read_stream and write_stream are required when no dispatcher is given")
+            # Built here (inert until run() starts in __aenter__) so notifications
+            # can be sent before entering the context manager, as before.
+            self._dispatcher = JSONRPCDispatcher(
+                read_stream, write_stream, on_stream_exception=self._on_stream_exception
+            )
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()

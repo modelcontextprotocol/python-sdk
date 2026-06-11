@@ -1168,7 +1168,7 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 ### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
 
-`ClientSession` keeps its public surface — the `(read_stream, write_stream, ...)` constructor, every typed method, manual `initialize()`, and the async context-manager lifecycle — but the v1 receive loop (`BaseSession`) underneath it is gone. A new `ClientSession.from_dispatcher(dispatcher, ...)` constructor accepts a pre-built dispatcher (for example a `DirectDispatcher` for in-process embedding).
+`ClientSession` keeps its public surface — the `(read_stream, write_stream, ...)` constructor, every typed method, manual `initialize()`, and the async context-manager lifecycle — but the v1 receive loop (`BaseSession`) underneath it is gone. A new keyword-only `dispatcher=` constructor argument accepts a pre-built dispatcher instead of the stream pair (for example a `DirectDispatcher` for in-process embedding).
 
 Behavior changes:
 
