@@ -28,6 +28,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
+    GET_STREAM_KEY,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
@@ -2224,3 +2225,44 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Tearing down the standalone stream under its parked writer produces no error log.
+
+    Cleanup closes the send side first, so a writer parked in receive() ends on a clean
+    end-of-stream. This pins that close ordering: reversing it would wake the parked writer
+    with ClosedResourceError on every disconnect. (The timing window where teardown lands
+    between dequeues is handled by the writer's ClosedResourceError arm, which cannot be
+    forced deterministically from the public surface.)
+    """
+    session_manager = StreamableHTTPSessionManager(
+        app=_create_server(),
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
+    notified = anyio.Event()
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, types.ResourceUpdatedNotification):
+            notified.set()
+
+    async with session_manager.run():
+        async with (
+            make_client(app) as http_client,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream, message_handler=message_handler) as session,
+        ):
+            await session.initialize()
+            # Prove the standalone GET writer is live: a notification with no
+            # related request rides the GET stream to the client.
+            await session.call_tool("test_tool_with_standalone_notification", {})
+            with anyio.fail_after(5):
+                await notified.wait()
+            # Tear the standalone stream down while the writer is parked on it.
+            (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
+            await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+    assert "Error in standalone SSE writer" not in caplog.text
