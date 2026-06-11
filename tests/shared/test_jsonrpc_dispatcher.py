@@ -913,6 +913,63 @@ async def test_transport_exception_in_read_stream_is_logged_and_dropped():
 
 
 @pytest.mark.anyio
+async def test_on_stream_exception_observes_transport_exceptions():
+    """With an observer set, Exception items reach it instead of being dropped; the loop stays healthy."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+
+    seen: list[Exception] = []
+
+    async def observe(exc: Exception) -> None:
+        seen.append(exc)
+
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, on_stream_exception=observe)
+    on_request, on_notify = echo_handlers(Recorder())
+    hiccup = ValueError("transport hiccup")
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(hiccup)
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCResponse)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert seen == [hiccup]
+
+
+@pytest.mark.anyio
+async def test_on_stream_exception_observer_raising_is_contained(caplog: pytest.LogCaptureFixture):
+    """A raising observer costs the item, not the connection: it runs in the read loop itself."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+
+    async def observe(exc: Exception) -> None:
+        raise RuntimeError("observer boom")
+
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, on_stream_exception=observe)
+    on_request, on_notify = echo_handlers(Recorder())
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(ValueError("transport hiccup"))
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCResponse)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert "on_stream_exception observer raised" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_progress_notification_for_unknown_token_falls_through_to_on_notify():
     async with running_pair(jsonrpc_pair) as (client, _server, _crec, srec):
         with anyio.fail_after(5):

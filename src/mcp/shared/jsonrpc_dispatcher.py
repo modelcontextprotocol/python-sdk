@@ -245,6 +245,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
+        on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
     ) -> None: ...
     @overload
     def __init__(
@@ -256,6 +257,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
+        on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
     ) -> None: ...
     def __init__(
         self,
@@ -266,6 +268,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
+        on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -287,6 +290,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # while inline will deadlock because the parked read loop cannot dequeue
         # the response.
         self._inline_methods = inline_methods
+        # Observer for Exception items the transport yields on the read stream
+        # (SSE/streamable-HTTP connection faults, stdio parse errors). Without
+        # it they are debug-logged and dropped. Awaited in the read loop and
+        # contained: a raising observer costs the item, not the connection.
+        self._on_stream_exception = on_stream_exception
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -482,13 +490,19 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         """Route one inbound item.
 
-        Everything here is `send_nowait` or `_spawn`; the only `await` is for
-        `inline_methods` requests, which deliberately block dequeuing until
-        handled. Any other `await` would let one slow message head-of-line
-        block the entire read loop.
+        Everything here is `send_nowait` or `_spawn`; the only `await`s are
+        `inline_methods` requests and the `on_stream_exception` observer,
+        which deliberately block dequeuing until handled. Any other `await`
+        would let one slow message head-of-line block the entire read loop.
         """
         if isinstance(item, Exception):
-            logger.debug("transport yielded exception: %r", item)
+            if self._on_stream_exception is None:
+                logger.debug("transport yielded exception: %r", item)
+                return
+            try:
+                await self._on_stream_exception(item)
+            except Exception:
+                logger.exception("on_stream_exception observer raised")
             return
         metadata = item.metadata
         msg = item.message
