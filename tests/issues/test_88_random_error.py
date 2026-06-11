@@ -12,7 +12,14 @@ from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, TextContent
+from mcp.types import (
+    REQUEST_TIMEOUT,
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+)
 
 
 @pytest.mark.anyio
@@ -97,7 +104,7 @@ async def test_notification_validation_error(tmp_path: Path):
             # Use very small timeout to trigger quickly without waiting
             with pytest.raises(MCPError) as exc_info:
                 await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
-            assert "timed out" in str(exc_info.value)
+            assert exc_info.value.error.code == REQUEST_TIMEOUT
 
             # No-op if the courtesy cancellation already interrupted the handler.
             slow_request_lock.set()

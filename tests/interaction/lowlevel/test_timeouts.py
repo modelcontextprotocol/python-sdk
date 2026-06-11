@@ -107,7 +107,8 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
         context: ClientRequestContext, params: types.CreateMessageRequestParams
     ) -> types.CreateMessageResult:
         callback_started.set()
-        await release.wait()
+        with anyio.fail_after(5):
+            await release.wait()
         return types.CreateMessageResult(role="assistant", content=TextContent(text="too late"), model="test-model")
 
     async with Client(recording, sampling_callback=sampling_callback) as client:
@@ -146,7 +147,7 @@ async def test_session_serves_requests_after_timeout() -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         if params.name == "echo":
             return CallToolResult(content=[TextContent(text="still alive")])
-        await anyio.Event().wait()  # blocks until the session is torn down
+        await anyio.Event().wait()  # blocks until the courtesy cancellation interrupts it
         raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -178,7 +179,7 @@ async def test_session_level_timeout_applies_to_every_request() -> None:
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
-        await anyio.Event().wait()  # blocks until the session is torn down
+        await anyio.Event().wait()  # blocks until the courtesy cancellation interrupts it
         raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_call_tool=call_tool)

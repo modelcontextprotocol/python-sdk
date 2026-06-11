@@ -16,6 +16,7 @@ from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
+    REQUEST_TIMEOUT,
     CallToolResult,
     EmptyResult,
     ErrorData,
@@ -196,7 +197,8 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
                 raise NotImplementedError  # unreachable: the scope is cancelled
 
             abandon_scope.start_soon(sample)
-            await callback_started.wait()
+            with anyio.fail_after(5):
+                await callback_started.wait()
             abandon_scope.cancel_scope.cancel()
         with anyio.fail_after(5):
             await callback_cancelled.wait()
@@ -284,3 +286,60 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
         assert pong == snapshot(EmptyResult())
         # The fabricated response was dropped silently: the ping after it still
         # round-tripped, and the message handler (a tripwire) was never invoked.
+
+
+@requirement("protocol:cancel:initialize-not-cancellable")
+async def test_timed_out_initialize_sends_no_cancellation() -> None:
+    """An abandoned initialize is not followed by notifications/cancelled on the wire.
+
+    Spec-mandated: the initialize request MUST NOT be cancelled. Abandoning any other request
+    sends a courtesy notifications/cancelled (see protocol:timeout:sends-cancellation); this
+    test pins that initialize opts out. A real Server always answers initialize, so the test
+    plays a stalling server by hand: it never answers initialize, the client's read timeout
+    fires, and the ping the test sends next is the marker — the in-memory stream is ordered and
+    a courtesy cancel goes out before the timeout error reaches the caller, so a regression
+    would put notifications/cancelled ahead of the ping in the recorded sequence.
+    """
+    received_methods: list[str] = []
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+
+        # Hold the initialize request unanswered until the client's read timeout fires.
+        init = await server_read.receive()
+        assert isinstance(init, SessionMessage)
+        assert isinstance(init.message, JSONRPCRequest)
+        received_methods.append(init.message.method)
+
+        follow_up = await server_read.receive()
+        assert isinstance(follow_up, SessionMessage)
+        assert isinstance(follow_up.message, JSONRPCRequest)
+        received_methods.append(follow_up.message.method)
+        await server_write.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=follow_up.message.id,
+                    # Serialized exactly as a real server serializes results onto the wire.
+                    result=EmptyResult().model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as task_group,
+        # The session-level read timeout is the only public pathway that abandons initialize;
+        # the response never arrives, so any positive value fires on the next event-loop pass.
+        ClientSession(client_read, client_write, read_timeout_seconds=0.000001) as session,
+    ):
+        task_group.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            with pytest.raises(MCPError) as exc_info:
+                await session.initialize()
+            assert exc_info.value.error.code == REQUEST_TIMEOUT
+            # Override the session-level timeout: this ping must round-trip normally.
+            pong = await session.send_request(PingRequest(), EmptyResult, request_read_timeout_seconds=5)
+
+        assert pong == snapshot(EmptyResult())
+        assert received_methods == snapshot(["initialize", "ping"])

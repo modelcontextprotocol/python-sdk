@@ -268,18 +268,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; the server sends an error response (code 0, 'Request cancelled'), which is what "
-                "unblocks the SDK client's pending call."
+                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
+                "server for cancelled client requests, and the client for cancelled server-initiated "
+                "requests — which is what unblocks the sender's pending call."
             ),
         ),
     ),
     "protocol:cancel:initialize-not-cancellable": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior="The client never sends notifications/cancelled for the initialize request.",
-        deferred=(
-            "Not implemented in the SDK: the client has no public cancellation API at all, so no pathway "
-            "exists that could cancel initialize; there is no distinct behaviour to pin beyond that absence."
-        ),
     ),
     "protocol:cancel:late-response-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -341,6 +338,26 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:error:method-not-found": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior="A request whose method has no registered handler is answered with a METHOD_NOT_FOUND error.",
+    ),
+    "protocol:error:null-id": Requirement(
+        source="sdk",
+        behavior=(
+            "An error response carrying a null id — the JSON-RPC shape for a peer reporting a failure it "
+            "could not attribute to a request, such as a parse error — is surfaced to the application "
+            "rather than silently discarded."
+        ),
+        divergence=Divergence(
+            note=(
+                "The dispatcher drops null-id error responses with a debug log; v1 surfaced them to "
+                "message_handler as an MCPError. A typed fault channel restoring visibility is planned "
+                "before v2 stable."
+            ),
+        ),
+        deferred=(
+            "Not yet covered here: the current drop is pinned at the dispatcher level by "
+            "tests/shared/test_jsonrpc_dispatcher.py; an interaction-level test waits on the planned "
+            "fault channel."
+        ),
     ),
     "protocol:meta:related-task": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#related-task-metadata",
