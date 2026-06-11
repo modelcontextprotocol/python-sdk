@@ -113,6 +113,12 @@ async def test_client_is_initialized(app: MCPServer):
         assert client.initialize_result.server_info.name == "test"
 
 
+async def test_client_initialize_result_exposes_negotiated_protocol_version(app: MCPServer):
+    """The negotiated protocol version is readable after initialization."""
+    async with Client(app) as client:
+        assert client.initialize_result.protocol_version == types.LATEST_PROTOCOL_VERSION
+
+
 async def test_client_with_simple_server(simple_server: Server):
     """Test that from_server works with a basic Server instance."""
     async with Client(simple_server) as client:

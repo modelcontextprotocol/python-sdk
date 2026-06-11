@@ -1135,7 +1135,7 @@ from mcp.server import ServerRequestContext
 
 ### `ServerSession` is now a thin proxy (no longer a `BaseSession`)
 
-`ServerSession` no longer subclasses `BaseSession`. It is now a small connection-scoped proxy that exposes `send_request`, `send_notification`, the typed convenience helpers (`create_message`, `elicit_form`, `send_log_message`, `send_tool_list_changed`, ...), `client_params`, and `check_client_capability`. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
+`ServerSession` no longer subclasses `BaseSession`. It is now a small connection-scoped proxy that exposes `send_request`, `send_notification`, the typed convenience helpers (`create_message`, `elicit_form`, `send_log_message`, `send_tool_list_changed`, ...), `client_params`, `protocol_version`, and `check_client_capability`. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
 
 `ServerSession` is normally constructed for you by `Server.run()` and reached via `ctx.session` in handlers, so most servers are unaffected. If you were constructing or subclassing it directly:
 
@@ -1182,27 +1182,35 @@ Tasks are expected to return as a separate MCP extension in a future release.
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
 
-### Extra fields no longer allowed on top-level MCP types
+### Unknown request methods now return `-32601` (Method not found)
 
-MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
+In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Any method the receiver doesn't serve — unrecognized, or a spec method with no registered handler — is now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data`, on both the server and the client side, in every initialization state. Update anything that matched on the old code for this case.
+
+### Extra fields on MCP types are no longer preserved
+
+In v1, MCP protocol types were configured with `extra="allow"`: unknown fields passed to a constructor or received from a peer were kept on the model and re-serialized on output.
+
+In v2, MCP types silently ignore extra fields. Unknown constructor keyword arguments and unknown keys in wire data are dropped during validation — no error is raised, and the values do not round-trip:
 
 ```python
-# This will now raise a validation error
 from mcp.types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
     arguments={},
-    unknown_field="value",  # ValidationError: extra fields not permitted
+    unknown_field="value",  # silently ignored, not stored
 )
+"unknown_field" in params.model_dump()  # False
 
-# Extra fields are still allowed in _meta
+# _meta remains the supported place for custom data, per the MCP spec
 params = CallToolRequestParams(
     name="my_tool",
     arguments={},
-    _meta={"my_custom_key": "value", "another": 123},  # OK
+    _meta={"my_custom_key": "value", "another": 123},  # OK, preserved
 )
 ```
+
+If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
 ## New Features
 

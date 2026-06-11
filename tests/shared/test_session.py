@@ -9,6 +9,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
@@ -16,6 +17,7 @@ from mcp.types import (
     EmptyResult,
     ErrorData,
     JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ServerNotification,
@@ -403,3 +405,43 @@ async def test_null_id_error_does_not_affect_pending_request():
     # Pending request completed successfully
     assert len(result_holder) == 1
     assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_receive_loop_answers_unknown_request_method_with_method_not_found():
+    """A peer request whose method is not in the receive union gets -32601
+    (METHOD_NOT_FOUND) on the wire, not a validation failure (-32602)."""
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with ClientSession(read_stream=client_read, write_stream=client_write):
+            await server_write.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="x/unknown")))
+            with anyio.fail_after(5):  # pragma: no branch
+                out = await server_read.receive()
+
+    assert isinstance(out, SessionMessage)
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.id == 7
+    assert out.message.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="x/unknown")
+
+
+@pytest.mark.anyio
+async def test_receive_loop_drops_unknown_notification_method_without_response():
+    """An unknown notification method is dropped silently: JSON-RPC forbids
+    responses to notifications, and the receive loop keeps serving."""
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with ClientSession(read_stream=client_read, write_stream=client_write):
+            await server_write.send(SessionMessage(message=JSONRPCNotification(jsonrpc="2.0", method="x/unknown")))
+            # The next wire output must be the answer to this follow-up ping,
+            # proving the notification produced no response and the loop survived.
+            await server_write.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            with anyio.fail_after(5):  # pragma: no branch
+                out = await server_read.receive()
+
+    assert isinstance(out, SessionMessage)
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.id == 1

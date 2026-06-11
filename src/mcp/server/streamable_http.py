@@ -28,7 +28,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
@@ -238,7 +238,7 @@ class StreamableHTTPServerTransport:
         the stream is closed early because they didn't receive a priming event.
         """
         # Only provide close callbacks when client supports resumability
-        if self._event_store and protocol_version >= "2025-11-25":
+        if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
             async def close_stream_callback() -> None:
                 self.close_sse_stream(request_id)
@@ -271,7 +271,7 @@ class StreamableHTTPServerTransport:
         if not self._event_store:
             return
         # Priming events have empty data which older clients cannot handle.
-        if protocol_version < "2025-11-25":
+        if not is_version_at_least(protocol_version, "2025-11-25"):
             return
         priming_event_id = await self._event_store.store_event(
             str(request_id),  # Convert RequestId to StreamId (str)

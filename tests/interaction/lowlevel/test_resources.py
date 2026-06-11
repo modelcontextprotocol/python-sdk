@@ -236,7 +236,9 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
         with pytest.raises(MCPError) as exc_info:
             await client.subscribe_resource("file:///watched.txt")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
+    )
 
 
 @requirement("resources:unsubscribe")

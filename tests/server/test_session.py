@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 
 from mcp import types
+from mcp.server import Server, ServerRequestContext
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions
@@ -25,6 +26,8 @@ from mcp.types import (
     SamplingCapability,
     SamplingToolsCapability,
 )
+
+from .test_runner import connected_runner
 
 
 class StubDispatcher:
@@ -158,3 +161,64 @@ def test_check_client_capability_delegates_to_connection():
     session = _make_session(dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability()))
     assert session.check_client_capability(ClientCapabilities(sampling=SamplingCapability())) is True
     assert session.check_client_capability(ClientCapabilities(experimental={"x": {}})) is False
+
+
+def _runner_server(seen_versions: list[str | None]) -> Server[dict[str, Any]]:
+    """A lowlevel Server whose tools/list handler records `ctx.session.protocol_version`."""
+
+    async def list_tools(
+        ctx: ServerRequestContext[dict[str, Any], Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        seen_versions.append(ctx.session.protocol_version)
+        return types.ListToolsResult(tools=[])
+
+    return Server(name="test-server", version="0.0.1", on_list_tools=list_tools)
+
+
+def _init_params(protocol_version: str) -> dict[str, Any]:
+    return InitializeRequestParams(
+        protocol_version=protocol_version,
+        capabilities=ClientCapabilities(),
+        client_info=Implementation(name="test-client", version="1.0"),
+    ).model_dump(by_alias=True, exclude_none=True)
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_none_before_initialize():
+    """No negotiated version is readable before the initialize handshake."""
+    async with connected_runner(_runner_server([]), initialized=False) as (_client, runner):
+        assert runner.session.protocol_version is None
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_negotiated_version_after_initialize():
+    """A supported requested version is echoed back and readable on the session,
+    both directly and from inside a handler via `ctx.session`."""
+    seen: list[str | None] = []
+    async with connected_runner(_runner_server(seen), initialized=False) as (client, runner):
+        result = await client.send_raw_request("initialize", _init_params("2025-03-26"))
+        assert result["protocolVersion"] == "2025-03-26"
+        assert runner.session.protocol_version == "2025-03-26"
+        await client.send_raw_request("tools/list", None)
+        assert seen == ["2025-03-26"]
+
+
+@pytest.mark.anyio
+async def test_protocol_version_reads_latest_when_requested_version_unsupported():
+    """An unsupported requested version negotiates down to LATEST_PROTOCOL_VERSION."""
+    async with connected_runner(_runner_server([]), initialized=False) as (client, runner):
+        result = await client.send_raw_request("initialize", _init_params("1999-01-01"))
+        assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
+        assert runner.session.protocol_version == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_none_on_stateless_connection():
+    """Stateless connections never see a handshake: requests flow, but the
+    negotiated version legitimately stays None."""
+    seen: list[str | None] = []
+    async with connected_runner(_runner_server(seen), initialized=False, stateless=True) as (client, runner):
+        result = await client.send_raw_request("tools/list", None)
+        assert result == {"tools": []}
+        assert seen == [None]
+        assert runner.session.protocol_version is None

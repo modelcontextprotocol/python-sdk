@@ -819,6 +819,24 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+@pytest.mark.parametrize(
+    ("protocol_version", "expected"),
+    [
+        ("2025-03-26", False),
+        ("2025-06-18", True),
+        ("2025-11-25", True),
+        # Unrecognized strings gate conservatively, even ones sorting after 2025-06-18.
+        ("zzz", False),
+        ("9999-99-99", False),
+    ],
+)
+def test_should_include_resource_param_by_protocol_version(
+    oauth_provider: OAuthClientProvider, protocol_version: str, expected: bool
+) -> None:
+    """Resource param is included only for recognized versions >= 2025-06-18."""
+    assert oauth_provider.context.should_include_resource_param(protocol_version) is expected
+
+
 @pytest.mark.anyio
 async def test_validate_resource_rejects_mismatched_resource(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
