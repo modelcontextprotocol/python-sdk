@@ -4,9 +4,10 @@ Contains tests for both server and client sides of the StreamableHTTP transport,
 entirely in process.
 """
 
+import gc
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -69,6 +70,23 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"),
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _collect_leaked_streams() -> Iterator[None]:
+    """Garbage-collect each test's leaked memory streams inside its own teardown.
+
+    The filterwarnings marks above only apply while a test in this file is the
+    active warning context. The leaked streams sit in reference cycles, so without
+    a forced collection their deallocator warnings fire wherever the garbage
+    collector happens to run next: during an unrelated test (failing it, since the
+    global ``filterwarnings = ["error"]`` has no ignore there) or at pytest's
+    session-unconfigure unraisable sweep (exit code 1 after all tests passed when
+    running without xdist, e.g. ``-n 0`` for ``--pdb`` debugging).
+    """
+    yield
+    gc.collect()
+
 
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
