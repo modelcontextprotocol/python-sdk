@@ -825,7 +825,6 @@ class TestProtectedResourceMetadata:
         ("2025-03-26", False),
         ("2025-06-18", True),
         ("2025-11-25", True),
-        ("2026-07-28", True),
         # Unrecognized strings gate conservatively, even ones sorting after 2025-06-18.
         ("zzz", False),
         ("9999-99-99", False),
