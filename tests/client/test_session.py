@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 import anyio
+import anyio.abc
 import anyio.streams.memory
 import pytest
 
 from mcp import types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INVALID_PARAMS,
@@ -779,7 +783,11 @@ async def test_receive_loop_drops_unknown_notification_method_without_response()
 
 @pytest.mark.anyio
 async def test_raising_sampling_callback_answers_with_code_zero():
-    """A raising request callback is answered through the dispatcher's exception boundary."""
+    """A raising sampling callback propagates out of the session's request router
+    into the dispatcher's exception boundary, which answers with code 0 and
+    `str(exc)` (SDK-defined shape, pinned at the dispatcher in
+    tests/shared/test_jsonrpc_dispatcher.py). Raw streams because the assertion
+    is the outbound `JSONRPCError` envelope itself."""
 
     async def boom(ctx: object, params: object) -> types.CreateMessageResult:
         raise RuntimeError("sampling boom")
@@ -799,7 +807,10 @@ async def test_raising_sampling_callback_answers_with_code_zero():
 
 @pytest.mark.anyio
 async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest.LogCaptureFixture):
-    """A notification that fails ServerNotification validation is logged and dropped."""
+    """A notification that fails `ServerNotification` validation is logged and
+    dropped without reaching `message_handler`, and the loop keeps serving
+    (SDK-defined). Scripted peer: the typed API cannot emit a method outside
+    the spec's notification union."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -819,19 +830,66 @@ async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest
 
 
 @pytest.mark.anyio
-async def test_receive_loop_forwards_transport_exception_to_message_handler():
+async def test_raising_message_handler_on_transport_exception_costs_the_delivery_not_the_connection(
+    caplog: pytest.LogCaptureFixture,
+):
+    """A transport-level `Exception` item on the read stream reaches
+    `message_handler` (SDK-defined: the stream-built session wires the
+    dispatcher's `on_stream_exception` to spawn handler deliveries), and a
+    handler that raises is contained by the session — the failure is logged
+    and the receive loop keeps serving, proven by a follow-up ping
+    round-trip. Raw streams because only a transport can put an `Exception`
+    item on the read stream."""
     seen: list[object] = []
     delivered = anyio.Event()
 
     async def handler(msg: object) -> None:
         seen.append(msg)
         delivered.set()
+        # No checkpoint between set() and the session's containment logging
+        # the raise, so once wait() resumes the log entry exists.
+        raise RuntimeError("handler boom")
 
-    async with raw_client_session(message_handler=handler) as (_session, to_client, _):
+    async with raw_client_session(message_handler=handler) as (_session, to_client, from_client):
         exc = ValueError("bad bytes")
         await to_client.send(exc)
         await delivered.wait()
+        # Loop health: a follow-up inbound ping is still answered.
+        await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=9, method="ping")))
+        out = await from_client.receive()
     assert seen == [exc]
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.id == 9
+    assert "message_handler raised on transport exception" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_message_handler_awaiting_session_traffic_on_transport_exception_completes():
+    """A message_handler that reacts to a transport-level `Exception` item by
+    awaiting session traffic (a ping round-trip) completes instead of
+    deadlocking: the session spawns fault deliveries into its task group
+    rather than running them inline in the dispatcher's read loop
+    (SDK-defined). Raw streams because only a transport can put an
+    `Exception` item on the read stream."""
+    ponged = anyio.Event()
+
+    # The constructor takes the handler, so it is defined before the session
+    # exists; `session` resolves at call time, after the `as` clause binds it.
+    async def handler(msg: object) -> None:
+        assert isinstance(msg, Exception)
+        await session.send_ping()
+        ponged.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, from_client):
+        await to_client.send(ValueError("bad bytes"))
+        # Serve the handler's ping like a transport would. Pre-spawn this
+        # deadlocked: the read loop was parked inside the handler, so the
+        # response below could never be dequeued.
+        out = await from_client.receive()
+        assert isinstance(out.message, JSONRPCRequest)
+        assert out.message.method == "ping"
+        await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
+        await ponged.wait()
 
 
 @pytest.mark.anyio
@@ -841,6 +899,8 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
     The server dispatcher now emits this on sampling/elicitation timeout, but
     ClientSession has no in-flight tracking to act on it, so surfacing it would
     only break user handlers that exhaustively match ServerNotification.
+    Scripted peer: the typed server API has no way to emit a bare
+    `notifications/cancelled`.
     """
     seen: list[object] = []
     delivered = anyio.Event()
@@ -868,45 +928,59 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
 
 
 @pytest.mark.anyio
-async def test_progress_callback_exception_is_swallowed(caplog: pytest.LogCaptureFixture):
+async def test_progress_notification_reaches_request_callback_and_message_handler():
+    """A `notifications/progress` for an in-flight request reaches the
+    `progress_callback` passed to `send_request` and still tees to
+    `message_handler` as a typed `ProgressNotification` — the wiring this layer
+    adds over the dispatcher (callback dispatch and exception containment are
+    pinned in tests/shared/test_jsonrpc_dispatcher.py). Scripted peer: the
+    progress token must echo the wire-level request id, which only raw-stream
+    observation exposes."""
+    updates: list[tuple[float, float | None, str | None]] = []
+    teed: list[types.ProgressNotification] = []
+    request_id: types.RequestId | None = None
+    progressed = anyio.Event()
     delivered = anyio.Event()
 
-    async def boom(progress: float, total: float | None, message: str | None) -> None:
-        raise RuntimeError("progress boom")
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        updates.append((progress, total, message))
+        progressed.set()
 
     async def handler(msg: object) -> None:
         # Only the progress notification is teed to the message handler here.
         assert isinstance(msg, types.ProgressNotification)
+        teed.append(msg)
         delivered.set()
 
     async with raw_client_session(message_handler=handler) as (session, to_client, from_client):
         async with anyio.create_task_group() as tg:
 
             async def call() -> None:
-                await session.send_request(types.PingRequest(), types.EmptyResult, progress_callback=boom)
+                await session.send_request(types.PingRequest(), types.EmptyResult, progress_callback=on_progress)
 
             tg.start_soon(call)
             request = await from_client.receive()
             assert isinstance(request.message, JSONRPCRequest)
+            request_id = request.message.id
             # The request id doubles as the progress token.
-            params = {"progressToken": request.message.id, "progress": 0.5}
+            params = {"progressToken": request_id, "progress": 0.5, "total": 1.0, "message": "halfway"}
             await to_client.send(
                 SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress", params=params))
             )
-            # The progress notification also reaches the message handler; the
-            # raising callback was swallowed and logged.
+            await progressed.wait()
             await delivered.wait()
-            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={})))
-    assert "progress callback raised" in caplog.text
+            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
+    assert updates == [(0.5, 1.0, "halfway")]
+    assert request_id is not None
+    assert len(teed) == 1
+    assert teed[0].params == types.ProgressNotificationParams(
+        progress_token=request_id, progress=0.5, total=1.0, message="halfway"
+    )
 
 
 @pytest.mark.anyio
 async def test_dispatcher_keyword_runs_over_direct_dispatch():
     """A session built with dispatcher= works without a stream pair (in-process embedding)."""
-    from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-    from mcp.shared.dispatcher import DispatchContext
-    from mcp.shared.transport_context import TransportContext
-
     client_side, server_side = create_direct_dispatcher_pair()
 
     async def server_on_request(
@@ -939,9 +1013,55 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
     assert notified == ["notifications/roots/list_changed"]
 
 
-def test_constructor_rejects_streams_and_dispatcher_together():
-    from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+@pytest.mark.anyio
+async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_leave_it_unset():
+    """`send_request` passes `cancel_on_abandon=False` to the dispatcher for
+    `initialize` — the spec forbids cancelling it — and leaves the option unset
+    for every other method. Both dispatcher abandon arms (timeout and caller
+    cancel) key off this one option; the suppression mechanics are pinned in
+    tests/shared/test_jsonrpc_dispatcher.py."""
 
+    class RecordingDispatcher:
+        """Records `send_raw_request` opts and answers with canned results."""
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, CallOptions]] = []
+
+        async def run(
+            self,
+            on_request: OnRequest,
+            on_notify: OnNotify,
+            *,
+            task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+        ) -> None:
+            task_status.started()
+            await anyio.sleep_forever()
+
+        async def send_raw_request(
+            self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+        ) -> dict[str, Any]:
+            self.calls.append((method, opts or {}))
+            if method == "initialize":
+                return InitializeResult(
+                    protocol_version=LATEST_PROTOCOL_VERSION,
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="mock-server", version="0.1.0"),
+                ).model_dump(by_alias=True, mode="json", exclude_none=True)
+            return {}
+
+        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+            pass
+
+    dispatcher = RecordingDispatcher()
+    async with ClientSession(dispatcher=dispatcher) as session:
+        await session.initialize()
+        await session.send_ping()
+    opts_by_method = dict(dispatcher.calls)
+    assert opts_by_method["initialize"].get("cancel_on_abandon") is False
+    assert "cancel_on_abandon" not in opts_by_method["ping"]
+
+
+def test_constructor_rejects_streams_and_dispatcher_together():
     client_side, _server_side = create_direct_dispatcher_pair()
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     with pytest.raises(ValueError, match="not both"):
@@ -961,10 +1081,48 @@ def test_constructor_requires_both_streams_without_dispatcher():
 
 
 @pytest.mark.anyio
+async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
+    """Cancellation landing while `__aenter__` waits for the dispatcher to
+    start (e.g. the caller wrapped connect in `move_on_after`) unwinds the
+    half-entered task group: the enclosing scope exits via its own deadline
+    instead of anyio's "exited non-innermost cancel scope" RuntimeError, and
+    the session is left un-entered (SDK-defined unwind path)."""
+
+    class NeverStartsDispatcher:
+        """`run()` parks without ever signalling `task_status.started()`."""
+
+        async def run(
+            self,
+            on_request: OnRequest,
+            on_notify: OnNotify,
+            *,
+            task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+        ) -> None:
+            await anyio.sleep_forever()
+
+        async def send_raw_request(
+            self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+        ) -> dict[str, Any]:
+            raise NotImplementedError
+
+        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+            raise NotImplementedError
+
+    session = ClientSession(dispatcher=NeverStartsDispatcher())
+    async with AsyncExitStack() as stack:
+        # The deadline only ends the wait: `start()` is parked forever (and
+        # `TaskGroup.__aenter__` has no checkpoint to absorb the cancellation
+        # earlier), so any duration is non-racy.
+        with anyio.move_on_after(0.01) as scope:
+            await stack.enter_async_context(session)
+    assert scope.cancelled_caught
+    # The failed enter must not leave the session half-entered.
+    assert session._task_group is None
+
+
+@pytest.mark.anyio
 async def test_send_request_with_server_metadata_routes_related_request_id():
     """ServerMessageMetadata.related_request_id is threaded onto the outgoing message."""
-    from mcp.shared.message import ServerMessageMetadata
-
     async with raw_client_session() as (session, to_client, from_client):
         async with anyio.create_task_group() as tg:
 
@@ -984,8 +1142,6 @@ async def test_send_request_with_server_metadata_routes_related_request_id():
 @pytest.mark.anyio
 async def test_send_notification_with_related_request_id_attaches_metadata():
     """A related_request_id on a notification rides the originating request's stream."""
-    from mcp.shared.message import ServerMessageMetadata
-
     async with raw_client_session() as (session, _to_client, from_client):
         await session.send_notification(
             types.ProgressNotification(
@@ -996,3 +1152,22 @@ async def test_send_notification_with_related_request_id_attaches_metadata():
         out = await from_client.receive()
     assert isinstance(out.metadata, ServerMessageMetadata)
     assert out.metadata.related_request_id == 4
+
+
+@pytest.mark.anyio
+async def test_send_notification_with_related_request_id_zero_attaches_metadata():
+    """`related_request_id=0` still routes onto the originating request's
+    stream: request ids are opaque and 0 is a valid one, so the session must
+    check `is not None` rather than truthiness (regression pin for the
+    falsy-zero gap). Wire-level because the metadata attachment is only
+    observable on the sent `SessionMessage`."""
+    async with raw_client_session() as (session, _to_client, from_client):
+        await session.send_notification(
+            types.ProgressNotification(
+                params=types.ProgressNotificationParams(progress_token=1, progress=0.5),
+            ),
+            related_request_id=0,
+        )
+        out = await from_client.receive()
+    assert isinstance(out.metadata, ServerMessageMetadata)
+    assert out.metadata.related_request_id == 0

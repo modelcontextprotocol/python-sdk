@@ -129,7 +129,10 @@ class ClientSession:
 
     Transport-level `Exception` items reach `message_handler` only when the
     session builds its own dispatcher from streams, where it wires the
-    dispatcher's `on_stream_exception` itself.
+    dispatcher's `on_stream_exception` itself. Faults are delivered
+    concurrently in the session's task group, like notifications — never
+    inline in the read loop — so the handler may await session I/O, and one
+    that raises costs that delivery, not the connection.
     """
 
     def __init__(
@@ -174,7 +177,26 @@ class ClientSession:
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
-        await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+        try:
+            await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+        except BaseException:
+            # A cancellation landing here (e.g. the caller wrapped connect in
+            # `move_on_after`) would abandon the entered task group, and anyio
+            # later raises "exited non-innermost cancel scope" instead of a
+            # clean timeout. Unwind the group before propagating; cancelling
+            # its scope first keeps __aexit__ from blocking under the
+            # still-active cancellation.
+            task_group = self._task_group
+            self._task_group = None
+            task_group.cancel_scope.cancel()
+            # Shield the group's own scope (not a new one: scope exits must
+            # stay LIFO) so a pending outer cancellation cannot re-fire
+            # inside __aexit__; the join is prompt because the scope is
+            # cancelled. The original exception then propagates from the
+            # `raise`; a child error supersedes it, raised by __aexit__.
+            task_group.cancel_scope.shield = True
+            await task_group.__aexit__(None, None, None)
+            raise
         return self
 
     async def __aexit__(
@@ -209,8 +231,10 @@ class ClientSession:
 
         Raises:
             MCPError: The server responded with an error, or the read timeout
-                elapsed, or the connection closed while waiting.
-            RuntimeError: Called before entering the context manager.
+                elapsed, or the connection closed while sending or waiting.
+            RuntimeError: Called before entering the context manager. Raised
+                by the stream-built dispatcher; a user-supplied `dispatcher=`
+                may not enforce this.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
@@ -249,7 +273,8 @@ class ClientSession:
     ) -> None:
         """Send a one-way notification. Usable before entering the context manager."""
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if related_request_id and isinstance(self._dispatcher, JSONRPCDispatcher):
+        # `is not None`, not truthiness: request ids are opaque and 0 is valid.
+        if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
             await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)
         else:
             await self._dispatcher.notify(data["method"], data.get("params"))
@@ -561,5 +586,21 @@ class ClientSession:
         await self._message_handler(notification)
 
     async def _on_stream_exception(self, exc: Exception) -> None:
-        """Forward transport-level faults (connection errors, parse errors) to message_handler."""
-        await self._message_handler(exc)
+        """Spawn delivery of a transport-level fault (connection error, parse error) to message_handler.
+
+        The dispatcher awaits this observer inline in its read loop, so the
+        handler must not run here: a slow handler would head-of-line block the
+        session, and one that awaits session I/O (e.g. sends a ping) would
+        deadlock against the parked loop. Spawn it instead, with the same
+        containment notification deliveries get.
+        """
+        # The dispatcher only runs inside the task group entered in
+        # __aenter__, so the group is always live when it calls back here.
+        assert self._task_group is not None
+        self._task_group.start_soon(self._deliver_stream_exception, exc)
+
+    async def _deliver_stream_exception(self, exc: Exception) -> None:
+        try:
+            await self._message_handler(exc)
+        except Exception:
+            logger.exception("message_handler raised on transport exception")
