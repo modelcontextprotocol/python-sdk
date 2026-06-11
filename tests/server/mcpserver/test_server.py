@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,12 +15,14 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.server import ToolResult
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    CallToolResult,
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -303,6 +305,64 @@ class TestServerTools:
             # Check structured content - int return type should have structured output
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
+
+    def test_call_tool_return_annotation_matches_reachable_shapes(self):
+        hints = get_type_hints(MCPServer.call_tool)
+        assert hints["return"] == ToolResult
+
+    async def test_call_tool_preserves_direct_call_tool_result(self):
+        mcp = MCPServer()
+
+        @mcp.tool()
+        def direct_result() -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text="direct")])
+
+        result = await mcp.call_tool("direct_result", {})
+        assert isinstance(result, CallToolResult)
+        assert result.content == [TextContent(type="text", text="direct")]
+
+        async with Client(mcp) as client:
+            handled = await client.call_tool("direct_result", {})
+            assert handled.content == result.content
+            assert handled.structured_content is None
+
+    async def test_call_tool_wraps_bare_content_sequence(self):
+        mcp = MCPServer()
+
+        def raw_blocks() -> list[ContentBlock]:
+            return [TextContent(type="text", text="raw")]
+
+        mcp.add_tool(raw_blocks, structured_output=False)
+
+        result = await mcp.call_tool("raw_blocks", {})
+        assert isinstance(result, list)
+        assert all(isinstance(item, ContentBlock) for item in result)
+
+        async with Client(mcp) as client:
+            handled = await client.call_tool("raw_blocks", {})
+            assert handled.content == result
+            assert handled.structured_content is None
+
+    async def test_call_tool_wraps_structured_tuple_result(self):
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+
+        def get_user() -> UserOutput:
+            return UserOutput(name="John Doe", age=30)
+
+        mcp = MCPServer()
+        mcp.add_tool(get_user)
+
+        result = await mcp.call_tool("get_user", {})
+        assert isinstance(result, tuple)
+        unstructured_content, structured_content = result
+        assert structured_content == {"name": "John Doe", "age": 30}
+
+        async with Client(mcp) as client:
+            handled = await client.call_tool("get_user", {})
+            assert handled.content == list(unstructured_content)
+            assert handled.structured_content == structured_content
 
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image
