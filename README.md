@@ -18,8 +18,9 @@
 > [!NOTE]
 > **This README documents v1.x of the MCP Python SDK (the current stable release).**
 >
-> For v1.x code and documentation, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
-> For the upcoming v2 documentation (pre-alpha, in development on `main`), see [`README.v2.md`](README.v2.md).
+> **v2 is in alpha.** Pre-releases are published to PyPI as `2.0.0aN` and can be installed with an explicit pin, for example `pip install mcp==2.0.0a1`. See [`README.v2.md`](README.v2.md) for the v2 documentation and the [migration guide](docs/migration.md) for what's changed. We're targeting a beta on 2026-06-30 and a stable v2 on 2026-07-27. If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.
+>
+> For v1.x code and documentation, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x). v1.x is in maintenance mode and continues to receive critical bug fixes and security patches.
 
 <!-- omit in toc -->
 ## Table of Contents

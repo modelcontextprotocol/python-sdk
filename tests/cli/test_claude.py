@@ -1,22 +1,54 @@
 """Tests for mcp.cli.claude — Claude Desktop config file generation."""
 
+import importlib.metadata
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from mcp.cli.claude import get_uv_path, update_claude_config
+from mcp.cli.claude import get_uv_path, mcp_requirement, update_claude_config
+
+
+def _set_mcp_version(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    real_version = importlib.metadata.version
+
+    def fake_version(distribution_name: str) -> str:
+        return version if distribution_name == "mcp" else real_version(distribution_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
 
 
 @pytest.fixture
 def config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Temp Claude config dir with get_claude_config_path and get_uv_path mocked."""
+    """Temp Claude config dir with the config path, uv path, and SDK version mocked."""
     claude_dir = tmp_path / "Claude"
     claude_dir.mkdir()
     monkeypatch.setattr("mcp.cli.claude.get_claude_config_path", lambda: claude_dir)
     monkeypatch.setattr("mcp.cli.claude.get_uv_path", lambda: "/fake/bin/uv")
+    # The ambient version is a dev build in the repo venv but varies by
+    # environment; pin it so the generated --with requirement is stable.
+    _set_mcp_version(monkeypatch, "1.2.3")
     return claude_dir
+
+
+def test_mcp_requirement_pins_release_versions(monkeypatch: pytest.MonkeyPatch):
+    """Release versions produce an exact pin so spawned environments run the installed SDK version."""
+    _set_mcp_version(monkeypatch, "2.0.0a1")
+    assert mcp_requirement() == "mcp==2.0.0a1"
+    assert mcp_requirement("mcp[cli]") == "mcp[cli]==2.0.0a1"
+
+
+def test_mcp_requirement_leaves_dev_versions_unpinned(monkeypatch: pytest.MonkeyPatch):
+    """Dev versions are not published to PyPI, so the requirement falls back to the unpinned package."""
+    _set_mcp_version(monkeypatch, "2.0.0a2.dev3")
+    assert mcp_requirement() == "mcp"
+
+
+def test_mcp_requirement_leaves_local_versions_unpinned(monkeypatch: pytest.MonkeyPatch):
+    """Local version segments (source builds) are not published to PyPI, so no pin is emitted."""
+    _set_mcp_version(monkeypatch, "1.2.3+g0123abc")
+    assert mcp_requirement() == "mcp"
 
 
 def _read_server(config_dir: Path, name: str) -> dict[str, Any]:
@@ -31,7 +63,7 @@ def test_generates_uv_run_command(config_dir: Path):
     resolved = Path("server.py").resolve()
     assert _read_server(config_dir, "my_server") == {
         "command": "/fake/bin/uv",
-        "args": ["run", "--frozen", "--with", "mcp[cli]", "mcp", "run", f"{resolved}:app"],
+        "args": ["run", "--frozen", "--with", "mcp[cli]==1.2.3", "mcp", "run", f"{resolved}:app"],
     }
 
 
@@ -47,7 +79,7 @@ def test_with_packages_sorted_and_deduplicated(config_dir: Path):
     assert update_claude_config(file_spec="s.py:app", server_name="s", with_packages=["zebra", "aardvark", "zebra"])
 
     args = _read_server(config_dir, "s")["args"]
-    assert args[:8] == ["run", "--frozen", "--with", "aardvark", "--with", "mcp[cli]", "--with", "zebra"]
+    assert args[:8] == ["run", "--frozen", "--with", "aardvark", "--with", "mcp[cli]==1.2.3", "--with", "zebra"]
 
 
 def test_with_editable_adds_flag(config_dir: Path, tmp_path: Path):
