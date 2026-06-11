@@ -49,9 +49,12 @@ BASE_URL = "http://127.0.0.1:8000"
 # v1's HTTP server transports leak a handful of anyio memory streams on teardown when run in
 # process; the old subprocess harness never observed them. The interaction suite registers the
 # same two scoped filters globally from tests/interaction/conftest.py (see the comment there),
-# but they only take effect when that package's conftest is loaded; these markers keep this file
-# self-contained for isolated runs. The filters are scoped to anyio's MemoryObject*Stream leak
-# signature so an unrelated leak still fails the suite.
+# but they only take effect when that package's conftest is loaded; these markers keep the tests
+# themselves passing in isolated runs. Markers are item-scoped, so they cannot cover the GC
+# flush at session cleanup: an isolated run without xdist (`-n 0`) still exits nonzero after all
+# tests pass. The default xdist runs (addopts has `-n auto`) are unaffected, as are full-suite
+# runs, where the interaction conftest's ini-level filters apply. The filters are scoped to
+# anyio's MemoryObject*Stream leak signature so an unrelated leak still fails the suite.
 pytestmark = [
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"),
     pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning"),
@@ -60,18 +63,22 @@ pytestmark = [
 
 @pytest.fixture(autouse=True)
 def _reset_sse_starlette_exit_event() -> Iterator[None]:
-    """Reset sse-starlette's module-global exit Event after each test.
+    """Reset sse-starlette's module-global exit Event around each test.
 
     sse-starlette <3.0 (allowed by this branch's dependency floor; CI's lowest-direct leg
     installs it) stores an `anyio.Event` on the `AppStatus` class the first time an
     `EventSourceResponse` runs; that Event is bound to the test's event loop and breaks every
     subsequent in-process SSE response. sse-starlette 3.x switched to a ContextVar and has no
-    such attribute. This mirrors the autouse fixture in tests/interaction/conftest.py, which
-    guards the interaction suite the same way.
+    such attribute. Resetting on both sides of the test keeps this module immune to a stale
+    Event left behind by an earlier test on the same worker as well as cleaning up after its
+    own. This mirrors the autouse fixture in tests/interaction/conftest.py, which guards the
+    interaction suite the same way.
     """
-    yield
     if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
         # setattr keeps pyright happy: the locked sse-starlette 3.x has no such attribute.
+        setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
+    yield
+    if hasattr(AppStatus, "should_exit_event"):  # pragma: no branch
         setattr(AppStatus, "should_exit_event", None)  # pragma: lax no cover
 
 
