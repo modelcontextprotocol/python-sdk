@@ -61,8 +61,11 @@ class CallOptions(TypedDict, total=False):
     A request is abandoned when its `timeout` elapses or the caller's scope is
     cancelled while awaiting the response. Defaults to `True`. Set `False` for
     requests the protocol forbids cancelling, such as `initialize`. The
-    notification is also suppressed when resumption hints are present: the
-    caller intends to resume the request, so the peer's work must keep running.
+    notification is also suppressed when resumption hints actually reach the
+    transport (the caller intends to resume the request, so the peer's work
+    must keep running); hints ignored in favor of dispatch-context routing do
+    not suppress it. No notification is sent for a request that was never
+    written to the transport.
     """
 
     on_progress: ProgressFnT
@@ -197,6 +200,10 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
 
     Implementations own correlation of outbound requests to inbound results, the
     receive loop, per-request concurrency, and cancellation/progress wiring.
+
+    The protocol's lifecycle surface is provisional and expected to change
+    before v2 stable (`run()` may be superseded by an `open()`/`wait_closed()`
+    pair).
     """
 
     async def run(
