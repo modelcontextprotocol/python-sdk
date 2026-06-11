@@ -19,6 +19,21 @@ SERVER_NAME = "test_streamable_http_security_server"
 # Host header is a localhost form; nothing listens here.
 BASE_URL = "http://127.0.0.1:8000"
 
+# v1's streamable-HTTP server transport leaks a handful of anyio memory streams on teardown when
+# run in process; the old subprocess harness never observed them. The interaction suite registers
+# the same two scoped filters globally from tests/interaction/conftest.py (see the comment there),
+# but they only take effect when that package's conftest is loaded; these markers keep the tests
+# that complete the initialize handshake passing in isolated runs. Markers are item-scoped, so
+# they cannot cover the GC flush at session cleanup: an isolated run without xdist (`-n 0`) still
+# exits nonzero after all tests pass. The default xdist runs (addopts has `-n auto`) are
+# unaffected, as are full-suite runs, where the interaction conftest's ini-level filters apply.
+# The filters are scoped to anyio's MemoryObject*Stream leak signature so an unrelated leak
+# still fails the suite.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:pytest.PytestUnraisableExceptionWarning"),
+    pytest.mark.filterwarnings("ignore:.*MemoryObject(Send|Receive)Stream:ResourceWarning"),
+]
+
 
 @asynccontextmanager
 async def streamable_http_security_client(
