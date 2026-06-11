@@ -44,6 +44,7 @@ import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
+from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
@@ -108,14 +109,25 @@ class ServerSession(
         return self._client_params  # pragma: no cover
 
     @property
-    def experimental(self) -> ExperimentalServerSessionFeatures:
-        """Experimental APIs for server→client task operations.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
+    def _experimental(self) -> ExperimentalServerSessionFeatures:
+        """Internal accessor for experimental features that skips the deprecation warning."""
         if self._experimental_features is None:
             self._experimental_features = ExperimentalServerSessionFeatures(self)
         return self._experimental_features
+
+    @property
+    @deprecated(
+        "The experimental tasks API is deprecated and will be removed in mcp 2.0: tasks (SEP-1686) were removed"
+        " from the MCP specification and are expected to return as a separate MCP extension."
+    )
+    def experimental(self) -> ExperimentalServerSessionFeatures:
+        """Experimental APIs for server→client task operations.
+
+        Deprecated: the experimental tasks API will be removed in mcp 2.0. Tasks
+        (SEP-1686) were removed from the MCP specification and are expected to
+        return as a separate MCP extension.
+        """
+        return self._experimental
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
         """Check if the client supports a specific capability."""

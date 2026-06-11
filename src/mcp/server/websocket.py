@@ -6,6 +6,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
+from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
@@ -13,11 +14,18 @@ from mcp.shared.message import SessionMessage
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager  # pragma: no cover
+@deprecated(  # pragma: no cover
+    "The WebSocket server transport is deprecated and will be removed in mcp 2.0. WebSocket was never part of"
+    " the MCP specification; use the streamable HTTP transport instead."
+)
+@asynccontextmanager
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
+
+    Deprecated: this transport will be removed in mcp 2.0. WebSocket was never
+    part of the MCP specification; use the streamable HTTP transport instead.
     """
 
     websocket = WebSocket(scope, receive, send)

@@ -181,7 +181,7 @@ async def test_run_task_with_an_explicit_task_id_emits_a_deprecation_warning() -
         # deprecated argument has been reported.
         with pytest.raises(RuntimeError, match="Task support not enabled"):
             # The deliberate use of the deprecated overload is the point of this test.
-            await exp.run_task(work, task_id="explicitly-chosen")  # pyright: ignore[reportDeprecated]
+            await exp.run_task(work, task_id="explicitly-chosen")
 
 
 @pytest.mark.anyio

@@ -1,8 +1,10 @@
 # Client Task Usage
 
-!!! warning "Experimental"
+!!! warning "Deprecated"
 
-    Tasks are an experimental feature. The API may change without notice.
+    The experimental tasks API is deprecated and will be removed in mcp 2.0.
+    Tasks (SEP-1686) were removed from the MCP specification and are expected
+    to return as a separate MCP extension in a future release.
 
 This guide covers calling task-augmented tools from clients, handling the `input_required` status, and advanced patterns like receiving task requests from servers.
 

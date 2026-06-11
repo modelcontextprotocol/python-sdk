@@ -488,12 +488,13 @@ class ServerTaskContext:
             create_result = CreateTaskResult.model_validate(response_data)
             client_task_id = create_result.task.taskId
 
-            # Poll the client's task using session.experimental
-            async for _ in self._session.experimental.poll_task(client_task_id):
+            # Poll the client's task using the session's experimental features
+            features = self._session._experimental  # pyright: ignore[reportPrivateUsage]
+            async for _ in features.poll_task(client_task_id):
                 pass
 
             # Get final result from client
-            result = await self._session.experimental.get_task_result(
+            result = await features.get_task_result(
                 client_task_id,
                 ElicitResult,
             )
@@ -594,12 +595,13 @@ class ServerTaskContext:
             create_result = CreateTaskResult.model_validate(response_data)
             client_task_id = create_result.task.taskId
 
-            # Poll the client's task using session.experimental
-            async for _ in self._session.experimental.poll_task(client_task_id):
+            # Poll the client's task using the session's experimental features
+            features = self._session._experimental  # pyright: ignore[reportPrivateUsage]
+            async for _ in features.poll_task(client_task_id):
                 pass
 
             # Get final result from client
-            result = await self._session.experimental.get_task_result(
+            result = await features.get_task_result(
                 client_task_id,
                 CreateMessageResult,
             )

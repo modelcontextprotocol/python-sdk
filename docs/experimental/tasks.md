@@ -1,9 +1,10 @@
 # Tasks
 
-!!! warning "Experimental"
+!!! warning "Deprecated"
 
-    Tasks are an experimental feature tracking the draft MCP specification.
-    The API may change without notice.
+    The experimental tasks API is deprecated and will be removed in mcp 2.0.
+    Tasks (SEP-1686) were removed from the MCP specification and are expected
+    to return as a separate MCP extension in a future release.
 
 Tasks enable asynchronous request handling in MCP. Instead of blocking until an operation completes, the receiver creates a task, returns immediately, and the requestor polls for the result.
 

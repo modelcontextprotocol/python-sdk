@@ -252,7 +252,8 @@ class Experimental:
         task_group = support.task_group
 
         if task_id is None:
-            session_scope = self._session.experimental.task_session_scope
+            features = self._session._experimental  # pyright: ignore[reportPrivateUsage]
+            session_scope = features.task_session_scope
             if session_scope is not None:
                 task_id = scoped_task_id(session_scope)
 

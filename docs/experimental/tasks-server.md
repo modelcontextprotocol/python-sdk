@@ -1,8 +1,10 @@
 # Server Task Implementation
 
-!!! warning "Experimental"
+!!! warning "Deprecated"
 
-    Tasks are an experimental feature. The API may change without notice.
+    The experimental tasks API is deprecated and will be removed in mcp 2.0.
+    Tasks (SEP-1686) were removed from the MCP specification and are expected
+    to return as a separate MCP extension in a future release.
 
 This guide covers implementing task support in MCP servers, from basic setup to advanced patterns like elicitation and sampling within tasks.
 

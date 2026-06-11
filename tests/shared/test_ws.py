@@ -10,6 +10,7 @@ import uvicorn
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
+from starlette.types import Message
 from starlette.websockets import WebSocket
 
 from mcp.client.session import ClientSession
@@ -29,6 +30,11 @@ from mcp.types import (
 from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_WS"
+
+# This suite intentionally exercises the deprecated WebSocket transport.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:The WebSocket (client|server) transport is deprecated:DeprecationWarning"
+)
 
 
 @pytest.fixture
@@ -198,3 +204,22 @@ async def test_ws_client_timeout(
         assert len(result.contents) > 0
         assert isinstance(result.contents[0], TextResourceContents)
         assert result.contents[0].text == "Read example"
+
+
+def test_websocket_client_is_deprecated() -> None:
+    """Creating the websocket_client context manager emits a DeprecationWarning."""
+    with pytest.warns(DeprecationWarning, match="The WebSocket client transport is deprecated"):
+        websocket_client("ws://127.0.0.1:1/ws")
+
+
+def test_websocket_server_is_deprecated() -> None:
+    """Creating the websocket_server context manager emits a DeprecationWarning."""
+
+    async def receive() -> Message:
+        raise NotImplementedError
+
+    async def send(message: Message) -> None:
+        raise NotImplementedError
+
+    with pytest.warns(DeprecationWarning, match="The WebSocket server transport is deprecated"):
+        websocket_server({"type": "websocket"}, receive, send)

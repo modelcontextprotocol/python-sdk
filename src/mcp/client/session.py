@@ -1,4 +1,5 @@
 import logging
+import warnings
 from datetime import timedelta
 from typing import Any, Protocol, overload
 
@@ -16,6 +17,15 @@ from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+
+# Type checkers only surface `@deprecated` messages given as string literals, so the same text is
+# repeated inline at each deprecated entry point (here, server/session.py, server/lowlevel/server.py).
+# Keep those copies, the filterwarnings marks in the tasks test suites, and the pytest.warns match in
+# tests/experimental/tasks/test_deprecations.py prefix-aligned when rewording.
+_EXPERIMENTAL_TASKS_DEPRECATION = (
+    "The experimental tasks API is deprecated and will be removed in mcp 2.0: tasks (SEP-1686) were removed"
+    " from the MCP specification and are expected to return as a separate MCP extension."
+)
 
 logger = logging.getLogger("client")
 
@@ -143,6 +153,8 @@ class ClientSession(
         self._experimental_features: ExperimentalClientFeatures | None = None
 
         # Experimental: Task handlers (use defaults if not provided)
+        if experimental_task_handlers is not None:
+            warnings.warn(_EXPERIMENTAL_TASKS_DEPRECATION, DeprecationWarning, stacklevel=2)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     async def initialize(self) -> types.InitializeResult:
@@ -204,10 +216,16 @@ class ClientSession(
         return self._server_capabilities
 
     @property
+    @deprecated(
+        "The experimental tasks API is deprecated and will be removed in mcp 2.0: tasks (SEP-1686) were removed"
+        " from the MCP specification and are expected to return as a separate MCP extension."
+    )
     def experimental(self) -> ExperimentalClientFeatures:
         """Experimental APIs for tasks and other features.
 
-        WARNING: These APIs are experimental and may change without notice.
+        Deprecated: the experimental tasks API will be removed in mcp 2.0. Tasks
+        (SEP-1686) were removed from the MCP specification and are expected to
+        return as a separate MCP extension.
 
         Example:
             status = await session.experimental.get_task(task_id)
