@@ -717,11 +717,11 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
-            except anyio.ClosedResourceError:  # pragma: lax no cover
+            except anyio.ClosedResourceError:
                 # Teardown completed while the writer was between dequeues:
                 # the next receive() hits the closed stream. A writer parked
                 # in receive() instead sees a clean end-of-stream (cleanup
-                # closes the send side first), so this arm is timing-dependent.
+                # closes the send side first).
                 pass
             except Exception:
                 logger.exception("Error in standalone SSE writer")  # pragma: no cover

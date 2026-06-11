@@ -18,10 +18,12 @@ from urllib.parse import urlparse
 import anyio
 import httpx
 import pytest
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import ServerSentEvent
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
+from starlette.types import Message, Scope
 
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
@@ -2231,11 +2233,10 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
 async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pytest.LogCaptureFixture) -> None:
     """Tearing down the standalone stream under its parked writer produces no error log.
 
-    Cleanup closes the send side first, so a writer parked in receive() ends on a clean
-    end-of-stream. This pins that close ordering: reversing it would wake the parked writer
-    with ClosedResourceError on every disconnect. (The timing window where teardown lands
-    between dequeues is handled by the writer's ClosedResourceError arm, which cannot be
-    forced deterministically from the public surface.)
+    SDK-defined teardown behavior, driven through the full client/server path: the writer
+    is parked in receive() when teardown lands, and ends quietly. The companion test
+    test_standalone_stream_teardown_between_dequeues_is_not_an_error forces the other
+    teardown window, which this path cannot reach deterministically.
     """
     session_manager = StreamableHTTPSessionManager(
         app=_create_server(),
@@ -2267,3 +2268,100 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
             (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
             await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
     assert "Error in standalone SSE writer" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Teardown landing while the standalone writer is between dequeues produces no error log.
+
+    SDK-defined: after teardown, the writer's next dequeue hits its own closed stream
+    (ClosedResourceError), which is expected disconnect noise, not an error. The public
+    surface cannot force this window (the in-process client consumes SSE without
+    backpressure, so the writer is always parked in receive() when teardown runs), so this
+    drives the transport's ASGI entry point directly with a gated `send`.
+
+    Steps:
+    1. A GET establishes the standalone SSE stream; the gated ASGI send keeps the
+       response from consuming any SSE data.
+    2. An event sent into the standalone stream rendezvouses with the writer's receive(),
+       which then blocks forwarding it to the un-consumed SSE stream -- the
+       between-dequeues window.
+    3. Stream cleanup runs inside that window, closing both standalone stream ends.
+    4. The gate opens: the event reaches the wire, the writer's next dequeue hits the
+       closed stream, and the response completes cleanly with nothing logged as an error.
+    """
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    # The GET handler only checks that a read-stream writer exists; the standalone
+    # writer never touches it.
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+
+    stream_registered = anyio.Event()
+
+    class SignalingStreams(
+        dict[types.RequestId, tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]]
+    ):
+        # Only the GET handler inserts here, so any insert is the standalone stream
+        # registration the test is waiting on.
+        def __setitem__(
+            self,
+            key: types.RequestId,
+            value: tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]],
+        ) -> None:
+            super().__setitem__(key, value)
+            stream_registered.set()
+
+    transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
+
+    gate = anyio.Event()
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+        await gate.wait()
+
+    # Never delivers anything: parks the response's disconnect listener until the
+    # completed response cancels it.
+    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
+
+    async def asgi_receive() -> Message:
+        return await disconnect_receive.receive()
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [(b"accept", b"text/event-stream")],
+    }
+    notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+
+    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
+                await stream_registered.wait()
+                standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
+                # Zero-buffer rendezvous: send() returns only once the writer's receive()
+                # has taken the event, so the writer is now between dequeues, blocked
+                # forwarding to the SSE stream nothing consumes while the gate is closed.
+                await standalone_send.send(EventMessage(notification))
+                await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+                # Unblock the response: it consumes the forwarded event, and the writer's
+                # next dequeue hits its closed stream.
+                gate.set()
+
+    # The event dequeued before teardown still reached the wire, and the response
+    # ended with a normal completion rather than an exception.
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 200
+    body_chunks = [message for message in sent if message["type"] == "http.response.body"]
+    assert b"notifications/initialized" in body_chunks[0]["body"]
+    assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert "Error in standalone SSE writer" not in caplog.text
+    assert "Error in standalone SSE response" not in caplog.text
