@@ -54,10 +54,10 @@ class ServerSession:
     def protocol_version(self) -> str | None:
         """The protocol version negotiated during `initialize`.
 
-        `None` before initialization completes, and always `None` on stateless
-        connections (no handshake reaches them; on streamable HTTP the
-        per-request version is the `MCP-Protocol-Version` header, available
-        via `ctx.request.headers`).
+        `None` before initialization completes. Stateless connections don't
+        require the handshake, so this is normally `None` there (on streamable
+        HTTP the per-request version is the `MCP-Protocol-Version` header,
+        available via `ctx.request.headers`).
         """
         return self._connection.protocol_version
 

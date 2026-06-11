@@ -24,6 +24,7 @@ from mcp.shared.version import (
     ],
 )
 def test_is_version_at_least_ordering(version: str, minimum: str, expected: bool) -> None:
+    """Known revisions order by registry position: equal, newer, and older pairs."""
     assert is_version_at_least(version, minimum) is expected
 
 

@@ -1771,7 +1771,9 @@ async def test_initialize_with_unknown_protocol_version_gets_no_priming_event(
         )
         assert response.status_code == 200
 
-    # Priming events are stored with a None payload; none may exist for this client.
+    # The store must have seen traffic (the initialize response), but no
+    # priming event — priming events are stored with a None payload.
+    assert event_store._events
     assert all(message is not None for _, _, message in event_store._events)
 
 

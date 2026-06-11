@@ -185,6 +185,7 @@ def _init_params(protocol_version: str) -> dict[str, Any]:
 
 @pytest.mark.anyio
 async def test_protocol_version_is_none_before_initialize():
+    """No negotiated version is readable before the initialize handshake."""
     async with connected_runner(_runner_server([]), initialized=False) as (_client, runner):
         assert runner.session.protocol_version is None
 

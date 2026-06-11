@@ -98,9 +98,10 @@ ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
 _SERVER_REQUEST_METHODS: frozenset[str] = frozenset(
     cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(types.ServerRequest)
 )
-"""Method names in the spec `ServerRequest` union, derived from the
-discriminator literal on each arm. Requests for any other method are answered
-with METHOD_NOT_FOUND instead of failing union validation."""
+"""Method names in the SDK's `ServerRequest` union, derived from the
+discriminator literal on each arm. Requests for any other method — including
+spec methods this SDK deliberately doesn't model, like `tasks/*` — are
+answered with METHOD_NOT_FOUND instead of failing union validation."""
 
 
 class ClientSession(
