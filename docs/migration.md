@@ -1135,7 +1135,7 @@ from mcp.server import ServerRequestContext
 
 ### `ServerSession` is now a thin proxy (no longer a `BaseSession`)
 
-`ServerSession` no longer subclasses `BaseSession`. It is now a small connection-scoped proxy that exposes `send_request`, `send_notification`, the typed convenience helpers (`create_message`, `elicit_form`, `send_log_message`, `send_tool_list_changed`, ...), `client_params`, and `check_client_capability`. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
+`ServerSession` no longer subclasses `BaseSession`. It is now a small connection-scoped proxy that exposes `send_request`, `send_notification`, the typed convenience helpers (`create_message`, `elicit_form`, `send_log_message`, `send_tool_list_changed`, ...), `client_params`, `protocol_version`, and `check_client_capability`. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
 
 `ServerSession` is normally constructed for you by `Server.run()` and reached via `ctx.session` in handlers, so most servers are unaffected. If you were constructing or subclassing it directly:
 
@@ -1181,6 +1181,10 @@ Tasks are expected to return as a separate MCP extension in a future release.
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
+
+### Unknown request methods now return `-32601` (Method not found)
+
+In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Unknown methods are now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data` — on both the server and the client side, including before initialization completes. Update anything that matched on the old code for this case.
 
 ### Extra fields on MCP types are no longer preserved
 
