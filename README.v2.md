@@ -967,6 +967,37 @@ async def generate_poem(topic: str, ctx: Context) -> str:
 _Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
 <!-- /snippet-source -->
 
+Clients that support sampling can also advertise fine-grained capabilities. For example, pass
+`SamplingCapability(context=SamplingContextCapability())` when the client is prepared to handle
+`include_context="thisServer"` or `include_context="allServers"` requests:
+
+```python
+from mcp import ClientSession, types
+from mcp.client.context import ClientRequestContext
+
+
+async def handle_sampling(
+    context: ClientRequestContext,
+    params: types.CreateMessageRequestParams,
+) -> types.CreateMessageResult:
+    include_context = params.include_context or "none"
+    return types.CreateMessageResult(
+        role="assistant",
+        content=types.TextContent(text=f"Handled sampling with context policy: {include_context}"),
+        model="example-client-model",
+    )
+
+
+async def run(read, write):
+    async with ClientSession(
+        read,
+        write,
+        sampling_callback=handle_sampling,
+        sampling_capabilities=types.SamplingCapability(context=types.SamplingContextCapability()),
+    ) as session:
+        await session.initialize()
+```
+
 ### Logging and Notifications
 
 Tools can send logs and notifications through the context:

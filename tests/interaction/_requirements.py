@@ -1145,11 +1145,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling request carrying tools and toolChoice reaches the client, and a tool_use response "
             "with a toolUse stop reason returns to the requesting handler."
         ),
-        deferred=(
-            "Not implemented in the SDK: Client does not expose ClientSession's sampling_capabilities "
-            "parameter, so a client can never declare sampling.tools and the server-side validator "
-            "rejects every tool-enabled request before it is sent."
-        ),
     ),
     "sampling:create-message:audio-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#audio-content",
@@ -1196,10 +1191,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "When the request includes tools, the client accepts a callback result whose content is an "
             "array including tool_use blocks."
-        ),
-        deferred=(
-            "Not implemented in the SDK: requires declaring sampling.tools, which the high-level client "
-            "cannot do (see sampling:create:tools)."
         ),
     ),
     "sampling:tool-result:no-mixed-content": Requirement(
