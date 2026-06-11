@@ -1,0 +1,247 @@
+"""Cancellation interactions against the low-level Server, driven through the public client API.
+
+There is no client-side cancellation API: cancelling means sending a CancelledNotification
+carrying the request id, which only the server-side handler can observe (via
+`server.request_context.request_id`), so these tests capture the id from inside the blocked
+handler before cancelling. The handler blocks on an Event rather than a sleep, and every wait
+is bounded by `anyio.fail_after`.
+"""
+
+from typing import Any
+
+import anyio
+import pytest
+from inline_snapshot import snapshot
+
+from mcp import McpError, types
+from mcp.client.session import ClientSession
+from mcp.server.lowlevel import Server
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
+from mcp.types import (
+    CallToolResult,
+    ClientNotification,
+    ClientRequest,
+    EmptyResult,
+    ErrorData,
+    Implementation,
+    InitializeResult,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    PingRequest,
+    ServerCapabilities,
+    TextContent,
+)
+from tests.interaction._connect import Connect
+from tests.interaction._helpers import IncomingMessage
+from tests.interaction._requirements import requirement
+
+pytestmark = pytest.mark.anyio
+
+
+@requirement("protocol:cancel:in-flight")
+@requirement("protocol:cancel:handler-abort-propagates")
+async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
+    """Cancelling an in-flight request interrupts its handler and fails the pending call.
+
+    The server answers the cancelled request with an error response (the spec says it should
+    not respond at all; see the divergence note on the requirement), so the caller's pending
+    request raises rather than hanging.
+    """
+    started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    request_ids: list[types.RequestId] = []
+    errors: list[ErrorData] = []
+
+    server: Server[Any] = Server("blocker")
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "block"
+        ctx = server.request_context
+        assert ctx.request_id is not None
+        request_ids.append(ctx.request_id)
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    async with connect(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:
+
+                async def call_and_capture_error() -> None:
+                    with pytest.raises(McpError) as exc_info:
+                        await client.call_tool("block", {})
+                    errors.append(exc_info.value.error)
+
+                task_group.start_soon(call_and_capture_error)
+                await started.wait()
+                await client.send_notification(
+                    ClientNotification(
+                        types.CancelledNotification(
+                            params=types.CancelledNotificationParams(requestId=request_ids[0], reason="user aborted")
+                        )
+                    )
+                )
+
+            await handler_cancelled.wait()
+
+    assert errors == snapshot([ErrorData(code=0, message="Request cancelled")])
+
+
+@requirement("protocol:cancel:server-survives")
+async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
+    """A request cancelled mid-flight does not poison the session: the next request succeeds."""
+    started = anyio.Event()
+    request_ids: list[types.RequestId] = []
+
+    server: Server[Any] = Server("blocker")
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(name="block", inputSchema={"type": "object"}),
+            types.Tool(name="echo", inputSchema={"type": "object"}),
+        ]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        if name == "echo":
+            return CallToolResult(content=[TextContent(type="text", text="still alive")])
+        ctx = server.request_context
+        assert ctx.request_id is not None
+        request_ids.append(ctx.request_id)
+        started.set()
+        await anyio.Event().wait()  # blocks until cancelled
+        raise NotImplementedError  # unreachable
+
+    async with connect(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:
+
+                async def call_and_swallow_cancellation_error() -> None:
+                    with pytest.raises(McpError):
+                        await client.call_tool("block", {})
+
+                task_group.start_soon(call_and_swallow_cancellation_error)
+                await started.wait()
+                await client.send_notification(
+                    ClientNotification(
+                        types.CancelledNotification(params=types.CancelledNotificationParams(requestId=request_ids[0]))
+                    )
+                )
+
+            result = await client.call_tool("echo", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="still alive")]))
+
+
+@requirement("protocol:cancel:unknown-id-ignored")
+async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> None:
+    """A cancellation referencing a request id that is not in flight is ignored without error."""
+
+    server: Server[Any] = Server("calm")
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [types.Tool(name="echo", inputSchema={"type": "object"})]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        assert name == "echo"
+        return CallToolResult(content=[TextContent(type="text", text="unbothered")])
+
+    async with connect(server) as client:
+        await client.send_notification(
+            ClientNotification(types.CancelledNotification(params=types.CancelledNotificationParams(requestId=9999)))
+        )
+        result = await client.call_tool("echo", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(type="text", text="unbothered")]))
+
+
+@requirement("protocol:cancel:late-response-ignored")
+async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_handler() -> None:
+    """A response whose id matches no in-flight request is surfaced to the message handler as a RuntimeError.
+
+    The spec says a sender SHOULD ignore a response that arrives after it issued a cancellation;
+    that is the same client-side code path as any response with an unknown id, and that form is
+    deterministic to test without depending on the cancellation API the SDK does not yet provide.
+    See the divergence note on the requirement.
+
+    A real Server cannot be made to answer with a fabricated id, so the test plays the server's
+    side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
+    other tests in this file run over the transport matrix; this one is in-memory only because the
+    scripted-peer mechanism is the in-memory stream pair, not because the behaviour is
+    transport-specific.
+    """
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+
+        def respond(request_id: types.RequestId, result: types.Result) -> SessionMessage:
+            return SessionMessage(
+                JSONRPCMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=request_id,
+                        # Serialized exactly as a real server serializes results onto the wire.
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+
+        init = await server_read.receive()
+        assert isinstance(init, SessionMessage)
+        assert isinstance(init.message.root, JSONRPCRequest)
+        assert init.message.root.method == "initialize"
+        await server_write.send(
+            respond(
+                init.message.root.id,
+                InitializeResult(
+                    protocolVersion="2025-11-25",
+                    capabilities=ServerCapabilities(),
+                    serverInfo=Implementation(name="scripted", version="0.0.1"),
+                ),
+            )
+        )
+
+        initialized = await server_read.receive()
+        assert isinstance(initialized, SessionMessage)
+        assert isinstance(initialized.message.root, JSONRPCNotification)
+        assert initialized.message.root.method == "notifications/initialized"
+
+        ping = await server_read.receive()
+        assert isinstance(ping, SessionMessage)
+        assert isinstance(ping.message.root, JSONRPCRequest)
+        assert ping.message.root.method == "ping"
+        # First answer with a fabricated id that matches nothing in flight, then the real id.
+        await server_write.send(respond(9999, EmptyResult()))
+        await server_write.send(respond(ping.message.root.id, EmptyResult()))
+
+    incoming: list[IncomingMessage] = []
+
+    async def message_handler(message: IncomingMessage) -> None:
+        incoming.append(message)
+
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as task_group,
+        ClientSession(client_read, client_write, message_handler=message_handler) as session,
+    ):
+        task_group.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            await session.initialize()
+            pong = await session.send_request(ClientRequest(PingRequest()), EmptyResult)
+
+        assert pong == snapshot(EmptyResult())
+        assert len(incoming) == 1
+        assert isinstance(incoming[0], RuntimeError)
+        # The full message embeds the response object's repr; only the prefix is stable.
+        assert str(incoming[0]).startswith("Received response with an unknown request ID:")
