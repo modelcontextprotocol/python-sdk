@@ -47,9 +47,14 @@ class _StreamingResponseBody(httpx.AsyncByteStream):
         self._chunks = chunks
         self._client_disconnected = client_disconnected
 
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        async for chunk in self._chunks:
-            yield chunk
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        # Delegate to the memory stream's own async iterator instead of wrapping it in an async
+        # generator. httpx abandons the iterator without closing it when a streamed response is
+        # closed mid-stream; trio's asyncgen finalizer warns about abandoned generators (asyncio
+        # finalizes them silently at loop shutdown), which would fail the suite's one trio-backend
+        # test. The memory stream is a plain async iterator with the same EndOfStream ->
+        # StopAsyncIteration semantics and is not tracked by that machinery.
+        return self._chunks
 
     async def aclose(self) -> None:
         self._client_disconnected.set()
