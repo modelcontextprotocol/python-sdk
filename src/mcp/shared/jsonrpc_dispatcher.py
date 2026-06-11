@@ -63,6 +63,13 @@ __all__ = ["JSONRPCDispatcher"]
 
 logger = logging.getLogger(__name__)
 
+_SHIELDED_WRITE_TIMEOUT: float = 5
+"""Bound for the shielded courtesy writes on the cancellation paths.
+
+Those writes run inside a shield because the surrounding scope is already
+cancelled; without a bound, a wedged transport write would turn the shield
+into an uncancellable hang (and block shutdown indefinitely)."""
+
 TransportT = TypeVar("TransportT", bound=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
@@ -323,6 +330,18 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         pending = _Pending(send=send, receive=receive, on_progress=on_progress)
         self._pending[request_id] = pending
 
+        # An abandoned request (timeout elapsed, or the caller's scope was
+        # cancelled while awaiting the response) sends a courtesy
+        # `notifications/cancelled` so the peer can stop work - unless the
+        # caller opted out (`initialize`, which the spec forbids cancelling),
+        # or the request carries resumption hints (the caller intends to
+        # resume it, so the peer's work must keep running).
+        cancel_on_abandon = (
+            opts.get("cancel_on_abandon", True)
+            and opts.get("resumption_token") is None
+            and opts.get("on_resumption_token") is None
+        )
+
         metadata = _outbound_metadata(_related_request_id, opts)
         target = out_params.get("name")
         span_name = f"MCP send {method}{f' {target}' if isinstance(target, str) else ''}"
@@ -348,14 +367,16 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             # Spec-recommended courtesy: tell the peer we've given up so it can
             # stop work and free resources. v1's BaseSession.send_request does
             # NOT do this; it's new behaviour.
-            await self._cancel_outbound(request_id, f"timed out after {opts.get('timeout')}s", _related_request_id)
+            if cancel_on_abandon:
+                await self._cancel_outbound(request_id, f"timed out after {opts.get('timeout')}s", _related_request_id)
             raise MCPError(code=REQUEST_TIMEOUT, message=f"Request {method!r} timed out") from None
         except anyio.get_cancelled_exc_class():
             # Our caller's scope was cancelled. We're already inside a cancelled
-            # scope, so any bare `await` here re-raises immediately - shield to
-            # let the courtesy cancel notification go out before we propagate.
-            with anyio.CancelScope(shield=True):
-                await self._cancel_outbound(request_id, "caller cancelled", _related_request_id)
+            # scope, so any bare `await` here re-raises immediately - shield
+            # (bounded) to let the courtesy cancel go out before we propagate.
+            if cancel_on_abandon:
+                with anyio.move_on_after(_SHIELDED_WRITE_TIMEOUT, shield=True):
+                    await self._cancel_outbound(request_id, "caller cancelled", _related_request_id)
             raise
         finally:
             # Always remove the waiter, even on cancel/timeout, so a late
@@ -635,7 +656,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         Synchronous (uses `send_nowait`) because it's called from `finally`
         which may be inside a cancelled scope. Idempotent.
         """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="connection closed")
+        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
         for pending in self._pending.values():
             try:
                 pending.send.send_nowait(closed)
@@ -681,8 +702,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
         except anyio.get_cancelled_exc_class():
             # Outer-cancel: run()'s task group is shutting down. Any bare
-            # `await` here re-raises immediately, so shield the courtesy write.
-            with anyio.CancelScope(shield=True):
+            # `await` here re-raises immediately, so shield (bounded) the
+            # courtesy write.
+            with anyio.move_on_after(_SHIELDED_WRITE_TIMEOUT, shield=True):
                 await self._write_error(req.id, ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"))
             raise
         except MCPError as e:

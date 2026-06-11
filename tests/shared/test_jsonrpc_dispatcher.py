@@ -15,6 +15,7 @@ from typing import Any
 import anyio
 import anyio.lowlevel
 import pytest
+from trio.testing import MockClock
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
@@ -33,6 +34,7 @@ from mcp.types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    REQUEST_TIMEOUT,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -411,6 +413,201 @@ async def test_courtesy_cancel_on_timeout_tags_outbound_with_server_message_meta
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
+
+
+@pytest.mark.anyio
+async def test_caller_cancel_sends_courtesy_cancellation_on_the_wire():
+    """Cancelling the scope around send_raw_request emits notifications/cancelled by default."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    scopes: list[anyio.CancelScope] = []
+    gave_up = anyio.Event()
+
+    async def caller() -> None:
+        with anyio.CancelScope() as scope:
+            scopes.append(scope)
+            await client.send_raw_request("slow", None)
+            raise NotImplementedError  # unreachable: the scope is cancelled
+        gave_up.set()
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            tg.start_soon(caller)
+            with anyio.fail_after(5):
+                request = await c2s_recv.receive()
+            assert isinstance(request, SessionMessage)
+            assert isinstance(request.message, JSONRPCRequest)
+            scopes[0].cancel()
+            with anyio.fail_after(5):
+                await gave_up.wait()
+                cancel = await c2s_recv.receive()
+            assert isinstance(cancel, SessionMessage)
+            assert isinstance(cancel.message, JSONRPCNotification)
+            assert cancel.message.method == "notifications/cancelled"
+            assert cancel.message.params == {"requestId": request.message.id, "reason": "caller cancelled"}
+            assert cancel.metadata is None
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert scopes[0].cancelled_caught
+
+
+@pytest.mark.anyio
+async def test_caller_cancel_with_resumption_hints_suppresses_the_courtesy_cancellation():
+    """A request sent with resumption hints is meant to be resumed; abandoning it must not stop the peer's work."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    async def on_token(token: str) -> None:
+        raise NotImplementedError
+
+    scopes: list[anyio.CancelScope] = []
+    gave_up = anyio.Event()
+
+    async def caller() -> None:
+        with anyio.CancelScope() as scope:
+            scopes.append(scope)
+            await client.send_raw_request("slow", None, {"on_resumption_token": on_token})
+            raise NotImplementedError  # unreachable: the scope is cancelled
+        gave_up.set()
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            tg.start_soon(caller)
+            with anyio.fail_after(5):
+                request = await c2s_recv.receive()
+            assert isinstance(request, SessionMessage)
+            assert isinstance(request.message, JSONRPCRequest)
+            scopes[0].cancel()
+            with anyio.fail_after(5):
+                await gave_up.wait()
+            # The next write proves nothing was sent in between: a courtesy
+            # cancel would have to precede it on the ordered stream.
+            await client.notify("marker", None)
+            with anyio.fail_after(5):
+                nxt = await c2s_recv.receive()
+            assert isinstance(nxt, SessionMessage)
+            assert isinstance(nxt.message, JSONRPCNotification)
+            assert nxt.message.method == "marker"
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_timeout_with_resumption_hints_suppresses_the_courtesy_cancellation():
+    """A timed-out request that carries resumption hints stays resumable: no cancellation is sent."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                with pytest.raises(MCPError) as exc:
+                    await client.send_raw_request("slow", None, {"timeout": 0, "resumption_token": "tok"})
+            assert exc.value.error.code == REQUEST_TIMEOUT
+            with anyio.fail_after(5):
+                request = await c2s_recv.receive()
+            assert isinstance(request, SessionMessage)
+            assert isinstance(request.message, JSONRPCRequest)
+            await client.notify("marker", None)
+            with anyio.fail_after(5):
+                nxt = await c2s_recv.receive()
+            assert isinstance(nxt, SessionMessage)
+            assert isinstance(nxt.message, JSONRPCNotification)
+            assert nxt.message.method == "marker"
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_cancel_on_abandon_false_suppresses_the_courtesy_cancellation_on_timeout():
+    """Callers opt out per call for requests the protocol forbids cancelling (initialize)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                with pytest.raises(MCPError) as exc:
+                    await client.send_raw_request("slow", None, {"timeout": 0, "cancel_on_abandon": False})
+            assert exc.value.error.code == REQUEST_TIMEOUT
+            with anyio.fail_after(5):
+                request = await c2s_recv.receive()
+            assert isinstance(request, SessionMessage)
+            assert isinstance(request.message, JSONRPCRequest)
+            await client.notify("marker", None)
+            with anyio.fail_after(5):
+                nxt = await c2s_recv.receive()
+            assert isinstance(nxt, SessionMessage)
+            assert isinstance(nxt.message, JSONRPCNotification)
+            assert nxt.message.method == "marker"
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+@pytest.mark.anyio
+async def test_caller_cancel_courtesy_write_is_bounded_when_the_transport_is_wedged():
+    """A wedged transport write cannot turn caller cancellation into an unbounded shielded hang.
+
+    The write stream has no buffer and no reader, so the request write blocks; cancelling the
+    caller then routes into the shielded courtesy-cancel write, which blocks on the same wedged
+    stream. The bound abandons it after _SHIELDED_WRITE_TIMEOUT; trio's virtual clock makes the
+    wait instant. On regression (unbounded shield) the test hangs rather than failing fast: the
+    outer fail_after cannot cancel through the shield - that is the bug.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    scopes: list[anyio.CancelScope] = []
+    gave_up = anyio.Event()
+
+    async def caller() -> None:
+        with anyio.CancelScope() as scope:
+            scopes.append(scope)
+            await client.send_raw_request("slow", None)
+            raise NotImplementedError  # unreachable: the scope is cancelled
+        gave_up.set()
+
+    try:
+        with anyio.fail_after(30):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                await tg.start(client.run, on_request, on_notify)
+                tg.start_soon(caller)
+                await anyio.wait_all_tasks_blocked()  # the caller is parked in the request write
+                scopes[0].cancel()
+                with anyio.fail_after(20):
+                    await gave_up.wait()
+                tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert scopes[0].cancelled_caught
 
 
 @pytest.mark.anyio

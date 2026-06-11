@@ -468,7 +468,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The client only raises locally and sends nothing on timeout, so the server keeps running the handler."
+                "Client seat only: the client raises locally and sends nothing on timeout, so the server keeps "
+                "running the handler. The server seat conforms: a timed-out server-initiated request is followed "
+                "by notifications/cancelled on the wire."
             ),
         ),
     ),

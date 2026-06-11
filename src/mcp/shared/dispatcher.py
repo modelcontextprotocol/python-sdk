@@ -55,6 +55,16 @@ class CallOptions(TypedDict, total=False):
     timeout: float
     """Seconds to wait for a result before raising and sending `notifications/cancelled`."""
 
+    cancel_on_abandon: bool
+    """Whether abandoning this request sends `notifications/cancelled` to the peer.
+
+    A request is abandoned when its `timeout` elapses or the caller's scope is
+    cancelled while awaiting the response. Defaults to `True`. Set `False` for
+    requests the protocol forbids cancelling, such as `initialize`. The
+    notification is also suppressed when resumption hints are present: the
+    caller intends to resume the request, so the peer's work must keep running.
+    """
+
     on_progress: ProgressFnT
     """Receive `notifications/progress` updates for this request."""
 
@@ -97,8 +107,8 @@ class Outbound(Protocol):
     ) -> dict[str, Any]:
         """Send a request and await its raw result dict.
 
-        `opts` carries per-call `timeout` / `on_progress` / resumption hints;
-        see `CallOptions`.
+        `opts` carries per-call `timeout` / `on_progress` / abandon-cancellation
+        / resumption hints; see `CallOptions`.
 
         Raises:
             MCPError: If the peer responded with an error, or the handler
