@@ -43,12 +43,24 @@ def test_mcp_requirement_leaves_dev_versions_unpinned(monkeypatch: pytest.Monkey
     """Dev versions are not published to PyPI, so the requirement falls back to the unpinned package."""
     _set_mcp_version(monkeypatch, "2.0.0a2.dev3")
     assert mcp_requirement() == "mcp"
+    assert mcp_requirement("mcp[cli]") == "mcp[cli]"
 
 
 def test_mcp_requirement_leaves_local_versions_unpinned(monkeypatch: pytest.MonkeyPatch):
     """Local version segments (source builds) are not published to PyPI, so no pin is emitted."""
     _set_mcp_version(monkeypatch, "1.2.3+g0123abc")
     assert mcp_requirement() == "mcp"
+
+
+def test_mcp_requirement_falls_back_when_mcp_is_not_installed(monkeypatch: pytest.MonkeyPatch):
+    """Without distribution metadata there is no version to pin, so the requirement stays unpinned."""
+
+    def raise_not_found(distribution_name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(distribution_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", raise_not_found)
+    assert mcp_requirement() == "mcp"
+    assert mcp_requirement("mcp[cli]") == "mcp[cli]"
 
 
 def _read_server(config_dir: Path, name: str) -> dict[str, Any]:
@@ -75,11 +87,19 @@ def test_file_spec_without_object_suffix(config_dir: Path):
 
 
 def test_with_packages_sorted_and_deduplicated(config_dir: Path):
-    """Extra packages should appear as --with flags, sorted and deduplicated with mcp[cli]."""
+    """Extra packages should appear as sorted --with flags with duplicates removed."""
     assert update_claude_config(file_spec="s.py:app", server_name="s", with_packages=["zebra", "aardvark", "zebra"])
 
     args = _read_server(config_dir, "s")["args"]
     assert args[:8] == ["run", "--frozen", "--with", "aardvark", "--with", "mcp[cli]==1.2.3", "--with", "zebra"]
+
+
+def test_explicit_mcp_cli_kept_alongside_pinned_requirement(config_dir: Path):
+    """A user-supplied mcp[cli] no longer collapses into the pinned requirement; uv resolves both to the pin."""
+    assert update_claude_config(file_spec="s.py:app", server_name="s", with_packages=["mcp[cli]"])
+
+    args = _read_server(config_dir, "s")["args"]
+    assert args[:6] == ["run", "--frozen", "--with", "mcp[cli]", "--with", "mcp[cli]==1.2.3"]
 
 
 def test_with_editable_adds_flag(config_dir: Path, tmp_path: Path):

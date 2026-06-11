@@ -20,9 +20,13 @@ def mcp_requirement(package: str = "mcp") -> str:
     an unpinned `mcp` means the latest stable release — not necessarily the
     version the user installed (pre-releases in particular are never selected
     without an explicit pin). Source builds carry dev/local version segments
-    that are not published to PyPI, so they fall back to the unpinned form.
+    that are not published to PyPI, so they fall back to the unpinned form,
+    as does a missing distribution (no metadata to pin from).
     """
-    version = importlib.metadata.version("mcp")
+    try:
+        version = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        return package
     if ".dev" in version or "+" in version:
         return package
     return f"{package}=={version}"
