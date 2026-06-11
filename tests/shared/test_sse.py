@@ -371,9 +371,11 @@ async def test_request_context_propagation() -> None:
 async def test_request_context_isolation() -> None:
     """Each SSE connection's handlers see only that connection's request headers."""
     factory = in_process_client_factory(make_context_server_app())
-    contexts: list[dict[str, Any]] = []
 
-    # Connect three clients in turn, each with its own headers.
+    # Connect three clients in turn, each with its own headers. Each connection is
+    # verified inside its own block: on Python 3.11 the line tracer is lost once an
+    # async-with teardown throws (python/cpython#106749), so statements placed after
+    # this loop would be reported uncovered on some matrix cells.
     for i in range(3):
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
@@ -386,13 +388,10 @@ async def test_request_context_isolation() -> None:
                 assert len(tool_result.content) == 1
                 content = tool_result.content[0]
                 assert isinstance(content, TextContent)
-                contexts.append(json.loads(content.text))
-
-    assert len(contexts) == 3
-    for i, ctx in enumerate(contexts):
-        assert ctx["request_id"] == f"request-{i}"
-        assert ctx["headers"].get("x-request-id") == f"request-{i}"
-        assert ctx["headers"].get("x-custom-value") == f"value-{i}"
+                ctx = json.loads(content.text)
+                assert ctx["request_id"] == f"request-{i}"
+                assert ctx["headers"].get("x-request-id") == f"request-{i}"
+                assert ctx["headers"].get("x-custom-value") == f"value-{i}"
 
 
 def test_sse_message_id_coercion() -> None:
