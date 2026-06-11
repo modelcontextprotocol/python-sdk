@@ -490,7 +490,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         # Cancel on crash/cancel paths. If read EOF also closed
                         # writes, handlers cannot drain responses anyway.
                         tg.cancel_scope.cancel()
-                    elif self._read_eof_drain_timeout_seconds is not None:
+                    elif self._read_eof_drain_timeout_seconds is None:
+                        pass
+                    else:
                         tg.cancel_scope.deadline = anyio.current_time() + self._read_eof_drain_timeout_seconds
         finally:
             # Covers cancel/crash paths that skip the inline fan-out; idempotent.
