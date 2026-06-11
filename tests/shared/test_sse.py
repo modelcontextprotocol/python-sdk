@@ -375,8 +375,10 @@ async def test_request_context_isolation() -> None:
     # Connect three clients in turn, each with its own headers. Each connection is
     # verified inside its own block: on Python 3.11 the line tracer is lost once an
     # async-with teardown throws (python/cpython#106749), so statements placed after
-    # this loop would be reported uncovered on some matrix cells.
-    for i in range(3):
+    # this loop would be reported uncovered on some matrix cells. The loop's exit
+    # arc fires after the final teardown and sits in the same shadow, hence the
+    # branch exclusion.
+    for i in range(3):  # pragma: no branch
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
         async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory, headers=headers) as streams:
