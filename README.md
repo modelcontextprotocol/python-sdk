@@ -13,6 +13,12 @@
 
 </div>
 
+> **This documents v1.x, the stable release line of the MCP Python SDK. v2 is in alpha.**
+>
+> v2 pre-releases are published to PyPI as `2.0.0aN`. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0a1`), so v1.x users are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable v2 release lands.** See the [v2 documentation](https://github.com/modelcontextprotocol/python-sdk/blob/main/README.v2.md) and the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for what's changing.
+>
+> v1.x remains recommended for production use. It is in maintenance mode and continues to receive critical bug fixes and security patches.
+
 <!-- omit in toc -->
 ## Table of Contents
 
