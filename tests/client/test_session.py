@@ -927,9 +927,50 @@ async def test_from_dispatcher_runs_over_direct_dispatch():
         await tg.start(server_side.run, server_on_request, server_on_notify)
         async with session:
             results.append(await session.send_ping(meta=None))
+            # Server-to-client direction: direct dispatch delivers ping with no
+            # params member at all (no _meta injection outside JSON-RPC).
+            assert await server_side.send_raw_request("ping", None) == {}
             # related_request_id routing is JSON-RPC plumbing; on other
             # dispatchers the notification is sent without it.
             await session.send_notification(types.RootsListChangedNotification(), related_request_id=7)
         server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
+
+
+@pytest.mark.anyio
+async def test_send_request_with_server_metadata_routes_related_request_id():
+    """ServerMessageMetadata.related_request_id is threaded onto the outgoing message."""
+    from mcp.shared.message import ServerMessageMetadata
+
+    async with raw_client_session() as (session, to_client, from_client):
+        async with anyio.create_task_group() as tg:
+
+            async def call() -> None:
+                await session.send_request(
+                    types.PingRequest(), types.EmptyResult, metadata=ServerMessageMetadata(related_request_id=3)
+                )
+
+            tg.start_soon(call)
+            out = await from_client.receive()
+            assert isinstance(out.metadata, ServerMessageMetadata)
+            assert out.metadata.related_request_id == 3
+            assert isinstance(out.message, JSONRPCRequest)
+            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
+
+
+@pytest.mark.anyio
+async def test_send_notification_with_related_request_id_attaches_metadata():
+    """A related_request_id on a notification rides the originating request's stream."""
+    from mcp.shared.message import ServerMessageMetadata
+
+    async with raw_client_session() as (session, _to_client, from_client):
+        await session.send_notification(
+            types.ProgressNotification(
+                params=types.ProgressNotificationParams(progress_token=1, progress=0.5),
+            ),
+            related_request_id=4,
+        )
+        out = await from_client.receive()
+    assert isinstance(out.metadata, ServerMessageMetadata)
+    assert out.metadata.related_request_id == 4

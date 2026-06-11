@@ -1164,7 +1164,23 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 `BaseSession._in_flight` and the `RequestResponder` members that supported it (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument, and the internal `CancelScope`) have been removed. These existed to let `ServerSession` cancel a handler when a `CancelledNotification` arrived; `ServerSession` no longer drives a receive loop, so they were dead code. Inbound-cancellation handling for the server now lives in `JSONRPCDispatcher`.
 
-`BaseSession` is still used by `ClientSession`, which never relied on these members. `RequestResponder.respond()` is unchanged.
+`BaseSession` itself has since been removed entirely; see the next section.
+
+### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
+
+`ClientSession` keeps its public surface — the `(read_stream, write_stream, ...)` constructor, every typed method, manual `initialize()`, and the async context-manager lifecycle — but the v1 receive loop (`BaseSession`) underneath it is gone. A new `ClientSession.from_dispatcher(dispatcher, ...)` constructor accepts a pre-built dispatcher (for example a `DirectDispatcher` for in-process embedding).
+
+Behavior changes:
+
+- **Request ids count from 1** (previously 0). Progress tokens, which reuse the request id, shift the same way. Ids are opaque per JSON-RPC; do not assign meaning to them.
+- **Timeouts**: the error message is now `Request 'tools/call' timed out` (previously `Timed out while waiting for response to CallToolRequest. Waited N seconds.`), and a timed-out or abandoned request is followed by `notifications/cancelled` on the wire, so the server stops the handler instead of leaving it running. The `initialize` request is never cancelled this way, and requests sent with resumption metadata are also exempt so they stay resumable.
+- **Server-initiated requests run concurrently.** Sampling/elicitation/roots callbacks no longer serialize the receive loop: a slow callback does not block other traffic, a callback may itself send requests without deadlocking, and a server's `notifications/cancelled` now actually interrupts the callback (the request is then answered with an error response).
+- **Notification callbacks are concurrent.** `logging_callback` and `message_handler` start in arrival order, but there is no completion-before-response guarantee (matching the TypeScript, C#, and Go SDKs). Callbacks that need strict sequencing must coordinate themselves.
+- **Unknown-id responses are ignored**, as the spec asks. v1 surfaced them to `message_handler` as a `RuntimeError`; nothing is surfaced now.
+- **A raising request callback** is answered with `code=0` and the exception text. v1 flattened every callback exception to `INVALID_PARAMS`. Callbacks that want a specific error response should return `ErrorData` (unchanged) or raise `MCPError`.
+- **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. `send_notification` before entry still works.
+
+`mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing — it has been unreachable at runtime since the server-side swap. `RequestResponder.respond()` no longer exists.
 
 ### Experimental Tasks support removed
 
