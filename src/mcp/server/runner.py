@@ -243,17 +243,17 @@ class ServerRunner(Generic[LifespanT]):
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
                 return self._handle_initialize(params)
-            # Unknown methods are METHOD_NOT_FOUND regardless of initialization
-            # state: JSON-RPC 2.0 reserves -32601 for them, and clients probing
-            # a server before the handshake key off that code.
-            if method not in _SPEC_CLIENT_METHODS and self.server.get_request_handler(method) is None:
+            # Methods without a handler are METHOD_NOT_FOUND regardless of
+            # initialization state: JSON-RPC 2.0 reserves -32601 for "not
+            # available on this server", and clients probing a server before
+            # the handshake key off that code. The init gate below therefore
+            # only ever applies to methods the server actually serves.
+            entry = self.server.get_request_handler(method)
+            if entry is None:
                 raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method)
             if not self.connection.initialize_accepted and method not in _INIT_EXEMPT:
                 # Pinned compat: the same error shape the union validation produced.
                 raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-            entry = self.server.get_request_handler(method)
-            if entry is None:
-                raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method)
             # Absent params validate as {} (required fields still reject), so
             # the handler receives the model with its defaults, never None.
             typed_params = entry.params_type.model_validate({} if params is None else params, by_name=False)

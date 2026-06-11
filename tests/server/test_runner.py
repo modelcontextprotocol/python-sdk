@@ -173,11 +173,23 @@ async def test_runner_unknown_method_before_initialize_raises_method_not_found(s
     """An unknown method is METHOD_NOT_FOUND even before initialize: JSON-RPC
     2.0 reserves -32601 for it, and clients probing a server before the
     handshake key off that code. The init gate only applies to methods the
-    server actually knows."""
+    server actually serves."""
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("x/unknown", None)
         assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="x/unknown")
+
+
+@pytest.mark.anyio
+async def test_runner_spec_method_without_handler_before_initialize_raises_method_not_found(server: SrvT):
+    """A spec method the server doesn't serve is METHOD_NOT_FOUND even before
+    initialize: -32601 means "not available on this server", so probing
+    clients get the same answer in every initialization state (the fixture
+    server registers no resources handlers)."""
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("resources/list", None)
+        assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/list")
 
 
 @pytest.mark.anyio

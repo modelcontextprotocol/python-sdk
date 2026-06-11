@@ -1184,7 +1184,7 @@ Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabi
 
 ### Unknown request methods now return `-32601` (Method not found)
 
-In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Unknown methods are now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data` — on both the server and the client side, including before initialization completes. Update anything that matched on the old code for this case.
+In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Any method the receiver doesn't serve — unrecognized, or a spec method with no registered handler — is now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data`, on both the server and the client side, in every initialization state. Update anything that matched on the old code for this case.
 
 ### Extra fields on MCP types are no longer preserved
 
