@@ -17,6 +17,7 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
+    METHOD_NOT_FOUND,
     CallToolResult,
     Implementation,
     InitializedNotification,
@@ -751,8 +752,34 @@ async def test_receive_loop_answers_malformed_inbound_request_with_invalid_param
 
 
 @pytest.mark.anyio
-async def test_receive_loop_answers_invalid_params_when_sampling_callback_raises():
-    """Same boundary catches exceptions from the request handler itself."""
+async def test_receive_loop_answers_unknown_request_method_with_method_not_found():
+    """A server request whose method is not in the ServerRequest union gets -32601
+    (METHOD_NOT_FOUND) on the wire, not a validation failure (-32602)."""
+    async with raw_client_session() as (_session, to_client, from_client):
+        await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=7, method="x/unknown")))
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.id == 7
+    assert out.message.error == types.ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="x/unknown")
+
+
+@pytest.mark.anyio
+async def test_receive_loop_drops_unknown_notification_method_without_response():
+    """An unknown notification method is dropped silently: JSON-RPC forbids
+    responses to notifications, and the receive loop keeps serving."""
+    async with raw_client_session() as (_session, to_client, from_client):
+        await to_client.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="x/unknown")))
+        # The next wire output must be the answer to this follow-up ping,
+        # proving the notification produced no response and the loop survived.
+        await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.id == 1
+
+
+@pytest.mark.anyio
+async def test_raising_sampling_callback_answers_with_code_zero():
+    """A raising request callback is answered through the dispatcher's exception boundary."""
 
     async def boom(ctx: object, params: object) -> types.CreateMessageResult:
         raise RuntimeError("sampling boom")
@@ -767,7 +794,7 @@ async def test_receive_loop_answers_invalid_params_when_sampling_callback_raises
         )
         out = await from_client.receive()
     assert isinstance(out.message, JSONRPCError)
-    assert out.message.error.code == INVALID_PARAMS
+    assert out.message.error == types.ErrorData(code=0, message="sampling boom")
 
 
 @pytest.mark.anyio
@@ -841,23 +868,68 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
 
 
 @pytest.mark.anyio
-async def test_receive_loop_swallows_progress_callback_exception(caplog: pytest.LogCaptureFixture):
+async def test_progress_callback_exception_is_swallowed(caplog: pytest.LogCaptureFixture):
     delivered = anyio.Event()
 
     async def boom(progress: float, total: float | None, message: str | None) -> None:
         raise RuntimeError("progress boom")
 
     async def handler(msg: object) -> None:
-        delivered.set()
+        if isinstance(msg, types.ProgressNotification):
+            delivered.set()
 
-    async with raw_client_session(message_handler=handler) as (session, to_client, _):
-        # Register the callback under a known token without sending a request.
-        session._progress_callbacks[42] = boom  # pyright: ignore[reportPrivateUsage]
-        params = {"progressToken": 42, "progress": 0.5}
-        await to_client.send(
-            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress", params=params))
-        )
-        # The progress notification also reaches the message handler after the
-        # callback runs, so this fires once the callback's exception is handled.
-        await delivered.wait()
-    assert "Progress callback raised an exception" in caplog.text
+    async with raw_client_session(message_handler=handler) as (session, to_client, from_client):
+        async with anyio.create_task_group() as tg:
+
+            async def call() -> None:
+                await session.send_request(types.PingRequest(), types.EmptyResult, progress_callback=boom)
+
+            tg.start_soon(call)
+            request = await from_client.receive()
+            assert isinstance(request.message, JSONRPCRequest)
+            # The request id doubles as the progress token.
+            params = {"progressToken": request.message.id, "progress": 0.5}
+            await to_client.send(
+                SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress", params=params))
+            )
+            # The progress notification also reaches the message handler; the
+            # raising callback was swallowed and logged.
+            await delivered.wait()
+            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={})))
+    assert "progress callback raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_from_dispatcher_runs_over_direct_dispatch():
+    """A session built with from_dispatcher works without a stream pair (in-process embedding)."""
+    from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+    from mcp.shared.dispatcher import DispatchContext
+    from mcp.shared.transport_context import TransportContext
+
+    client_side, server_side = create_direct_dispatcher_pair()
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> dict[str, object]:
+        assert method == "ping"
+        return {}
+
+    notified: list[str] = []
+
+    async def server_on_notify(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> None:
+        notified.append(method)
+
+    session = ClientSession.from_dispatcher(client_side)
+    results: list[types.EmptyResult] = []
+    async with anyio.create_task_group() as tg:
+        await tg.start(server_side.run, server_on_request, server_on_notify)
+        async with session:
+            results.append(await session.send_ping(meta=None))
+            # related_request_id routing is JSON-RPC plumbing; on other
+            # dispatchers the notification is sent without it.
+            await session.send_notification(types.RootsListChangedNotification(), related_request_id=7)
+        server_side.close()
+    assert results == [types.EmptyResult()]
+    assert notified == ["notifications/roots/list_changed"]

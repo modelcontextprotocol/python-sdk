@@ -1,22 +1,34 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from types import TracebackType
 from typing import Any, Protocol, cast, get_args
 
+import anyio
+import anyio.abc
 import anyio.lowlevel
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from typing_extensions import Self, TypeVar
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher
+from mcp.shared.exceptions import MCPError
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.session import ProgressFnT, RequestResponder
+from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types._types import RequestParamsMeta
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
+
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
 
 class SamplingFnT(Protocol):
@@ -104,15 +116,16 @@ spec methods this SDK deliberately doesn't model, like `tasks/*` — are
 answered with METHOD_NOT_FOUND instead of failing union validation."""
 
 
-class ClientSession(
-    BaseSession[
-        types.ClientRequest,
-        types.ClientNotification,
-        types.ClientResult,
-        types.ServerRequest,
-        types.ServerNotification,
-    ]
-):
+class ClientSession:
+    """Client half of an MCP connection, running on `JSONRPCDispatcher`.
+
+    Construct it over a transport's stream pair, enter it as an async context
+    manager, then call `initialize()`. The receive loop, request correlation,
+    and per-request concurrency live in the dispatcher; this class owns the
+    MCP type layer: typed requests, the initialize handshake, and routing
+    server-initiated traffic to the constructor callbacks.
+    """
+
     def __init__(
         self,
         read_stream: ReadStream[SessionMessage | Exception],
@@ -127,7 +140,70 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
+        self._init_state(
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            elicitation_callback=elicitation_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            client_info=client_info,
+            sampling_capabilities=sampling_capabilities,
+        )
+        # Built here (inert until run() starts in __aenter__) so notifications
+        # can be sent before entering the context manager, as before.
+        self._dispatcher: Dispatcher[Any] = JSONRPCDispatcher(
+            read_stream, write_stream, on_stream_exception=self._on_stream_exception
+        )
+
+    @classmethod
+    def from_dispatcher(
+        cls,
+        dispatcher: Dispatcher[Any],
+        *,
+        read_timeout_seconds: float | None = None,
+        sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
+        list_roots_callback: ListRootsFnT | None = None,
+        logging_callback: LoggingFnT | None = None,
+        message_handler: MessageHandlerFnT | None = None,
+        client_info: types.Implementation | None = None,
+        sampling_capabilities: types.SamplingCapability | None = None,
+    ) -> Self:
+        """Build a session over a pre-built dispatcher instead of a stream pair.
+
+        For embedding a server in-process (`DirectDispatcher`) or transports
+        that construct their own dispatcher. Transport-level `Exception` items
+        reach `message_handler` only on the stream constructor, where the
+        session wires the dispatcher's `on_stream_exception` itself.
+        """
+        self = cls.__new__(cls)
+        self._init_state(
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            elicitation_callback=elicitation_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            client_info=client_info,
+            sampling_capabilities=sampling_capabilities,
+        )
+        self._dispatcher = dispatcher
+        return self
+
+    def _init_state(
+        self,
+        *,
+        read_timeout_seconds: float | None,
+        sampling_callback: SamplingFnT | None,
+        elicitation_callback: ElicitationFnT | None,
+        list_roots_callback: ListRootsFnT | None,
+        logging_callback: LoggingFnT | None,
+        message_handler: MessageHandlerFnT | None,
+        client_info: types.Implementation | None,
+        sampling_capabilities: types.SamplingCapability | None,
+    ) -> None:
+        self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
@@ -137,18 +213,90 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
+        self._task_group: anyio.abc.TaskGroup | None = None
 
-    @property
-    def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
-        return types.server_request_adapter
+    async def __aenter__(self) -> Self:
+        self._task_group = anyio.create_task_group()
+        await self._task_group.__aenter__()
+        await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+        return self
 
-    @property
-    def _receive_request_methods(self) -> frozenset[str]:
-        return _SERVER_REQUEST_METHODS
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        # Exit must not block: cancel the dispatcher and any in-flight
+        # callbacks rather than waiting for them.
+        assert self._task_group is not None
+        self._task_group.cancel_scope.cancel()
+        result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        await resync_tracer()
+        return result
 
-    @property
-    def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
-        return types.server_notification_adapter
+    async def send_request(
+        self,
+        request: types.ClientRequest,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT:
+        """Send a request and wait for its typed result.
+
+        A per-request read timeout takes precedence over the session-level
+        one. `metadata` carries transport hints: `ClientMessageMetadata`
+        resumption fields (streamable HTTP), or a
+        `ServerMessageMetadata.related_request_id` to route the message onto
+        an originating request's stream.
+
+        Raises:
+            MCPError: The server responded with an error, or the read timeout
+                elapsed, or the connection closed while waiting.
+            RuntimeError: Called before entering the context manager.
+        """
+        data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        method: str = data["method"]
+        opts: CallOptions = {}
+        timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+        if timeout is not None:
+            opts["timeout"] = timeout
+        if progress_callback is not None:
+            opts["on_progress"] = progress_callback
+        related_request_id: types.RequestId | None = None
+        if isinstance(metadata, ClientMessageMetadata):
+            if metadata.resumption_token is not None:
+                opts["resumption_token"] = metadata.resumption_token
+            if metadata.on_resumption_token_update is not None:
+                opts["on_resumption_token"] = metadata.on_resumption_token_update
+        elif isinstance(metadata, ServerMessageMetadata):
+            related_request_id = metadata.related_request_id
+        if method == "initialize":
+            # The spec forbids cancelling initialize; opt out of the
+            # dispatcher's courtesy cancel-on-abandon.
+            opts["cancel_on_abandon"] = False
+        if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
+            # Related-request routing is JSON-RPC stream plumbing; other
+            # dispatchers have no per-request streams to route onto.
+            raw = await self._dispatcher.send_raw_request(
+                method, data.get("params"), opts, _related_request_id=related_request_id
+            )
+        else:
+            raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        return result_type.model_validate(raw, by_name=False)
+
+    async def send_notification(
+        self,
+        notification: types.ClientNotification,
+        related_request_id: types.RequestId | None = None,
+    ) -> None:
+        """Send a one-way notification. Usable before entering the context manager."""
+        data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+        if related_request_id and isinstance(self._dispatcher, JSONRPCDispatcher):
+            await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)
+        else:
+            await self._dispatcher.notify(data["method"], data.get("params"))
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -397,49 +545,65 @@ class ClientSession(
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())
 
-    async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
-        ctx = RequestContext[ClientSession](request_id=responder.request_id, meta=responder.request_meta, session=self)
+    async def _on_request(
+        self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        """Answer a server-initiated request via the registered callbacks.
 
-        match responder.request:
-            case types.CreateMessageRequest(params=params):
-                with responder:
-                    response = await self._sampling_callback(ctx, params)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
+        An unknown method raises `MCPError` (METHOD_NOT_FOUND), which the
+        dispatcher puts on the wire as-is; malformed params for a known method
+        raise `ValidationError`, which the dispatcher answers with
+        INVALID_PARAMS; an `ErrorData` returned by a callback becomes the
+        error response.
+        """
+        if method not in _SERVER_REQUEST_METHODS:
+            # Unknown methods are METHOD_NOT_FOUND (-32601) per JSON-RPC 2.0,
+            # not validation failures (-32602).
+            raise MCPError(code=types.METHOD_NOT_FOUND, message="Method not found", data=method)
+        payload: dict[str, Any] = {"method": method}
+        if params is not None:
+            payload["params"] = dict(params)
+        request = types.server_request_adapter.validate_python(payload, by_name=False)
 
-            case types.ElicitRequest(params=params):
-                with responder:
-                    response = await self._elicitation_callback(ctx, params)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
-
+        ctx = RequestContext[ClientSession](
+            request_id=dctx.request_id, meta=request.params.meta if request.params else None, session=self
+        )
+        response: types.ClientResult | types.ErrorData
+        match request:
+            case types.CreateMessageRequest(params=sampling_params):
+                response = await self._sampling_callback(ctx, sampling_params)
+            case types.ElicitRequest(params=elicit_params):
+                response = await self._elicitation_callback(ctx, elicit_params)
             case types.ListRootsRequest():
-                with responder:
-                    response = await self._list_roots_callback(ctx)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
-
+                response = await self._list_roots_callback(ctx)
             case types.PingRequest():  # pragma: no branch
-                with responder:
-                    await responder.respond(types.EmptyResult())
+                response = types.EmptyResult()
+        client_response = ClientResponse.validate_python(response)
+        if isinstance(client_response, types.ErrorData):
+            raise MCPError.from_error_data(client_response)
+        return client_response.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-    async def _handle_incoming(
-        self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    async def _on_notify(
+        self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
-        """Handle incoming messages by forwarding to the message handler."""
-        await self._message_handler(req)
+        """Route a server notification: validate, run the typed callback, tee to message_handler."""
+        payload: dict[str, Any] = {"method": method}
+        if params is not None:
+            payload["params"] = dict(params)
+        try:
+            notification = types.server_notification_adapter.validate_python(payload, by_name=False)
+        except ValidationError:
+            logger.warning("Failed to validate notification: %s", payload, exc_info=True)
+            return
+        if isinstance(notification, types.CancelledNotification):
+            # The dispatcher already applied the cancellation to the in-flight
+            # request; message_handler never sees it, so handlers matching
+            # exhaustively over ServerNotification need no arm for it.
+            return
+        if isinstance(notification, types.LoggingMessageNotification):
+            await self._logging_callback(notification.params)
+        await self._message_handler(notification)
 
-    async def _received_notification(self, notification: types.ServerNotification) -> None:
-        """Handle notifications from the server."""
-        # Process specific notification types
-        match notification:
-            case types.LoggingMessageNotification(params=params):
-                await self._logging_callback(params)
-            case types.ElicitCompleteNotification(params=params):
-                # Handle elicitation completion notification
-                # Clients MAY use this to retry requests or update UI
-                # The notification contains the elicitationId of the completed elicitation
-                pass
-            case _:
-                pass
+    async def _on_stream_exception(self, exc: Exception) -> None:
+        """Forward transport-level faults (connection errors, parse errors) to message_handler."""
+        await self._message_handler(exc)

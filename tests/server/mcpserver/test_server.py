@@ -1098,10 +1098,10 @@ class TestContextInjection:
                 assert "Logged messages for test" in content.text
 
                 assert mock_log.call_count == 4
-                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="2")
 
     async def test_optional_context(self):
         """Test that context is optional."""

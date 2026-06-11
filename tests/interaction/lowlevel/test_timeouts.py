@@ -30,16 +30,21 @@ pytestmark = pytest.mark.anyio
 async def test_request_timeout_fails_the_pending_call() -> None:
     """A request whose response does not arrive within its read timeout fails with a timeout error.
 
-    No cancellation is sent to the server (see the divergence note on the requirement): the handler
-    starts and is still running after the caller has already given up. The test waits for the
-    handler to have started only after the timeout has fired, so the timeout itself races nothing.
+    The timeout is followed by notifications/cancelled on the wire, so the server's handler is
+    interrupted instead of running to completion. The test waits for the handler to have started
+    only after the timeout has fired, so the timeout itself races nothing.
     """
     handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
         handler_started.set()
-        await anyio.Event().wait()  # blocks until the session is torn down
+        try:
+            await anyio.Event().wait()  # blocks until the courtesy cancellation interrupts it
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
         raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_call_tool=call_tool)
@@ -48,14 +53,16 @@ async def test_request_timeout_fails_the_pending_call() -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
-        # The request was already on the wire: the handler still runs even though the caller gave up.
+        # The request was already on the wire, so the handler started; the courtesy
+        # cancellation that followed the timeout then interrupted it.
         with anyio.fail_after(5):
             await handler_started.wait()
+            await handler_cancelled.wait()
 
     assert exc_info.value.error == snapshot(
         ErrorData(
             code=REQUEST_TIMEOUT,
-            message="Timed out while waiting for response to CallToolRequest. Waited 1e-06 seconds.",
+            message="Request 'tools/call' timed out",
         )
     )
 
@@ -183,6 +190,6 @@ async def test_session_level_timeout_applies_to_every_request() -> None:
     assert exc_info.value.error == snapshot(
         ErrorData(
             code=REQUEST_TIMEOUT,
-            message="Timed out while waiting for response to CallToolRequest. Waited 0.05 seconds.",
+            message="Request 'tools/call' timed out",
         )
     )

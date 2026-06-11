@@ -55,7 +55,9 @@ async def test_notification_validation_error(tmp_path: Path):
         assert params.name in ("slow", "fast"), f"Unknown tool: {params.name}"
 
         if params.name == "slow":
-            await slow_request_lock.wait()  # it should timeout here
+            # The client's timeout fires while this waits; the courtesy
+            # cancellation then interrupts the wait.
+            await slow_request_lock.wait()
             text = f"slow {request_count}"
         else:
             text = f"fast {request_count}"
@@ -95,9 +97,9 @@ async def test_notification_validation_error(tmp_path: Path):
             # Use very small timeout to trigger quickly without waiting
             with pytest.raises(MCPError) as exc_info:
                 await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
-            assert "Timed out while waiting" in str(exc_info.value)
+            assert "timed out" in str(exc_info.value)
 
-            # release the slow request not to have hanging process
+            # No-op if the courtesy cancellation already interrupted the handler.
             slow_request_lock.set()
 
             # Third call should work (fast operation, no timeout),

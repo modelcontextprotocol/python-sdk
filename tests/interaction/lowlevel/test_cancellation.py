@@ -11,7 +11,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client import ClientSession
+from mcp.client import ClientRequestContext, ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
@@ -155,14 +155,70 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
     assert result == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
 
 
+@requirement("protocol:cancel:server-to-client")
+async def test_abandoned_server_request_cancels_the_client_callback(connect: Connect) -> None:
+    """A server that abandons a sampling request cancels it, interrupting the client's callback.
+
+    The handler gives up on its sampling request by cancelling the scope around it; the courtesy
+    notifications/cancelled that follows interrupts the client's sampling callback mid-await.
+    """
+    callback_started = anyio.Event()
+    callback_cancelled = anyio.Event()
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult:
+        callback_started.set()
+        try:
+            await anyio.Event().wait()  # blocks until the cancellation interrupts it
+        except anyio.get_cancelled_exc_class():
+            callback_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="impatient", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "impatient"
+        request = types.CreateMessageRequest(
+            params=types.CreateMessageRequestParams(
+                messages=[types.SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+                max_tokens=8,
+            )
+        )
+        async with anyio.create_task_group() as abandon_scope:
+
+            async def sample() -> None:
+                await ctx.session.send_request(request, types.CreateMessageResult)
+                raise NotImplementedError  # unreachable: the scope is cancelled
+
+            abandon_scope.start_soon(sample)
+            await callback_started.wait()
+            abandon_scope.cancel_scope.cancel()
+        with anyio.fail_after(5):
+            await callback_cancelled.wait()
+        return CallToolResult(content=[TextContent(text="abandoned")])
+
+    server = Server("abandoner", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("impatient", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="abandoned")]))
+    assert callback_cancelled.is_set()
+
+
 @requirement("protocol:cancel:late-response-ignored")
-async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_handler() -> None:
-    """A response whose id matches no in-flight request is surfaced to the message handler as a RuntimeError.
+async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
+    """A response whose id matches no in-flight request is ignored, as the spec asks.
 
     The spec says a sender SHOULD ignore a response that arrives after it issued a cancellation;
     that is the same client-side code path as any response with an unknown id, and that form is
-    deterministic to test without depending on the cancellation API the SDK does not yet provide.
-    See the divergence note on the requirement.
+    deterministic to test without depending on a client-side cancellation API. Nothing reaches
+    the message handler and the session keeps serving.
 
     A real Server cannot be made to answer with a fabricated id, so the test plays the server's
     side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
@@ -228,7 +284,6 @@ async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_hand
             pong = await session.send_request(PingRequest(), EmptyResult)
 
         assert pong == snapshot(EmptyResult())
-        assert len(incoming) == 1
-        assert isinstance(incoming[0], RuntimeError)
-        # The full message embeds the response object's repr; only the prefix is stable.
-        assert str(incoming[0]).startswith("Received response with an unknown request ID:")
+        # The fabricated response was dropped silently: the ping after it still
+        # round-tripped, and nothing was surfaced to the message handler.
+        assert incoming == []

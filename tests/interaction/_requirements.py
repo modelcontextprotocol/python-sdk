@@ -287,14 +287,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A response that arrives after the sender issued notifications/cancelled is ignored; the "
             "request stays failed and no error is raised."
         ),
-        divergence=Divergence(
-            note=(
-                "A response whose id matches no in-flight request is delivered to the message handler "
-                "as a RuntimeError rather than being silently ignored. The post-cancellation case is the "
-                "same code path; tested in its unknown-id form because that is deterministic without the "
-                "client-side cancellation API the SDK does not yet provide."
-            ),
-        ),
     ),
     "protocol:cancel:server-survives": Requirement(
         source="sdk",
@@ -305,19 +297,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
             "cancels it, and the client stops processing the cancelled request."
-        ),
-        divergence=Divergence(
-            note=(
-                "Abandoning a server-side send_request emits no cancellation notification, and the client "
-                "could not act on one anyway: client callbacks run inline in the receive loop, so a "
-                "cancellation is not even read until the callback has finished."
-            ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: abandoning a server-side send_request emits no cancellation "
-            "notification (the same sender-side gap recorded on protocol:timeout:sends-cancellation), and "
-            "the client could not act on one anyway because client callbacks run inline in the receive "
-            "loop, so a cancellation would not even be read until the callback had already finished."
         ),
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
@@ -465,13 +444,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "When a request times out, the sender issues notifications/cancelled for that request before "
             "failing the local call."
-        ),
-        divergence=Divergence(
-            note=(
-                "Client seat only: the client raises locally and sends nothing on timeout, so the server keeps "
-                "running the handler. The server seat conforms: a timed-out server-initiated request is followed "
-                "by notifications/cancelled on the wire."
-            ),
         ),
     ),
     "protocol:timeout:session-survives": Requirement(

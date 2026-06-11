@@ -1,14 +1,13 @@
-"""Request context for MCP handlers."""
+"""Request context for MCP client handlers."""
 
 from dataclasses import dataclass
 from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
-from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParamsMeta
 
-SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
+SessionT = TypeVar("SessionT", default=Any)
 
 
 @dataclass(kw_only=True)
