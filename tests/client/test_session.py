@@ -875,8 +875,9 @@ async def test_progress_callback_exception_is_swallowed(caplog: pytest.LogCaptur
         raise RuntimeError("progress boom")
 
     async def handler(msg: object) -> None:
-        if isinstance(msg, types.ProgressNotification):
-            delivered.set()
+        # Only the progress notification is teed to the message handler here.
+        assert isinstance(msg, types.ProgressNotification)
+        delivered.set()
 
     async with raw_client_session(message_handler=handler) as (session, to_client, from_client):
         async with anyio.create_task_group() as tg:

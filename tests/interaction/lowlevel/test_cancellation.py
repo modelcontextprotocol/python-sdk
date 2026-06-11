@@ -268,10 +268,8 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
         await server_write.send(respond(9999, EmptyResult()))
         await server_write.send(respond(ping.message.id, EmptyResult()))
 
-    incoming: list[IncomingMessage] = []
-
     async def message_handler(message: IncomingMessage) -> None:
-        incoming.append(message)
+        raise NotImplementedError  # unreachable: nothing is surfaced for an unknown-id response
 
     async with (
         create_client_server_memory_streams() as ((client_read, client_write), server_streams),
@@ -285,5 +283,4 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
 
         assert pong == snapshot(EmptyResult())
         # The fabricated response was dropped silently: the ping after it still
-        # round-tripped, and nothing was surfaced to the message handler.
-        assert incoming == []
+        # round-tripped, and the message handler (a tripwire) was never invoked.

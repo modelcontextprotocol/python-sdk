@@ -2247,8 +2247,9 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, types.ResourceUpdatedNotification):
-            notified.set()
+        # Only the standalone-stream notification is teed to the handler here.
+        assert isinstance(message, types.ResourceUpdatedNotification)
+        notified.set()
 
     async with session_manager.run():
         async with (
