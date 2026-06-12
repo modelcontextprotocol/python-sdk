@@ -1,0 +1,45 @@
+{
+  "generator": {
+    "package": "datamodel-code-generator",
+    "version": "0.57.0"
+  },
+  "spec_repo": "modelcontextprotocol/modelcontextprotocol",
+  "versions": {
+    "2024-11-05": {
+      "sha": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+      "schema_path": "schema/2024-11-05/schema.json",
+      "protocol_version": "2024-11-05",
+      "module": "v2024_11_05",
+      "frozen": true
+    },
+    "2025-03-26": {
+      "sha": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+      "schema_path": "schema/2025-03-26/schema.json",
+      "protocol_version": "2025-03-26",
+      "module": "v2025_03_26",
+      "frozen": true
+    },
+    "2025-06-18": {
+      "sha": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+      "schema_path": "schema/2025-06-18/schema.json",
+      "protocol_version": "2025-06-18",
+      "module": "v2025_06_18",
+      "frozen": true
+    },
+    "2025-11-25": {
+      "sha": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+      "schema_path": "schema/2025-11-25/schema.json",
+      "protocol_version": "2025-11-25",
+      "module": "v2025_11_25",
+      "frozen": true
+    },
+    "draft": {
+      "sha": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+      "schema_path": "schema/draft/schema.json",
+      "protocol_version": "2026-07-28",
+      "module": "v2026_07_28",
+      "frozen": false
+    }
+  },
+  "extensions": {}
+}

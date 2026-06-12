@@ -16,8 +16,13 @@ KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
     "2025-03-26",
     "2025-06-18",
     "2025-11-25",
+    "2026-07-28",
 )
-"""Every released protocol revision, oldest to newest."""
+"""Every protocol revision this SDK knows, oldest to newest.
+
+Knowing a revision (its types and wire shapes are modeled) is independent of
+being able to negotiate it; see SUPPORTED_PROTOCOL_VERSIONS for the latter.
+"""
 
 SUPPORTED_PROTOCOL_VERSIONS: list[str] = ["2024-11-05", "2025-03-26", "2025-06-18", LATEST_PROTOCOL_VERSION]
 """Protocol revisions this SDK can negotiate."""

@@ -1,20 +1,43 @@
+"""The version-superset ("monolith") MCP protocol models.
+
+One model per protocol construct, carrying every field from every supported
+protocol version — except deliberate deferrals recorded in
+``tests/spec_oracles/burndown_allowlist.json`` — so application code handles
+a single set of types no matter which version a session negotiated.
+Per-field docstrings record where a field's availability differs across
+versions. ``mcp.types.wire`` is the boundary that serializes these models
+to — and parses wire data from — the exact shape of a negotiated version,
+using the per-version model packages (``mcp.types.v*``) as the source of
+each version's wire shape.
+"""
+
 from __future__ import annotations
 
-from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FileUrl,
+    TypeAdapter,
+)
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
-LATEST_PROTOCOL_VERSION = "2025-11-25"
-"""The latest version of the Model Context Protocol.
+LATEST_PROTOCOL_VERSION: Final[str] = "2025-11-25"
+"""The newest protocol version this SDK can negotiate.
 
 You can find the latest specification at https://modelcontextprotocol.io/specification/latest.
+
+This is deliberately `Final[str]`, not a `Literal`: the value advances when SDK
+support for a newer protocol revision ships, so callers must not narrow on the
+current value.
 """
 
-DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
+DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
 """The default negotiated version of the Model Context Protocol when no version is specified.
 
 We need this to satisfy the MCP specification, which requires the server to assume a specific version if none is
@@ -25,9 +48,23 @@ https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protoc
 """
 
 ProgressToken = str | int
+"""A progress token, used to associate progress notifications with the original request.
+
+Identical in every supported protocol version: a string or a number (the JSON form of
+every schema version pins the numeric kind to integer; null is never allowed). A
+requester places the token in a request's optional ``_meta.progressToken`` slot; the
+receiver attaches the same token as the required ``progressToken`` field of any
+``notifications/progress`` it chooses to emit, correlating the notification stream
+back to the original request.
+"""
 Role = Literal["user", "assistant"]
+"""The sender or recipient of messages and data in a conversation.
+
+The value set is identical in every protocol version (2024-11-05 through 2026-07-28).
+"""
 
 IconTheme = Literal["light", "dark"]
+"""Theme an icon is designed for. Wire values of ``Icon.theme`` (2025-11-25+)."""
 
 
 class MCPModel(BaseModel):
@@ -38,8 +75,47 @@ class MCPModel(BaseModel):
 
 Meta: TypeAlias = dict[str, Any]
 
+PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion"
+"""Reserved request `_meta` key: the MCP protocol version for this request (2026-07-28).
+
+SDK-managed: injected by the client on 2026-07-28 sessions. For the HTTP
+transport its value must match the `MCP-Protocol-Version` header.
+"""
+
+CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo"
+"""Reserved request `_meta` key: the client `Implementation` making the request (2026-07-28).
+
+SDK-managed: injected by the client per request on 2026-07-28 sessions.
+"""
+
+CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities"
+"""Reserved request `_meta` key: the client's per-request `ClientCapabilities` (2026-07-28).
+
+SDK-managed: injected by the client per request on 2026-07-28 sessions; servers
+must not infer capabilities from prior requests.
+"""
+
+LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel"
+"""Reserved request `_meta` key: the desired log level for this request (2026-07-28).
+
+Replaces the former `logging/setLevel` RPC. Deprecated as of protocol version
+2026-07-28 (SEP-2577); if absent, the server must not send log notifications
+for this request.
+"""
+
 
 class RequestParamsMeta(TypedDict, extra_items=Any):
+    """The `_meta` object on request params (schema name: `RequestMetaObject`).
+
+    An open map: arbitrary `_meta` keys — including the reserved
+    `io.modelcontextprotocol/*` keys — are preserved on round-trip via
+    ``extra_items=Any``. The reserved keys are SDK-managed session/request
+    state on 2026-07-28 sessions: the session layer supplies
+    clientInfo/clientCapabilities, and the wire boundary injects
+    protocolVersion and validates all three. Read or set them via the
+    ``*_META_KEY`` constants.
+    """
+
     progress_token: NotRequired[ProgressToken]
     """
     If specified, the caller requests out-of-band progress notifications for
@@ -50,10 +126,25 @@ class RequestParamsMeta(TypedDict, extra_items=Any):
 
 
 class RequestParams(MCPModel):
+    """Common params for any request."""
+
     meta: RequestParamsMeta | None = Field(alias="_meta", default=None)
+    """Metadata reserved by MCP for protocol-level concerns (wire name `_meta`).
+
+    Carries the optional progress token and, on 2026-07-28 sessions, the reserved
+    `io.modelcontextprotocol/*` keys (protocolVersion, clientInfo,
+    clientCapabilities, plus the deprecated logLevel). The field is required on
+    the wire for 2026-07-28 client requests: the session layer supplies the
+    clientInfo/clientCapabilities entries, and the wire boundary injects only
+    protocolVersion and refuses to serialize a client request missing the other
+    two. Code sending requests through an SDK session normally leaves this
+    field unset.
+    """
 
 
 class PaginatedRequestParams(RequestParams):
+    """Common params for paginated requests."""
+
     cursor: str | None = None
     """An opaque token representing the current pagination position.
 
@@ -62,6 +153,8 @@ class PaginatedRequestParams(RequestParams):
 
 
 class NotificationParams(MCPModel):
+    """Common params for any notification."""
+
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -75,23 +168,64 @@ MethodT = TypeVar("MethodT", bound=str)
 
 
 class Request(MCPModel, Generic[RequestParamsT, MethodT]):
-    """Base class for JSON-RPC requests."""
+    """Base class for JSON-RPC requests.
+
+    Concrete requests subclass this as
+    ``Request[<ParamsType>, Literal["<method>"]]`` and default the method
+    literal. The JSON-RPC envelope (``jsonrpc``, ``id``) is not part of this
+    payload type; it is attached by the session layer (see ``mcp.types.jsonrpc``).
+    """
 
     method: MethodT
+    """The protocol method name identifying this request."""
+
     params: RequestParamsT
+    """The request's parameters; concrete subclasses set the per-method type and
+    requiredness."""
 
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
     """Base class for paginated requests, matching the schema's PaginatedRequest interface."""
 
     params: PaginatedRequestParams | None = None
+    """Pagination params.
+
+    Required on the wire for 2026-07-28 peers (because `_meta` is required
+    there): the session layer supplies the clientInfo/clientCapabilities
+    `_meta` entries, and the wire boundary materializes ``params``, injects
+    protocolVersion, and refuses to serialize without the identity entries.
+    Optional on all earlier versions.
+    """
 
 
 class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
     method: MethodT
+    """The notification method name."""
+
     params: NotificationParamsT
+    """The notification's parameters.
+
+    Optional on the wire in every protocol version; concrete subclasses narrow
+    this to their params model, or to `NotificationParams | None = None` for
+    parameterless notifications.
+    """
+
+
+ResultType = Literal["complete", "input_required"] | str
+"""Indicates the type of a Result object, allowing the client to determine how to parse it.
+
+- "complete": the request completed successfully and the result contains the final content.
+- "input_required": the request requires additional input; the result contains an
+  InputRequiredResult with instructions for the client to provide additional input
+  before retrying the original request.
+
+Introduced in protocol 2026-07-28. The union is open: values outside the two named
+literals are reserved for future protocol versions and extensions (the tasks extension
+reserves "task"). Pre-2026-07-28 peers never send the carrying field; the spec defines
+an absent `resultType` as equivalent to "complete".
+"""
 
 
 class Result(MCPModel):
@@ -103,8 +237,24 @@ class Result(MCPModel):
     for notes on _meta usage.
     """
 
+    result_type: ResultType | None = None
+    """Discriminates complete results from input-required results (2026-07-28).
+
+    `None` means the peer did not send the field (pre-2026-07-28 peers never do),
+    which the spec defines as equivalent to "complete". The SDK injects this on
+    2026-07-28 emission and strips it when emitting to earlier versions; handlers
+    normally never set it.
+    """
+
 
 class PaginatedResult(Result):
+    """Base class for results of paginated list operations.
+
+    Matches the schema's PaginatedResult interface; concrete list results
+    (ListToolsResult, ListResourcesResult, ListResourceTemplatesResult,
+    ListPromptsResult) subclass it.
+    """
+
     next_cursor: str | None = None
     """
     An opaque token representing the pagination position after the last returned result.
@@ -112,15 +262,46 @@ class PaginatedResult(Result):
     """
 
 
+class CacheableResult(Result):
+    """Base class for results that carry client-side caching directives (2026-07-28).
+
+    Both fields are required on the wire for 2026-07-28 peers; the SDK supplies
+    defaults at the wire boundary when a handler leaves them unset. The fields do
+    not exist on the wire for 2025-11-25 and earlier sessions.
+    """
+
+    ttl_ms: int | None = None
+    """How long, in milliseconds, the client MAY cache this response before
+    re-fetching — analogous to HTTP Cache-Control max-age.
+
+    0 means the response SHOULD be considered immediately stale; a positive value
+    means the client SHOULD consider the result fresh for that many milliseconds.
+    Must be non-negative. `None` means the handler left it unset; on 2026-07-28
+    sessions the SDK supplies a value at emit time.
+    """
+
+    cache_scope: Literal["public", "private"] | None = None
+    """Intended scope of the cached response, analogous to HTTP
+    `Cache-Control: public` vs `Cache-Control: private`.
+
+    With "public", any client or intermediary (e.g. a shared gateway or proxy)
+    MAY cache the response and serve it to any user; with "private", only the
+    requesting user's client MAY cache it, and shared caches MUST NOT serve a
+    cached copy to a different user. `None` means the handler left it unset; on
+    2026-07-28 sessions the SDK supplies a value at emit time.
+    """
+
+
 class EmptyResult(Result):
-    """A response that indicates success but carries no data."""
+    """A result that indicates success but carries no data."""
 
 
 class BaseMetadata(MCPModel):
-    """Base class for entities with name and optional title fields."""
+    """Base class for entities with a programmatic name and an optional display title."""
 
     name: str
-    """The programmatic name of the entity."""
+    """Intended for programmatic or logical use, but used as a display name in past
+    specs or fallback (if title isn't present)."""
 
     title: str | None = None
     """
@@ -134,50 +315,95 @@ class BaseMetadata(MCPModel):
 
 
 class Icon(MCPModel):
-    """An icon for display in user interfaces."""
+    """An optionally-sized icon that can be displayed in a user interface.
+
+    Added in protocol 2025-11-25; carried in the optional ``icons`` array of
+    tools, resources, resource templates, prompts, and implementations. Never
+    present on the wire in earlier protocol versions.
+    """
 
     src: str
-    """URL or data URI for the icon."""
+    """A standard URI pointing to an icon resource.
+
+    May be an HTTP/HTTPS URL or a ``data:`` URI with Base64-encoded image data.
+
+    Consumers SHOULD take steps to ensure URLs serving icons are from the same
+    domain as the client/server or a trusted domain, and SHOULD take
+    appropriate precautions when consuming SVGs, as they can contain
+    executable JavaScript.
+    """
 
     mime_type: str | None = None
-    """Optional MIME type for the icon."""
+    """Optional MIME type override if the source MIME type is missing or generic.
+
+    For example: ``"image/png"``, ``"image/jpeg"``, or ``"image/svg+xml"``.
+    """
 
     sizes: list[str] | None = None
-    """Optional list of strings specifying icon dimensions (e.g., ["48x48", "96x96"])."""
+    """Optional array of strings specifying sizes at which the icon can be used.
+
+    Each string should be in WxH format (e.g., ``"48x48"``, ``"96x96"``) or
+    ``"any"`` for scalable formats like SVG. If not provided, the client
+    should assume the icon can be used at any size.
+    """
 
     theme: IconTheme | None = None
-    """Optional theme specifier.
+    """Optional specifier for the theme this icon is designed for.
 
-    `"light"` indicates the icon is designed for a light background, `"dark"` indicates the icon
-    is designed for a dark background.
-
-    See https://modelcontextprotocol.io/specification/2025-11-25/schema#icon for more details.
+    ``"light"`` indicates the icon is designed to be used with a light
+    background, and ``"dark"`` indicates the icon is designed to be used with
+    a dark background. If not provided, the client should assume the icon can
+    be used with any theme.
     """
 
 
 class Implementation(BaseMetadata):
-    """Describes the name and version of an MCP implementation."""
+    """Describes the MCP implementation (``clientInfo`` / ``serverInfo``).
+
+    On sessions negotiated at 2025-11-25 or earlier, this is carried once per
+    session: client->server as ``InitializeRequestParams.client_info`` and
+    server->client as ``InitializeResult.server_info``. On 2026-07-28 sessions it
+    is carried per request in ``_meta["io.modelcontextprotocol/clientInfo"]`` and
+    server->client as ``DiscoverResult.server_info``.
+
+    Inherits ``name`` (required) and optional ``title`` from ``BaseMetadata``;
+    only ``name`` and ``version`` are required on the wire in every protocol
+    version.
+    """
 
     version: str
-
-    title: str | None = None
-    """An optional human-readable title for this implementation."""
+    """The version of this implementation."""
 
     description: str | None = None
-    """An optional human-readable description of what this implementation does."""
+    """An optional human-readable description of what this implementation does.
+
+    This can be used by clients or servers to provide context about their purpose
+    and capabilities. For example, a server might describe the types of resources
+    or tools it provides, while a client might describe its intended use case.
+    """
 
     website_url: str | None = None
     """An optional URL of the website for this implementation."""
 
     icons: list[Icon] | None = None
-    """An optional list of icons for this implementation."""
+    """Optional set of sized icons that the client can display in a user interface."""
 
 
 class RootsCapability(MCPModel):
-    """Capability for root operations."""
+    """Capability for root operations.
+
+    Deprecated as a whole in protocol 2026-07-28 (SEP-2577) but kept in the
+    specification's deprecated-features registry, so 2026-07-28 sessions still
+    carry it on the wire — as an empty object, since ``list_changed`` below
+    exists only through 2025-11-25.
+    """
 
     list_changed: bool | None = None
-    """Whether the client supports notifications for changes to the roots list."""
+    """Whether the client supports notifications for changes to the roots list.
+
+    Removed in protocol 2026-07-28 (the 2026-07-28 `roots` capability is an
+    empty object); meaningful on 2025-11-25 and earlier sessions.
+    """
 
 
 class SamplingContextCapability(MCPModel):
@@ -201,7 +427,10 @@ class FormElicitationCapability(MCPModel):
 
 
 class UrlElicitationCapability(MCPModel):
-    """Capability for URL mode elicitation."""
+    """Capability for URL mode elicitation.
+
+    New in protocol 2025-11-25, with URL mode itself (no earlier wire form).
+    """
 
 
 class ElicitationCapability(MCPModel):
@@ -214,11 +443,15 @@ class ElicitationCapability(MCPModel):
     """Present if the client supports form mode elicitation."""
 
     url: UrlElicitationCapability | None = None
-    """Present if the client supports URL mode elicitation."""
+    """Present if the client supports URL mode elicitation (2025-11-25 and later)."""
 
 
 class SamplingCapability(MCPModel):
-    """Sampling capability structure, allowing fine-grained capability advertisement."""
+    """Sampling capability structure, allowing fine-grained capability advertisement.
+
+    The `sampling` capability as a whole is deprecated in protocol 2026-07-28
+    (SEP-2577) but its shape is unchanged there; used on all sessions.
+    """
 
     context: SamplingContextCapability | None = None
     """
@@ -232,8 +465,92 @@ class SamplingCapability(MCPModel):
     """
 
 
+class TasksListCapability(MCPModel):
+    """Capability for tasks listing operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TasksCancelCapability(MCPModel):
+    """Capability for tasks cancel operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TasksCreateMessageCapability(MCPModel):
+    """Capability for task-augmented sampling/createMessage requests.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TasksSamplingCapability(MCPModel):
+    """Capability for task-augmented sampling operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    create_message: TasksCreateMessageCapability | None = None
+    """Whether the client supports task-augmented sampling/createMessage."""
+
+
+class TasksCreateElicitationCapability(MCPModel):
+    """Capability for task-augmented elicitation/create requests.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TasksElicitationCapability(MCPModel):
+    """Capability for task-augmented elicitation operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    create: TasksCreateElicitationCapability | None = None
+    """Whether the client supports task-augmented elicitation/create."""
+
+
+class ClientTasksRequestsCapability(MCPModel):
+    """Specifies which request types the client can augment with tasks.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    sampling: TasksSamplingCapability | None = None
+    """Task support for sampling requests."""
+
+    elicitation: TasksElicitationCapability | None = None
+    """Task support for elicitation requests."""
+
+
+class ClientTasksCapability(MCPModel):
+    """Capability for client tasks operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    list: TasksListCapability | None = None
+    """Whether this client supports tasks/list."""
+
+    cancel: TasksCancelCapability | None = None
+    """Whether this client supports tasks/cancel."""
+
+    requests: ClientTasksRequestsCapability | None = None
+    """Specifies which request types can be augmented with tasks."""
+
+
 class ClientCapabilities(MCPModel):
-    """Capabilities a client may support."""
+    """Capabilities a client may support.
+
+    Known capabilities are defined in the spec schema, but this is not a closed
+    set: any client can define its own, additional capabilities. On protocol
+    versions through 2025-11-25 this object is sent once, in `initialize`; on
+    2026-07-28 sessions the SDK carries it in every request's `_meta` under
+    "io.modelcontextprotocol/clientCapabilities".
+    """
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
@@ -246,6 +563,45 @@ class ClientCapabilities(MCPModel):
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
+    extensions: dict[str, dict[str, Any]] | None = None
+    """Optional MCP extensions that the client supports (2026-07-28).
+
+    Keys are extension identifiers (e.g. "io.modelcontextprotocol/oauth-client-credentials"),
+    values are per-extension settings objects; an empty object indicates support
+    with no settings.
+    """
+    tasks: ClientTasksCapability | None = None
+    """Present if the client supports task-augmented requests (2025-11-25 only)."""
+
+
+class UnsupportedProtocolVersionErrorData(MCPModel):
+    """Error data for the -32004 unsupported-protocol-version error (2026-07-28).
+
+    Servers return this when a request claims a protocol version they do not
+    support. The client should choose a mutually supported version from
+    ``supported`` and retry the request.
+    """
+
+    supported: list[str]
+    """Protocol versions the server supports.
+
+    The client should choose a mutually supported version from this list and retry.
+    """
+
+    requested: str
+    """The protocol version that was requested by the client."""
+
+
+class MissingRequiredClientCapabilityErrorData(MCPModel):
+    """Error data for the 2026-07-28 MissingRequiredClientCapabilityError (-32003).
+
+    Servers return this when processing a request requires a capability the
+    client did not declare in the request's `clientCapabilities`. The client
+    should re-send the request declaring the listed capabilities (or fail).
+    """
+
+    required_capabilities: ClientCapabilities
+    """The capabilities the server requires from the client to process this request."""
 
 
 class PromptsCapability(MCPModel):
@@ -279,14 +635,65 @@ class CompletionsCapability(MCPModel):
     """Capability for completions operations."""
 
 
+class TasksCallCapability(MCPModel):
+    """Capability for task-augmented tools/call requests.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TasksToolsCapability(MCPModel):
+    """Capability for task-augmented tool operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    call: TasksCallCapability | None = None
+    """Whether the server supports task-augmented tools/call."""
+
+
+class ServerTasksRequestsCapability(MCPModel):
+    """Specifies which request types the server can augment with tasks.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    tools: TasksToolsCapability | None = None
+    """Task support for tool requests."""
+
+
+class ServerTasksCapability(MCPModel):
+    """Capability for server tasks operations.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    list: TasksListCapability | None = None
+    """Whether this server supports tasks/list."""
+
+    cancel: TasksCancelCapability | None = None
+    """Whether this server supports tasks/cancel."""
+
+    requests: ServerTasksRequestsCapability | None = None
+    """Specifies which request types can be augmented with tasks."""
+
+
 class ServerCapabilities(MCPModel):
-    """Capabilities that a server may support."""
+    """Capabilities that a server may support.
+
+    Known capabilities are defined here, but this is not a closed set: any
+    server can define its own, additional capabilities.
+    """
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""
 
     logging: LoggingCapability | None = None
-    """Present if the server supports sending log messages to the client."""
+    """Present if the server supports sending log messages to the client.
+
+    Deprecated as of protocol version 2026-07-28 (SEP-2577); remains valid on
+    earlier-version sessions.
+    """
 
     prompts: PromptsCapability | None = None
     """Present if the server offers any prompt templates."""
@@ -300,39 +707,95 @@ class ServerCapabilities(MCPModel):
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
 
+    extensions: dict[str, dict[str, Any]] | None = None
+    """Optional MCP extensions that the server supports (2026-07-28).
+
+    Keys are extension identifiers (e.g. "io.modelcontextprotocol/tasks");
+    values are per-extension settings objects. An empty object indicates
+    support with no settings.
+    """
+
+    tasks: ServerTasksCapability | None = None
+    """Present if the server supports task-augmented requests (2025-11-25 only)."""
+
+
+# Lifecycle handshake (removed in protocol 2026-07-28).
+#
+# Protocol 2026-07-28 removed the initialize handshake and ping in favor of
+# `server/discover` plus per-request `_meta`. The handshake types stay defined
+# because earlier-version sessions still use them; every type the 2026-07-28
+# revision removed — here and elsewhere in this module — carries the same
+# "Removed in protocol 2026-07-28" docstring line.
+# Alternative considered: moving the removed types to a `mcp.types.legacy` module behind PEP 562 aliases.
+
 
 class InitializeRequestParams(RequestParams):
-    """Parameters for the initialize request."""
+    """Parameters for the `initialize` request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    """
 
     protocol_version: str
-    """The latest version of the Model Context Protocol that the client supports."""
+    """The latest version of the Model Context Protocol that the client supports.
+
+    The client MAY decide to support older versions as well.
+    """
+
     capabilities: ClientCapabilities
+    """The capabilities the client supports."""
+
     client_info: Implementation
+    """Information about the client implementation."""
 
 
 class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]]):
     """This request is sent from the client to the server when it first connects, asking it
     to begin initialization.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    The `server/discover` flow plus per-request `_meta` replace the handshake there.
     """
 
     method: Literal["initialize"] = "initialize"
+    """The protocol method name (`initialize`)."""
+
     params: InitializeRequestParams
+    """The initialization parameters (required in every protocol version that
+    has this request)."""
 
 
 class InitializeResult(Result):
-    """After receiving an initialize request from the client, the server sends this."""
+    """After receiving an initialize request from the client, the server sends this response.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    The 2026-07-28 revision replaces the initialize handshake with `server/discover`
+    (see `DiscoverResult`).
+    """
 
     protocol_version: str
-    """The version of the Model Context Protocol that the server wants to use."""
+    """The version of the Model Context Protocol that the server wants to use.
+
+    This may not match the version that the client requested. If the client
+    cannot support this version, it MUST disconnect.
+    """
     capabilities: ServerCapabilities
+    """The capabilities of the server."""
     server_info: Implementation
+    """Information about the server implementation."""
     instructions: str | None = None
-    """Instructions describing how to use the server and its features."""
+    """Instructions describing how to use the server and its features.
+
+    This can be used by clients to improve the LLM's understanding of available
+    tools, resources, etc. It can be thought of like a "hint" to the model. For
+    example, this information MAY be added to the system prompt.
+    """
 
 
 class InitializedNotification(Notification[NotificationParams | None, Literal["notifications/initialized"]]):
     """This notification is sent from the client to the server after initialization has
     finished.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
     """
 
     method: Literal["notifications/initialized"] = "notifications/initialized"
@@ -341,11 +804,284 @@ class InitializedNotification(Notification[NotificationParams | None, Literal["n
 
 class PingRequest(Request[RequestParams | None, Literal["ping"]]):
     """A ping, issued by either the server or the client, to check that the other party is
-    still alive.
+    still alive. The receiver must promptly respond, or else may be disconnected.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
     """
 
     method: Literal["ping"] = "ping"
     params: RequestParams | None = None
+
+
+class DiscoverRequest(Request[RequestParams | None, Literal["server/discover"]]):
+    """A request from the client asking the server to advertise its supported
+    protocol versions, capabilities, and other metadata (2026-07-28 only).
+
+    Servers speaking 2026-07-28 MUST implement ``server/discover``; clients MAY
+    call it but are not required to - version negotiation can also happen
+    inline via per-request ``_meta``.
+    """
+
+    method: Literal["server/discover"] = "server/discover"
+    params: RequestParams | None = None
+    """Required on the 2026-07-28 wire (its ``_meta`` must carry the reserved
+    ``io.modelcontextprotocol/*`` keys). The session layer supplies the
+    ``clientInfo``/``clientCapabilities`` entries; the wire boundary
+    materializes ``params``, injects only ``protocolVersion``, and refuses to
+    serialize the request without the other two.
+    """
+
+
+class DiscoverResult(CacheableResult):
+    """The result returned by the server for a `server/discover` request (2026-07-28)."""
+
+    supported_versions: list[str]
+    """MCP protocol versions this server supports.
+
+    The client should choose a version from this list for use in subsequent requests.
+    """
+
+    capabilities: ServerCapabilities
+    """The capabilities of the server."""
+
+    server_info: Implementation
+    """Information about the server software implementation."""
+
+    instructions: str | None = None
+    """Natural-language guidance describing the server and its features.
+
+    This can be used by clients to improve an LLM's understanding of available
+    tools (e.g., by including it in a system prompt). It should focus on
+    information that helps the model use the server effectively and should not
+    duplicate information already in tool descriptions.
+    """
+
+
+# Tasks (removed in protocol 2026-07-28).
+#
+# Protocol 2025-11-25 introduced task-augmented requests; protocol 2026-07-28
+# removed them from the core specification (tasks continue as a protocol
+# extension). The 2025-11-25 task types are defined here types-only: none of
+# their methods appear in the request/notification unions below or in the
+# per-version method tables, so they are never dispatched.
+# Alternative considered: a `mcp/extensions/tasks/` package carrying the extension's task types would attach here.
+
+
+class ToolExecution(MCPModel):
+    """Execution-related properties for a tool.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating
+    2025-11-25 (introduced with the experimental core tasks support; the
+    tasks extension has no per-tool execution declaration).
+    """
+
+    task_support: Literal["forbidden", "optional", "required"] | None = None
+    """
+    Indicates whether this tool supports task-augmented execution.
+    This allows clients to handle long-running operations through polling
+    the task system.
+
+    - "forbidden": Tool does not support task-augmented execution (default when absent)
+    - "optional": Tool may support task-augmented execution
+    - "required": Tool requires task-augmented execution
+
+    Default: "forbidden"
+    """
+
+
+class TaskMetadata(MCPModel):
+    """Metadata for augmenting a request with task execution.
+
+    Include this in the `task` field of the request parameters.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating
+    2025-11-25 (the tasks extension has no request-side task-creation
+    metadata).
+    """
+
+    ttl: int | None = None
+    """Requested duration in milliseconds to retain task from creation."""
+
+
+class RelatedTaskMetadata(MCPModel):
+    """Metadata for associating messages with a task.
+
+    Include this in the ``_meta`` field under the key
+    ``io.modelcontextprotocol/related-task``.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    task_id: str
+    """The task identifier this message is associated with."""
+
+
+TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
+"""The status of a task.
+
+Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+"""
+
+
+class Task(MCPModel):
+    """Data associated with a task.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    task_id: str
+    """The task identifier."""
+
+    status: TaskStatus
+    """Current task state."""
+
+    status_message: str | None = None
+    """Optional human-readable message describing the current task state.
+
+    This can provide context for any status, including:
+    - Reasons for "cancelled" status
+    - Summaries for "completed" status
+    - Diagnostic information for "failed" status (e.g., error details, what went wrong)
+    """
+
+    created_at: str
+    """ISO 8601 timestamp when the task was created."""
+
+    last_updated_at: str
+    """ISO 8601 timestamp when the task was last updated."""
+
+    ttl: int | None
+    """Actual retention duration from creation in milliseconds, null for unlimited."""
+
+    poll_interval: int | None = None
+    """Suggested polling interval in milliseconds."""
+
+
+class CreateTaskResult(Result):
+    """A response to a task-augmented request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    task: Task
+
+
+class GetTaskRequestParams(RequestParams):
+    """Parameters for a tasks/get request."""
+
+    task_id: str
+    """The task identifier to query."""
+
+
+class GetTaskRequest(Request[GetTaskRequestParams, Literal["tasks/get"]]):
+    """A request to retrieve the state of a task.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    method: Literal["tasks/get"] = "tasks/get"
+    params: GetTaskRequestParams
+
+
+class GetTaskResult(Result, Task):
+    """The response to a tasks/get request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class CancelTaskRequestParams(RequestParams):
+    """Parameters for a tasks/cancel request."""
+
+    task_id: str
+    """The task identifier to cancel."""
+
+
+class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
+    """A request to cancel a task.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    method: Literal["tasks/cancel"] = "tasks/cancel"
+    params: CancelTaskRequestParams
+
+
+class CancelTaskResult(Result, Task):
+    """The response to a tasks/cancel request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class TaskStatusNotificationParams(NotificationParams, Task):
+    """Parameters for a `notifications/tasks/status` notification."""
+
+
+class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
+    """An optional notification from the receiver to the requestor, informing them that a
+    task's status has changed. Receivers are not required to send these notifications.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    method: Literal["notifications/tasks/status"] = "notifications/tasks/status"
+    params: TaskStatusNotificationParams
+
+
+class GetTaskPayloadRequestParams(RequestParams):
+    """Parameters for a tasks/result request."""
+
+    task_id: str
+    """The task identifier to retrieve results for."""
+
+
+class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/result"]]):
+    """A request to retrieve the result of a completed task.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating
+    2025-11-25 (the tasks extension delivers terminal payloads inline in
+    tasks/get responses instead).
+    """
+
+    method: Literal["tasks/result"] = "tasks/result"
+    params: GetTaskPayloadRequestParams
+
+
+class GetTaskPayloadResult(Result):
+    """The response to a tasks/result request.
+
+    The structure matches the result type of the original request; for example, a
+    tools/call task would return the CallToolResult structure. The payload arrives
+    as extra wire fields on this open object, which the SDK's default extra-field
+    policy does not retain: validating a tasks/result response into this class
+    keeps only ``_meta``. Callers that know the original request should validate
+    the response into that request's result type (e.g. ``CallToolResult``)
+    instead, and custom server handlers should return the original request's
+    result object directly rather than wrapping it in this class.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+
+class ListTasksRequest(PaginatedRequest[Literal["tasks/list"]]):
+    """A request to retrieve a list of tasks.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating
+    2025-11-25 (the tasks extension deliberately drops tasks/list).
+    """
+
+    method: Literal["tasks/list"] = "tasks/list"
+
+
+class ListTasksResult(PaginatedResult):
+    """The response to a tasks/list request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
+    """
+
+    tasks: list[Task]
+    """The list of tasks."""
 
 
 class ProgressNotificationParams(NotificationParams):
@@ -384,8 +1120,29 @@ class ListResourcesRequest(PaginatedRequest[Literal["resources/list"]]):
 
 
 class Annotations(MCPModel):
+    """Optional annotations for the client.
+
+    The client can use annotations to inform how objects are used or displayed.
+    Carried as the optional ``annotations`` field of resources, resource
+    templates, and content blocks in every protocol version (on 2024-11-05 the
+    same object is carried anonymously via the schema's ``Annotated`` base
+    interface).
+    """
+
     audience: list[Role] | None = None
+    """Describes who the intended audience of this object or data is.
+
+    It can include multiple entries to indicate content useful for multiple
+    audiences (e.g., ``["user", "assistant"]``).
+    """
+
     priority: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    """Describes how important this data is for operating the server.
+
+    A value of 1 means "most important," and indicates that the data is
+    effectively required, while 0 means "least important," and indicates that
+    the data is entirely optional.
+    """
 
 
 class Resource(BaseMetadata):
@@ -395,7 +1152,11 @@ class Resource(BaseMetadata):
     """The URI of this resource."""
 
     description: str | None = None
-    """A description of what this resource represents."""
+    """A description of what this resource represents.
+
+    This can be used by clients to improve the LLM's understanding of available
+    resources. It can be thought of like a "hint" to the model.
+    """
 
     mime_type: str | None = None
     """The MIME type of this resource, if known."""
@@ -407,15 +1168,13 @@ class Resource(BaseMetadata):
     """
 
     icons: list[Icon] | None = None
-    """An optional list of icons for this resource."""
+    """Optional set of sized icons that the client can display in a user interface."""
 
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
 
     meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
+    """See the MCP specification for notes on `_meta` usage."""
 
 
 class ResourceTemplate(BaseMetadata):
@@ -425,7 +1184,11 @@ class ResourceTemplate(BaseMetadata):
     """A URI template (according to RFC 6570) that can be used to construct resource URIs."""
 
     description: str | None = None
-    """A human-readable description of what this template is for."""
+    """A description of what this template is for.
+
+    This can be used by clients to improve the LLM's understanding of available
+    resources. It can be thought of like a "hint" to the model.
+    """
 
     mime_type: str | None = None
     """The MIME type for all resources that match this template.
@@ -434,9 +1197,10 @@ class ResourceTemplate(BaseMetadata):
     """
 
     icons: list[Icon] | None = None
-    """An optional list of icons for this resource template."""
+    """An optional set of sized icons that the client can display in a user interface."""
 
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
 
     meta: Meta | None = Field(alias="_meta", default=None)
     """
@@ -445,10 +1209,11 @@ class ResourceTemplate(BaseMetadata):
     """
 
 
-class ListResourcesResult(PaginatedResult):
+class ListResourcesResult(PaginatedResult, CacheableResult):
     """The server's response to a resources/list request from the client."""
 
     resources: list[Resource]
+    """The list of resources the server offers."""
 
 
 class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates/list"]]):
@@ -457,19 +1222,40 @@ class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates
     method: Literal["resources/templates/list"] = "resources/templates/list"
 
 
-class ListResourceTemplatesResult(PaginatedResult):
+class ListResourceTemplatesResult(PaginatedResult, CacheableResult):
     """The server's response to a resources/templates/list request from the client."""
 
     resource_templates: list[ResourceTemplate]
+    """The list of resource templates the server offers."""
 
 
-class ReadResourceRequestParams(RequestParams):
-    """Parameters for reading a resource."""
+class InputResponseRequestParams(RequestParams):
+    """Base params for client requests that can carry responses to a server's
+    input requests (2026-07-28 multi-round-trip flow).
+
+    When a request previously returned an InputRequiredResult, the client
+    retries the original request with these fields populated. Extended by
+    CallToolRequestParams, GetPromptRequestParams and ReadResourceRequestParams.
+    """
+
+    input_responses: InputResponses | None = None
+    """Responses to the server's input requests from the InputRequiredResult.
+
+    For each key in the InputRequiredResult's inputRequests map, the same key
+    must appear here with the client's result for that request.
+    """
+    request_state: str | None = None
+    """Opaque request state from the InputRequiredResult, passed back to the
+    server verbatim when the client retries the original request."""
+
+
+class ReadResourceRequestParams(InputResponseRequestParams):
+    """Parameters for a `resources/read` request."""
 
     uri: str
     """
-    The URI of the resource to read. The URI can use any protocol; it is up to the
-    server how to interpret it.
+    The URI of the resource. The URI can use any protocol; it is up to the server
+    how to interpret it.
     """
 
 
@@ -511,10 +1297,11 @@ class BlobResourceContents(ResourceContents):
     """A base64-encoded string representing the binary data of the item."""
 
 
-class ReadResourceResult(Result):
+class ReadResourceResult(CacheableResult):
     """The server's response to a resources/read request from the client."""
 
     contents: list[TextResourceContents | BlobResourceContents]
+    """The contents of the resource or sub-resources that were read."""
 
 
 class ResourceListChangedNotification(
@@ -522,6 +1309,11 @@ class ResourceListChangedNotification(
 ):
     """An optional notification from the server to the client, informing it that the list
     of resources it can read from has changed.
+
+    On protocol versions up to 2025-11-25, servers may send this spontaneously,
+    without any previous subscription from the client. On 2026-07-28 sessions,
+    delivery is opt-in: the server must not send it unless the client requested it
+    via SubscriptionFilter.resources_list_changed on a subscriptions/listen request.
     """
 
     method: Literal["notifications/resources/list_changed"] = "notifications/resources/list_changed"
@@ -529,7 +1321,10 @@ class ResourceListChangedNotification(
 
 
 class SubscribeRequestParams(RequestParams):
-    """Parameters for subscribing to a resource."""
+    """Parameters for subscribing to a resource.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    """
 
     uri: str
     """
@@ -541,6 +1336,10 @@ class SubscribeRequestParams(RequestParams):
 class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscribe"]]):
     """Sent from the client to request resources/updated notifications from the server
     whenever a particular resource changes.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    2026-07-28 sessions replace per-URI subscribe with ``subscriptions/listen``
+    (``SubscriptionsListenRequest``).
     """
 
     method: Literal["resources/subscribe"] = "resources/subscribe"
@@ -548,15 +1347,22 @@ class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscr
 
 
 class UnsubscribeRequestParams(RequestParams):
-    """Parameters for unsubscribing from a resource."""
+    """Parameters for a resources/unsubscribe request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    """
 
     uri: str
     """The URI of the resource to unsubscribe from."""
 
 
 class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/unsubscribe"]]):
-    """Sent from the client to request cancellation of resources/updated notifications from
-    the server.
+    """Sent from the client to request cancellation of resources/updated notifications
+    from the server. This should follow a previous resources/subscribe request.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    2026-07-28 peers manage resource subscriptions declaratively via subscriptions/listen
+    (SubscriptionsListenRequest) instead.
     """
 
     method: Literal["resources/unsubscribe"] = "resources/unsubscribe"
@@ -564,7 +1370,7 @@ class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/un
 
 
 class ResourceUpdatedNotificationParams(NotificationParams):
-    """Parameters for resource update notifications."""
+    """Parameters for a `notifications/resources/updated` notification."""
 
     uri: str
     """
@@ -578,23 +1384,109 @@ class ResourceUpdatedNotification(
 ):
     """A notification from the server to the client, informing it that a resource has
     changed and may need to be read again.
+
+    On sessions negotiated at 2025-11-25 or earlier, this should only be sent if the
+    client previously sent a `resources/subscribe` request. On 2026-07-28 sessions,
+    it is only sent for resources the client opted in to via the
+    `resourceSubscriptions` field of a `subscriptions/listen` request.
     """
 
     method: Literal["notifications/resources/updated"] = "notifications/resources/updated"
     params: ResourceUpdatedNotificationParams
 
 
+class SubscriptionFilter(MCPModel):
+    """The set of notification types a client may opt in to on a
+    subscriptions/listen request (2026-07-28).
+
+    Each notification type is opt-in; the server MUST NOT send notification
+    types the client has not explicitly requested here. The same shape is
+    echoed back by the server in notifications/subscriptions/acknowledged as
+    the subset it agreed to honor.
+
+    Extensions merge additional keys into this object on the wire (e.g. the
+    tasks extension's ``taskIds``), so unknown keys are preserved on
+    round-trip rather than ignored.
+    """
+
+    # Alternative considered: a codec-facing extra="allow" parse layer on all models instead of this single carve-out.
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
+
+    tools_list_changed: bool | None = None
+    """If true, receive notifications/tools/list_changed."""
+
+    prompts_list_changed: bool | None = None
+    """If true, receive notifications/prompts/list_changed."""
+
+    resources_list_changed: bool | None = None
+    """If true, receive notifications/resources/list_changed."""
+
+    resource_subscriptions: list[str] | None = None
+    """Subscribe to notifications/resources/updated for these resource URIs.
+
+    Replaces the former resources/subscribe RPC.
+    """
+
+
+class SubscriptionsListenRequestParams(RequestParams):
+    """Parameters for a subscriptions/listen request (2026-07-28)."""
+
+    notifications: SubscriptionFilter
+    """The notifications the client opts in to on this stream.
+
+    The server MUST NOT send notification types the client has not explicitly
+    requested.
+    """
+
+
+class SubscriptionsListenRequest(Request[SubscriptionsListenRequestParams, Literal["subscriptions/listen"]]):
+    """Sent from the client to open a long-lived channel for receiving notifications
+    outside the context of a specific request (2026-07-28).
+
+    Replaces the previous HTTP GET endpoint and ensures consistent behavior between
+    HTTP and STDIO.
+    """
+
+    method: Literal["subscriptions/listen"] = "subscriptions/listen"
+    params: SubscriptionsListenRequestParams
+
+
+class SubscriptionsAcknowledgedNotificationParams(NotificationParams):
+    """Parameters for a notifications/subscriptions/acknowledged notification."""
+
+    notifications: SubscriptionFilter
+    """The subset of requested notification types the server agreed to honor.
+
+    Only includes notification types the server actually supports; if the
+    client requested an unsupported type (e.g., `promptsListChanged` when the
+    server has no prompts), it is omitted from this set.
+    """
+
+
+class SubscriptionsAcknowledgedNotification(
+    Notification[
+        SubscriptionsAcknowledgedNotificationParams,
+        Literal["notifications/subscriptions/acknowledged"],
+    ]
+):
+    """Sent by the server as the first message on a subscriptions/listen stream
+    to acknowledge that the subscription has been established and to report
+    which notification types it agreed to honor (2026-07-28).
+    """
+
+    method: Literal["notifications/subscriptions/acknowledged"] = "notifications/subscriptions/acknowledged"
+    params: SubscriptionsAcknowledgedNotificationParams
+
+
 class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
-    """Sent from the client to request a list of prompts and prompt templates."""
+    """Sent from the client to request a list of prompts and prompt templates the server has."""
 
     method: Literal["prompts/list"] = "prompts/list"
 
 
-class PromptArgument(MCPModel):
-    """An argument for a prompt template."""
+class PromptArgument(BaseMetadata):
+    """Describes an argument that a prompt can accept."""
 
-    name: str
-    """The name of the argument."""
     description: str | None = None
     """A human-readable description of the argument."""
     required: bool | None = None
@@ -617,14 +1509,15 @@ class Prompt(BaseMetadata):
     """
 
 
-class ListPromptsResult(PaginatedResult):
+class ListPromptsResult(PaginatedResult, CacheableResult):
     """The server's response to a prompts/list request from the client."""
 
     prompts: list[Prompt]
+    """The list of prompts and prompt templates the server offers."""
 
 
-class GetPromptRequestParams(RequestParams):
-    """Parameters for getting a prompt."""
+class GetPromptRequestParams(InputResponseRequestParams):
+    """Parameters for a prompts/get request."""
 
     name: str
     """The name of the prompt or prompt template."""
@@ -640,12 +1533,14 @@ class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
 
 
 class TextContent(MCPModel):
-    """Text content for a message."""
+    """Text provided to or from an LLM."""
 
     type: Literal["text"] = "text"
+    """Content-type discriminator; always "text"."""
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -654,9 +1549,10 @@ class TextContent(MCPModel):
 
 
 class ImageContent(MCPModel):
-    """Image content for a message."""
+    """An image provided to or from an LLM."""
 
     type: Literal["image"] = "image"
+    """Discriminator for image content."""
     data: str
     """The base64-encoded image data."""
     mime_type: str
@@ -665,17 +1561,16 @@ class ImageContent(MCPModel):
     image types.
     """
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
     meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
+    """See the MCP specification's "General fields: _meta" section for notes on _meta usage."""
 
 
 class AudioContent(MCPModel):
-    """Audio content for a message."""
+    """Audio provided to or from an LLM."""
 
     type: Literal["audio"] = "audio"
+    """Discriminator identifying this content block as audio."""
     data: str
     """The base64-encoded audio data."""
     mime_type: str
@@ -684,6 +1579,7 @@ class AudioContent(MCPModel):
     audio types.
     """
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -694,9 +1590,15 @@ class AudioContent(MCPModel):
 class ToolUseContent(MCPModel):
     """Content representing an assistant's request to invoke a tool.
 
-    This content type appears in assistant messages when the LLM wants to call a tool
-    during sampling. The server should execute the tool and return a ToolResultContent
-    in the next user message.
+    This content type appears in assistant messages when the LLM wants to call a
+    tool during sampling-with-tools: in the content of a `sampling/createMessage`
+    result, and in assistant-role messages replayed in subsequent
+    `sampling/createMessage` requests. The server should execute the tool and
+    return a ToolResultContent in the next user message.
+
+    Available on 2025-11-25 and 2026-07-28 sessions only. Deprecated as of
+    protocol 2026-07-28 (SEP-2577) but remains in the specification for at least
+    twelve months and stays fully supported here.
     """
 
     type: Literal["tool_use"] = "tool_use"
@@ -712,48 +1614,76 @@ class ToolUseContent(MCPModel):
     """Arguments to pass to the tool. Must conform to the tool's inputSchema."""
 
     meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
+    """Optional metadata about the tool use.
+
+    Clients SHOULD preserve this field when including tool uses in subsequent
+    sampling requests to enable caching optimizations.
     """
 
 
 class ToolResultContent(MCPModel):
-    """Content representing the result of a tool execution.
+    """The result of a tool use, provided by the user back to the assistant.
 
-    This content type appears in user messages as a response to a ToolUseContent
-    from the assistant. It contains the output of executing the requested tool.
+    Appears in sampling messages (`sampling/createMessage`) as a response to a
+    ToolUseContent block from the assistant; `tool_use_id` MUST match the `id` of
+    that block. Requires the `sampling.tools` client capability (2025-11-25 and
+    later). Deprecated as of protocol 2026-07-28 (SEP-2577) but remains valid on
+    2026-07-28 sessions for at least twelve months.
     """
 
     type: Literal["tool_result"] = "tool_result"
     """Discriminator for tool result content."""
 
     tool_use_id: str
-    """The unique identifier that corresponds to the tool call's id field."""
+    """The ID of the tool use this result corresponds to.
+
+    This MUST match the ID from a previous ToolUseContent.
+    """
 
     content: list[ContentBlock] = []
-    """
-    A list of content objects representing the tool result.
-    Defaults to empty list if not provided.
+    """The unstructured result content of the tool use.
+
+    Same format as CallToolResult.content: text, images, audio, resource links,
+    and embedded resources.
     """
 
-    structured_content: dict[str, Any] | None = None
-    """
-    Optional structured tool output that matches the tool's outputSchema (if defined).
+    structured_content: Any = None
+    """An optional structured result value.
+
+    On 2026-07-28 sessions this can be any JSON value (object, array, string,
+    number, boolean, or None); 2025-11-25 restricts it to a JSON object. If the
+    tool defined an outputSchema, this SHOULD conform to that schema.
     """
 
     is_error: bool | None = None
-    """Whether the tool execution resulted in an error."""
+    """Whether the tool use resulted in an error.
+
+    If true, the content typically describes the error that occurred. Absent is
+    equivalent to false.
+    """
 
     meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
+    """Optional metadata about the tool result.
+
+    Clients SHOULD preserve this field when including tool results in subsequent
+    sampling requests to enable caching optimizations.
     """
 
 
 SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
-"""Content block types allowed in sampling messages."""
+"""Content block types allowed in sampling messages.
+
+This is the widest (2025-11-25 / 2026-07-28) membership. On older sessions only
+a subset is legal on the wire (text/image on 2024-11-05; text/image/audio on
+2025-03-26 and 2025-06-18); the wire boundary never narrows a value to fit —
+emitting tool blocks (or an array of blocks) on 2025-06-18 or earlier raises
+UnsupportedAtVersionError, while audio content passes through to older peers
+as sent.
+
+Deprecated (with the rest of the sampling family) as of protocol 2026-07-28 by
+SEP-2577; remains in the specification for at least twelve months and stays
+fully supported here for all pre-2026-07-28 sessions.
+"""
 
 SamplingContent: TypeAlias = TextContent | ImageContent | AudioContent
 """Basic content types for sampling responses (without tool use).
@@ -766,6 +1696,7 @@ class SamplingMessage(MCPModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
+    """The role of the message sender ("user" or "assistant")."""
     content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
     """
     Message content. Can be a single content block or an array of content blocks
@@ -792,8 +1723,11 @@ class EmbeddedResource(MCPModel):
     """
 
     type: Literal["resource"] = "resource"
+    """Discriminator for embedded resource content blocks."""
     resource: TextResourceContents | BlobResourceContents
+    """The text or binary contents of the embedded resource."""
     annotations: Annotations | None = None
+    """Optional annotations for the client."""
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -815,10 +1749,16 @@ ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | Embedd
 
 
 class PromptMessage(MCPModel):
-    """Describes a message returned as part of a prompt."""
+    """Describes a message returned as part of a prompt.
+
+    This is similar to `SamplingMessage`, but also supports the embedding of
+    resources from the MCP server.
+    """
 
     role: Role
+    """The sender or recipient of this message in the conversation."""
     content: ContentBlock
+    """The message content: text, image, audio, a resource link, or an embedded resource."""
 
 
 class GetPromptResult(Result):
@@ -827,6 +1767,7 @@ class GetPromptResult(Result):
     description: str | None = None
     """An optional description for the prompt."""
     messages: list[PromptMessage]
+    """The messages composing the prompt, in the order they should be presented."""
 
 
 class PromptListChangedNotification(
@@ -834,6 +1775,12 @@ class PromptListChangedNotification(
 ):
     """An optional notification from the server to the client, informing it that the list
     of prompts it offers has changed.
+
+    On sessions negotiated at 2025-11-25 or earlier, servers may send this
+    spontaneously, without any previous subscription from the client. On
+    2026-07-28 sessions delivery is opt-in: the server MUST NOT send it unless
+    the client requested it via ``subscriptions/listen``
+    (``SubscriptionFilter.prompts_list_changed``).
     """
 
     method: Literal["notifications/prompts/list_changed"] = "notifications/prompts/list_changed"
@@ -896,36 +1843,74 @@ class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
     description: str | None = None
-    """A human-readable description of the tool."""
-    input_schema: dict[str, Any]
-    """A JSON Schema object defining the expected parameters for the tool."""
-    output_schema: dict[str, Any] | None = None
+    """A human-readable description of the tool.
+
+    This can be used by clients to improve the LLM's understanding of available
+    tools. It can be thought of like a "hint" to the model.
     """
-    An optional JSON Schema object defining the structure of the tool's output
+    input_schema: dict[str, Any]
+    """A JSON Schema object defining the expected parameters for the tool.
+
+    Tool arguments are always JSON objects, so `type: "object"` is required at the
+    root. On 2026-07-28 sessions any JSON Schema 2020-12 keyword may appear
+    alongside `type` (composition, conditional, and reference keywords included);
+    earlier protocol versions define only `type`, `properties`, and `required`
+    (plus `$schema` from 2025-11-25). Defaults to JSON Schema 2020-12 when no
+    explicit `$schema` is provided.
+    """
+    execution: ToolExecution | None = None
+    """Execution-related properties for this tool.
+
+    2025-11-25 only; removed in protocol 2026-07-28 (tasks continue as an
+    extension).
+    """
+    output_schema: dict[str, Any] | None = None
+    """An optional JSON Schema object defining the structure of the tool's output
     returned in the structured_content field of a CallToolResult.
+
+    Restricted to `type: "object"` at the root on 2025-06-18 and 2025-11-25
+    sessions; any valid JSON Schema 2020-12 on 2026-07-28. Defaults to JSON
+    Schema 2020-12 when no explicit `$schema` is provided.
     """
     icons: list[Icon] | None = None
-    """An optional list of icons for this tool."""
+    """Optional set of sized icons that the client can display in a user
+    interface (2025-11-25 and later)."""
     annotations: ToolAnnotations | None = None
-    """Optional additional tool information."""
+    """Optional additional tool information.
+
+    Display name precedence order is: title, annotations.title, then name.
+    """
     meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
+    """See the MCP specification's general-fields documentation for notes on
+    _meta usage."""
 
 
-class ListToolsResult(PaginatedResult):
+class ListToolsResult(PaginatedResult, CacheableResult):
     """The server's response to a tools/list request from the client."""
 
     tools: list[Tool]
 
 
-class CallToolRequestParams(RequestParams):
-    """Parameters for calling a tool."""
+class CallToolRequestParams(InputResponseRequestParams):
+    """Parameters for a `tools/call` request."""
 
     name: str
+    """The name of the tool."""
+
     arguments: dict[str, Any] | None = None
+    """Arguments to use for the tool call."""
+
+    task: TaskMetadata | None = None
+    """If specified, the caller is requesting task-augmented execution for this request.
+
+    The request will return a CreateTaskResult immediately, and the actual result
+    can be retrieved later via tasks/result.
+
+    Task augmentation is subject to capability negotiation - receivers MUST declare
+    support for task augmentation of specific request types in their capabilities.
+
+    2025-11-25 only; removed in protocol 2026-07-28 (tasks continue as an extension).
+    """
 
 
 class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
@@ -936,17 +1921,43 @@ class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
 
 
 class CallToolResult(Result):
-    """The server's response to a tool call."""
+    """The server's response to a tool call.
+
+    Any errors that originate from the tool SHOULD be reported inside the result
+    object, with `is_error` set to true, _not_ as an MCP protocol-level error
+    response. Otherwise, the LLM would not be able to see that an error occurred
+    and self-correct.
+
+    However, any errors in _finding_ the tool, an error indicating that the
+    server does not support tool calls, or any other exceptional conditions,
+    should be reported as an MCP error response.
+    """
 
     content: list[ContentBlock]
-    structured_content: dict[str, Any] | None = None
-    """An optional JSON object that represents the structured result of the tool call."""
+    """A list of content objects that represent the unstructured result of the tool call."""
+    # Alternative considered: an Unset-sentinel default distinguishing wire-absent from explicit null.
+    structured_content: Any = None
+    """An optional JSON value that represents the structured result of the tool call.
+
+    On 2026-07-28 sessions this can be any JSON value (object, array, string,
+    number, boolean, or null) that conforms to the tool's output schema if one is
+    defined; 2025-06-18 and 2025-11-25 restrict it to a JSON object on the wire.
+    """
     is_error: bool = False
+    """Whether the tool call ended in an error.
+
+    If not set, this is assumed to be false (the call was successful).
+    """
 
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
     """An optional notification from the server to the client, informing it that the list
     of tools it offers has changed.
+
+    On protocol versions through 2025-11-25, servers may send this without any previous
+    subscription from the client. On 2026-07-28 sessions, delivery is opt-in: the server
+    sends it only if the client requested it via `subscriptions/listen`
+    (`SubscriptionFilter.tools_list_changed`).
     """
 
     method: Literal["notifications/tools/list_changed"] = "notifications/tools/list_changed"
@@ -954,24 +1965,50 @@ class ToolListChangedNotification(Notification[NotificationParams | None, Litera
 
 
 LoggingLevel = Literal["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]
+"""The severity of a log message.
+
+These map to syslog message severities, as specified in RFC-5424:
+https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
+
+The value set is identical in every protocol version (2024-11-05 through 2026-07-28).
+Protocol 2026-07-28 deprecates the logging family as a whole (SEP-2577) but keeps it
+fully functional for at least twelve months; the level scale itself is unchanged.
+"""
 
 
 class SetLevelRequestParams(RequestParams):
-    """Parameters for setting the logging level."""
+    """Parameters for setting the logging level.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
+    """
 
     level: LoggingLevel
-    """The level of logging that the client wants to receive from the server."""
+    """The level of logging that the client wants to receive from the server.
+
+    The server should send all logs at this level and higher (i.e., more severe)
+    to the client as notifications/message.
+    """
 
 
 class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]]):
-    """A request from the client to the server, to enable or adjust logging."""
+    """A request from the client to the server, to enable or adjust logging.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating
+    <= 2025-11-25. On 2026-07-28 sessions the client opts in to log messages
+    per-request via the `io.modelcontextprotocol/logLevel` key in `_meta`
+    instead.
+    """
 
     method: Literal["logging/setLevel"] = "logging/setLevel"
     params: SetLevelRequestParams
 
 
 class LoggingMessageNotificationParams(NotificationParams):
-    """Parameters for logging message notifications."""
+    """Parameters for a `notifications/message` notification.
+
+    Deprecated as of protocol 2026-07-28 (SEP-2577) but still part of that
+    version; fully supported on all earlier protocol versions.
+    """
 
     level: LoggingLevel
     """The severity of this log message."""
@@ -985,24 +2022,61 @@ class LoggingMessageNotificationParams(NotificationParams):
 
 
 class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):
-    """Notification of a log message passed from server to client."""
+    """Notification of a log message passed from server to client.
+
+    On protocol versions through 2025-11-25, the client subscribes via
+    `logging/setLevel`; if it never did, the server MAY decide which messages to
+    send automatically. On 2026-07-28 sessions the client instead opts in
+    per-request via the `io.modelcontextprotocol/logLevel` `_meta` key, and the
+    server MUST NOT send this notification for a request without it (a
+    session-layer obligation; this type does not validate the send condition).
+    Deprecated as of protocol 2026-07-28 (SEP-2577) but still part of that version.
+    """
 
     method: Literal["notifications/message"] = "notifications/message"
     params: LoggingMessageNotificationParams
 
 
 IncludeContext = Literal["none", "thisServer", "allServers"]
+"""Scope of MCP-server context a sampling request asks the client to attach.
+
+The "thisServer" and "allServers" values are deprecated as of protocol
+2025-11-25 (SEP-2596); servers SHOULD omit the field or use "none" unless the
+client declares the sampling.context capability.
+"""
 
 
 class ModelHint(MCPModel):
-    """Hints to use for model selection."""
+    """Hints to use for model selection.
+
+    Keys not declared here are currently left unspecified by the spec and are
+    up to the client to interpret.
+
+    Deprecated as of protocol 2026-07-28 (SEP-2577) together with the rest of
+    the sampling family; remains in the specification for at least twelve
+    months and is still carried by embedded sampling requests on 2026-07-28
+    sessions.
+    """
 
     name: str | None = None
-    """A hint for a model name."""
+    """A hint for a model name.
+
+    The client SHOULD treat this as a substring of a model name; for example:
+
+    - ``claude-3-5-sonnet`` should match ``claude-3-5-sonnet-20241022``
+    - ``sonnet`` should match ``claude-3-5-sonnet-20241022``,
+      ``claude-3-sonnet-20240229``, etc.
+    - ``claude`` should match any Claude model
+
+    The client MAY also map the string to a different provider's model name or
+    a different model family, as long as it fills a similar niche; for example:
+
+    - ``gemini-1.5-flash`` could match ``claude-3-haiku-20240307``
+    """
 
 
 class ModelPreferences(MCPModel):
-    """The server's preferences for model selection, requested by the client during
+    """The server's preferences for model selection, requested of the client during
     sampling.
 
     Because LLMs can vary along multiple dimensions, choosing the "best" model is
@@ -1014,6 +2088,10 @@ class ModelPreferences(MCPModel):
     These preferences are always advisory. The client MAY ignore them. It is also
     up to the client to decide how to interpret these preferences and how to
     balance them against other considerations.
+
+    Deprecated as of protocol 2026-07-28 (SEP-2577), along with the rest of the
+    sampling family, but remains in the specification for at least twelve months
+    and stays fully supported here.
     """
 
     hints: list[ModelHint] | None = None
@@ -1050,63 +2128,112 @@ class ModelPreferences(MCPModel):
 
 
 class ToolChoice(MCPModel):
-    """Controls tool usage behavior during sampling.
+    """Controls tool selection behavior for sampling requests.
 
-    Allows the server to specify whether and how the LLM should use tools
-    in its response.
+    Sent by servers as `CreateMessageRequestParams.tool_choice`
+    (sampling-with-tools, protocol 2025-11-25 and later). The client MUST
+    return an error if it receives the carrying field without having declared
+    `ClientCapabilities.sampling.tools`. When the carrying field is absent,
+    the default is `{"mode": "auto"}`.
     """
 
     mode: Literal["auto", "required", "none"] | None = None
     """
-    Controls when tools are used:
+    Controls the tool use ability of the model:
     - "auto": Model decides whether to use tools (default)
     - "required": Model MUST use at least one tool before completing
-    - "none": Model should not use tools
+    - "none": Model MUST NOT use any tools
     """
 
 
 class CreateMessageRequestParams(RequestParams):
-    """Parameters for creating a message."""
+    """Parameters for a sampling/createMessage request."""
 
     messages: list[SamplingMessage]
+    """The conversation to sample from."""
     model_preferences: ModelPreferences | None = None
     """
     The server's preferences for which model to select. The client MAY ignore
     these preferences.
     """
     system_prompt: str | None = None
-    """An optional system prompt the server wants to use for sampling."""
+    """
+    An optional system prompt the server wants to use for sampling. The client
+    MAY modify or omit this prompt.
+    """
     include_context: IncludeContext | None = None
     """
-    A request to include context from one or more MCP servers (including the caller), to
-    be attached to the prompt.
+    A request to include context from one or more MCP servers (including the
+    caller), to be attached to the prompt. The client MAY ignore this request.
+
+    Default is "none". The "thisServer" and "allServers" values are deprecated
+    (SEP-2596): servers SHOULD only send them if the client declares the
+    sampling.context capability.
     """
     temperature: float | None = None
+    """Sampling temperature requested by the server."""
     max_tokens: int
-    """The maximum number of tokens to sample, as requested by the server."""
+    """
+    The requested maximum number of tokens to sample (to prevent runaway
+    completions). The client MAY choose to sample fewer tokens than the
+    requested maximum.
+    """
     stop_sequences: list[str] | None = None
+    """Sequences at which the client should stop sampling."""
     metadata: dict[str, Any] | None = None
-    """Optional metadata to pass through to the LLM provider."""
+    """
+    Optional metadata to pass through to the LLM provider. The format of this
+    metadata is provider-specific.
+    """
     tools: list[Tool] | None = None
     """
-    Tool definitions for the LLM to use during sampling.
-    Requires clientCapabilities.sampling.tools to be present.
+    Tools that the model may use during generation (protocol 2025-11-25 and
+    later). The client MUST return an error if this field is provided but the
+    sampling.tools client capability is not declared.
     """
     tool_choice: ToolChoice | None = None
     """
-    Controls tool usage behavior.
-    Requires clientCapabilities.sampling.tools and the tools parameter to be present.
+    Controls how the model uses tools (protocol 2025-11-25 and later). The
+    client MUST return an error if this field is provided but the
+    sampling.tools client capability is not declared. Default is mode="auto".
+    """
+    task: TaskMetadata | None = None
+    """
+    If set, requests task-augmented execution for this request (protocol
+    2025-11-25 only). Removed in 2026-07-28: receivers on that version MUST
+    ignore it, and the SDK strips it when emitting to 2026-07-28 peers.
     """
 
 
 class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):
-    """A request from the server to sample an LLM via the client."""
+    """A request from the server to sample an LLM via the client.
+
+    The client has full discretion over which model to select. The client
+    should also inform the user before beginning sampling, to allow them to
+    inspect the request (human in the loop) and decide whether to approve it.
+
+    On 2024-11-05 through 2025-11-25 sessions this is a standalone JSON-RPC
+    server-to-client request. On 2026-07-28 sessions the same payload is
+    instead embedded in InputRequiredResult.input_requests and is never sent
+    as a JSON-RPC request. Deprecated as of protocol 2026-07-28 (SEP-2577).
+    """
 
     method: Literal["sampling/createMessage"] = "sampling/createMessage"
     params: CreateMessageRequestParams
 
 
 StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
+"""The reason why sampling stopped, if known.
+
+Standard values:
+- "endTurn": Natural end of the assistant's turn
+- "stopSequence": A stop sequence was encountered
+- "maxTokens": Maximum token limit was reached
+- "toolUse": The model wants to use one or more tools (2025-11-25 and later)
+
+This is an open string to allow for provider-specific stop reasons; every protocol
+version models it as an open union.
+"""
 
 
 class CreateMessageResult(Result):
@@ -1114,6 +2241,12 @@ class CreateMessageResult(Result):
 
     This is the backwards-compatible version that returns single content (no arrays).
     Used when the request does not include tools.
+
+    The client should inform the user before returning the sampled message, to allow
+    them to inspect the response (human in the loop). On 2026-07-28 sessions this
+    payload travels embedded in an ``InputResponses`` map rather than as a top-level
+    JSON-RPC result; sampling is deprecated as of 2026-07-28 (SEP-2577) but remains
+    in the specification.
     """
 
     role: Role
@@ -1129,7 +2262,7 @@ class CreateMessageResult(Result):
 class CreateMessageResultWithTools(Result):
     """The client's response to a sampling/createMessage request when tools were provided.
 
-    This version supports array content for tool use flows.
+    This version supports array content for tool use flows (2025-11-25 and later).
     """
 
     role: Role
@@ -1158,16 +2291,28 @@ class ResourceTemplateReference(MCPModel):
     """A reference to a resource or resource template definition."""
 
     type: Literal["ref/resource"] = "ref/resource"
+    """Reference-type discriminator; always "ref/resource"."""
     uri: str
     """The URI or URI template of the resource."""
 
 
+# Deliberately flat on MCPModel, not BaseMetadata, despite the 2025-06-18+
+# schemas declaring the BaseMetadata interface as a base: inheritance would
+# reorder dump keys (type, name) -> (name, title, type), changing emitted bytes
+# for existing callers.
 class PromptReference(MCPModel):
     """Identifies a prompt."""
 
     type: Literal["ref/prompt"] = "ref/prompt"
     name: str
     """The name of the prompt or prompt template."""
+    title: str | None = None
+    """
+    Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
+    even by those unfamiliar with domain-specific terminology.
+
+    If not provided, the name should be used for display.
+    """
 
 
 class CompletionArgument(MCPModel):
@@ -1187,10 +2332,12 @@ class CompletionContext(MCPModel):
 
 
 class CompleteRequestParams(RequestParams):
-    """Parameters for completion requests."""
+    """Parameters for a `completion/complete` request."""
 
     ref: ResourceTemplateReference | PromptReference
+    """The prompt or resource-template reference to complete against."""
     argument: CompletionArgument
+    """The argument's information."""
     context: CompletionContext | None = None
     """Additional, optional context for completions."""
 
@@ -1223,6 +2370,7 @@ class CompleteResult(Result):
     """The server's response to a completion/complete request."""
 
     completion: Completion
+    """The completion values, with optional total / has-more pagination hints."""
 
 
 class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
@@ -1233,26 +2381,42 @@ class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
 
     This request is typically used when the server needs to understand the file system
     structure or access specific locations that the client has permission to read from.
+
+    On protocol versions 2024-11-05 through 2025-11-25 this is a server -> client
+    JSON-RPC request. On 2026-07-28 sessions there are no server -> client JSON-RPC
+    requests; the same payload travels embedded as an ``InputRequest`` value inside
+    ``InputRequiredResult.input_requests``. Deprecated as of protocol version
+    2026-07-28 (SEP-2577).
     """
 
     method: Literal["roots/list"] = "roots/list"
     params: RequestParams | None = None
+    """Optional request parameters. Unlike client -> server requests, ``params``
+    stays optional on 2026-07-28 (the reserved client ``_meta`` keys do not apply
+    to server -> client payloads)."""
 
 
 class Root(MCPModel):
-    """Represents a root directory or file that the server can operate on."""
+    """Represents a root directory or file that the server can operate on.
+
+    Deprecated as of protocol 2026-07-28 (SEP-2577) together with the rest of
+    the roots family; remains in the specification for at least twelve months
+    and is still carried by embedded ``roots/list`` responses on 2026-07-28
+    sessions.
+    """
 
     uri: FileUrl
-    """
-    The URI identifying the root. This *must* start with file:// for now.
-    This restriction may be relaxed in future versions of the protocol to allow
-    other URI schemes.
+    """The URI identifying the root. This *must* start with ``file://`` for now.
+
+    This restriction may be relaxed in future versions of the protocol to
+    allow other URI schemes.
     """
     name: str | None = None
-    """
-    An optional name for the root. This can be used to provide a human-readable
-    identifier for the root, which may be useful for display purposes or for
-    referencing the root in other parts of the application.
+    """An optional name for the root.
+
+    This can be used to provide a human-readable identifier for the root,
+    which may be useful for display purposes or for referencing the root in
+    other parts of the application.
     """
     meta: Meta | None = Field(alias="_meta", default=None)
     """
@@ -1264,11 +2428,16 @@ class Root(MCPModel):
 class ListRootsResult(Result):
     """The client's response to a roots/list request from the server.
 
-    This result contains an array of Root objects, each representing a root directory
-    or file that the server can operate on.
+    This result contains an array of Root objects, each representing a root
+    directory or file that the server can operate on.
+
+    On 2026-07-28 sessions this payload is not a JSON-RPC result: it is carried
+    as an embedded input-response value (an ``InputResponses`` map entry) on a
+    retried client request, and the roots feature is deprecated (SEP-2577).
     """
 
     roots: list[Root]
+    """The root directories or files the client exposes to the server."""
 
 
 class RootsListChangedNotification(
@@ -1280,6 +2449,8 @@ class RootsListChangedNotification(
     This notification should be sent whenever the client adds, removes, or
     modifies any root. The server should then request an updated list of roots
     using the ListRootsRequest.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
     """
 
     method: Literal["notifications/roots/list_changed"] = "notifications/roots/list_changed"
@@ -1287,21 +2458,34 @@ class RootsListChangedNotification(
 
 
 class CancelledNotificationParams(NotificationParams):
-    """Parameters for cancellation notifications."""
+    """Parameters for a `notifications/cancelled` notification."""
 
     request_id: RequestId | None = None
-    """
-    The ID of the request to cancel.
+    """The ID of the request to cancel.
 
-    This MUST correspond to the ID of a request previously issued in the same direction.
+    This MUST correspond to the ID of a request previously issued in the same
+    direction. Required on the wire for protocol versions <= 2025-06-18;
+    optional from 2025-11-25 (where task cancellation uses the `tasks/cancel`
+    request, never this field).
     """
     reason: str | None = None
-    """An optional string describing the reason for the cancellation."""
+    """An optional string describing the reason for the cancellation.
+
+    This MAY be logged or presented to the user.
+    """
 
 
 class CancelledNotification(Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]):
-    """This notification can be sent by either side to indicate that it is canceling a
-    previously-issued request.
+    """This notification can be sent by either side to indicate that it is cancelling
+    a previously-issued request.
+
+    The request SHOULD still be in-flight, but due to communication latency, it
+    is always possible that this notification MAY arrive after the request has
+    already finished. This notification indicates that the result will be
+    unused, so any associated processing SHOULD cease.
+
+    On protocol versions <= 2025-11-25, a client MUST NOT attempt to cancel its
+    `initialize` request (the method does not exist at 2026-07-28).
     """
 
     method: Literal["notifications/cancelled"] = "notifications/cancelled"
@@ -1325,39 +2509,22 @@ class ElicitCompleteNotification(
     URLElicitationRequiredError, update the user interface, or otherwise continue
     an interaction. However, because delivery of the notification is not guaranteed,
     clients must not wait indefinitely for a notification from the server.
+
+    New in protocol 2025-11-25, with URL mode itself; no wire form on earlier
+    sessions.
     """
 
     method: Literal["notifications/elicitation/complete"] = "notifications/elicitation/complete"
     params: ElicitCompleteNotificationParams
 
 
-ClientRequest = (
-    PingRequest
-    | InitializeRequest
-    | CompleteRequest
-    | SetLevelRequest
-    | GetPromptRequest
-    | ListPromptsRequest
-    | ListResourcesRequest
-    | ListResourceTemplatesRequest
-    | ReadResourceRequest
-    | SubscribeRequest
-    | UnsubscribeRequest
-    | CallToolRequest
-    | ListToolsRequest
-)
-client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
-
-
-ClientNotification = (
-    CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification
-)
-client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
-
-
 # Type for elicitation schema - a JSON Schema dict
 ElicitRequestedSchema: TypeAlias = dict[str, Any]
-"""Schema for elicitation requests."""
+"""Schema for elicitation requests.
+
+A restricted subset of JSON Schema: only top-level properties are allowed,
+without nesting.
+"""
 
 
 class ElicitRequestFormParams(RequestParams):
@@ -1379,12 +2546,22 @@ class ElicitRequestFormParams(RequestParams):
     Only top-level properties are allowed, without nesting.
     """
 
+    task: TaskMetadata | None = None
+    """If specified, the caller is requesting task-augmented execution for this request.
+
+    2025-11-25 sessions only; removed in protocol 2026-07-28 (tasks continue as an
+    extension).
+    """
+
 
 class ElicitRequestURLParams(RequestParams):
     """Parameters for URL mode elicitation requests.
 
     URL mode directs users to external URLs for sensitive out-of-band interactions
     like OAuth flows, credential collection, or payment processing.
+
+    New in protocol 2025-11-25: a URL-mode elicitation request has no wire form
+    on earlier sessions, so serialize_for refuses below that version.
     """
 
     mode: Literal["url"] = "url"
@@ -1402,6 +2579,13 @@ class ElicitRequestURLParams(RequestParams):
     The client MUST treat this ID as an opaque value.
     """
 
+    task: TaskMetadata | None = None
+    """If specified, the caller is requesting task-augmented execution for this request.
+
+    2025-11-25 sessions only; removed in protocol 2026-07-28 (tasks continue as an
+    extension).
+    """
+
 
 # Union type for elicitation request parameters
 ElicitRequestParams: TypeAlias = ElicitRequestURLParams | ElicitRequestFormParams
@@ -1409,7 +2593,7 @@ ElicitRequestParams: TypeAlias = ElicitRequestURLParams | ElicitRequestFormParam
 
 
 class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
-    """A request from the server to elicit information from the client."""
+    """A request from the server to elicit additional information from the user via the client."""
 
     method: Literal["elicitation/create"] = "elicitation/create"
     params: ElicitRequestParams
@@ -1436,14 +2620,136 @@ class ElicitResult(Result):
 
 
 class ElicitationRequiredErrorData(MCPModel):
-    """Error data for URLElicitationRequiredError.
+    """Error data for the URL-elicitation-required error (code -32042, ``URL_ELICITATION_REQUIRED``).
 
     Servers return this when a request cannot be processed until one or more
     URL mode elicitations are completed.
+
+    Removed in protocol 2026-07-28; sent/received on sessions negotiating 2025-11-25.
     """
 
     elicitations: list[ElicitRequestURLParams]
     """List of URL mode elicitations that must be completed."""
+
+
+InputRequest: TypeAlias = CreateMessageRequest | ListRootsRequest | ElicitRequest
+"""A single server-initiated input request embedded in a multi-round-trip flow (2026-07-28).
+
+Values of the ``InputRequests`` map carried by ``InputRequiredResult.input_requests``.
+On 2026-07-28 sessions these embedded payloads replace the standalone
+server-to-client JSON-RPC requests of earlier protocol versions; each member's
+required ``method`` literal is the discriminating tag.
+"""
+
+InputRequests: TypeAlias = dict[str, InputRequest]
+"""A map of server-initiated requests that the client must fulfill (2026-07-28).
+
+Keys are server-assigned identifiers; values are the embedded request payloads
+(`CreateMessageRequest | ListRootsRequest | ElicitRequest`). Carried by
+`InputRequiredResult.input_requests` in the multi-round-trip (MRTR) flow; the
+`io.modelcontextprotocol/tasks` extension reuses the same type for its
+`inputRequests` fields.
+"""
+
+InputResponse: TypeAlias = CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
+"""A client response to a single server-initiated input request (2026-07-28, MRTR).
+
+Values never travel as top-level JSON-RPC results: they appear as entries of an
+``InputResponses`` map — in ``inputResponses`` on retried client requests, and in
+the tasks extension's ``tasks/update`` params. ``CreateMessageResultWithTools`` is
+the SDK's array-content split of the schema's single ``CreateMessageResult`` arm;
+the wire union has exactly three arms.
+"""
+
+InputResponses: TypeAlias = dict[str, InputResponse]
+"""A map of client responses to server-initiated input requests (2026-07-28, MRTR).
+
+Keys correspond to the keys of the ``InputRequests`` map the server sent in its
+``InputRequiredResult``; values are the client's result for each request. Reused
+verbatim by the ``io.modelcontextprotocol/tasks`` extension (``tasks/update``
+params), which keys responses to currently-outstanding input requests.
+"""
+
+
+class InputRequiredResult(Result):
+    """The server needs additional input before the original request can complete (2026-07-28).
+
+    Returned in place of the normal result of an interactive client request
+    (`tools/call`, `prompts/get`, `resources/read`). The client fulfills
+    `input_requests` and retries the original request, carrying the matching
+    responses and the echoed `request_state`.
+
+    At least one of `input_requests` / `request_state` is present on the wire
+    (spec MUST; not enforced by the model — inbound stays lenient).
+    """
+
+    input_requests: InputRequests | None = None
+    """Requests issued by the server that must be completed before the client can retry the original request.
+
+    Keys are server-assigned identifiers; values are the embedded request payloads.
+    """
+
+    request_state: str | None = None
+    """Opaque state to pass back to the server when the client retries the original request.
+
+    The client must treat this as an opaque blob and must not interpret it in any way.
+    """
+
+
+# Deferred-annotation completion: InputResponseRequestParams (and its consumers)
+# reference InputResponses, which is only bound above. Explicit rebuilds keep
+# model completion at import time rather than first use.
+InputResponseRequestParams.model_rebuild()
+ReadResourceRequestParams.model_rebuild()
+GetPromptRequestParams.model_rebuild()
+CallToolRequestParams.model_rebuild()
+
+# Top-level message unions, declared last so every member class is bound.
+# Membership is the superset across all known protocol versions; which members
+# are valid on a given session's negotiated version is recorded in the
+# per-version method tables (mcp.types._versions), never enforced here —
+# inbound parsing stays superset-lenient on every session.
+
+ClientRequest = (
+    PingRequest
+    | InitializeRequest
+    | CompleteRequest
+    | SetLevelRequest
+    | GetPromptRequest
+    | ListPromptsRequest
+    | ListResourcesRequest
+    | ListResourceTemplatesRequest
+    | ReadResourceRequest
+    | SubscribeRequest
+    | UnsubscribeRequest
+    | CallToolRequest
+    | ListToolsRequest
+    | DiscoverRequest
+    | SubscriptionsListenRequest
+)
+"""Union of client-to-server request payloads across all supported protocol versions.
+
+The 2025-11-25 task requests are deliberately excluded (types-only, never
+dispatched).
+"""
+
+# Alternative considered: a method-discriminated adapter (it would reject method-less dicts).
+client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
+
+
+ClientNotification = (
+    CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification
+)
+"""Notifications sent from the client to the server.
+
+All four members are valid on every released version (2024-11-05 through
+2025-11-25); on 2026-07-28 sessions only ``CancelledNotification`` and
+``ProgressNotification`` are. The 2025-11-25 ``TaskStatusNotification`` is
+deliberately excluded (types-only, never dispatched).
+"""
+
+# Alternative considered: a method-discriminated adapter (it would reject method-less dicts).
+client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
 
 
 ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
@@ -1451,6 +2757,16 @@ client_result_adapter = TypeAdapter[ClientResult](ClientResult)
 
 
 ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest
+"""Union of standalone JSON-RPC requests a server can send to a client.
+
+Live on 2024-11-05 through 2025-11-25 sessions only: the 2026-07-28 protocol
+removes the standalone server-to-client request channel. On 2026-07-28
+sessions, sampling, roots, and elicitation requests are instead embedded in
+``InputRequiredResult.input_requests``, and ping is removed entirely, so the
+server-request method set for that version is empty.
+"""
+
+# Alternative considered: a method-discriminated adapter (it would reject method-less dicts).
 server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
 
 
@@ -1463,13 +2779,22 @@ ServerNotification = (
     | ToolListChangedNotification
     | PromptListChangedNotification
     | ElicitCompleteNotification
+    | SubscriptionsAcknowledgedNotification
 )
+"""Union of server-to-client notification payloads across all supported protocol versions.
+
+The 2025-11-25 ``TaskStatusNotification`` is deliberately excluded (types-only,
+never dispatched).
+"""
+
+# Alternative considered: a method-discriminated adapter (it would reject method-less dicts).
 server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification)
 
 
 ServerResult = (
     EmptyResult
     | InitializeResult
+    | DiscoverResult
     | CompleteResult
     | GetPromptResult
     | ListPromptsResult
@@ -1478,5 +2803,14 @@ ServerResult = (
     | ReadResourceResult
     | CallToolResult
     | ListToolsResult
+    | InputRequiredResult
 )
+"""Union of every result payload a server can return for a client request.
+
+Spans all supported protocol versions: `InitializeResult` is only valid on
+pre-2026-07-28 sessions; `DiscoverResult` and `InputRequiredResult` only on
+2026-07-28 sessions. `InputRequiredResult` is deliberately the last member:
+both of its fields are optional, so an earlier position would shadow other
+members during union resolution.
+"""
 server_result_adapter = TypeAdapter[ServerResult](ServerResult)

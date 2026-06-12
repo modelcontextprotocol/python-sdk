@@ -1,0 +1,1144 @@
+{
+  "entries": [
+    {
+      "id": "sdk/CancelTaskResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "CancelTaskResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/CreateMessageResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "CreateMessageResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/CreateTaskResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "CreateTaskResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/ElicitResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "ElicitResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/GetTaskPayloadResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "GetTaskPayloadResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/GetTaskResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "GetTaskResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/InitializeResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "InitializeResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/ListRootsResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "ListRootsResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/ListTasksResult.resultType#SDK-FIELD-PHANTOM",
+      "check": "SDK-FIELD-PHANTOM",
+      "oracle": "sdk",
+      "name": "ListTasksResult",
+      "field": "resultType",
+      "category": "deliberate-deviation",
+      "reason": "resultType (added in 2026-07-28; absent means complete) is defined once on the SDK's shared Result base, so every result class carries the field; this def's last schema revision predates 2026-07-28, so no oracle version of the paired def has it.",
+      "track": "envelope"
+    },
+    {
+      "id": "sdk/SamplingContent#SDK-TYPE-PHANTOM",
+      "check": "SDK-TYPE-PHANTOM",
+      "oracle": "sdk",
+      "name": "SamplingContent",
+      "field": null,
+      "category": "deliberate-deviation",
+      "reason": "SDK-curated narrowing union (text/image/audio) used by the backwards-compatible CreateMessageResult; the spec models sampling result content inline.",
+      "track": "sampling"
+    },
+    {
+      "id": "v2024_11_05/Notification.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2024_11_05",
+      "name": "Notification",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2024_11_05/Request.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2024_11_05",
+      "name": "Request",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2024_11_05/Root.uri#TYPE-NARROWER",
+      "check": "TYPE-NARROWER",
+      "oracle": "v2024_11_05",
+      "name": "Root",
+      "field": "uri",
+      "category": "deliberate-deviation",
+      "reason": "SDK uses FileUrl where the schema says format:uri; the spec description for Root.uri states it MUST start with file:// for now, so the SDK encodes the prose constraint in the type.",
+      "track": "roots"
+    },
+    {
+      "id": "v2025_03_26/Notification.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_03_26",
+      "name": "Notification",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_03_26/Request.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_03_26",
+      "name": "Request",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_03_26/Root.uri#TYPE-NARROWER",
+      "check": "TYPE-NARROWER",
+      "oracle": "v2025_03_26",
+      "name": "Root",
+      "field": "uri",
+      "category": "deliberate-deviation",
+      "reason": "SDK uses FileUrl where the schema says format:uri; the spec description for Root.uri states it MUST start with file:// for now, so the SDK encodes the prose constraint in the type.",
+      "track": "roots"
+    },
+    {
+      "id": "v2025_06_18/Annotations.lastModified#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_06_18",
+      "name": "Annotations",
+      "field": "lastModified",
+      "category": "deliberate-deviation",
+      "reason": "Annotations.lastModified (since 2025-06-18) is deliberately omitted for now: an existing listing snapshot in tests/interaction/lowlevel/test_resources.py pins the field being dropped, and existing test expectations are frozen on this branch; the field lands together with that snapshot update.",
+      "track": "content"
+    },
+    {
+      "id": "v2025_06_18/Notification.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_06_18",
+      "name": "Notification",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_06_18/Request.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_06_18",
+      "name": "Request",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_06_18/Root.uri#TYPE-NARROWER",
+      "check": "TYPE-NARROWER",
+      "oracle": "v2025_06_18",
+      "name": "Root",
+      "field": "uri",
+      "category": "deliberate-deviation",
+      "reason": "SDK uses FileUrl where the schema says format:uri; the spec description for Root.uri states it MUST start with file:// for now, so the SDK encodes the prose constraint in the type.",
+      "track": "roots"
+    },
+    {
+      "id": "v2025_11_25/Annotations.lastModified#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "Annotations",
+      "field": "lastModified",
+      "category": "deliberate-deviation",
+      "reason": "Annotations.lastModified (since 2025-06-18) is deliberately omitted for now: an existing listing snapshot in tests/interaction/lowlevel/test_resources.py pins the field being dropped, and existing test expectations are frozen on this branch; the field lands together with that snapshot update.",
+      "track": "content"
+    },
+    {
+      "id": "v2025_11_25/CallToolRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CallToolRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CallToolRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CallToolRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CancelTaskRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CancelTaskRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CancelTaskRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CancelTaskRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CancelledNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CancelledNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CompleteRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CompleteRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CompleteRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CompleteRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CreateMessageRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CreateMessageRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/CreateMessageRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "CreateMessageRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ElicitRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ElicitRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ElicitRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ElicitRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ElicitationCompleteNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ElicitationCompleteNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetPromptRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetPromptRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetPromptRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetPromptRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetTaskPayloadRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetTaskPayloadRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetTaskPayloadRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetTaskPayloadRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetTaskRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetTaskRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/GetTaskRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "GetTaskRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/InitializeRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "InitializeRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/InitializeRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "InitializeRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/InitializedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "InitializedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/JSONRPCErrorResponse.id#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_11_25",
+      "name": "JSONRPCErrorResponse",
+      "field": "id",
+      "category": "suspected-sdk-bug",
+      "reason": "SDK requires the id key on error responses; the 2025-11-25+ schemas list only error/jsonrpc as required. JSON-RPC 2.0 requires id on every response (null when no request id could be determined) and every earlier schema version agrees, so the optional id looks like a spec-side regression; the SDK keeps the required-but-nullable id until the spec settles it.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListPromptsRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListPromptsRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListPromptsRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListPromptsRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListResourceTemplatesRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListResourceTemplatesRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListResourceTemplatesRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListResourceTemplatesRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListResourcesRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListResourcesRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListResourcesRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListResourcesRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListRootsRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListRootsRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListRootsRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListRootsRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListTasksRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListTasksRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListTasksRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListTasksRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListToolsRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListToolsRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ListToolsRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ListToolsRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/LoggingMessageNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "LoggingMessageNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/Notification.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_11_25",
+      "name": "Notification",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/PaginatedRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "PaginatedRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/PaginatedRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "PaginatedRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/PingRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "PingRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/PingRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "PingRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ProgressNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ProgressNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/PromptListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "PromptListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ReadResourceRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ReadResourceRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ReadResourceRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ReadResourceRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/Request.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2025_11_25",
+      "name": "Request",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ResourceListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ResourceListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ResourceUpdatedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ResourceUpdatedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/Root.uri#TYPE-NARROWER",
+      "check": "TYPE-NARROWER",
+      "oracle": "v2025_11_25",
+      "name": "Root",
+      "field": "uri",
+      "category": "deliberate-deviation",
+      "reason": "SDK uses FileUrl where the schema says format:uri; the spec description for Root.uri states it MUST start with file:// for now, so the SDK encodes the prose constraint in the type.",
+      "track": "roots"
+    },
+    {
+      "id": "v2025_11_25/RootsListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "RootsListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/SetLevelRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "SetLevelRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/SetLevelRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "SetLevelRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/SubscribeRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "SubscribeRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/SubscribeRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "SubscribeRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/TaskStatusNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "TaskStatusNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/ToolListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "ToolListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/UnsubscribeRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "UnsubscribeRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2025_11_25/UnsubscribeRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2025_11_25",
+      "name": "UnsubscribeRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/Annotations.lastModified#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "Annotations",
+      "field": "lastModified",
+      "category": "deliberate-deviation",
+      "reason": "Annotations.lastModified (since 2025-06-18) is deliberately omitted for now: an existing listing snapshot in tests/interaction/lowlevel/test_resources.py pins the field being dropped, and existing test expectations are frozen on this branch; the field lands together with that snapshot update.",
+      "track": "content"
+    },
+    {
+      "id": "v2026_07_28/CallToolRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "CallToolRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/CallToolRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "CallToolRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/CancelledNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "CancelledNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/CompleteRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "CompleteRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/CompleteRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "CompleteRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/DiscoverRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "DiscoverRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/DiscoverRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "DiscoverRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ElicitationCompleteNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ElicitationCompleteNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/GetPromptRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "GetPromptRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/GetPromptRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "GetPromptRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/JSONRPCErrorResponse.id#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2026_07_28",
+      "name": "JSONRPCErrorResponse",
+      "field": "id",
+      "category": "suspected-sdk-bug",
+      "reason": "SDK requires the id key on error responses; the 2025-11-25+ schemas list only error/jsonrpc as required. JSON-RPC 2.0 requires id on every response (null when no request id could be determined) and every earlier schema version agrees, so the optional id looks like a spec-side regression; the SDK keeps the required-but-nullable id until the spec settles it.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListPromptsRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListPromptsRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListPromptsRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListPromptsRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListResourceTemplatesRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListResourceTemplatesRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListResourceTemplatesRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListResourceTemplatesRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListResourcesRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListResourcesRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListResourcesRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListResourcesRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListToolsRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListToolsRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ListToolsRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ListToolsRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/LoggingMessageNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "LoggingMessageNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/Notification.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2026_07_28",
+      "name": "Notification",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/PaginatedRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "PaginatedRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/PaginatedRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "PaginatedRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ProgressNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ProgressNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/PromptListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "PromptListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ReadResourceRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ReadResourceRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ReadResourceRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ReadResourceRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/Request.params#SDK-REQUIRED-NOT-IN-SPEC",
+      "check": "SDK-REQUIRED-NOT-IN-SPEC",
+      "oracle": "v2026_07_28",
+      "name": "Request",
+      "field": "params",
+      "category": "deliberate-deviation",
+      "reason": "Generic base class: Request/Notification take params as a TypeVar field with no default, so pydantic reports it required. Every concrete request/notification type overrides params with the spec's per-method requiredness.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ResourceListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ResourceListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ResourceUpdatedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ResourceUpdatedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/Root.uri#TYPE-NARROWER",
+      "check": "TYPE-NARROWER",
+      "oracle": "v2026_07_28",
+      "name": "Root",
+      "field": "uri",
+      "category": "deliberate-deviation",
+      "reason": "SDK uses FileUrl where the schema says format:uri; the spec description for Root.uri states it MUST start with file:// for now, so the SDK encodes the prose constraint in the type.",
+      "track": "roots"
+    },
+    {
+      "id": "v2026_07_28/SubscriptionsAcknowledgedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "SubscriptionsAcknowledgedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/SubscriptionsListenRequest.id#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "SubscriptionsListenRequest",
+      "field": "id",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/SubscriptionsListenRequest.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "SubscriptionsListenRequest",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    },
+    {
+      "id": "v2026_07_28/ToolListChangedNotification.jsonrpc#SPEC-FIELD-MISSING",
+      "check": "SPEC-FIELD-MISSING",
+      "oracle": "v2026_07_28",
+      "name": "ToolListChangedNotification",
+      "field": "jsonrpc",
+      "category": "deliberate-deviation",
+      "reason": "The SDK strips the JSON-RPC envelope from typed messages: jsonrpc/id live on JSONRPCRequest/JSONRPCNotification/JSONRPCResponse/JSONRPCError in mcp.types.jsonrpc and are attached by the session layer. The 2025-11-25 schema restructure merged the envelope into every typed request/notification def.",
+      "track": "envelope"
+    }
+  ]
+}
