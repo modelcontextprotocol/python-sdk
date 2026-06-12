@@ -634,11 +634,11 @@ server = Server("my-server", on_call_tool=handle_call_tool)
 
 The `mcp.shared.context` module has been removed. `RequestContext` is now split into `ClientRequestContext` (in `mcp.client.context`) and `ServerRequestContext` (in `mcp.server.context`).
 
-The `RequestContext` class has been split to separate shared fields from server-specific fields. The shared `RequestContext` now only takes 1 type parameter (the session type) instead of 3.
+The split separates shared fields from server-specific fields. There is no shared `RequestContext` generic anymore — each concrete class fixes its session type.
 
 **`RequestContext` changes:**
 
-- Type parameters reduced from `RequestContext[SessionT, LifespanContextT, RequestT]` to `RequestContext[SessionT]`
+- The `RequestContext[SessionT, LifespanContextT, RequestT]` generic no longer exists; use `ClientRequestContext` or `ServerRequestContext[LifespanContextT, RequestT]`
 - Server-specific fields (`lifespan_context`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
 
 **Before (v1):**
@@ -1188,6 +1188,7 @@ Behavior changes:
 - **A raising request callback** is answered with `code=0` and the exception text. v1 flattened every callback exception to `INVALID_PARAMS`. Callbacks that want a specific error response should return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: a callback that raises pydantic's `ValidationError` is still answered with `INVALID_PARAMS` (`"Invalid request parameters"`, empty `data`) because the dispatcher cannot distinguish it from inbound-params validation — this conflation is pre-existing v1 behavior, and a revisit is pending.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. `send_notification` before entry still works.
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** The hint was never serialized by any client transport in v1 or v2 — it exists for the server's streamable-HTTP stream routing. Progress and response correlation via `progressToken` and the request id is unaffected.
+- **The private `mcp.shared._context.RequestContext` generic is deleted.** Client callbacks now receive the concrete `mcp.client.ClientRequestContext`, whose `request_id` is always populated (the client only builds a context for inbound requests). Annotations spelled `RequestContext[ClientSession]` become `ClientRequestContext`.
 
 `mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing — it has been unreachable at runtime since the server-side swap. `RequestResponder.respond()` no longer exists.
 

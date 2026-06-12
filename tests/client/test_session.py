@@ -10,8 +10,8 @@ import anyio.streams.memory
 import pytest
 
 from mcp import types
+from mcp.client import ClientRequestContext
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared._context import RequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
 from mcp.shared.message import SessionMessage
@@ -425,7 +425,7 @@ async def test_client_capabilities_with_custom_callbacks():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(
@@ -435,7 +435,7 @@ async def test_client_capabilities_with_custom_callbacks():
         )
 
     async def custom_list_roots_callback(  # pragma: no cover
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
 
@@ -509,7 +509,7 @@ async def test_client_capabilities_with_sampling_tools():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(

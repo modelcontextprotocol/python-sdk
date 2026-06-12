@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Protocol, cast, get_args
 
@@ -14,7 +15,6 @@ from typing_extensions import Self, TypeVar
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
-from mcp.shared._context import RequestContext
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
@@ -22,7 +22,7 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import ProgressFnT, RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types._types import RequestParamsMeta
+from mcp.types import RequestId, RequestParamsMeta
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -31,10 +31,19 @@ logger = logging.getLogger("client")
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
 
+@dataclass(kw_only=True)
+class ClientRequestContext:
+    """Context for a server-initiated request, passed to the sampling/elicitation/list-roots callbacks."""
+
+    session: ClientSession
+    request_id: RequestId
+    meta: RequestParamsMeta | None = None
+
+
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
@@ -42,14 +51,14 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext[ClientSession]
+        self, context: ClientRequestContext
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
@@ -71,7 +80,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
@@ -81,7 +90,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(
@@ -91,7 +100,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -496,19 +505,22 @@ class ClientSession:
             payload["params"] = dict(params)
         request = types.server_request_adapter.validate_python(payload, by_name=False)
 
-        ctx = RequestContext[ClientSession](
-            request_id=dctx.request_id, meta=request.params.meta if request.params else None, session=self
-        )
         response: types.ClientResult | types.ErrorData
-        match request:
-            case types.CreateMessageRequest(params=sampling_params):
-                response = await self._sampling_callback(ctx, sampling_params)
-            case types.ElicitRequest(params=elicit_params):
-                response = await self._elicitation_callback(ctx, elicit_params)
-            case types.ListRootsRequest():
-                response = await self._list_roots_callback(ctx)
-            case types.PingRequest():  # pragma: no branch
-                response = types.EmptyResult()
+        if isinstance(request, types.PingRequest):
+            # Answered without a context: direct dispatch carries no request id.
+            response = types.EmptyResult()
+        else:
+            assert dctx.request_id is not None  # the callback-driving dispatchers always assign ids
+            ctx = ClientRequestContext(
+                session=self, request_id=dctx.request_id, meta=request.params.meta if request.params else None
+            )
+            match request:
+                case types.CreateMessageRequest(params=sampling_params):
+                    response = await self._sampling_callback(ctx, sampling_params)
+                case types.ElicitRequest(params=elicit_params):
+                    response = await self._elicitation_callback(ctx, elicit_params)
+                case types.ListRootsRequest():  # pragma: no branch
+                    response = await self._list_roots_callback(ctx)
         client_response = ClientResponse.validate_python(response)
         if isinstance(client_response, types.ErrorData):
             raise MCPError.from_error_data(client_response)
