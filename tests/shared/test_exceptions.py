@@ -1,5 +1,7 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
@@ -162,3 +164,41 @@ def test_url_elicitation_required_error_exception_message() -> None:
 
     # The exception's string representation should match the message
     assert str(error) == "URL elicitation required"
+
+
+def test_mcp_error_pickle_roundtrip() -> None:
+    """Test that MCPError survives a normal pickle round-trip."""
+    original = MCPError(
+        code=-32600,
+        message="Authentication Required",
+        data={"scope": "files.read"},
+    )
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, MCPError)
+    assert restored.code == -32600
+    assert restored.message == "Authentication Required"
+    assert restored.data == {"scope": "files.read"}
+    assert str(restored) == "Authentication Required"
+
+
+def test_url_elicitation_required_error_pickle_roundtrip() -> None:
+    """Test that specialized MCPError subclasses survive pickle too."""
+    original = UrlElicitationRequiredError(
+        [
+            ElicitRequestURLParams(
+                mode="url",
+                message="Auth required",
+                url="https://example.com/auth",
+                elicitation_id="test-123",
+            )
+        ]
+    )
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, UrlElicitationRequiredError)
+    assert restored.elicitations[0].elicitation_id == "test-123"
+    assert restored.elicitations[0].url == "https://example.com/auth"
+    assert restored.message == "URL elicitation required"
