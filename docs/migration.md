@@ -1168,9 +1168,9 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 ### Experimental Tasks support removed
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with all `Task*` types, the `tasks` capability fields, `Tool.execution`, and the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
+The experimental task execution machinery (SEP-1686) is no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. Task execution is expected to return as a separate MCP extension in a future release.
 
-Tasks are expected to return as a separate MCP extension in a future release.
+The 2025-11-25 protocol's task **types** remain available from `mcp.types` (`Task`, `TaskMetadata`, `TaskStatus`, the `tasks/*` request and result types, the `tasks` capability fields, and `Tool.execution`), so task payloads from 2025-11-25 peers can be constructed and parsed. Compared with the v1 experimental module these are plain protocol types: attributes are snake_case (`task_id`, `created_at` — wire names are unchanged), timestamps are plain `str` fields, extra fields are ignored rather than preserved, and the `tasks/*` methods are not members of the request/notification unions — serving them requires registering a handler for the method explicitly.
 
 ## Deprecations
 
@@ -1237,6 +1237,12 @@ app = server.streamable_http_app(
 ```
 
 The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
+
+### Newer protocol fields are modeled and round-trip
+
+Fields introduced by the 2026-07-28 protocol revision are now typed on the existing payload models: `result_type` on results, `ttl_ms`/`cache_scope` on cacheable list/read results, `input_responses`/`request_state` on interactive request params, and `extensions` on the capability objects. Inbound payloads carrying these fields now retain them, and user-level `model_dump()` output includes them, where they were previously dropped as unknown fields. This is a strictly-more-lenient change: nothing that parsed before fails now.
+
+Wire output to peers on protocol versions that predate a field is unaffected — the version-aware boundary (`mcp.types.wire.serialize_for`) drops these fields when emitting for 2025-11-25 and earlier, so existing peers see byte-identical frames.
 
 ## Need Help?
 
