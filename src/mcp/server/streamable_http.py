@@ -718,10 +718,7 @@ class StreamableHTTPServerTransport:
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
             except anyio.ClosedResourceError:
-                # Teardown completed while the writer was between dequeues:
-                # the next receive() hits the closed stream. A writer parked
-                # in receive() instead sees a clean end-of-stream (cleanup
-                # closes the send side first).
+                # Session teardown can close the stream while the writer is between dequeues.
                 pass
             except Exception:
                 logger.exception("Error in standalone SSE writer")  # pragma: no cover

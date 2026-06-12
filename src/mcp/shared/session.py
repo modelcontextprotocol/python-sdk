@@ -1,9 +1,4 @@
-"""Compatibility surface for the removed v1 session layer.
-
-`BaseSession` (the v1 receive loop) is gone: `ClientSession` runs on
-`JSONRPCDispatcher` and the server side on `ServerRunner`. This module keeps
-the names that outlived it.
-"""
+"""Compatibility names that outlived the removed v1 session layer (`BaseSession`)."""
 
 from typing import Generic, TypeVar
 
@@ -18,13 +13,7 @@ SendResultT = TypeVar("SendResultT")
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
-    """Typing stub for the v1 responder.
-
-    Never instantiated by the SDK: the client answers every server request
-    itself, so the `RequestResponder` arm of `MessageHandlerFnT` is
-    unreachable. The class remains so existing annotations and imports keep
-    working.
-    """
+    """Typing stub for the v1 responder; the SDK never instantiates it."""
 
     request_id: RequestId
     request_meta: RequestParamsMeta | None

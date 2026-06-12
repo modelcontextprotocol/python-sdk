@@ -56,16 +56,10 @@ class CallOptions(TypedDict, total=False):
     """Seconds to wait for a result before raising and sending `notifications/cancelled`."""
 
     cancel_on_abandon: bool
-    """Whether abandoning this request sends `notifications/cancelled` to the peer.
+    """Whether abandoning this request (timeout or caller cancellation) sends `notifications/cancelled`.
 
-    A request is abandoned when its `timeout` elapses or the caller's scope is
-    cancelled while awaiting the response. Defaults to `True`. Set `False` for
-    requests the protocol forbids cancelling, such as `initialize`. The
-    notification is also suppressed when resumption hints actually reach the
-    transport (the caller intends to resume the request, so the peer's work
-    must keep running); hints ignored in favor of dispatch-context routing do
-    not suppress it. No notification is sent for a request that was never
-    written to the transport.
+    Defaults to `True`. Set `False` for requests the protocol forbids cancelling, such as `initialize`.
+    Also suppressed when resumption hints reach the transport, or when the request was never written.
     """
 
     on_progress: ProgressFnT
@@ -109,9 +103,6 @@ class Outbound(Protocol):
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
         """Send a request and await its raw result dict.
-
-        `opts` carries per-call `timeout` / `on_progress` / abandon-cancellation
-        / resumption hints; see `CallOptions`.
 
         Raises:
             MCPError: If the peer responded with an error, or the handler
@@ -201,9 +192,7 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     Implementations own correlation of outbound requests to inbound results, the
     receive loop, per-request concurrency, and cancellation/progress wiring.
 
-    The protocol's lifecycle surface is provisional and expected to change
-    before v2 stable (`run()` may be superseded by an `open()`/`wait_closed()`
-    pair).
+    The lifecycle surface is provisional; `run()` may change before v2 stable.
     """
 
     async def run(

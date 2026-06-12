@@ -62,8 +62,7 @@ async def test_notification_validation_error(tmp_path: Path):
         assert params.name in ("slow", "fast"), f"Unknown tool: {params.name}"
 
         if params.name == "slow":
-            # The client's timeout fires while this waits; the courtesy
-            # cancellation then interrupts the wait.
+            # The client's timeout fires during this wait; the courtesy cancellation then interrupts it.
             await slow_request_lock.wait()
             text = f"slow {request_count}"
         else:

@@ -120,19 +120,11 @@ class ClientSession:
     """Client half of an MCP connection, running on a `Dispatcher`.
 
     Construct it over a transport's stream pair (or pass a pre-built
-    `dispatcher=` instead, e.g. a `DirectDispatcher` for in-process
-    embedding), enter it as an async context manager, then call
-    `initialize()`. The receive loop, request correlation, and per-request
-    concurrency live in the dispatcher; this class owns the MCP type layer:
-    typed requests, the initialize handshake, and routing server-initiated
-    traffic to the constructor callbacks.
-
-    Transport-level `Exception` items reach `message_handler` only when the
-    session builds its own dispatcher from streams, where it wires the
-    dispatcher's `on_stream_exception` itself. Faults are delivered
-    concurrently in the session's task group, like notifications — never
-    inline in the read loop — so the handler may await session I/O, and one
-    that raises costs that delivery, not the connection.
+    `dispatcher=`), enter as an async context manager, then call
+    `initialize()`. The dispatcher owns the receive loop and request
+    correlation; this class owns the typed MCP layer and the constructor
+    callbacks. Transport `Exception` items reach `message_handler` only when
+    the session builds its own dispatcher from a stream pair.
     """
 
     def __init__(
@@ -168,8 +160,7 @@ class ClientSession:
         else:
             if read_stream is None or write_stream is None:
                 raise ValueError("read_stream and write_stream are required when no dispatcher is given")
-            # Built here (inert until run() starts in __aenter__) so notifications
-            # can be sent before entering the context manager, as before.
+            # Built eagerly so notifications can be sent before entering the context manager.
             self._dispatcher = JSONRPCDispatcher(
                 read_stream, write_stream, on_stream_exception=self._on_stream_exception
             )
@@ -180,20 +171,14 @@ class ClientSession:
         try:
             await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
         except BaseException:
-            # A cancellation landing here (e.g. the caller wrapped connect in
-            # `move_on_after`) would abandon the entered task group, and anyio
-            # later raises "exited non-innermost cancel scope" instead of a
-            # clean timeout. Unwind the group before propagating; cancelling
-            # its scope first keeps __aexit__ from blocking under the
-            # still-active cancellation.
+            # Unwind the entered task group before propagating: a cancellation
+            # landing here (e.g. `move_on_after` around connect) would abandon
+            # it and anyio would later raise "exited non-innermost cancel scope".
             task_group = self._task_group
             self._task_group = None
             task_group.cancel_scope.cancel()
-            # Shield the group's own scope (not a new one: scope exits must
-            # stay LIFO) so a pending outer cancellation cannot re-fire
-            # inside __aexit__; the join is prompt because the scope is
-            # cancelled. The original exception then propagates from the
-            # `raise`; a child error supersedes it, raised by __aexit__.
+            # Shield the group's own scope (a new one would break LIFO exit)
+            # so a pending outer cancellation cannot re-fire inside __aexit__.
             task_group.cancel_scope.shield = True
             await task_group.__aexit__(None, None, None)
             raise
@@ -205,8 +190,7 @@ class ClientSession:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
-        # Exit must not block: cancel the dispatcher and any in-flight
-        # callbacks rather than waiting for them.
+        # Exit must not block: cancel the dispatcher and in-flight callbacks.
         assert self._task_group is not None
         self._task_group.cancel_scope.cancel()
         result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
@@ -223,18 +207,14 @@ class ClientSession:
     ) -> ReceiveResultT:
         """Send a request and wait for its typed result.
 
-        A per-request read timeout takes precedence over the session-level
-        one. `metadata` carries transport hints: `ClientMessageMetadata`
-        resumption fields (streamable HTTP), or a
-        `ServerMessageMetadata.related_request_id` to route the message onto
-        an originating request's stream.
+        Args:
+            metadata: Transport hints: `ClientMessageMetadata` resumption fields
+                (streamable HTTP), or a `ServerMessageMetadata.related_request_id`
+                routing the message onto the originating request's stream.
 
         Raises:
-            MCPError: The server responded with an error, or the read timeout
-                elapsed, or the connection closed while sending or waiting.
-            RuntimeError: Called before entering the context manager. Raised
-                by the stream-built dispatcher; a user-supplied `dispatcher=`
-                may not enforce this.
+            MCPError: Error response, read timeout, or connection closed.
+            RuntimeError: Called before entering the context manager.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
@@ -253,12 +233,10 @@ class ClientSession:
         elif isinstance(metadata, ServerMessageMetadata):
             related_request_id = metadata.related_request_id
         if method == "initialize":
-            # The spec forbids cancelling initialize; opt out of the
-            # dispatcher's courtesy cancel-on-abandon.
+            # The spec forbids cancelling initialize.
             opts["cancel_on_abandon"] = False
         if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
-            # Related-request routing is JSON-RPC stream plumbing; other
-            # dispatchers have no per-request streams to route onto.
+            # Only JSON-RPC dispatchers have per-request streams to route onto.
             raw = await self._dispatcher.send_raw_request(
                 method, data.get("params"), opts, _related_request_id=related_request_id
             )
@@ -273,7 +251,7 @@ class ClientSession:
     ) -> None:
         """Send a one-way notification. Usable before entering the context manager."""
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        # `is not None`, not truthiness: request ids are opaque and 0 is valid.
+        # `is not None`: request ids are opaque and 0 is valid.
         if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
             await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)
         else:
@@ -529,17 +507,8 @@ class ClientSession:
     async def _on_request(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        """Answer a server-initiated request via the registered callbacks.
-
-        An unknown method raises `MCPError` (METHOD_NOT_FOUND), which the
-        dispatcher puts on the wire as-is; malformed params for a known method
-        raise `ValidationError`, which the dispatcher answers with
-        INVALID_PARAMS; an `ErrorData` returned by a callback becomes the
-        error response.
-        """
+        """Answer a server-initiated request via the registered callbacks."""
         if method not in _SERVER_REQUEST_METHODS:
-            # Unknown methods are METHOD_NOT_FOUND (-32601) per JSON-RPC 2.0,
-            # not validation failures (-32602).
             raise MCPError(code=types.METHOD_NOT_FOUND, message="Method not found", data=method)
         payload: dict[str, Any] = {"method": method}
         if params is not None:
@@ -577,25 +546,18 @@ class ClientSession:
             logger.warning("Failed to validate notification: %s", payload, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):
-            # The dispatcher already applied the cancellation to the in-flight
-            # request; message_handler never sees it, so handlers matching
-            # exhaustively over ServerNotification need no arm for it.
+            # The dispatcher already applied the cancellation; not surfaced to message_handler.
             return
         if isinstance(notification, types.LoggingMessageNotification):
             await self._logging_callback(notification.params)
         await self._message_handler(notification)
 
     async def _on_stream_exception(self, exc: Exception) -> None:
-        """Spawn delivery of a transport-level fault (connection error, parse error) to message_handler.
+        """Deliver a transport-level fault to message_handler via a spawned task.
 
-        The dispatcher awaits this observer inline in its read loop, so the
-        handler must not run here: a slow handler would head-of-line block the
-        session, and one that awaits session I/O (e.g. sends a ping) would
-        deadlock against the parked loop. Spawn it instead, with the same
-        containment notification deliveries get.
+        Running the handler inline would park the dispatcher's read loop and
+        deadlock handlers that await session I/O.
         """
-        # The dispatcher only runs inside the task group entered in
-        # __aenter__, so the group is always live when it calls back here.
         assert self._task_group is not None
         self._task_group.start_soon(self._deliver_stream_exception, exc)
 

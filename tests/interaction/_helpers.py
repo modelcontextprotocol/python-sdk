@@ -67,9 +67,7 @@ class _RecordingWriteStream:
         self._log = log
 
     async def send(self, item: SessionMessage, /) -> None:
-        # Record only after the inner send returns: a send that raises (or is cancelled
-        # mid-write) never reached the transport, so logging it first would fabricate a
-        # "sent" message in wire-level assertions.
+        # Record only after the inner send returns: a failed or cancelled send never reached the transport.
         await self._inner.send(item)
         self._log.append(item)
 

@@ -30,9 +30,7 @@ pytestmark = pytest.mark.anyio
 async def test_request_timeout_fails_the_pending_call() -> None:
     """A request whose response does not arrive within its read timeout fails with a timeout error.
 
-    The timeout is followed by notifications/cancelled on the wire, so the server's handler is
-    interrupted instead of running to completion. The test waits for the handler to have started
-    only after the timeout has fired, so the timeout itself races nothing.
+    The timeout is followed by notifications/cancelled, which interrupts the server's handler.
     """
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
@@ -53,8 +51,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
-        # The request was already on the wire, so the handler started; the courtesy
-        # cancellation that followed the timeout then interrupted it.
+        # The request was already on the wire: the handler started and was then cancelled.
         with anyio.fail_after(5):
             await handler_started.wait()
             await handler_cancelled.wait()
@@ -72,10 +69,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
 async def test_server_request_timeout_sends_cancellation_to_the_client() -> None:
     """A server-initiated request that times out fails server-side and cancels the client's work.
 
-    The server seat conforms to the spec's timeout guidance: the handler's timed-out sampling
-    request is followed by notifications/cancelled on the wire. The client's sampling callback
-    blocks until the server has already given up, then answers; the late response is discarded
-    and the tool call still completes.
+    The sampling callback answers only after the server gave up; the late response is discarded.
     """
     release = anyio.Event()
     callback_started = anyio.Event()
@@ -124,7 +118,7 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
         and isinstance(item.message, JSONRPCNotification)
         and item.message.method == "notifications/cancelled"
     ]
-    # The cancel names the sampling request (the server's first outbound request) and the reason.
+    # requestId 1 is the sampling request, the server's first outbound request.
     assert [notification.params for notification in cancellations] == snapshot(
         [{"requestId": 1, "reason": "timed out after 1e-06s"}]
     )

@@ -158,11 +158,7 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
 
 @requirement("protocol:cancel:server-to-client")
 async def test_abandoned_server_request_cancels_the_client_callback(connect: Connect) -> None:
-    """A server that abandons a sampling request cancels it, interrupting the client's callback.
-
-    The handler gives up on its sampling request by cancelling the scope around it; the courtesy
-    notifications/cancelled that follows interrupts the client's sampling callback mid-await.
-    """
+    """A server that abandons a sampling request cancels it, interrupting the client's callback mid-await."""
     callback_started = anyio.Event()
     callback_cancelled = anyio.Event()
 
@@ -219,8 +215,7 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
 
     The spec says a sender SHOULD ignore a response that arrives after it issued a cancellation;
     that is the same client-side code path as any response with an unknown id, and that form is
-    deterministic to test without depending on a client-side cancellation API. Nothing reaches
-    the message handler and the session keeps serving.
+    deterministic to test without a client-side cancellation API.
 
     A real Server cannot be made to answer with a fabricated id, so the test plays the server's
     side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
@@ -284,21 +279,13 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
             pong = await session.send_request(PingRequest(), EmptyResult)
 
         assert pong == snapshot(EmptyResult())
-        # The fabricated response was dropped silently: the ping after it still
-        # round-tripped, and the message handler (a tripwire) was never invoked.
 
 
 @requirement("protocol:cancel:initialize-not-cancellable")
 async def test_timed_out_initialize_sends_no_cancellation() -> None:
-    """An abandoned initialize is not followed by notifications/cancelled on the wire.
+    """An abandoned initialize is not followed by notifications/cancelled on the wire (spec-mandated).
 
-    Spec-mandated: the initialize request MUST NOT be cancelled. Abandoning any other request
-    sends a courtesy notifications/cancelled (see protocol:timeout:sends-cancellation); this
-    test pins that initialize opts out. A real Server always answers initialize, so the test
-    plays a stalling server by hand: it never answers initialize, the client's read timeout
-    fires, and the ping the test sends next is the marker — the in-memory stream is ordered and
-    a courtesy cancel goes out before the timeout error reaches the caller, so a regression
-    would put notifications/cancelled ahead of the ping in the recorded sequence.
+    A real Server always answers initialize, so the test plays a stalling server by hand.
     """
     received_methods: list[str] = []
 
@@ -320,7 +307,6 @@ async def test_timed_out_initialize_sends_no_cancellation() -> None:
                 JSONRPCResponse(
                     jsonrpc="2.0",
                     id=follow_up.message.id,
-                    # Serialized exactly as a real server serializes results onto the wire.
                     result=EmptyResult().model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
@@ -329,8 +315,7 @@ async def test_timed_out_initialize_sends_no_cancellation() -> None:
     async with (
         create_client_server_memory_streams() as ((client_read, client_write), server_streams),
         anyio.create_task_group() as task_group,
-        # The session-level read timeout is the only public pathway that abandons initialize;
-        # the response never arrives, so any positive value fires on the next event-loop pass.
+        # The session-level read timeout is the only public pathway that abandons initialize.
         ClientSession(client_read, client_write, read_timeout_seconds=0.000001) as session,
     ):
         task_group.start_soon(scripted_server, server_streams)
@@ -342,4 +327,5 @@ async def test_timed_out_initialize_sends_no_cancellation() -> None:
             pong = await session.send_request(PingRequest(), EmptyResult, request_read_timeout_seconds=5)
 
         assert pong == snapshot(EmptyResult())
+        # The stream is ordered, so a courtesy cancel would have arrived ahead of the ping.
         assert received_methods == snapshot(["initialize", "ping"])
