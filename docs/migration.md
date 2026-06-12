@@ -1166,11 +1166,18 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 `BaseSession` is still used by `ClientSession`, which never relied on these members. `RequestResponder.respond()` is unchanged.
 
-### Experimental Tasks support removed
+### Experimental Tasks support removed (types restored, types-only)
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with all `Task*` types, the `tasks` capability fields, `Tool.execution`, and the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
+Tasks (SEP-1686) runtime support has been removed from this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules are gone, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
 
-Tasks are expected to return as a separate MCP extension in a future release.
+The 2025-11-25 protocol *types* are back in `mcp.types` so that 2025-11-25 task payloads can still be modeled: the `Task*` types, the `tasks` capability subtrees, `Tool.execution`, and the `task` field on the four task-augmentable params classes. They are types-only definitions:
+
+- Attributes are snake_case (`task_id`, `created_at`), aliased to the camelCase wire names.
+- Timestamps are plain `str` values, not `datetime`.
+- `GetTaskPayloadResult` follows the default extra-field policy (`ignore`), so it retains only `_meta`; validate a tasks/result payload into the original request's result type instead.
+- None of the task methods is a member of the request/notification unions, and `add_request_handler` does not dispatch them.
+
+Tasks runtime support is expected to return as a separate MCP extension in a future release.
 
 ## Deprecations
 
@@ -1213,6 +1220,12 @@ params = CallToolRequestParams(
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
 ## New Features
+
+### Newer protocol fields are modeled and retained
+
+`mcp.types` now models the 2025-11-25 and 2026-07-28 protocol fields and types (for example `resultType`, `ttlMs`/`cacheScope` on the cacheable results, and `inputResponses`/`requestState` on retried requests). Inbound payloads carrying these keys used to lose them to the unknown-field policy on re-dump; they now parse into typed fields and survive a user-level round-trip. All of the new fields are optional with `None` defaults, so dumps of values that do not set them are unchanged.
+
+`CallToolResult.structured_content` and `ToolResultContent.structured_content` now accept any JSON value, where previous releases required an object: 2026-07-28 allows scalar and array structured content. Parsing is strictly more lenient, and emitted bytes for object values are unchanged.
 
 ### `streamable_http_app()` available on lowlevel Server
 
