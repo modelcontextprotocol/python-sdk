@@ -10,7 +10,10 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    INVALID_REQUEST,
+    PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -103,6 +106,46 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_replies_to_invalid_messages_with_correlated_errors() -> None:
+    """Invalid stdin lines are answered with a JSON-RPC error carrying the original id.
+
+    Lines that are valid JSON but invalid JSON-RPC envelopes get an Invalid Request
+    error with the id extracted best-effort from the raw payload; lines that are not
+    valid JSON get a Parse error with a null id, per the JSON-RPC 2.0 specification.
+    The exception is still surfaced in-stream for each bad line.
+    """
+    invalid_lines = [
+        '{"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}',
+        '{"id": 4, "method": "ping", "params": {}}',
+        '{"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}',
+        "this is not valid json",
+    ]
+    stdin = io.StringIO("".join(line + "\n" for line in invalid_lines))
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                for _ in invalid_lines:
+                    received = await read_stream.receive()
+                    assert isinstance(received, Exception)
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    error_responses = [JSONRPCError.model_validate_json(line.strip()) for line in stdout.readlines()]
+    assert [error_response.id for error_response in error_responses] == [3, 4, 8, None]
+    assert [error_response.error.code for error_response in error_responses] == [
+        INVALID_REQUEST,
+        INVALID_REQUEST,
+        INVALID_REQUEST,
+        PARSE_ERROR,
+    ]
 
 
 class _GatedStdin(io.RawIOBase):
