@@ -217,6 +217,11 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
     that is the same client-side code path as any response with an unknown id, and that form is
     deterministic to test without a client-side cancellation API.
 
+    "Ignored" is proved in two halves: the pong round-trip proves the read loop survived the
+    fabricated response (the ordered in-memory stream routed it first), and `surfaced` holding
+    only the control notification proves the fabricated response was never delivered to
+    `message_handler` (v1 surfaced it there as a RuntimeError).
+
     A real Server cannot be made to answer with a fabricated id, so the test plays the server's
     side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
     other tests in this file run over the transport matrix; this one is in-memory only because the
@@ -261,12 +266,18 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
         assert isinstance(ping, SessionMessage)
         assert isinstance(ping.message, JSONRPCRequest)
         assert ping.message.method == "ping"
-        # First answer with a fabricated id that matches nothing in flight, then the real id.
+        # First a fabricated id that matches nothing in flight, then a control notification that
+        # is surfaced to message_handler (proving the handler is live), then the real id.
         await server_write.send(respond(9999, EmptyResult()))
+        await server_write.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
         await server_write.send(respond(ping.message.id, EmptyResult()))
 
+    surfaced: list[IncomingMessage] = []
+
     async def message_handler(message: IncomingMessage) -> None:
-        raise NotImplementedError  # unreachable: nothing is surfaced for an unknown-id response
+        surfaced.append(message)
 
     async with (
         create_client_server_memory_streams() as ((client_read, client_write), server_streams),
@@ -279,6 +290,9 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
             pong = await session.send_request(PingRequest(), EmptyResult)
 
         assert pong == snapshot(EmptyResult())
+        # The stream is ordered, so the fabricated response was routed before the control
+        # notification: only the control surfaced, so the unknown-id response was dropped.
+        assert surfaced == snapshot([types.ToolListChangedNotification()])
 
 
 @requirement("protocol:cancel:initialize-not-cancellable")
