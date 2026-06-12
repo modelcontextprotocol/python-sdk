@@ -29,15 +29,12 @@ def build_span_attributes(
     method: str,
     request_id: Any,
     *,
-    params: dict[str, Any] | None = None,
-    server_name: str | None = None,
-    session_id: str | None = None,
+    params: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build OTel span attributes for an MCP request.
 
     Produces the base set of semantic convention attributes shared by both
     client (`SpanKind.CLIENT`) and server (`SpanKind.SERVER`) spans.
-    Pass `server_name` and `session_id` for server-side spans.
     """
     attrs: dict[str, Any] = {
         "rpc.system": "mcp",
@@ -48,9 +45,6 @@ def build_span_attributes(
     operation = _METHOD_TO_GEN_AI_OPERATION.get(method)
     if operation is not None:
         attrs["gen_ai.operation.name"] = operation
-
-    if server_name is not None:
-        attrs["rpc.service"] = server_name
 
     if params is not None:
         # gen_ai.tool.name — present on tools/call, prompts/get
@@ -66,9 +60,6 @@ def build_span_attributes(
                 uri = cast(dict[str, Any], ref).get("uri")
         if uri is not None:
             attrs["mcp.resource.uri"] = str(uri)
-
-    if session_id is not None:
-        attrs["mcp.session.id"] = session_id
 
     return attrs
 

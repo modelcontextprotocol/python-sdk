@@ -6,8 +6,19 @@ from logfire.testing import CaptureLogfire
 from mcp import types
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
+from mcp.shared._otel import build_span_attributes
 
 pytestmark = pytest.mark.anyio
+
+
+def test_build_span_attributes_ref_uri() -> None:
+    """build_span_attributes extracts mcp.resource.uri from nested ref.uri."""
+    attrs = build_span_attributes(
+        "completion/complete",
+        "1",
+        params={"ref": {"uri": "test://doc"}},
+    )
+    assert attrs["mcp.resource.uri"] == "test://doc"
 
 
 async def test_client_and_server_spans(capfire: CaptureLogfire):
@@ -54,11 +65,6 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
 async def test_list_tools_spans(capfire: CaptureLogfire):
     """Verify that listing tools produces spans with list_tools operation."""
     server = MCPServer("test")
-
-    @server.tool()
-    def greet(name: str) -> str:
-        """Greet someone."""
-        return f"Hello, {name}!"
 
     async with Client(server) as client:
         await client.list_tools()
