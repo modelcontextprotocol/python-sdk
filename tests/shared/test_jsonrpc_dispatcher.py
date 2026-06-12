@@ -306,7 +306,7 @@ async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
 
 @pytest.mark.anyio
 async def test_run_closes_write_stream_on_exit():
-    """run() enters both streams; the write end is released on EOF."""
+    """run() owns both streams; the write end is released once the EOF teardown completes."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
@@ -819,29 +819,11 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
     caplog: pytest.LogCaptureFixture,
 ):
     """Cancelling the task group hosting run() completes even when the shutdown error write wedges:
-    only `_SHUTDOWN_WRITE_TIMEOUT` releases the join (SDK-defined). The fake stream is needed
-    because run()'s teardown closes a memory stream, which would wake the blocked send."""
-
-    class WedgedWriteStream:
-        async def send(self, item: SessionMessage) -> None:
-            await anyio.sleep_forever()
-
-        async def aclose(self) -> None:
-            raise NotImplementedError
-
-        async def __aenter__(self) -> "WedgedWriteStream":
-            return self
-
-        async def __aexit__(
-            self,
-            exc_type: type[BaseException] | None,
-            exc_val: BaseException | None,
-            exc_tb: TracebackType | None,
-        ) -> bool | None:
-            return None
-
+    only `_SHUTDOWN_WRITE_TIMEOUT` releases the join (SDK-defined). A 0-buffer stream nobody reads
+    expresses the wedge: run() closes its write stream only after the join, so the send stays parked."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, WedgedWriteStream())
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
 
     async def park(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -863,19 +845,19 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
                 await handler_started.wait()
                 tg.cancel_scope.cancel()
     finally:
-        c2s_send.close()
-        c2s_recv.close()
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
     # The warning proves the bound (not a completed write) released the join.
     assert "shutdown error response for request" in caplog.text
 
 
 @pytest.mark.anyio
 async def test_shutdown_answers_in_flight_request_with_connection_closed():
-    """Cancelling run() answers a still-running request with CONNECTION_CLOSED (SDK-defined). The
-    recording stream is needed because run()'s exit would close a memory stream before the shielded write lands."""
+    """Read-stream EOF answers a still-running request with CONNECTION_CLOSED (SDK-defined):
+    run() keeps the write stream open until the task-group join, so the shielded teardown write lands."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    recording = RecordingWriteStream()
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
 
     async def park(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -892,13 +874,16 @@ async def test_shutdown_answers_in_flight_request_with_connection_closed():
             await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
             with anyio.fail_after(5):
                 await handler_started.wait()
-            tg.cancel_scope.cancel()
+            c2s_send.close()  # EOF: run() cancels the parked handler, which must still answer
+            with anyio.fail_after(5):
+                answer = await s2c_recv.receive()
+            assert isinstance(answer, SessionMessage)
+            assert answer.message == JSONRPCError(
+                jsonrpc="2.0", id=1, error=ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+            )
     finally:
-        c2s_send.close()
-        c2s_recv.close()
-    assert [m.message for m in recording.sent] == [
-        JSONRPCError(jsonrpc="2.0", id=1, error=ErrorData(code=CONNECTION_CLOSED, message="Connection closed"))
-    ]
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
 
 
 @pytest.mark.anyio

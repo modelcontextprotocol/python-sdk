@@ -384,31 +384,33 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         `task_status.started()` fires once `send_raw_request` is usable.
         """
         try:
-            async with anyio.create_task_group() as tg:
-                self._tg = tg
-                self._running = True
-                task_status.started()
-                try:
-                    async with self._read_stream, self._write_stream:
-                        try:
-                            async for item in self._read_stream:
-                                # Duck-typed: only `ContextReceiveStream` carries the
-                                # sender's per-message contextvars snapshot.
-                                sender_ctx: contextvars.Context | None = getattr(
-                                    self._read_stream, "last_context", None
-                                )
-                                await self._dispatch(item, on_request, on_notify, sender_ctx)
-                        except anyio.ClosedResourceError:
-                            # Receive end closed under us (stateless SHTTP teardown); same as EOF.
-                            logger.debug("read stream closed by transport; treating as EOF")
-                    # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
-                    self._running = False
-                    self._closed = True
-                    self._fan_out_closed()
-                finally:
-                    # Cancel in-flight handlers; otherwise the task-group join
-                    # waits on handlers whose callers are already gone.
-                    tg.cancel_scope.cancel()
+            # LIFO exits: the write stream closes only after the task-group join, so teardown writes still land.
+            async with self._write_stream:
+                async with anyio.create_task_group() as tg:
+                    self._tg = tg
+                    self._running = True
+                    task_status.started()
+                    try:
+                        async with self._read_stream:
+                            try:
+                                async for item in self._read_stream:
+                                    # Duck-typed: only `ContextReceiveStream` carries the
+                                    # sender's per-message contextvars snapshot.
+                                    sender_ctx: contextvars.Context | None = getattr(
+                                        self._read_stream, "last_context", None
+                                    )
+                                    await self._dispatch(item, on_request, on_notify, sender_ctx)
+                            except anyio.ClosedResourceError:
+                                # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+                                logger.debug("read stream closed by transport; treating as EOF")
+                        # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
+                        self._running = False
+                        self._closed = True
+                        self._fan_out_closed()
+                    finally:
+                        # Cancel in-flight handlers; otherwise the task-group join
+                        # waits on handlers whose callers are already gone.
+                        tg.cancel_scope.cancel()
         finally:
             # Covers cancel/crash paths that skip the inline fan-out; idempotent.
             self._running = False
