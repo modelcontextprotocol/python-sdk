@@ -1120,9 +1120,9 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
     )
 ```
 
-### `RequestContext`: request-specific fields are now optional
+### `ServerRequestContext`: request-specific fields are now optional
 
-The `RequestContext` class now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
+`ServerRequestContext` now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
 
 ```python
 from mcp.server import ServerRequestContext
@@ -1177,7 +1177,7 @@ Behavior changes:
 - **Session shutdown now answers in-flight server-initiated requests with `CONNECTION_CLOSED` (-32000)**; v1 left them unanswered. The write is bounded (~1s) so closing stays fast.
 - **Notification callbacks are concurrent.** `logging_callback`, `progress_callback`, and `message_handler` deliveries start in arrival order but each runs as its own task: they may interleave, and a `progress_callback` delivery may finish after the request it reports on has returned. Callbacks that need strict sequencing must coordinate themselves, and there is no built-in bound on concurrent deliveries (v1's inline loop processed one message at a time).
 - **Transport-level `Exception` items are delivered to `message_handler` the same way** — as their own task, without blocking the receive loop — and a `message_handler` that raises on one is logged, not fatal to the session.
-- **Stray responses are no longer surfaced to `message_handler`.** Responses with an unknown id are ignored (as the spec asks; v1 surfaced a `RuntimeError`), and error responses with a null `id` — a peer reporting a parse error — are dropped with a debug log (v1 surfaced an `MCPError`).
+- **Stray responses are no longer surfaced to `message_handler`.** Responses with an unknown id are ignored (as the spec asks; v1 surfaced a `RuntimeError`), and error responses with a null `id` — a peer reporting a parse error — are dropped with a debug log (v1 surfaced the transport's `ValidationError`).
 - **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.

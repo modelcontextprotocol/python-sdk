@@ -15,11 +15,11 @@ from typing_extensions import Self, TypeVar
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.session import ProgressFnT, RequestResponder
+from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import RequestId, RequestParamsMeta

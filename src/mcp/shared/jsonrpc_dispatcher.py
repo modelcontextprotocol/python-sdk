@@ -51,9 +51,9 @@ __all__ = ["JSONRPCDispatcher"]
 
 logger = logging.getLogger(__name__)
 
-_SHIELDED_WRITE_TIMEOUT: float = 5
-"""Bound for courtesy abandon-path writes; without it a wedged transport
-would turn the shielded write into an uncancellable hang."""
+_ABANDON_WRITE_TIMEOUT: float = 5
+"""Bound for courtesy-cancel writes on the abandon paths; the caller-cancel
+arm shields its write, so a wedged transport would otherwise hang it uncancellably."""
 
 _SHUTDOWN_WRITE_TIMEOUT: float = 1
 """Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
@@ -232,7 +232,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 message is dequeued (e.g. `initialize`); an inline handler
                 that awaits the peer deadlocks the parked loop.
             on_stream_exception: Observer for `Exception` items on the read
-                stream; without it they are debug-logged and dropped.
+                stream; without it they are debug-logged and dropped. Awaited
+                inline in the read loop, so a slow observer stalls dispatch.
         """
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -332,7 +333,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         _related_request_id,
                     ),
                     shield=False,
-                    timeout=_SHIELDED_WRITE_TIMEOUT,
+                    timeout=_ABANDON_WRITE_TIMEOUT,
                     describe=f"courtesy cancel for timed-out request {request_id!r}",
                 )
             raise MCPError(code=REQUEST_TIMEOUT, message=f"Request {method!r} timed out") from None
@@ -343,7 +344,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._final_write(
                     partial(self._cancel_outbound, request_id, "caller cancelled", _related_request_id),
                     shield=True,
-                    timeout=_SHIELDED_WRITE_TIMEOUT,
+                    timeout=_ABANDON_WRITE_TIMEOUT,
                     describe=f"courtesy cancel for caller-cancelled request {request_id!r}",
                 )
             raise
@@ -382,6 +383,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Drive the receive loop until the read stream closes.
 
         `task_status.started()` fires once `send_raw_request` is usable.
+        Single-shot: once the loop ends the dispatcher stays closed and cannot be restarted.
         """
         try:
             # LIFO exits: the write stream closes only after the task-group join, so teardown writes still land.

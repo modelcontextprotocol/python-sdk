@@ -727,7 +727,7 @@ async def test_caller_cancel_courtesy_write_is_bounded_when_the_transport_is_wed
     caplog: pytest.LogCaptureFixture,
 ):
     """A wedged transport write cannot turn caller cancellation into an unbounded shielded hang:
-    `_SHIELDED_WRITE_TIMEOUT` abandons the courtesy-cancel write (SDK-defined bound). On regression
+    `_ABANDON_WRITE_TIMEOUT` abandons the courtesy-cancel write (SDK-defined bound). On regression
     the test hangs rather than failing fast - fail_after cannot cancel through the shield."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
@@ -745,7 +745,7 @@ async def test_caller_cancel_courtesy_write_is_bounded_when_the_transport_is_wed
         gave_up.set()
 
     try:
-        # Both bounds exceed the in-loop _SHIELDED_WRITE_TIMEOUT (5s); the virtual clock makes them instant.
+        # Both bounds exceed the in-loop _ABANDON_WRITE_TIMEOUT (5s); the virtual clock makes them instant.
         with anyio.fail_after(30):
             async with anyio.create_task_group() as tg:  # pragma: no branch
                 await tg.start(client.run, on_request, on_notify)
@@ -775,7 +775,7 @@ async def test_timeout_courtesy_cancel_write_is_bounded_when_the_transport_is_we
     caplog: pytest.LogCaptureFixture,
 ):
     """A wedged transport write cannot delay the REQUEST_TIMEOUT error indefinitely (SDK-defined
-    bound): `_SHIELDED_WRITE_TIMEOUT` abandons the courtesy cancel so the error still surfaces."""
+    bound): `_ABANDON_WRITE_TIMEOUT` abandons the courtesy cancel so the error still surfaces."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
@@ -799,7 +799,7 @@ async def test_timeout_courtesy_cancel_write_is_bounded_when_the_transport_is_we
                 request = await c2s_recv.receive()
             assert isinstance(request, SessionMessage)
             assert isinstance(request.message, JSONRPCRequest)
-            # Exceeds the request timeout (1s) plus _SHIELDED_WRITE_TIMEOUT (5s); virtual clock, no wall time.
+            # Exceeds the request timeout (1s) plus _ABANDON_WRITE_TIMEOUT (5s); virtual clock, no wall time.
             with anyio.fail_after(10):
                 await gave_up.wait()
             tg.cancel_scope.cancel()
@@ -835,7 +835,7 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
         raise NotImplementedError
 
     try:
-        # 3s sits between _SHUTDOWN_WRITE_TIMEOUT (1s) and _SHIELDED_WRITE_TIMEOUT (5s): pins the tighter bound.
+        # 3s sits between _SHUTDOWN_WRITE_TIMEOUT (1s) and _ABANDON_WRITE_TIMEOUT (5s): pins the tighter bound.
         with anyio.fail_after(3):
             async with anyio.create_task_group() as tg:  # pragma: no branch
                 await tg.start(server.run, park, on_notify)
