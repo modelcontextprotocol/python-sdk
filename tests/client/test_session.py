@@ -14,7 +14,7 @@ from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared._context import RequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -978,8 +978,7 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
             results.append(await session.send_ping(meta=None))
             # Server-to-client: direct dispatch delivers ping with no params member (no _meta injection).
             assert await server_side.send_raw_request("ping", None) == {}
-            # related_request_id is JSON-RPC plumbing; other dispatchers send the notification without it.
-            await session.send_notification(types.RootsListChangedNotification(), related_request_id=7)
+            await session.send_notification(types.RootsListChangedNotification())
         server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
@@ -1082,53 +1081,3 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
     assert scope.cancelled_caught
     # The failed enter must not leave the session half-entered.
     assert session._task_group is None
-
-
-@pytest.mark.anyio
-async def test_send_request_with_server_metadata_routes_related_request_id():
-    """ServerMessageMetadata.related_request_id is threaded onto the outgoing message."""
-    async with raw_client_session() as (session, to_client, from_client):
-        async with anyio.create_task_group() as tg:
-
-            async def call() -> None:
-                await session.send_request(
-                    types.PingRequest(), types.EmptyResult, metadata=ServerMessageMetadata(related_request_id=3)
-                )
-
-            tg.start_soon(call)
-            out = await from_client.receive()
-            assert isinstance(out.metadata, ServerMessageMetadata)
-            assert out.metadata.related_request_id == 3
-            assert isinstance(out.message, JSONRPCRequest)
-            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
-
-
-@pytest.mark.anyio
-async def test_send_notification_with_related_request_id_attaches_metadata():
-    """A related_request_id on a notification rides the originating request's stream."""
-    async with raw_client_session() as (session, _to_client, from_client):
-        await session.send_notification(
-            types.ProgressNotification(
-                params=types.ProgressNotificationParams(progress_token=1, progress=0.5),
-            ),
-            related_request_id=4,
-        )
-        out = await from_client.receive()
-    assert isinstance(out.metadata, ServerMessageMetadata)
-    assert out.metadata.related_request_id == 4
-
-
-@pytest.mark.anyio
-async def test_send_notification_with_related_request_id_zero_attaches_metadata():
-    """`related_request_id=0` still attaches metadata: 0 is a valid request id, so the session checks
-    `is not None`, not truthiness (regression pin). Wire-level: only the sent `SessionMessage` shows it."""
-    async with raw_client_session() as (session, _to_client, from_client):
-        await session.send_notification(
-            types.ProgressNotification(
-                params=types.ProgressNotificationParams(progress_token=1, progress=0.5),
-            ),
-            related_request_id=0,
-        )
-        out = await from_client.receive()
-    assert isinstance(out.metadata, ServerMessageMetadata)
-    assert out.metadata.related_request_id == 0

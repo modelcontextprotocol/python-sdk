@@ -18,7 +18,7 @@ from mcp.shared._context import RequestContext
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import ProgressFnT, RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -202,15 +202,13 @@ class ClientSession:
         request: types.ClientRequest,
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: float | None = None,
-        metadata: MessageMetadata = None,
+        metadata: ClientMessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         """Send a request and wait for its typed result.
 
         Args:
-            metadata: Transport hints: `ClientMessageMetadata` resumption fields
-                (streamable HTTP), or a `ServerMessageMetadata.related_request_id`
-                routing the message onto the originating request's stream.
+            metadata: Streamable HTTP resumption hints.
 
         Raises:
             MCPError: Error response, read timeout, or connection closed.
@@ -224,38 +222,21 @@ class ClientSession:
             opts["timeout"] = timeout
         if progress_callback is not None:
             opts["on_progress"] = progress_callback
-        related_request_id: types.RequestId | None = None
-        if isinstance(metadata, ClientMessageMetadata):
+        if metadata is not None:
             if metadata.resumption_token is not None:
                 opts["resumption_token"] = metadata.resumption_token
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
-        elif isinstance(metadata, ServerMessageMetadata):
-            related_request_id = metadata.related_request_id
         if method == "initialize":
             # The spec forbids cancelling initialize.
             opts["cancel_on_abandon"] = False
-        if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
-            # Only JSON-RPC dispatchers have per-request streams to route onto.
-            raw = await self._dispatcher.send_raw_request(
-                method, data.get("params"), opts, _related_request_id=related_request_id
-            )
-        else:
-            raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
         return result_type.model_validate(raw, by_name=False)
 
-    async def send_notification(
-        self,
-        notification: types.ClientNotification,
-        related_request_id: types.RequestId | None = None,
-    ) -> None:
+    async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager."""
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        # `is not None`: request ids are opaque and 0 is valid.
-        if related_request_id is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
-            await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)
-        else:
-            await self._dispatcher.notify(data["method"], data.get("params"))
+        await self._dispatcher.notify(data["method"], data.get("params"))
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
