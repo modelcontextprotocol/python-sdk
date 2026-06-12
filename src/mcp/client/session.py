@@ -507,7 +507,7 @@ class ClientSession:
 
         response: types.ClientResult | types.ErrorData
         if isinstance(request, types.PingRequest):
-            # Answered without a context: direct dispatch carries no request id.
+            # Answered without a context: ping has no callback that would need one.
             response = types.EmptyResult()
         else:
             assert dctx.request_id is not None  # the callback-driving dispatchers always assign ids

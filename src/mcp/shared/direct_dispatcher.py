@@ -50,7 +50,7 @@ class _DirectDispatchContext:
     _back_request: _Request
     _back_notify: _Notify
     request_id: RequestId | None = None
-    """Always `None`: direct dispatch has no wire-level request id."""
+    """A dispatcher-synthesized id for requests; `None` for notifications."""
     message_metadata: MessageMetadata = None  # TODO(maxisbey): remove for Context rework
     """Always `None`: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
@@ -91,6 +91,7 @@ class DirectDispatcher:
         self._peer: DirectDispatcher | None = None
         self._on_request: OnRequest | None = None
         self._on_notify: OnNotify | None = None
+        self._next_id = 0
         self._ready = anyio.Event()
         self._closed = anyio.Event()
 
@@ -128,13 +129,16 @@ class DirectDispatcher:
     def close(self) -> None:
         self._closed.set()
 
-    def _make_context(self, on_progress: ProgressFnT | None = None) -> _DirectDispatchContext:
+    def _make_context(
+        self, on_progress: ProgressFnT | None = None, request_id: RequestId | None = None
+    ) -> _DirectDispatchContext:
         assert self._peer is not None
         peer = self._peer
         return _DirectDispatchContext(
             transport=self._transport_ctx,
             _back_request=lambda m, p, o: peer._dispatch_request(m, p, o),
             _back_notify=lambda m, p: peer._dispatch_notify(m, p),
+            request_id=request_id,
             _on_progress=on_progress,
         )
 
@@ -147,7 +151,9 @@ class DirectDispatcher:
         await self._ready.wait()
         assert self._on_request is not None
         opts = opts or {}
-        dctx = self._make_context(on_progress=opts.get("on_progress"))
+        # Synthesize an id: the DispatchContext contract reserves None for notifications.
+        self._next_id += 1
+        dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
         try:
             with anyio.fail_after(opts.get("timeout")):
                 try:

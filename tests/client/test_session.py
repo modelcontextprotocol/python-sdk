@@ -8,6 +8,7 @@ import anyio
 import anyio.abc
 import anyio.streams.memory
 import pytest
+from pydantic import FileUrl
 
 from mcp import types
 from mcp.client import ClientRequestContext
@@ -972,16 +973,52 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
 
     session = ClientSession(dispatcher=client_side)
     results: list[types.EmptyResult] = []
-    async with anyio.create_task_group() as tg:
-        await tg.start(server_side.run, server_on_request, server_on_notify)
-        async with session:
-            results.append(await session.send_ping(meta=None))
-            # Server-to-client: direct dispatch delivers ping with no params member (no _meta injection).
-            assert await server_side.send_raw_request("ping", None) == {}
-            await session.send_notification(types.RootsListChangedNotification())
-        server_side.close()
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(server_side.run, server_on_request, server_on_notify)
+            async with session:
+                results.append(await session.send_ping(meta=None))
+                # Server-to-client: direct dispatch delivers ping with no params member (no _meta injection).
+                assert await server_side.send_raw_request("ping", None) == {}
+                await session.send_notification(types.RootsListChangedNotification())
+            server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
+
+
+@pytest.mark.anyio
+async def test_direct_dispatch_roots_list_reaches_callback_with_synthesized_request_id():
+    """A server-initiated roots/list over dispatcher= reaches the registered callback and round-trips
+    the result; the callback context carries an int request_id (SDK-defined: DirectDispatcher
+    synthesizes ids)."""
+    client_side, server_side = create_direct_dispatcher_pair()
+    contexts: list[ClientRequestContext] = []
+
+    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
+        contexts.append(context)
+        return types.ListRootsResult(roots=[types.Root(uri=FileUrl("file:///workspace"))])
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> dict[str, object]:
+        raise NotImplementedError
+
+    async def server_on_notify(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> None:
+        raise NotImplementedError
+
+    session = ClientSession(dispatcher=client_side, list_roots_callback=list_roots)
+    result: dict[str, Any] | None = None
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(server_side.run, server_on_request, server_on_notify)
+            async with session:
+                result = await server_side.send_raw_request("roots/list", None)
+            server_side.close()
+    assert result == {"roots": [{"uri": "file:///workspace"}]}
+    assert len(contexts) == 1
+    assert isinstance(contexts[0].request_id, int)
 
 
 @pytest.mark.anyio
@@ -1021,9 +1058,10 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
             pass
 
     dispatcher = RecordingDispatcher()
-    async with ClientSession(dispatcher=dispatcher) as session:
-        await session.initialize()
-        await session.send_ping()
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            await session.send_ping()
     opts_by_method = dict(dispatcher.calls)
     assert opts_by_method["initialize"].get("cancel_on_abandon") is False
     assert "cancel_on_abandon" not in opts_by_method["ping"]

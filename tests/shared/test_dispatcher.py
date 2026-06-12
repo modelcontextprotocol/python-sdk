@@ -228,13 +228,15 @@ async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair
 
 @pytest.mark.anyio
 async def test_ctx_request_id_exposes_inbound_id(pair_factory: PairFactory):
-    """JSON-RPC carries the wire id through; direct dispatch has none."""
+    """Every dispatcher assigns each inbound request a distinct int id; JSON-RPC carries
+    the wire id through, DirectDispatcher synthesizes one (SDK-defined)."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
             await client.send_raw_request("tools/call", None)
     a, b = (ctx.request_id for ctx in srec.contexts)
-    assert (a is None and b is None) or (isinstance(a, int) and isinstance(b, int) and a != b)
+    assert isinstance(a, int) and isinstance(b, int)
+    assert a != b
 
 
 @pytest.mark.anyio
