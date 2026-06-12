@@ -37,7 +37,7 @@ To run the below test, you'll need to install the following dependencies:
     so I won't go into details here.
 
     The [`inline-snapshot`](https://15r10nk.github.io/inline-snapshot/latest/) is a library that allows
-    you to take snapshots of the output of your tests. Which makes it easier to create tests for your
+    you to take snapshots of the output of your tests, which makes it easier to create tests for your
     server - you don't need to use it, but we are spreading the word for best practices.
 
 ```python title="test_server.py"
