@@ -104,8 +104,10 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     The provider tells the client `expires_in=-3600` for the first token while keeping the
     server-side `expires_at` in the future, so the connect's retry succeeds and the next
     request finds the token expired and refreshes. The recorded requests prove exactly one
-    `grant_type=refresh_token` exchange carrying the resource indicator, and the bearer used
-    after the refresh is the second access token, which is the one persisted to storage.
+    `grant_type=refresh_token` exchange without the resource indicator (some providers,
+    e.g. Entra ID v2.0, reject RFC 8707 resource values on refresh_token grants), and the
+    bearer used after the refresh is the second access token, which is the one persisted
+    to storage.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
@@ -123,9 +125,8 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     assert [b["grant_type"] for b in bodies] == snapshot(["authorization_code", "refresh_token"])
 
     refresh_body = bodies[1]
-    assert sorted(refresh_body) == snapshot(["client_id", "client_secret", "grant_type", "refresh_token", "resource"])
+    assert sorted(refresh_body) == snapshot(["client_id", "client_secret", "grant_type", "refresh_token"])
     assert refresh_body["refresh_token"].startswith("refresh_")
-    assert refresh_body["resource"].startswith(BASE_URL)
 
     bearers = {r.headers["authorization"] for r in recorded if r.path == "/mcp" and "authorization" in r.headers}
     assert len(bearers) == 2

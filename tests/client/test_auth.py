@@ -745,7 +745,7 @@ class TestProtectedResourceMetadata:
 
     @pytest.mark.anyio
     async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
-        """Test resource parameter is included for protocol version >= 2025-06-18."""
+        """Test resource parameter is included in initial token requests for protocol version >= 2025-06-18."""
         # Set protocol version to 2025-06-18
         oauth_provider.context.protocol_version = "2025-06-18"
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -762,7 +762,8 @@ class TestProtectedResourceMetadata:
         expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
         assert f"resource={expected_resource}" in content
 
-        # Test in refresh token
+        # Refresh requests never include the resource parameter: some providers
+        # (e.g. Entra ID v2.0) reject RFC 8707 resource values on refresh_token grants.
         oauth_provider.context.current_tokens = OAuthToken(
             access_token="test_access",
             token_type="Bearer",
@@ -770,7 +771,7 @@ class TestProtectedResourceMetadata:
         )
         refresh_request = await oauth_provider._refresh_token()
         refresh_content = refresh_request.content.decode()
-        assert "resource=" in refresh_content
+        assert "resource=" not in refresh_content
 
     @pytest.mark.anyio
     async def test_resource_param_excluded_with_old_protocol_version(self, oauth_provider: OAuthClientProvider):
@@ -800,7 +801,7 @@ class TestProtectedResourceMetadata:
 
     @pytest.mark.anyio
     async def test_resource_param_included_with_protected_resource_metadata(self, oauth_provider: OAuthClientProvider):
-        """Test resource parameter is always included when protected resource metadata exists."""
+        """Test resource parameter is included in initial token requests when protected resource metadata exists."""
         # Set old protocol version but with protected resource metadata
         oauth_provider.context.protocol_version = "2025-03-26"
         oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
@@ -817,6 +818,16 @@ class TestProtectedResourceMetadata:
         request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
+
+        # Even with PRM present, refresh requests omit the resource parameter
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" not in refresh_content
 
 
 @pytest.mark.parametrize(
@@ -965,6 +976,47 @@ async def test_get_resource_url_uses_canonical_when_prm_mismatches(
 
     # get_resource_url should return the canonical server URL, not the PRM resource
     assert provider.context.get_resource_url() == snapshot("https://api.example.com/v1/mcp")
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_removes_root_prm_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Bare-domain PRM resources should not pick up the trailing slash AnyHttpUrl adds."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    # AnyHttpUrl normalizes "https://api.example.com" to "https://api.example.com/"
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    assert provider.context.get_resource_url() == snapshot("https://api.example.com")
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_preserves_non_root_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """RFC 9728 requires exact-string identity, so intentional trailing slashes on deeper paths stay."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp/",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp/"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    assert provider.context.get_resource_url() == snapshot("https://api.example.com/v1/mcp/")
 
 
 class TestRegistrationResponse:
