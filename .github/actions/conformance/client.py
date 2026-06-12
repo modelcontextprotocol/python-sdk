@@ -5,7 +5,7 @@ It handles all conformance test scenarios via environment variables and CLI argu
 
 Contract:
     - MCP_CONFORMANCE_SCENARIO env var -> scenario name
-    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
+    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for auth scenarios)
     - Server URL as last CLI argument (sys.argv[1])
     - Must exit 0 within 30 seconds
 
@@ -16,7 +16,16 @@ Scenarios:
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
+    auth/cross-app-access-complete-flow     - Enterprise managed OAuth (SEP-990) - v0.1.14+
     auth/*                                  - Authorization code flow (default for auth scenarios)
+
+Enterprise Auth (SEP-990):
+    The conformance package v0.1.14+ (https://github.com/modelcontextprotocol/conformance/pull/110)
+    provides the scenario 'auth/cross-app-access-complete-flow' which tests the complete
+    enterprise managed OAuth flow: IDP ID token → ID-JAG → access token.
+
+    The client receives test context (idp_id_token, idp_token_endpoint, etc.) via
+    MCP_CONFORMANCE_CONTEXT environment variable and performs the token exchange flows automatically.
 """
 
 import asyncio
@@ -314,9 +323,100 @@ async def run_auth_code_client(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
+@register("auth/cross-app-access-complete-flow")
+async def run_cross_app_access_complete_flow(server_url: str) -> None:
+    """Enterprise managed auth: Complete SEP-990 flow (OIDC ID token → ID-JAG → access token).
+
+    This scenario is provided by @modelcontextprotocol/conformance@0.1.14+ (PR #110).
+    It tests the complete enterprise managed OAuth flow using token exchange (RFC 8693)
+    and JWT bearer grant (RFC 7523).
+    """
+    from mcp.client.auth.extensions.enterprise_managed_auth import (
+        EnterpriseAuthOAuthClientProvider,
+        TokenExchangeParameters,
+    )
+
+    context = get_conformance_context()
+    # The conformance package provides these fields
+    idp_id_token = context.get("idp_id_token")
+    idp_token_endpoint = context.get("idp_token_endpoint")
+    idp_issuer = context.get("idp_issuer")
+
+    # For cross-app access, we need to determine the MCP server's resource ID and auth issuer
+    # The conformance package sets up the auth server, and the MCP server URL is passed to us
+
+    if not idp_id_token:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_id_token'")
+    if not idp_token_endpoint:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_token_endpoint'")
+    if not idp_issuer:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_issuer'")
+
+    # Extract base URL by stripping trailing /mcp path (Python 3.9+).
+    # The conformance harness always serves MCP at <base>/mcp, so stripping
+    # the suffix gives us the auth-server base URL for fallback defaults.
+    base_url = server_url.removesuffix("/mcp")
+    auth_issuer = context.get("auth_issuer", base_url)
+    resource_id = context.get("resource_id", server_url)
+
+    logger.debug("Cross-app access flow:")
+    logger.debug(f"  IDP Issuer: {idp_issuer}")
+    logger.debug(f"  IDP Token Endpoint: {idp_token_endpoint}")
+    logger.debug(f"  Auth Issuer: {auth_issuer}")
+    logger.debug(f"  Resource ID: {resource_id}")
+
+    # Create token exchange parameters from IDP ID token
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=idp_id_token,
+        mcp_server_auth_issuer=auth_issuer,
+        mcp_server_resource_id=resource_id,
+        scope=context.get("scope"),
+    )
+
+    # Get pre-configured client credentials from context (if provided)
+    client_id = context.get("client_id")
+    client_secret = context.get("client_secret")
+
+    storage = InMemoryTokenStorage()
+
+    # Create enterprise auth provider
+    enterprise_auth = EnterpriseAuthOAuthClientProvider(
+        server_url=server_url,
+        client_metadata=OAuthClientMetadata(
+            client_name="conformance-cross-app-client",
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            response_types=["token"],
+        ),
+        storage=storage,
+        idp_token_endpoint=idp_token_endpoint,
+        token_exchange_params=token_exchange_params,
+    )
+
+    # If client credentials are provided in context, use them instead of dynamic registration
+    if client_id and client_secret:
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        logger.debug(f"Using pre-configured client credentials: {client_id}")
+        client_info = OAuthClientInformationFull(
+            client_id=client_id,
+            client_secret=client_secret,
+            token_endpoint_auth_method="client_secret_basic",
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            response_types=["token"],
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+        )
+        enterprise_auth.context.client_info = client_info
+        await storage.set_client_info(client_info)
+
+    await _run_auth_session(server_url, enterprise_auth)
+
+
 async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
-    client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
+    # Allow timeout to be configured via environment variable for different test scenarios
+    timeout = float(os.environ.get("MCP_CONFORMANCE_TIMEOUT", "30.0"))
+    client = httpx.AsyncClient(auth=oauth_auth, timeout=timeout)
     async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
