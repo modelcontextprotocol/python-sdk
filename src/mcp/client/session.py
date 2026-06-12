@@ -126,6 +126,7 @@ class ClientSession(
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
+        validate_structured_output: bool = True,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -137,6 +138,7 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
+        self._validate_structured_output = validate_structured_output
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
@@ -310,6 +312,10 @@ class ClientSession(
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""
+        if not self._validate_structured_output:
+            logger.debug(f"Skipping structured output validation for tool {name}")
+            return
+
         if name not in self._tool_output_schemas:
             # refresh output schema cache
             await self.list_tools()
