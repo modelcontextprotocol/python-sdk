@@ -91,6 +91,23 @@ async def test_url_elicitation_error_from_error():
 
 
 @pytest.mark.anyio
+async def test_mcp_error_propagates_as_json_rpc_error():
+    """Test that MCPError raised from a tool propagates as a JSON-RPC error, not isError result."""
+    mcp = MCPServer(name="McpErrorServer")
+
+    @mcp.tool(description="A tool that raises a plain MCPError")
+    async def failing_tool(ctx: Context) -> str:
+        raise MCPError(-32000, "custom MCP error")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("failing_tool", {})
+
+        assert exc_info.value.error.code == -32000
+        assert exc_info.value.error.message == "custom MCP error"
+
+
+@pytest.mark.anyio
 async def test_normal_exceptions_still_return_error_result():
     """Test that normal exceptions still return CallToolResult with is_error=True."""
     mcp = MCPServer(name="NormalErrorServer")

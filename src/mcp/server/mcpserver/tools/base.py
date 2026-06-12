@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
@@ -111,9 +111,7 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
-        except UrlElicitationRequiredError:
-            # Re-raise UrlElicitationRequiredError so it can be properly handled
-            # as an MCP error response with code -32042
+        except MCPError:
             raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
