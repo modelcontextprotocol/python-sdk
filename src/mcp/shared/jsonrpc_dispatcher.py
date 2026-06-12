@@ -252,6 +252,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
+        self._closed = False
 
     async def send_raw_request(
         self,
@@ -270,10 +271,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             MCPError: Peer error response; `REQUEST_TIMEOUT` if
                 `opts["timeout"]` elapsed; `CONNECTION_CLOSED` if the
                 transport closed or the dispatcher shut down.
-            RuntimeError: Called outside `run()`.
+            RuntimeError: Called before `run()`.
         """
+        # Post-close sends get the same CONNECTION_CLOSED contract as in-flight waiters.
+        if self._closed:
+            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
         if not self._running:
-            raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run() / after close")
+            raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run()")
         opts = opts or {}
         request_id = self._allocate_id()
         out_params = dict(params) if params is not None else {}
@@ -399,6 +403,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                             logger.debug("read stream closed by transport; treating as EOF")
                     # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
                     self._running = False
+                    self._closed = True
                     self._fan_out_closed()
                 finally:
                     # Cancel in-flight handlers; otherwise the task-group join
@@ -407,6 +412,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         finally:
             # Covers cancel/crash paths that skip the inline fan-out; idempotent.
             self._running = False
+            self._closed = True
             self._tg = None
             self._fan_out_closed()
 

@@ -1222,6 +1222,26 @@ async def test_send_raw_request_before_run_raises_runtimeerror():
 
 
 @pytest.mark.anyio
+async def test_send_raw_request_after_connection_close_raises_connection_closed():
+    """Sending after run() saw EOF raises MCPError(CONNECTION_CLOSED) — the same contract
+    in-flight waiters get — not RuntimeError (SDK-defined)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    try:
+        s2c_send.close()  # peer drops: run() sees immediate EOF and returns
+        with anyio.fail_after(5):
+            await client.run(on_request, on_notify)
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("ping", None)
+        assert exc.value.error.code == CONNECTION_CLOSED
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
 async def test_transport_exception_in_read_stream_is_logged_and_dropped():
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
