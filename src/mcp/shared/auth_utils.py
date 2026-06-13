@@ -151,8 +151,8 @@ def calculate_token_refresh_time(
     # zero TTLs this collapses gracefully toward `now` rather than going negative or
     # past the hard-expiry boundary.
     if refresh_at < now:
-        refresh_at = now  # pragma: no cover
+        refresh_at = now
     if refresh_at > hard_expiry:
-        refresh_at = hard_expiry  # pragma: no cover
+        refresh_at = hard_expiry
 
     return refresh_at
