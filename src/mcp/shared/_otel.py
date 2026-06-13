@@ -12,6 +12,7 @@ from opentelemetry.trace import SpanKind, get_tracer
 
 _tracer = get_tracer("mcp-python-sdk")
 
+
 def build_span_attributes(
     method: str,
     request_id: Any,
