@@ -531,6 +531,29 @@ await ctx.log(level="info", data="hello")
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
 
+### Invalid JSON-RPC envelopes return `-32600` with a correlated request id
+
+**What changed:** A message that is valid JSON but not a valid JSON-RPC
+request object (wrong `jsonrpc` version, missing `jsonrpc`, non-string
+`method`, etc.) is now answered with an **Invalid Request (`-32600`)** error
+that echoes the original request `id` when it can be detected.
+
+In v1 this case was handled inconsistently: streamable HTTP replied with
+`-32602` (Invalid params) and `id: null`, while stdio sent no response at
+all (the validation error was dropped). Neither path let a client correlate
+the failure back to the request that caused it.
+
+**Why it changed:** Per JSON-RPC 2.0, an unparseable-as-a-request envelope is
+an Invalid Request, and the error response should carry the original `id` so
+clients can match it to the offending request.
+
+**How to migrate:** If you string-matched on the `-32602` code (or relied on
+`id: null`) to detect malformed requests over streamable HTTP, switch to
+`-32600` and read the echoed `id`. Lines over stdio that previously produced
+no response now produce a `-32600` error when an `id` is present; a line with
+no detectable `id` (parse error, malformed notification, or an `id` of an
+invalid type) still produces no response.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:

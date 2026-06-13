@@ -32,7 +32,6 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
-    INVALID_PARAMS,
     INVALID_REQUEST,
     PARSE_ERROR,
     ErrorData,
@@ -43,6 +42,7 @@ from mcp.types import (
     RequestId,
     jsonrpc_message_adapter,
 )
+from mcp.types.jsonrpc import extract_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +288,7 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus,
         error_code: int = INVALID_REQUEST,
         headers: dict[str, str] | None = None,
+        request_id: RequestId | None = None,
     ) -> Response:
         """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
@@ -300,7 +301,7 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=None,
+            id=request_id,
             error=ErrorData(code=error_code, message=error_message),
         )
 
@@ -468,10 +469,13 @@ class StreamableHTTPServerTransport:
             try:
                 message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:
+                # Per JSON-RPC 2.0, an invalid envelope is an Invalid Request
+                # error, echoing the original request id when it is detectable.
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
-                    INVALID_PARAMS,
+                    INVALID_REQUEST,
+                    request_id=extract_request_id(raw_message),
                 )
                 await response(scope, receive, send)
                 return

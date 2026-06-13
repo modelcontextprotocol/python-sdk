@@ -11,7 +11,15 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
+from mcp.types import (
+    INVALID_REQUEST,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    jsonrpc_message_adapter,
+)
 
 
 @pytest.mark.anyio
@@ -64,6 +72,60 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
     received_responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in output_lines]
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_server_replies_invalid_request_for_invalid_envelope() -> None:
+    """An id-bearing line that fails envelope validation gets a correlated -32600 response.
+
+    Lines that are valid JSON but invalid JSON-RPC envelopes get an Invalid Request
+    error response echoing the original request id. Lines without a detectable id
+    (parse errors, malformed notifications, ids of an invalid type) get no response;
+    every invalid line still surfaces as an in-stream exception and later valid
+    messages keep flowing. Regression test for issue #2848.
+    """
+    stdin = io.StringIO()
+    stdout = io.StringIO()
+
+    invalid_lines = [
+        '{"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}',  # wrong jsonrpc version
+        '{"id": 4, "method": "ping", "params": {}}',  # missing jsonrpc field
+        '{"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}',  # method is not a string
+        '{"jsonrpc": "2.0", "id": "abc", "method": 12345}',  # string id is echoed as-is
+        "this is not json",  # parse error: no response
+        '{"jsonrpc": "1.0", "method": "ping"}',  # no id (malformed notification): no response
+        '{"jsonrpc": "2.0", "id": true, "method": 12345}',  # bool is not a valid id type: no response
+        '{"jsonrpc": "2.0", "id": 1.5, "method": 12345}',  # fractional id is not a valid id type: no response
+    ]
+    valid = JSONRPCRequest(jsonrpc="2.0", id=99, method="ping")
+    for line in invalid_lines:
+        stdin.write(line + "\n")
+    stdin.write(valid.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdin.seek(0)
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                for _ in invalid_lines:
+                    received = await read_stream.receive()
+                    assert isinstance(received, Exception)
+                final = await read_stream.receive()
+                assert isinstance(final, SessionMessage)
+                assert final.message == valid
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in stdout.readlines()]
+    invalid_request = ErrorData(code=INVALID_REQUEST, message="Invalid Request")
+    assert responses == [
+        JSONRPCError(jsonrpc="2.0", id=3, error=invalid_request),
+        JSONRPCError(jsonrpc="2.0", id=4, error=invalid_request),
+        JSONRPCError(jsonrpc="2.0", id=8, error=invalid_request),
+        JSONRPCError(jsonrpc="2.0", id="abc", error=invalid_request),
+    ]
 
 
 @pytest.mark.anyio

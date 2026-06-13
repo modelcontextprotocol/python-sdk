@@ -23,10 +23,35 @@ from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
+import pydantic_core
 
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+from mcp.types.jsonrpc import extract_request_id
+
+
+def _invalid_request_error(line: str) -> types.JSONRPCError | None:
+    """Build an Invalid Request error for an id-bearing line that failed envelope validation.
+
+    Per JSON-RPC 2.0, a request that is valid JSON but not a valid request
+    object gets a -32600 error response echoing the original request id, so
+    the client can correlate the failure. Returns None when the line is not
+    valid JSON (parse error, no response expected by existing consumers) or
+    when no id can be detected (a malformed notification gets no response).
+    """
+    try:
+        raw = pydantic_core.from_json(line)
+    except ValueError:
+        return None
+    request_id = extract_request_id(raw)
+    if request_id is None:
+        return None
+    return types.JSONRPCError(
+        jsonrpc="2.0",
+        id=request_id,
+        error=types.ErrorData(code=types.INVALID_REQUEST, message="Invalid Request"),
+    )
 
 
 @asynccontextmanager
@@ -53,6 +78,8 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                     try:
                         message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                     except Exception as exc:
+                        if (error := _invalid_request_error(line)) is not None:
+                            await write_stream.send(SessionMessage(error))
                         await read_stream_writer.send(exc)
                         continue
 

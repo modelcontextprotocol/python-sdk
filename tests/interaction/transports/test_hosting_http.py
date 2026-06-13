@@ -15,7 +15,7 @@ from inline_snapshot import snapshot
 from mcp.server import Server, ServerRequestContext
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
-    INVALID_PARAMS,
+    INVALID_REQUEST,
     PARSE_ERROR,
     CallToolRequestParams,
     CallToolResult,
@@ -129,7 +129,7 @@ async def test_non_json_content_type_is_rejected() -> None:
 @requirement("hosting:http:parse-error-400")
 @requirement("hosting:http:batch")
 async def test_malformed_and_batched_bodies_return_400() -> None:
-    """A non-JSON body returns 400 Parse error; a JSON array of requests returns 400 Invalid params."""
+    """A non-JSON body returns 400 Parse error; a JSON array of requests returns 400 Invalid Request."""
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
         not_json = await http.post(
@@ -149,7 +149,7 @@ async def test_malformed_and_batched_bodies_return_400() -> None:
     assert not_json.status_code == 400
     assert JSONRPCError.model_validate_json(not_json.text).error.code == PARSE_ERROR
     assert batched.status_code == 400
-    assert JSONRPCError.model_validate_json(batched.text).error.code == INVALID_PARAMS
+    assert JSONRPCError.model_validate_json(batched.text).error.code == INVALID_REQUEST
 
 
 @requirement("hosting:http:protocol-version-400")

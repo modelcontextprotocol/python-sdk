@@ -46,6 +46,7 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -497,6 +498,44 @@ async def test_json_parsing(basic_app: Starlette) -> None:
         )
         assert response.status_code == 400
         assert "Validation error" in response.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "expected_id"),
+    [
+        pytest.param({"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}, 3, id="wrong-jsonrpc-version"),
+        pytest.param({"id": 4, "method": "ping", "params": {}}, 4, id="missing-jsonrpc-field"),
+        pytest.param({"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}, 8, id="method-not-a-string"),
+        pytest.param({"jsonrpc": "2.0", "id": "abc", "method": 12345}, "abc", id="string-id"),
+        pytest.param({"foo": "bar"}, None, id="no-id-detectable"),
+        pytest.param({"jsonrpc": "2.0", "id": True, "method": 12345}, None, id="bool-is-not-a-valid-id"),
+        pytest.param({"jsonrpc": "2.0", "id": 1.5, "method": 12345}, None, id="fractional-id-is-not-valid"),
+    ],
+)
+async def test_invalid_envelope_error_echoes_request_id(
+    basic_app: Starlette, body: dict[str, Any], expected_id: int | str | None
+) -> None:
+    """An invalid JSON-RPC envelope gets a -32600 error echoing the original request id.
+
+    Valid JSON that fails envelope validation is an Invalid Request per JSON-RPC 2.0;
+    the error response must carry the original request id when it is detectable (and
+    null otherwise) so the client can correlate the failure. Regression test for
+    issue #2848.
+    """
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        assert response.status_code == 400
+        error_response = response.json()
+        assert error_response["id"] == expected_id
+        assert error_response["error"]["code"] == INVALID_REQUEST
 
 
 @pytest.mark.anyio

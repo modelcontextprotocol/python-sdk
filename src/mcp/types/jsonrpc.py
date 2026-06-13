@@ -82,3 +82,17 @@ class JSONRPCError(BaseModel):
 
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
 jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage)
+
+
+def extract_request_id(raw: Any) -> RequestId | None:
+    """Best-effort extraction of the request id from an invalid JSON-RPC envelope.
+
+    Per JSON-RPC 2.0, an Invalid Request error response must echo the original
+    request id when it can be detected, and null otherwise. The bool guard
+    matters: `bool` is an `int` subclass but not a valid id type.
+    """
+    match raw:
+        case {"id": str() | int() as request_id} if not isinstance(request_id, bool):
+            return request_id
+        case _:
+            return None
