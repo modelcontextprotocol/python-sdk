@@ -12,19 +12,6 @@ from opentelemetry.trace import SpanKind, get_tracer
 
 _tracer = get_tracer("mcp-python-sdk")
 
-# Maps MCP JSON-RPC method names to GenAI semantic convention operation names.
-# https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md
-_METHOD_TO_GEN_AI_OPERATION: dict[str, str] = {
-    "tools/call": "execute_tool",
-    "tools/list": "list_tools",
-    "resources/read": "read_resource",
-    "resources/list": "list_resources",
-    "resources/templates/list": "list_resources",
-    "prompts/get": "get_prompt",
-    "prompts/list": "list_prompts",
-}
-
-
 def build_span_attributes(
     method: str,
     request_id: Any,
@@ -35,6 +22,10 @@ def build_span_attributes(
 
     Produces the base set of semantic convention attributes shared by both
     client (`SpanKind.CLIENT`) and server (`SpanKind.SERVER`) spans.
+
+    Per the GenAI MCP semconv spec, `gen_ai.operation.name` SHOULD be set to
+    `execute_tool` for `tools/call` and SHOULD NOT be set for other methods.
+    https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/mcp.md
     """
     attrs: dict[str, Any] = {
         "rpc.system": "mcp",
@@ -42,17 +33,21 @@ def build_span_attributes(
         "jsonrpc.request.id": str(request_id),
     }
 
-    operation = _METHOD_TO_GEN_AI_OPERATION.get(method)
-    if operation is not None:
-        attrs["gen_ai.operation.name"] = operation
-
     if params is not None:
-        # gen_ai.tool.name — present on tools/call, prompts/get
-        name = params.get("name")
-        if isinstance(name, str):
-            attrs["gen_ai.tool.name"] = name
+        if method == "tools/call":
+            # gen_ai.operation.name SHOULD be set to execute_tool for tools/call only.
+            attrs["gen_ai.operation.name"] = "execute_tool"
+            name = params.get("name")
+            if isinstance(name, str):
+                attrs["gen_ai.tool.name"] = name
 
-        # mcp.resource.uri — present on resources/read; also on completion/complete via ref.uri
+        elif method == "prompts/get":
+            name = params.get("name")
+            if isinstance(name, str):
+                attrs["gen_ai.prompt.name"] = name
+
+        # mcp.resource.uri — resources/read, resources/subscribe, resources/unsubscribe,
+        # notifications/resources/updated, and completion/complete via ref.uri
         uri: Any = params.get("uri")
         if uri is None:
             ref = params.get("ref")

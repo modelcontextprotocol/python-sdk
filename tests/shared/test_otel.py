@@ -19,6 +19,21 @@ def test_build_span_attributes_ref_uri() -> None:
         params={"ref": {"uri": "test://doc"}},
     )
     assert attrs["mcp.resource.uri"] == "test://doc"
+    assert "gen_ai.operation.name" not in attrs
+
+
+def test_build_span_attributes_tools_call_no_name() -> None:
+    """tools/call without a name param omits gen_ai.tool.name."""
+    attrs = build_span_attributes("tools/call", "1", params={})
+    assert attrs["gen_ai.operation.name"] == "execute_tool"
+    assert "gen_ai.tool.name" not in attrs
+
+
+def test_build_span_attributes_prompts_get_no_name() -> None:
+    """prompts/get without a name param omits gen_ai.prompt.name."""
+    attrs = build_span_attributes("prompts/get", "1", params={})
+    assert "gen_ai.prompt.name" not in attrs
+    assert "gen_ai.operation.name" not in attrs
 
 
 async def test_client_and_server_spans(capfire: CaptureLogfire):
@@ -52,7 +67,7 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
     assert server_span["attributes"]["rpc.system"] == "mcp"
     assert server_span["attributes"]["mcp.method.name"] == "tools/call"
 
-    # GenAI semconv attributes
+    # GenAI semconv attributes — execute_tool only on tools/call
     assert client_span["attributes"]["gen_ai.operation.name"] == "execute_tool"
     assert client_span["attributes"]["gen_ai.tool.name"] == "greet"
     assert server_span["attributes"]["gen_ai.operation.name"] == "execute_tool"
@@ -63,7 +78,7 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
 
 
 async def test_list_tools_spans(capfire: CaptureLogfire):
-    """Verify that listing tools produces spans with list_tools operation."""
+    """Verify that listing tools produces spans without gen_ai.operation.name."""
     server = MCPServer("test")
 
     async with Client(server) as client:
@@ -74,9 +89,9 @@ async def test_list_tools_spans(capfire: CaptureLogfire):
     client_span = next(s for s in spans if s["name"] == "MCP send tools/list")
     server_span = next(s for s in spans if s["name"] == "MCP handle tools/list")
 
-    assert client_span["attributes"]["gen_ai.operation.name"] == "list_tools"
-    assert server_span["attributes"]["gen_ai.operation.name"] == "list_tools"
-    # No tool name on list — no specific tool targeted
+    # gen_ai.operation.name SHOULD NOT be set for non-tool-call methods per spec
+    assert "gen_ai.operation.name" not in client_span["attributes"]
+    assert "gen_ai.operation.name" not in server_span["attributes"]
     assert "gen_ai.tool.name" not in client_span["attributes"]
     assert "gen_ai.tool.name" not in server_span["attributes"]
 
@@ -99,9 +114,36 @@ async def test_resource_read_spans(capfire: CaptureLogfire):
     client_span = next(s for s in spans if s["name"] == "MCP send resources/read")
     server_span = next(s for s in spans if s["name"] == "MCP handle resources/read")
 
-    assert client_span["attributes"]["gen_ai.operation.name"] == "read_resource"
     assert client_span["attributes"]["mcp.resource.uri"] == "test://greeting"
-    assert server_span["attributes"]["gen_ai.operation.name"] == "read_resource"
     assert server_span["attributes"]["mcp.resource.uri"] == "test://greeting"
+    # gen_ai.operation.name SHOULD NOT be set for resources/read per spec
+    assert "gen_ai.operation.name" not in client_span["attributes"]
+    assert "gen_ai.operation.name" not in server_span["attributes"]
+
+    assert server_span["context"]["trace_id"] == client_span["context"]["trace_id"]
+
+
+async def test_prompt_get_spans(capfire: CaptureLogfire):
+    """Verify that getting a prompt produces spans with gen_ai.prompt.name."""
+    server = MCPServer("test")
+
+    @server.prompt()
+    def summarize() -> str:
+        """Summarize text."""
+        return "Summarize the following: "
+
+    async with Client(server) as client:
+        await client.get_prompt("summarize", {})
+
+    spans = capfire.exporter.exported_spans_as_dict()
+
+    client_span = next(s for s in spans if s["name"] == "MCP send prompts/get summarize")
+    server_span = next(s for s in spans if s["name"] == "MCP handle prompts/get summarize")
+
+    assert client_span["attributes"]["gen_ai.prompt.name"] == "summarize"
+    assert server_span["attributes"]["gen_ai.prompt.name"] == "summarize"
+    # gen_ai.operation.name SHOULD NOT be set for prompts/get per spec
+    assert "gen_ai.operation.name" not in client_span["attributes"]
+    assert "gen_ai.operation.name" not in server_span["attributes"]
 
     assert server_span["context"]["trace_id"] == client_span["context"]["trace_id"]
