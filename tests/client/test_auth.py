@@ -10,7 +10,7 @@ import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth import OAuthClientProvider, PKCEParameters, build_authorization_redirect
 from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
@@ -70,6 +70,117 @@ def client_metadata():
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         scope="read write",
     )
+
+
+def test_build_authorization_redirect_returns_resumable_oauth_state(client_metadata: OAuthClientMetadata):
+    """The authorization step can be built without browser/callback handlers."""
+    redirect = build_authorization_redirect(
+        authorization_endpoint="https://auth.example.com/authorize",
+        client_info=OAuthClientInformationFull(
+            client_id="test_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        client_metadata=client_metadata,
+        pkce_params=PKCEParameters(code_verifier="v" * 64, code_challenge="c" * 64),
+        state="stored-state",
+        resource_url="https://api.example.com/v1/mcp",
+    )
+
+    assert redirect.state == "stored-state"
+    assert redirect.code_verifier == "v" * 64
+
+    parsed = urlparse(redirect.authorization_url)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "auth.example.com"
+    assert parsed.path == "/authorize"
+
+    params = parse_qs(parsed.query)
+    assert params == {
+        "response_type": ["code"],
+        "client_id": ["test_client"],
+        "redirect_uri": ["http://localhost:3030/callback"],
+        "state": ["stored-state"],
+        "code_challenge": ["c" * 64],
+        "code_challenge_method": ["S256"],
+        "resource": ["https://api.example.com/v1/mcp"],
+        "scope": ["read write"],
+    }
+
+
+def test_build_authorization_redirect_requires_redirect_uri():
+    with pytest.raises(OAuthFlowError, match="No redirect URIs provided"):
+        build_authorization_redirect(
+            authorization_endpoint="https://auth.example.com/authorize",
+            client_info=OAuthClientInformationFull(
+                client_id="test_client",
+                redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            ),
+            client_metadata=OAuthClientMetadata(redirect_uris=None),
+        )
+
+
+def test_build_authorization_redirect_requires_client_id():
+    with pytest.raises(OAuthFlowError, match="No client ID provided"):
+        build_authorization_redirect(
+            authorization_endpoint="https://auth.example.com/authorize",
+            client_info=OAuthClientInformationFull(
+                client_id=None,
+                redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            ),
+            client_metadata=OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")]),
+        )
+
+
+def test_build_authorization_redirect_prompts_for_offline_access():
+    redirect = build_authorization_redirect(
+        authorization_endpoint="https://auth.example.com/authorize",
+        client_info=OAuthClientInformationFull(
+            client_id="test_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            scope="read offline_access",
+        ),
+        pkce_params=PKCEParameters(code_verifier="v" * 64, code_challenge="c" * 64),
+        state="stored-state",
+    )
+
+    assert parse_qs(urlparse(redirect.authorization_url).query)["prompt"] == ["consent"]
+
+
+def test_build_authorization_redirect_preserves_existing_authorization_endpoint_query():
+    redirect = build_authorization_redirect(
+        authorization_endpoint="https://auth.example.com/authorize?audience=api",
+        client_info=OAuthClientInformationFull(
+            client_id="test_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        client_metadata=OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")]),
+        pkce_params=PKCEParameters(code_verifier="v" * 64, code_challenge="c" * 64),
+        state="stored-state",
+    )
+
+    parsed = urlparse(redirect.authorization_url)
+    assert parsed.path == "/authorize"
+    assert parse_qs(parsed.query)["audience"] == ["api"]
+    assert parse_qs(parsed.query)["response_type"] == ["code"]
+
+
+def test_authorization_redirect_repr_hides_code_verifier():
+    redirect = build_authorization_redirect(
+        authorization_endpoint="https://auth.example.com/authorize",
+        client_info=OAuthClientInformationFull(
+            client_id="test_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        client_metadata=OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")]),
+        pkce_params=PKCEParameters(code_verifier="v" * 64, code_challenge="c" * 64),
+        state="stored-state",
+    )
+
+    assert "code_verifier" not in repr(redirect)
+    assert "v" * 64 not in repr(redirect)
 
 
 @pytest.fixture
