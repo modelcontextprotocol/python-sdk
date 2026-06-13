@@ -251,6 +251,7 @@ class TestOAuthContext:
         context = oauth_provider.context
         context.current_tokens = valid_tokens
         context.token_expiry_time = time.time() + 1800
+        context.token_refresh_time = time.time() + 1440
 
         # Clear tokens
         context.clear_tokens()
@@ -258,6 +259,42 @@ class TestOAuthContext:
         # Verify cleared
         assert context.current_tokens is None
         assert context.token_expiry_time is None
+        assert context.token_refresh_time is None
+
+    @pytest.mark.anyio
+    async def test_should_refresh_token(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """Test should_refresh_token() proactive-refresh logic."""
+        context = oauth_provider.context
+
+        # No tokens at all -> never proactively refresh.
+        assert not context.should_refresh_token()
+
+        context.current_tokens = valid_tokens
+        context.client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        # Token still hard-valid AND before the jittered refresh point -> no refresh.
+        context.token_expiry_time = time.time() + 1800
+        context.token_refresh_time = time.time() + 600
+        assert context.is_token_valid()
+        assert not context.should_refresh_token()
+
+        # Token still hard-valid but we have passed the proactive refresh point -> refresh.
+        context.token_refresh_time = time.time() - 1
+        assert context.is_token_valid()
+        assert context.should_refresh_token()
+
+        # No refresh time known (e.g. server gave no expiry) -> fall back to reactive only.
+        context.token_refresh_time = None
+        assert not context.should_refresh_token()
+
+        # Past the refresh point but no refresh token -> cannot proactively refresh.
+        context.token_refresh_time = time.time() - 1
+        context.current_tokens.refresh_token = None
+        assert not context.should_refresh_token()
 
 
 class TestOAuthFlow:
@@ -505,6 +542,102 @@ class TestOAuthFallback:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass  # Expected - generator should complete
+
+    @pytest.mark.anyio
+    async def test_async_auth_flow_proactively_refreshes_when_past_jitter_window(
+        self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+    ):
+        """async_auth_flow refreshes proactively past the jittered window.
+
+        The token is still hard-valid (is_token_valid() is True), but we are past the
+        proactive refresh point, so the flow should yield a refresh request *before*
+        sending the original request -- spreading fleet refreshes out instead of
+        waiting for hard expiry.
+        """
+        context = oauth_provider.context
+        context.current_tokens = valid_tokens
+        context.client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider._initialized = True
+
+        # Token is still valid for a while, but we are past the proactive refresh point.
+        context.token_expiry_time = time.time() + 1800
+        context.token_refresh_time = time.time() - 1
+        assert context.is_token_valid()
+        assert context.should_refresh_token()
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First yielded request must be a proactive refresh, not the original request.
+        refresh_request = await auth_flow.__anext__()
+        assert refresh_request.method == "POST"
+        assert str(refresh_request.url) == "https://api.example.com/token"
+        refresh_content = refresh_request.content.decode()
+        assert "grant_type=refresh_token" in refresh_content
+        assert "refresh_token=test_refresh_token" in refresh_content
+
+        # Provide a successful refresh response with fresh tokens.
+        refresh_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
+                b'"refresh_token": "new_refresh_token"}'
+            ),
+            request=refresh_request,
+        )
+
+        # After a successful refresh, the original request is sent with the new token.
+        actual_request = await auth_flow.asend(refresh_response)
+        assert actual_request.headers["Authorization"] == "Bearer new_access_token"
+        assert str(actual_request.url) == "https://api.example.com/v1/mcp"
+
+        # New proactive-refresh point should have been scheduled in the future.
+        assert context.token_refresh_time is not None
+        assert context.token_refresh_time > time.time()
+
+        # Close out the generator with a final success response.
+        final_response = httpx.Response(200, request=actual_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator completes
+
+    @pytest.mark.anyio
+    async def test_async_auth_flow_skips_refresh_before_jitter_window(
+        self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+    ):
+        """A fresh token (before the proactive window) is used directly, no refresh."""
+        context = oauth_provider.context
+        context.current_tokens = valid_tokens
+        context.client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider._initialized = True
+
+        # Token valid and well before the proactive refresh point.
+        context.token_expiry_time = time.time() + 1800
+        context.token_refresh_time = time.time() + 600
+        assert not context.should_refresh_token()
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First (and only auth-related) yielded request is the original request itself.
+        actual_request = await auth_flow.__anext__()
+        assert actual_request.headers["Authorization"] == "Bearer test_access_token"
+        assert str(actual_request.url) == "https://api.example.com/v1/mcp"
+
+        final_response = httpx.Response(200, request=actual_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator completes
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider: OAuthClientProvider):
