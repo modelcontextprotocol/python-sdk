@@ -12,7 +12,7 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -52,6 +52,16 @@ from mcp.shared.auth_utils import (
 from mcp.shared.version import is_version_at_least
 
 logger = logging.getLogger(__name__)
+
+
+def build_authorization_url(auth_endpoint: str, auth_params: dict[str, str]) -> str:
+    """Append OAuth authorization parameters to an endpoint that may already include query params."""
+    parsed_endpoint = urlparse(auth_endpoint)
+    query_params = [
+        *parse_qsl(parsed_endpoint.query, keep_blank_values=True),
+        *auth_params.items(),
+    ]
+    return urlunparse(parsed_endpoint._replace(query=urlencode(query_params)))
 
 
 class PKCEParameters(BaseModel):
@@ -352,7 +362,7 @@ class OAuthClientProvider(httpx.Auth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = build_authorization_url(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback

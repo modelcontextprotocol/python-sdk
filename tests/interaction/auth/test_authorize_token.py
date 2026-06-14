@@ -341,6 +341,41 @@ async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_me
     assert json.loads(register.content)["scope"] == "from-header"
 
 
+async def test_authorization_endpoint_existing_query_params_are_preserved() -> None:
+    """Authorization metadata endpoints may include provider-required query params."""
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    override = OAuthMetadata(
+        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize?prompt=select_account"),
+        token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
+        registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
+        scopes_supported=["mcp"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        code_challenge_methods_supported=["S256"],
+    )
+    serve = {ASM_PATH: override.model_dump_json(exclude_none=True).encode()}
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            app_shim=lambda app: shimmed_app(app, serve=serve),
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert headless.authorize_url is not None
+    split_url = urlsplit(headless.authorize_url)
+    assert split_url.path == "/authorize"
+    assert split_url.query.count("?") == 0
+
+    params = authorize_params(headless.authorize_url)
+    assert params["prompt"] == "select_account"
+    assert params["response_type"] == "code"
+    assert params["client_id"] != ""
+    assert params["redirect_uri"] == REDIRECT_URI
+
+
 @requirement("client-auth:pkce:refuse-if-unsupported")
 async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_supported() -> None:
     """AS metadata without `code_challenge_methods_supported` does not stop the client sending PKCE.
