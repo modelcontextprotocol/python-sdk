@@ -677,8 +677,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
         behavior=(
-            "An exception raised by a tool function (ToolError or otherwise) is caught and returned as a "
-            "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
+            "An exception raised by a tool function is caught and returned as a tool result with isError true; "
+            "explicit ToolError messages are returned to the client, while unexpected exception details are hidden."
         ),
     ),
     "mcpserver:tool:input-validation": Requirement(

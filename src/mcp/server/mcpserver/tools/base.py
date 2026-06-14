@@ -4,15 +4,19 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+import pydantic_core
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -115,5 +119,10 @@ class Tool(BaseModel):
             # Re-raise UrlElicitationRequiredError so it can be properly handled
             # as an MCP error response with code -32042
             raise
-        except Exception as e:
+        except ToolError:
+            raise
+        except pydantic_core.ValidationError as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
+        except Exception as e:
+            logger.exception("Unexpected error executing tool %s", self.name)
+            raise ToolError(f"Error executing tool {self.name}: unexpected internal error") from e

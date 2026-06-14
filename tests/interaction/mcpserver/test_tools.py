@@ -81,19 +81,22 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
 
     The function's `-> str` annotation gives the tool a derived output schema, but the error
     result is built before any schema validation runs, so no validation failure is layered on
-    top of the original exception.
+    top of the original exception. Unexpected exception details are logged server-side and
+    hidden from the client-facing result.
     """
     mcp = MCPServer("errors")
 
     @mcp.tool()
     def explode() -> str:
-        raise ValueError("boom")
+        raise ValueError("secret token leaked")
 
     async with connect(mcp) as client:
         result = await client.call_tool("explode", {})
 
     assert result == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
+        CallToolResult(
+            content=[TextContent(text="Error executing tool explode: unexpected internal error")], is_error=True
+        )
     )
 
 
@@ -109,9 +112,7 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> No
     async with connect(mcp) as client:
         result = await client.call_tool("flux", {})
 
-    assert result == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool flux: flux capacitor offline")], is_error=True)
-    )
+    assert result == snapshot(CallToolResult(content=[TextContent(text="flux capacitor offline")], is_error=True))
 
 
 @requirement("mcpserver:tool:unknown-name")

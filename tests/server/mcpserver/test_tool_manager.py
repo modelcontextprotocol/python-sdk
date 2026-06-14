@@ -383,17 +383,33 @@ class TestContextHandling:
         assert result == "42"
 
     @pytest.mark.anyio
-    async def test_context_error_handling(self):
-        """Test error handling when context injection fails."""
+    async def test_unexpected_error_hides_internal_details(self):
+        """Test error handling does not expose unexpected exception details."""
 
         def tool_with_context(x: int, ctx: Context) -> str:
-            raise ValueError("Test error")
+            raise ValueError("secret token leaked")
 
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
+        with pytest.raises(ToolError) as exc_info:
             await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
+
+        assert str(exc_info.value) == "Error executing tool tool_with_context: unexpected internal error"
+        assert "secret token leaked" not in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_tool_error_preserves_message(self):
+        """Test explicit ToolError messages remain visible to clients."""
+
+        def tool_with_expected_error() -> str:
+            raise ToolError("safe client-facing error")
+
+        manager = ToolManager()
+        manager.add_tool(tool_with_expected_error)
+
+        with pytest.raises(ToolError, match="safe client-facing error"):
+            await manager.call_tool("tool_with_expected_error", {}, context=Context())
 
 
 class TestToolAnnotations:
