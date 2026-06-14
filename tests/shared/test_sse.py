@@ -108,6 +108,24 @@ def make_server_app() -> Starlette:
     return make_app(Server(SERVER_NAME, on_read_resource=_handle_read_resource))
 
 
+def test_sse_server_transport_emits_deprecation_warning() -> None:
+    """Constructing SseServerTransport warns that the SSE server transport is deprecated."""
+    with pytest.warns(DeprecationWarning, match="The SSE server transport is deprecated"):
+        SseServerTransport(
+            "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        )
+
+
+@pytest.mark.anyio
+async def test_sse_client_emits_deprecation_warning() -> None:
+    """Entering sse_client warns that the SSE client transport is deprecated."""
+    factory = in_process_client_factory(make_server_app())
+    with anyio.fail_after(5):
+        with pytest.warns(DeprecationWarning, match="The SSE client transport is deprecated"):
+            async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory):  # pragma: no branch
+                pass
+
+
 @pytest.mark.anyio
 async def test_raw_sse_connection() -> None:
     """The SSE GET responds 200 with an event-stream content type, announcing the session

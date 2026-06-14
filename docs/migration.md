@@ -149,6 +149,10 @@ named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
 
+### SSE transport deprecated
+
+The HTTP+SSE transport is now deprecated and emits a `DeprecationWarning`. The client transport `mcp.client.sse.sse_client` and the server transport `mcp.server.sse.SseServerTransport` (including the high-level `MCPServer.sse_app()` / `MCPServer.run(transport="sse")`, which build on it) are affected. HTTP+SSE was superseded by Streamable HTTP in protocol revision 2025-03-26 and the specification now documents it only for backwards compatibility. The transport still works and will be removed in a future version; migrate to the streamable HTTP transport (`streamable_http_client` on the client, `streamable_http_app()` on the server).
+
 ### Removed type aliases and classes
 
 The following deprecated type aliases and classes have been removed from `mcp.types`:

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -39,6 +40,10 @@ async def sse_client(
 ):
     """Client transport for SSE.
 
+    Deprecated: this transport will be removed in a future version. The HTTP+SSE
+    transport was superseded by Streamable HTTP in protocol revision 2025-03-26;
+    use the streamable HTTP transport (`streamable_http_client`) instead.
+
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
@@ -51,6 +56,13 @@ async def sse_client(
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
+    warnings.warn(
+        "The SSE client transport is deprecated and will be removed in a future version. The HTTP+SSE transport was"
+        " superseded by Streamable HTTP in protocol revision 2025-03-26; use the streamable HTTP transport"
+        " (`streamable_http_client`) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
