@@ -2053,13 +2053,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host."
         ),
         transports=("streamable-http",),
-        divergence=Divergence(
-            note=(
-                "Not enforced: the registration handler models redirect_uris as AnyUrl with no scheme or "
-                "host check, so http://evil.example/callback is accepted and registered. The spec's "
-                "localhost-or-HTTPS rule is left to the provider implementation."
-            ),
-        ),
     ),
     "hosting:auth:as:token-cache-headers": Requirement(
         source="sdk",

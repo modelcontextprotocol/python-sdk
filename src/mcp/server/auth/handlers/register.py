@@ -12,6 +12,7 @@ from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.auth.validation import validate_registered_redirect_uri
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 # this alias is a no-op; it's just to separate out the types exposed to the
@@ -89,6 +90,21 @@ class RegistrationHandler:
                 ),
                 status_code=400,
             )
+
+        redirect_uris = client_metadata.redirect_uris
+        assert redirect_uris is not None  # enforced by OAuthClientMetadata
+
+        for redirect_uri in redirect_uris:
+            try:
+                validate_registered_redirect_uri(redirect_uri)
+            except ValueError as error:
+                return PydanticJSONResponse(
+                    content=RegistrationErrorResponse(
+                        error="invalid_client_metadata",
+                        error_description=str(error),
+                    ),
+                    status_code=400,
+                )
 
         client_id_issued_at = int(time.time())
         client_secret_expires_at = (
