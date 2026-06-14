@@ -114,7 +114,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
     """Reading a URI that matches no registered resource fails with a JSON-RPC error.
 
-    The spec reserves -32002 for resource-not-found; see the divergence note on the requirement.
+    The spec reserves -32002 for resource-not-found.
     """
     mcp = MCPServer("library")
 
@@ -127,7 +127,7 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown resource: config://missing"))
+    assert exc_info.value.error == snapshot(ErrorData(code=-32002, message="Resource not found: config://missing"))
 
 
 @requirement("mcpserver:resource:read-throws-surfaced")

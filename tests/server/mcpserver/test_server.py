@@ -730,7 +730,7 @@ class TestServerResources:
         mcp = MCPServer()
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+            with pytest.raises(MCPError, match="Resource not found: unknown://missing"):
                 await client.read_resource("unknown://missing")
 
     async def test_read_resource_error(self):

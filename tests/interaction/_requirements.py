@@ -901,12 +901,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:unknown-uri": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#error-handling",
         behavior="resources/read for a URI matching no registered resource returns JSON-RPC error -32002.",
-        divergence=Divergence(
-            note=(
-                "The spec reserves -32002 for resource-not-found; MCPServer raises ResourceError, which "
-                "the low-level server converts to error code 0."
-            ),
-        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Prompts

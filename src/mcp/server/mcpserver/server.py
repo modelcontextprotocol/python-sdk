@@ -341,7 +341,13 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
         context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        try:
+            results = await self.read_resource(params.uri, context)
+        except ResourceError as exc:
+            if exc.code is not None:
+                message = f"Resource not found: {params.uri}" if exc.code == -32002 else str(exc)
+                raise MCPError(code=exc.code, message=message) from exc
+            raise
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -448,7 +454,7 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             resource = await self._resource_manager.get_resource(uri, context)
         except ValueError as exc:
-            raise ResourceError(f"Unknown resource: {uri}") from exc
+            raise ResourceError(f"Resource not found: {uri}", code=-32002) from exc
 
         try:
             content = await resource.read()
