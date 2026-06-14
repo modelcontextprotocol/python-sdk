@@ -123,17 +123,19 @@ async def test_prm_discovery_falls_back_from_path_well_known_to_root_on_404() ->
 
 @requirement("client-auth:prm-discovery:no-prm-fallback")
 async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_the_server_origin() -> None:
-    """When every protected-resource metadata probe 404s, the client falls back to the legacy path.
+    """When every protected-resource metadata probe 404s, the client falls back to the server origin.
 
-    The legacy 2025-03-26 behaviour: with no PRM document available, treat the MCP server's
-    origin as the authorization server and fetch its `/.well-known/oauth-authorization-server`
-    directly. The real co-hosted ASM endpoint is at exactly that location, so the flow completes.
-    The recorded sequence shows both PRM well-known paths probed (and failed) before ASM_ROOT.
+    With no PRM document available, treat the MCP server's origin as the authorization server.
+    OAuth metadata is tried first, then OIDC discovery. This pins the fallback for OIDC-only
+    authorization servers that don't expose `/.well-known/oauth-authorization-server`.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
-    app_shim = shim(not_found=frozenset({PRM_PATH_SUFFIXED, PRM_ROOT}))
+    app_shim = shim(
+        not_found=frozenset({PRM_PATH_SUFFIXED, PRM_ROOT, ASM_ROOT}),
+        serve={OIDC_ROOT: metadata_body(real_asm())},
+    )
 
     with anyio.fail_after(5):
         async with connect_with_oauth(server, provider=provider, app_shim=app_shim, on_request=on_request) as (
@@ -145,7 +147,7 @@ async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_th
     well_known = discovery_gets(recorded)
     assert PRM_PATH_SUFFIXED in well_known
     assert PRM_ROOT in well_known
-    assert well_known[-1] == ASM_ROOT
+    assert well_known[-2:] == [ASM_ROOT, OIDC_ROOT]
     assert all(well_known.index(prm) < well_known.index(ASM_ROOT) for prm in (PRM_PATH_SUFFIXED, PRM_ROOT))
     assert result.tools[0].name == "probe"
 

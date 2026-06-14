@@ -143,7 +143,11 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
         # Legacy path using the 2025-03-26 spec:
         # link: https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization
         parsed = urlparse(server_url)
-        return [f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"]
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        return [
+            urljoin(base_url, "/.well-known/oauth-authorization-server"),
+            urljoin(base_url, "/.well-known/openid-configuration"),
+        ]
 
     urls: list[str] = []
     parsed = urlparse(auth_server_url)
