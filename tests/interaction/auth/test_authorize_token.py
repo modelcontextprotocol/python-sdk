@@ -341,6 +341,7 @@ async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_me
     assert json.loads(register.content)["scope"] == "from-header"
 
 
+@requirement("client-auth:resource-parameter")
 async def test_authorization_endpoint_existing_query_params_are_preserved() -> None:
     """Authorization metadata endpoints may include provider-required query params."""
     provider = InMemoryAuthorizationServerProvider()
