@@ -22,6 +22,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 from typing_extensions import TypeVar
 
+from mcp.shared._compat import resync_tracer
 from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest, ProgressFnT
@@ -447,6 +448,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._closed = True
             self._tg = None
             self._fan_out_closed()
+            await resync_tracer()
 
     async def _dispatch(
         self,
