@@ -221,6 +221,10 @@ Common renames:
 
 Because `populate_by_name=True` is set, the old camelCase names still work as constructor kwargs (e.g., `Tool(inputSchema={...})` is accepted), but attribute access must use snake_case (`tool.input_schema`).
 
+### Results now serialize `resultType` and cache-directive defaults
+
+Serialized results now include `resultType` by default (and `ttlMs`/`cacheScope` on cacheable results). Peers ignore unknown result fields, so this interoperates across protocol versions, but tests or recorded fixtures that compare exact serialized payloads need the new keys added.
+
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
 The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
@@ -1181,7 +1185,7 @@ Behavior changes:
 
 ### Experimental Tasks support removed
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with all `Task*` types, the `tasks` capability fields, `Tool.execution`, and the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
+Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions.
 
 Tasks are expected to return as a separate MCP extension in a future release.
 
@@ -1226,6 +1230,10 @@ params = CallToolRequestParams(
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
 ## New Features
+
+### 2025-11-25 and 2026-07-28 protocol fields modeled
+
+`mcp.types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. Most are optional with `None` defaults; the result-directive fields carry serialized defaults - see [Results now serialize `resultType` and cache-directive defaults](#results-now-serialize-resulttype-and-cache-directive-defaults).
 
 ### `streamable_http_app()` available on lowlevel Server
 

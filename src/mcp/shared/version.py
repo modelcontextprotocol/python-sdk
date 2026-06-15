@@ -16,6 +16,7 @@ KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
     "2025-03-26",
     "2025-06-18",
     "2025-11-25",
+    "2026-07-28",
 )
 """Every released protocol revision, oldest to newest."""
 

@@ -219,6 +219,6 @@ async def test_protocol_version_is_none_on_stateless_connection():
     seen: list[str | None] = []
     async with connected_runner(_runner_server(seen), initialized=False, stateless=True) as (client, runner):
         result = await client.send_raw_request("tools/list", None)
-        assert result == {"tools": []}
+        assert result == {"tools": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"}
         assert seen == [None]
         assert runner.session.protocol_version is None
