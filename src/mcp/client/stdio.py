@@ -106,8 +106,13 @@ class StdioServerParameters(BaseModel):
     encoding: str = "utf-8"
     """Text encoding for messages to and from the server."""
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
-    """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers."""
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
+    """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers.
+
+    Defaults to ``"replace"`` so malformed bytes from a buggy server become U+FFFD and surface
+    as an in-stream JSON parse error (kept alive for subsequent valid messages) instead of
+    crashing the transport task group. This mirrors the server-side stdin hardening.
+    """
 
 
 @asynccontextmanager
