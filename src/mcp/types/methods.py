@@ -17,7 +17,6 @@ import mcp.types as types
 import mcp.types.v2025_11_25 as v2025
 import mcp.types.v2026_07_28 as v2026
 from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
-from mcp.types._wire_base import WireModel
 
 __all__ = [
     "CLIENT_NOTIFICATIONS",
@@ -40,7 +39,7 @@ __all__ = [
 
 # --- Surface maps: client-to-server ---
 
-CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxyType(
+CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
         ("completion/complete", "2024-11-05"): v2025.CompleteRequest,
@@ -112,7 +111,7 @@ CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxy
     }
 )
 
-CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxyType(
+CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
         ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
@@ -143,7 +142,7 @@ CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[WireModel]]] = Mapping
 
 # --- Surface maps: server-to-client ---
 
-SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxyType(
+SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
         ("ping", "2024-11-05"): v2025.PingRequest,
@@ -167,7 +166,7 @@ SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxy
     }
 )
 
-SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[WireModel]]] = MappingProxyType(
+SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
         ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
@@ -218,7 +217,7 @@ SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[WireModel]]] = Mapping
 
 # --- Surface maps: results ---
 
-SERVER_RESULTS: Final[Mapping[tuple[str, str], type[WireModel] | UnionType]] = MappingProxyType(
+SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
     {
         # 2024-11-05
         ("completion/complete", "2024-11-05"): v2025.CompleteResult,
@@ -291,7 +290,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[WireModel] | UnionType]] = M
 )
 """Results servers send, keyed by the originating client request's (method, version)."""
 
-CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[WireModel] | UnionType]] = MappingProxyType(
+CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
     {
         # 2024-11-05
         ("ping", "2024-11-05"): v2025.EmptyResult,
@@ -433,7 +432,7 @@ def parse_client_request(
     version: str,
     params: Mapping[str, Any] | None,
     *,
-    surface: Mapping[tuple[str, str], type[WireModel]] = CLIENT_REQUESTS,
+    surface: Mapping[tuple[str, str], type[BaseModel]] = CLIENT_REQUESTS,
     monolith: Mapping[str, type[types.Request[Any, Any]]] = MONOLITH_REQUESTS,
 ) -> types.Request[Any, Any]:
     """Validate a client request against `surface`, then parse and return its `monolith` model.
@@ -462,7 +461,7 @@ def parse_server_request(
     version: str,
     params: Mapping[str, Any] | None,
     *,
-    surface: Mapping[tuple[str, str], type[WireModel]] = SERVER_REQUESTS,
+    surface: Mapping[tuple[str, str], type[BaseModel]] = SERVER_REQUESTS,
     monolith: Mapping[str, type[types.Request[Any, Any]]] = MONOLITH_REQUESTS,
 ) -> types.Request[Any, Any]:
     """Validate a server request against `surface`, then parse and return its `monolith` model.
@@ -491,7 +490,7 @@ def parse_client_notification(
     version: str,
     params: Mapping[str, Any] | None,
     *,
-    surface: Mapping[tuple[str, str], type[WireModel]] = CLIENT_NOTIFICATIONS,
+    surface: Mapping[tuple[str, str], type[BaseModel]] = CLIENT_NOTIFICATIONS,
     monolith: Mapping[str, type[types.Notification[Any, Any]]] = MONOLITH_NOTIFICATIONS,
 ) -> types.Notification[Any, Any]:
     """Validate a client notification against `surface`, then parse and return its `monolith` model.
@@ -520,7 +519,7 @@ def parse_server_notification(
     version: str,
     params: Mapping[str, Any] | None,
     *,
-    surface: Mapping[tuple[str, str], type[WireModel]] = SERVER_NOTIFICATIONS,
+    surface: Mapping[tuple[str, str], type[BaseModel]] = SERVER_NOTIFICATIONS,
     monolith: Mapping[str, type[types.Notification[Any, Any]]] = MONOLITH_NOTIFICATIONS,
 ) -> types.Notification[Any, Any]:
     """Validate a server notification against `surface`, then parse and return its `monolith` model.
@@ -549,7 +548,7 @@ def parse_server_result(
     version: str,
     data: Mapping[str, Any],
     *,
-    surface: Mapping[tuple[str, str], type[WireModel] | UnionType] = SERVER_RESULTS,
+    surface: Mapping[tuple[str, str], type[BaseModel] | UnionType] = SERVER_RESULTS,
     monolith: Mapping[str, type[types.Result] | UnionType] = MONOLITH_RESULTS,
 ) -> types.Result:
     """Validate a server result against `surface`, then parse and return its `monolith` model.
@@ -578,7 +577,7 @@ def parse_client_result(
     version: str,
     data: Mapping[str, Any],
     *,
-    surface: Mapping[tuple[str, str], type[WireModel] | UnionType] = CLIENT_RESULTS,
+    surface: Mapping[tuple[str, str], type[BaseModel] | UnionType] = CLIENT_RESULTS,
     monolith: Mapping[str, type[types.Result] | UnionType] = MONOLITH_RESULTS,
 ) -> types.Result:
     """Validate a client result against `surface`, then parse and return its `monolith` model.

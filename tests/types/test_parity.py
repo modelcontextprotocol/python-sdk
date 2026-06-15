@@ -27,7 +27,10 @@ NAME_MAP: dict[str, type[BaseModel]] = {
     "v2025_11_25.Elicitation": monolith.ElicitationCapability,
     "v2025_11_25.Elicitation1": _types.TasksElicitationCapability,
     "v2025_11_25.ElicitationCompleteNotification": monolith.ElicitCompleteNotification,
-    "v2025_11_25.ElicitationCompleteNotificationParams": monolith.ElicitCompleteNotificationParams,
+    "v2025_11_25.Params": monolith.CancelTaskRequestParams,
+    "v2025_11_25.Params1": monolith.ElicitCompleteNotificationParams,
+    "v2025_11_25.Params2": monolith.GetTaskPayloadRequestParams,
+    "v2025_11_25.Params3": monolith.GetTaskRequestParams,
     "v2025_11_25.Error": monolith.ErrorData,
     "v2025_11_25.JSONRPCErrorResponse": monolith.JSONRPCError,
     "v2025_11_25.JSONRPCResultResponse": monolith.JSONRPCResponse,
@@ -49,7 +52,7 @@ NAME_MAP: dict[str, type[BaseModel]] = {
     "v2026_07_28.Data1": monolith.UnsupportedProtocolVersionErrorData,
     "v2026_07_28.Elicitation": monolith.ElicitationCapability,
     "v2026_07_28.ElicitationCompleteNotification": monolith.ElicitCompleteNotification,
-    "v2026_07_28.ElicitationCompleteNotificationParams": monolith.ElicitCompleteNotificationParams,
+    "v2026_07_28.Params": monolith.ElicitCompleteNotificationParams,
     "v2026_07_28.Error": monolith.ErrorData,
     "v2026_07_28.JSONRPCErrorResponse": monolith.JSONRPCError,
     "v2026_07_28.JSONRPCResultResponse": monolith.JSONRPCResponse,
@@ -146,6 +149,8 @@ def _surface_classes(module: ModuleType) -> list[tuple[str, type[BaseModel]]]:
             continue
         if obj.__module__ != module.__name__ or obj.__name__ != name:
             continue  # re-export or alias to another model
+        if getattr(obj, "__pydantic_root_model__", False):
+            continue  # RootModel alias wrapper; the field-subset property does not apply
         out.append((f"{tail}.{name}", obj))
     return out
 

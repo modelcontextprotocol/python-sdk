@@ -7,13 +7,13 @@ from typing import Any, get_args
 
 import pydantic
 import pytest
+from pydantic import BaseModel
 
 import mcp.types as types
 import mcp.types.v2025_11_25 as v2025
 import mcp.types.v2026_07_28 as v2026
 from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
 from mcp.types import methods
-from mcp.types._wire_base import WireModel
 
 # Transcribed from each schema's ClientRequest/ServerRequest/ClientNotification/
 # ServerNotification unions, minus the tasks/* family (extensions register those).
@@ -210,7 +210,7 @@ EXPECTED_METHODS: dict[str, dict[str, frozenset[str]]] = {
 }
 
 # Pinned per (method, version): class identity, or exact arm tuple for unions.
-EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[WireModel] | tuple[type[WireModel], ...]] = {
+EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[BaseModel], ...]] = {
     ("completion/complete", "2024-11-05"): v2025.CompleteResult,
     ("initialize", "2024-11-05"): v2025.InitializeResult,
     ("logging/setLevel", "2024-11-05"): v2025.EmptyResult,
@@ -275,7 +275,7 @@ EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[WireModel] | tuple[type[Wire
     ("tools/list", "2026-07-28"): v2026.ListToolsResult,
 }
 
-EXPECTED_CLIENT_RESULTS: dict[tuple[str, str], type[WireModel] | tuple[type[WireModel], ...]] = {
+EXPECTED_CLIENT_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[BaseModel], ...]] = {
     ("ping", "2024-11-05"): v2025.EmptyResult,
     ("roots/list", "2024-11-05"): v2025.ListRootsResult,
     ("sampling/createMessage", "2024-11-05"): v2025.CreateMessageResult,
@@ -314,7 +314,7 @@ META_TRIPLE: dict[str, Any] = {
 }
 
 # One minimal valid params mapping per surface request class.
-REQUEST_PARAMS_FIXTURES: dict[type[WireModel], dict[str, Any] | None] = {
+REQUEST_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
     v2025.CallToolRequest: {"name": "echo"},
     v2025.CompleteRequest: {"ref": {"type": "ref/prompt", "name": "p"}, "argument": {"name": "a", "value": "v"}},
     v2025.CreateMessageRequest: {
@@ -354,7 +354,7 @@ REQUEST_PARAMS_FIXTURES: dict[type[WireModel], dict[str, Any] | None] = {
     v2026.SubscriptionsListenRequest: {"_meta": META_TRIPLE, "notifications": {}},
 }
 
-NOTIFICATION_PARAMS_FIXTURES: dict[type[WireModel], dict[str, Any] | None] = {
+NOTIFICATION_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
     v2025.CancelledNotification: {"requestId": 1},
     v2025.ElicitationCompleteNotification: {"elicitationId": "e1"},
     v2025.InitializedNotification: None,
@@ -377,7 +377,7 @@ NOTIFICATION_PARAMS_FIXTURES: dict[type[WireModel], dict[str, Any] | None] = {
 }
 
 # One minimal valid result body per response row value (class or union alias).
-RESULT_BODY_FIXTURES: dict[type[WireModel] | UnionType, dict[str, Any]] = {
+RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
     v2025.CallToolResult: {"content": []},
     v2025.CompleteResult: {"completion": {"values": []}},
     v2025.CreateMessageResult: {"role": "assistant", "content": {"type": "text", "text": "hi"}, "model": "m"},
@@ -463,11 +463,11 @@ def test_response_row_values_match_the_pinned_classes_and_unions():
 
 def test_surface_keys_agree_with_their_classes_and_the_monolith_maps():
     """Each surface key's method matches its class's method literal, its monolith row, and its version's package."""
-    request_maps: list[Mapping[tuple[str, str], type[WireModel]]] = [
+    request_maps: list[Mapping[tuple[str, str], type[BaseModel]]] = [
         methods.CLIENT_REQUESTS,
         methods.SERVER_REQUESTS,
     ]
-    notification_maps: list[Mapping[tuple[str, str], type[WireModel]]] = [
+    notification_maps: list[Mapping[tuple[str, str], type[BaseModel]]] = [
         methods.CLIENT_NOTIFICATIONS,
         methods.SERVER_NOTIFICATIONS,
     ]
