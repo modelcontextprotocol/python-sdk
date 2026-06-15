@@ -30,6 +30,11 @@ jobs:
         env:
           SKIP: no-commit-to-branch,readme-v1-frozen
 
+      - name: Surface types match vendored schema
+        run: |
+          uv sync --group codegen --frozen
+          uv run --group codegen python scripts/gen_surface_types.py --check
+
       # TODO(Max): Drop this in v2. Deliberate updates (e.g. the v2 status
       # banner) go through the 'override-readme-freeze' label.
       - name: Check README.md is not modified

@@ -104,6 +104,7 @@ docs = [
     "mkdocs-material[imaging]>=9.5.45",
     "mkdocstrings-python>=2.0.1",
 ]
+codegen = ["datamodel-code-generator==0.57.0"]
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
