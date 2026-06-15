@@ -1,6 +1,7 @@
 import functools
 import inspect
 import json
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
@@ -9,6 +10,7 @@ from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 import anyio
 import anyio.to_thread
 import pydantic_core
+from griffe import Docstring, DocstringSectionKind, Parser
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -27,6 +29,55 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+# griffe emits its own logging when a docstring section is malformed (e.g. a
+# documented parameter that isn't in the signature). That's noise for our use
+# case - we only want whatever descriptions we can extract - so silence it.
+logging.getLogger("griffe").setLevel(logging.ERROR)
+
+
+def _extract_param_descriptions(func: Callable[..., Any]) -> dict[str, str]:
+    """Extract per-parameter descriptions from a function's docstring.
+
+    Supports the Google, NumPy, and Sphinx docstring styles. The style is not
+    declared anywhere, so we parse with each supported parser and keep whichever
+    yields the most parameter descriptions.
+
+    Returns a mapping of parameter name to description. Returns an empty mapping
+    if the function has no docstring or no documented parameters.
+    """
+    doc = inspect.getdoc(func)
+    if not doc:
+        return {}
+
+    best: dict[str, str] = {}
+    for parser in (Parser.google, Parser.numpy, Parser.sphinx):
+        try:
+            sections = Docstring(doc).parse(parser)
+        except Exception:  # pragma: no cover - defensive: never fail tool registration
+            continue
+        descriptions: dict[str, str] = {}
+        for section in sections:
+            if section.kind is not DocstringSectionKind.parameters:
+                continue
+            for param in section.value:
+                if param.description:
+                    descriptions[param.name] = param.description.strip()
+        if len(descriptions) > len(best):
+            best = descriptions
+    return best
+
+
+def _param_has_description(annotation: Any) -> bool:
+    """Return True if an annotation already carries a Field description.
+
+    This lets an explicit ``Annotated[T, Field(description=...)]`` take
+    precedence over a description parsed from the docstring.
+    """
+    for meta in getattr(annotation, "__metadata__", ()):
+        if isinstance(meta, FieldInfo) and meta.description:
+            return True
+    return False
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -215,6 +266,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    param_descriptions = _extract_param_descriptions(func)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -227,8 +279,17 @@ def func_metadata(
         field_kwargs: dict[str, Any] = {}
         field_metadata: list[Any] = []
 
+        # Apply a description parsed from the docstring, unless the parameter already
+        # declares one via `Annotated[T, Field(description=...)]`, which takes precedence.
+        doc_description = param_descriptions.get(param.name)
+        if doc_description and not _param_has_description(param.annotation):
+            field_kwargs["description"] = doc_description
+
         if param.annotation is inspect.Parameter.empty:
-            field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+            json_schema: dict[str, Any] = {"title": param.name, "type": "string"}
+            if doc_description:
+                json_schema["description"] = doc_description
+            field_metadata.append(WithJsonSchema(json_schema))
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
