@@ -415,3 +415,30 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_establish_session_closes_stack_on_initialize_error():
+    group_exit_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    mock_read_stream = mock.AsyncMock(name="Read")
+    mock_write_stream = mock.AsyncMock(name="Write")
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_session.initialize.side_effect = RuntimeError("initialize failed")
+    session_stack.enter_async_context.side_effect = [
+        (mock_read_stream, mock_write_stream),
+        mock_session,
+    ]
+
+    group = ClientSessionGroup(exit_stack=group_exit_stack)
+
+    with (
+        mock.patch("mcp.client.session_group.contextlib.AsyncExitStack", return_value=session_stack),
+        mock.patch("mcp.client.session_group.mcp.stdio_client", return_value=mock.AsyncMock()),
+        mock.patch("mcp.client.session_group.mcp.ClientSession", return_value=mock.AsyncMock()),
+        pytest.raises(RuntimeError, match="initialize failed"),
+    ):
+        await group._establish_session(StdioServerParameters(command="test"), ClientSessionParameters())
+
+    session_stack.aclose.assert_awaited_once()
+    group_exit_stack.enter_async_context.assert_not_awaited()
