@@ -15,6 +15,7 @@ to the caller - there is no exception-to-`ErrorData` boundary here.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,7 +28,9 @@ from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
+from mcp.types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["DirectDispatcher", "create_direct_dispatcher_pair"]
 
@@ -84,6 +87,13 @@ class DirectDispatcher:
     Two instances are wired together with `create_direct_dispatcher_pair`; each
     holds a reference to the other. `send_raw_request` on one awaits the peer's
     `on_request`. `run` parks until `close` is called.
+
+    Lifecycle mirrors `JSONRPCDispatcher`: `send_raw_request` requires `run()`
+    to have started, and once a side has closed - via `close()` or `run()`
+    ending - `send_raw_request` raises `MCPError` (`CONNECTION_CLOSED`) and
+    inbound requests fail the peer's call the same way instead of invoking the
+    handler. Notifications are fire-and-forget in both directions: after close
+    they are silently dropped.
     """
 
     def __init__(self, transport_ctx: TransportContext):
@@ -93,7 +103,9 @@ class DirectDispatcher:
         self._on_notify: OnNotify | None = None
         self._next_id = 0
         self._ready = anyio.Event()
-        self._closed = anyio.Event()
+        self._close_event = anyio.Event()
+        self._running = False
+        self._closed = False
 
     def connect_to(self, peer: DirectDispatcher) -> None:
         self._peer = peer
@@ -104,13 +116,35 @@ class DirectDispatcher:
         params: Mapping[str, Any] | None,
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
+        """Send a request by invoking the peer's `on_request` directly.
+
+        Raises:
+            MCPError: The peer's handler raised; `REQUEST_TIMEOUT` if
+                `opts["timeout"]` elapsed; `CONNECTION_CLOSED` if either
+                side has closed.
+            RuntimeError: Called before `run()`.
+        """
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
+        # Post-close sends get the same CONNECTION_CLOSED contract as JSONRPCDispatcher.
+        if self._closed:
+            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
+        if not self._running:
+            raise RuntimeError("DirectDispatcher.send_raw_request called before run()")
         return await self._peer._dispatch_request(method, params, opts)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        """Send a notification by invoking the peer's `on_notify` directly.
+
+        Fire-and-forget: usable before `run()` (delivery waits for the peer to
+        start), and after close it is silently dropped, matching
+        `JSONRPCDispatcher.notify`.
+        """
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
+        if self._closed:
+            logger.debug("dropped notification %r on closed DirectDispatcher", method)
+            return
         await self._peer._dispatch_notify(method, params)
 
     async def run(
@@ -120,14 +154,29 @@ class DirectDispatcher:
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
-        self._on_request = on_request
-        self._on_notify = on_notify
-        self._ready.set()
-        task_status.started()
-        await self._closed.wait()
+        """Mark this side ready and park until `close()` is called.
+
+        Single-shot, like `JSONRPCDispatcher.run`: once it returns the
+        dispatcher stays closed and cannot be restarted.
+        """
+        try:
+            self._on_request = on_request
+            self._on_notify = on_notify
+            self._running = True
+            self._ready.set()
+            task_status.started()
+            await self._close_event.wait()
+        finally:
+            self._running = False
+            self._closed = True
+            # run() may end via cancellation without close() ever being
+            # called; setting the event wakes `_wait_ready` waiters so they
+            # observe the closed state instead of parking forever.
+            self._close_event.set()
 
     def close(self) -> None:
-        self._closed.set()
+        self._closed = True
+        self._close_event.set()
 
     def _make_context(
         self, on_progress: ProgressFnT | None = None, request_id: RequestId | None = None
@@ -142,20 +191,40 @@ class DirectDispatcher:
             _on_progress=on_progress,
         )
 
+    async def _wait_ready(self) -> None:
+        """Park until `run()` has started, waking early if this side closes.
+
+        Raises:
+            MCPError: `CONNECTION_CLOSED` if this side has closed.
+        """
+        if not self._ready.is_set() and not self._close_event.is_set():
+            async with anyio.create_task_group() as tg:
+
+                async def wake_on(event: anyio.Event) -> None:
+                    await event.wait()
+                    tg.cancel_scope.cancel()
+
+                tg.start_soon(wake_on, self._ready)
+                tg.start_soon(wake_on, self._close_event)
+        if self._closed:
+            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
+
     async def _dispatch_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
         opts: CallOptions | None,
     ) -> dict[str, Any]:
-        await self._ready.wait()
-        assert self._on_request is not None
         opts = opts or {}
-        # Synthesize an id: the DispatchContext contract reserves None for notifications.
-        self._next_id += 1
-        dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
         try:
             with anyio.fail_after(opts.get("timeout")):
+                # Inside the timeout scope, so a configured timeout also bounds
+                # waiting on a peer whose run() has not started yet.
+                await self._wait_ready()
+                assert self._on_request is not None
+                # Synthesize an id: the DispatchContext contract reserves None for notifications.
+                self._next_id += 1
+                dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
                 try:
                     return await self._on_request(dctx, method, params)
                 except MCPError:
@@ -173,7 +242,13 @@ class DirectDispatcher:
             ) from None
 
     async def _dispatch_notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        await self._ready.wait()
+        try:
+            await self._wait_ready()
+        except MCPError:
+            # Notifications are fire-and-forget: a notify to a closed peer is
+            # dropped, not raised back into the sender's call.
+            logger.debug("dropped notification %r to closed DirectDispatcher", method)
+            return
         assert self._on_notify is not None
         dctx = self._make_context()
         await self._on_notify(dctx, method, params)

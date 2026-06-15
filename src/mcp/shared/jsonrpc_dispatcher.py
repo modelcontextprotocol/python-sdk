@@ -16,6 +16,7 @@ from typing import Any, Generic, Literal, cast
 
 import anyio
 import anyio.abc
+import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
@@ -296,9 +297,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._pending[request_id] = pending
 
         plan = _plan_outbound(_related_request_id, opts)
-        # Spec MUST: only previously-issued requests may be cancelled, so the
-        # courtesy cancel arms only once the request write completes.
-        request_written = False
+        # Spec MUST: only previously-issued requests may be cancelled. A write
+        # interrupted by cancellation may still have delivered (a memory-stream
+        # send can hand its item to the receiver and still raise), so a started
+        # write counts as issued: the peer ignores a cancel for an id it never
+        # saw, while skipping it would leak a delivered request's handler.
+        request_write_started = False
+        timeout_armed = False
 
         target = out_params.get("name")
         span_name = f"MCP send {method}{f' {target}' if isinstance(target, str) else ''}"
@@ -313,18 +318,28 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
                 inject_trace_context(out_meta)
                 msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
+                # Surface a pre-existing cancellation while the request provably
+                # never started; past this point a cancelled write counts as issued.
+                await anyio.lowlevel.checkpoint_if_cancelled()
+                request_write_started = True
                 try:
                     await self._write(msg, plan.metadata)
                 except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                     # Transport tore down before run() noticed EOF; surface the documented contract.
                     raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
-                request_written = True
                 with anyio.fail_after(opts.get("timeout")):
+                    timeout_armed = True
                     outcome = await receive.receive()
         except TimeoutError:
+            if not timeout_armed:
+                # `fail_after` arms only after the write, so this TimeoutError is the
+                # transport's own bounded send() failing - a transport error, not
+                # `opts["timeout"]` elapsing. Propagate it raw (v1 kept the write
+                # outside the timeout-catching try and did the same).
+                raise
             # Courtesy cancel (spec-recommended, new vs v1) so the peer stops work;
             # unshielded so an outer caller cancellation can still interrupt the write.
-            if plan.cancel_on_abandon and request_written:
+            if plan.cancel_on_abandon:
                 await self._final_write(
                     partial(
                         self._cancel_outbound,
@@ -340,7 +355,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         except anyio.get_cancelled_exc_class():
             # Caller cancelled: bare awaits re-raise here, so the shielded helper
             # lets the courtesy cancel go out before we propagate.
-            if plan.cancel_on_abandon and request_written:
+            if plan.cancel_on_abandon and request_write_started:
                 await self._final_write(
                     partial(self._cancel_outbound, request_id, "caller cancelled", _related_request_id),
                     shield=True,
@@ -365,13 +380,26 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         *,
         _related_request_id: RequestId | None = None,
     ) -> None:
+        """Send a fire-and-forget notification.
+
+        Fire-and-forget all the way: a post-close send or a write onto a
+        torn-down transport drops the notification with a debug log instead
+        of raising (same policy as the response writes and `ctx.notify`).
+        """
+        if self._closed:
+            logger.debug("dropped %s: dispatcher closed", method)
+            return
         # Leave `params` unset when None: with `exclude_unset=True` an explicit
         # None would serialize as `"params": null`, which JSON-RPC 2.0 forbids.
         if params is not None:
             msg = JSONRPCNotification(jsonrpc="2.0", method=method, params=dict(params))
         else:
             msg = JSONRPCNotification(jsonrpc="2.0", method=method)
-        await self._write(msg, _plan_outbound(_related_request_id, None).metadata)
+        try:
+            await self._write(msg, _plan_outbound(_related_request_id, None).metadata)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            # Transport tore down before run() noticed EOF.
+            logger.debug("dropped %s: write stream closed", method)
 
     async def run(
         self,
@@ -613,6 +641,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         The single exception-to-wire boundary: handler exceptions become `JSONRPCError` here.
         """
+        answer_write_started = False
         try:
             with scope:
                 try:
@@ -625,6 +654,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     key = _coerce_id(req.id)
                     if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
                         del self._in_flight[key]
+                # A write interrupted by cancellation may still have delivered
+                # (a memory-stream send can hand its item to the receiver and
+                # still raise), so a started answer write counts as sent below:
+                # peers drop late responses, while a second answer for one id
+                # would break JSON-RPC.
+                answer_write_started = True
                 await self._write_result(req.id, result)
             if scope.cancelled_caught:
                 # anyio absorbs the scope's own cancel at __exit__, and
@@ -632,16 +667,20 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # result write above did not happen - no double response.
                 # TODO(maxisbey): spec says SHOULD NOT respond after cancel;
                 # the existing server always has, so match that for now.
+                answer_write_started = True
                 await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
         except anyio.get_cancelled_exc_class():
-            # Shutdown: answer the request so the peer isn't left waiting; the
-            # shielded helper is needed because bare awaits re-raise here.
-            await self._final_write(
-                partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
-                shield=True,
-                timeout=_SHUTDOWN_WRITE_TIMEOUT,
-                describe=f"shutdown error response for request {req.id!r}",
-            )
+            # Shutdown: answer the request so the peer isn't left waiting - unless
+            # an answer write already started (it may have reached the transport;
+            # prefer possibly-zero answers over possibly-two). The shielded helper
+            # is needed because bare awaits re-raise here.
+            if not answer_write_started:
+                await self._final_write(
+                    partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
+                    shield=True,
+                    timeout=_SHUTDOWN_WRITE_TIMEOUT,
+                    describe=f"shutdown error response for request {req.id!r}",
+                )
             raise
         except MCPError as e:
             await self._write_error(req.id, e.error)
@@ -701,11 +740,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     async def _cancel_outbound(self, request_id: RequestId, reason: str, related_request_id: RequestId | None) -> None:
         # Thread `related_request_id` so streamable HTTP routes the cancel onto
         # the request's own SSE stream instead of a possibly-absent GET stream.
-        try:
-            await self.notify(
-                "notifications/cancelled",
-                {"requestId": request_id, "reason": reason},
-                _related_request_id=related_request_id,
-            )
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-            pass
+        # `notify` swallows connection-state errors itself, so no guard here.
+        await self.notify(
+            "notifications/cancelled",
+            {"requestId": request_id, "reason": reason},
+            _related_request_id=related_request_id,
+        )

@@ -10,7 +10,7 @@ import anyio.streams.memory
 import pytest
 from pydantic import FileUrl
 
-from mcp import types
+from mcp import MCPError, types
 from mcp.client import ClientRequestContext
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
@@ -20,9 +20,11 @@ from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    CONNECTION_CLOSED,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    REQUEST_TIMEOUT,
     CallToolResult,
     Implementation,
     InitializedNotification,
@@ -908,6 +910,18 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
 
 
 @pytest.mark.anyio
+async def test_request_timeout_zero_overrides_session_timeout():
+    """`request_read_timeout_seconds=0` is a real per-request timeout (fail at the
+    first checkpoint, `anyio.fail_after(0)` semantics), not a fall-through to the
+    session-level timeout. The request is never answered, so falling back to the
+    30s session timeout would trip the harness's 5s guard instead."""
+    async with raw_client_session(read_timeout_seconds=30) as (session, _to_client, _from_client):
+        with pytest.raises(MCPError) as exc_info:
+            await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
+    assert exc_info.value.error.code == REQUEST_TIMEOUT
+
+
+@pytest.mark.anyio
 async def test_progress_notification_reaches_request_callback_and_message_handler():
     """A `notifications/progress` for an in-flight request reaches both the `progress_callback` and
     `message_handler` (SDK-defined). Scripted peer: the progress token must echo the wire request id."""
@@ -1022,6 +1036,106 @@ async def test_direct_dispatch_roots_list_reaches_callback_with_synthesized_requ
 
 
 @pytest.mark.anyio
+async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_that_delivery(
+    caplog: pytest.LogCaptureFixture,
+):
+    """A raising `logging_callback` or `message_handler` is contained in the session, so the
+    in-process peer's notify() returns normally and the session keeps serving requests
+    (SDK-defined: DirectDispatcher awaits notification handlers inline in the peer's call).
+    A raising `logging_callback` skips the `message_handler` tee for that notification."""
+    client_side, server_side = create_direct_dispatcher_pair()
+    teed: list[types.ServerNotification] = []
+
+    async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
+        raise ValueError("logging callback boom")
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        assert not isinstance(message, RequestResponder | Exception)
+        teed.append(message)
+        raise ValueError("message handler boom")
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> dict[str, object]:
+        assert method == "ping"
+        return {}
+
+    async def server_on_notify(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> None:
+        raise NotImplementedError
+
+    session = ClientSession(dispatcher=client_side, logging_callback=logging_callback, message_handler=message_handler)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(server_side.run, server_on_request, server_on_notify)
+            async with session:
+                # logging_callback raises: notify() must return, and message_handler is skipped.
+                await server_side.notify("notifications/message", {"level": "info", "data": "hello"})
+                # message_handler raises: notify() must return.
+                await server_side.notify("notifications/tools/list_changed", None)
+                # The session still serves requests afterwards.
+                assert await session.send_ping() == types.EmptyResult()
+            server_side.close()
+    assert [type(n) for n in teed] == [types.ToolListChangedNotification]
+    assert caplog.text.count("notification callback for") == 2
+    assert "notification callback for 'notifications/message' raised" in caplog.text
+    assert "notification callback for 'notifications/tools/list_changed' raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_send_request_before_enter_raises_runtimeerror():
+    """The documented pre-enter RuntimeError holds for dispatcher= sessions too."""
+    client_side, _server_side = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_side)
+    with anyio.fail_after(5), pytest.raises(RuntimeError) as exc:
+        await session.send_ping()
+    assert str(exc.value) == "DirectDispatcher.send_raw_request called before run()"
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_send_request_after_exit_raises_connection_closed():
+    """After __aexit__ a dispatcher= session raises MCPError(CONNECTION_CLOSED), matching the JSONRPC path."""
+    client_side, server_side = create_direct_dispatcher_pair()
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> dict[str, object]:
+        assert method == "ping"
+        return {}
+
+    async def server_on_notify(
+        ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
+    ) -> None:
+        raise NotImplementedError
+
+    session = ClientSession(dispatcher=client_side)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(server_side.run, server_on_request, server_on_notify)
+            async with session:
+                assert await session.send_ping() == types.EmptyResult()
+            with pytest.raises(MCPError) as exc:
+                await session.send_ping()
+            assert exc.value.error.code == CONNECTION_CLOSED
+            server_side.close()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_request_timeout_bounds_wait_for_never_run_peer():
+    """request_read_timeout_seconds fires even when the peer dispatcher never started running."""
+    client_side, _server_side = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_side)
+    with anyio.fail_after(5):
+        async with session:
+            with pytest.raises(MCPError) as exc:
+                await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.01)
+            assert exc.value.error.code == REQUEST_TIMEOUT
+
+
+@pytest.mark.anyio
 async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_leave_it_unset():
     """`send_request` passes `cancel_on_abandon=False` for `initialize` — the spec forbids
     cancelling it — and leaves the option unset for every other method."""
@@ -1119,3 +1233,21 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
     assert scope.cancelled_caught
     # The failed enter must not leave the session half-entered.
     assert session._task_group is None
+
+
+@pytest.mark.anyio
+async def test_send_notification_after_close_is_dropped_silently():
+    """Post-close `send_notification` is fire-and-forget: the notification is dropped,
+    not surfaced as a raw transport error (v1 leaked `anyio.ClosedResourceError`)."""
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](4)
+    try:
+        async with ClientSession(s2c_recv, c2s_send) as session:
+            pass
+        with anyio.fail_after(5):
+            await session.send_notification(types.RootsListChangedNotification())
+        with pytest.raises(anyio.EndOfStream):
+            c2s_recv.receive_nowait()  # nothing reached the wire
+    finally:
+        for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
+            s.close()

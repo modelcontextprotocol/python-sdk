@@ -3,8 +3,9 @@
 The handler blocks on an event that is never set, so the awaited response can never arrive and
 any positive timeout fires deterministically on the next event-loop pass. Per-request timeouts are
 set to an effectively-zero duration; the session-level test runs on trio's virtual clock instead
-(see the comment there). Either way the tests add no wall-clock time to the suite. (Zero itself
-cannot be used: a falsy read_timeout_seconds is silently treated as "no timeout".)
+(see the comment there). Either way the tests add no wall-clock time to the suite. (Zero would
+also time out immediately, but a tiny positive value keeps the duration visible in the
+cancellation reason these tests snapshot.)
 """
 
 import anyio

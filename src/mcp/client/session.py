@@ -226,7 +226,11 @@ class ClientSession:
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
-        timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+        timeout = (
+            request_read_timeout_seconds
+            if request_read_timeout_seconds is not None
+            else self._session_read_timeout_seconds
+        )
         if timeout is not None:
             opts["timeout"] = timeout
         if progress_callback is not None:
@@ -243,7 +247,11 @@ class ClientSession:
         return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
-        """Send a one-way notification. Usable before entering the context manager."""
+        """Send a one-way notification. Usable before entering the context manager.
+
+        Fire-and-forget: after the connection has closed, the notification is
+        dropped with a debug log instead of raising.
+        """
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         await self._dispatcher.notify(data["method"], data.get("params"))
 
@@ -541,9 +549,16 @@ class ClientSession:
         if isinstance(notification, types.CancelledNotification):
             # The dispatcher already applied the cancellation; not surfaced to message_handler.
             return
-        if isinstance(notification, types.LoggingMessageNotification):
-            await self._logging_callback(notification.params)
-        await self._message_handler(notification)
+        try:
+            if isinstance(notification, types.LoggingMessageNotification):
+                await self._logging_callback(notification.params)
+            await self._message_handler(notification)
+        except Exception:
+            # Contain here, not in the dispatcher: DirectDispatcher awaits this
+            # handler inline in the peer's notify() call, so a raising callback
+            # would otherwise fail the peer's send. A raising logging_callback
+            # skips the message_handler tee for that notification (v1 parity).
+            logger.exception("notification callback for %r raised", method)
 
     async def _on_stream_exception(self, exc: Exception) -> None:
         """Deliver a transport-level fault to message_handler via a spawned task.
