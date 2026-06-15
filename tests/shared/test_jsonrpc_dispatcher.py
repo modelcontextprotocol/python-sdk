@@ -14,6 +14,7 @@ from trio.testing import MockClock
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -605,6 +606,7 @@ async def test_caller_cancel_during_blocked_request_write_still_sends_courtesy_c
             await client.notify("notifications/marker", None)
             tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         s2c_send.close()
         s2c_recv.close()
     assert scopes[0].cancelled_caught
@@ -667,6 +669,7 @@ async def test_caller_cancel_during_delivered_request_write_sends_courtesy_cance
             assert marker.message == JSONRPCNotification(jsonrpc="2.0", method="notifications/marker")
             tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
     assert scopes[0].cancelled_caught
@@ -706,6 +709,7 @@ async def test_caller_cancelled_before_request_write_starts_sends_no_courtesy_ca
             assert first.message == JSONRPCNotification(jsonrpc="2.0", method="notifications/marker")
             tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
     assert scopes[0].cancelled_caught
@@ -867,6 +871,7 @@ async def test_transport_write_timeout_propagates_raw_when_no_request_timeout_is
             assert transport.attempts == 1
             tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         s2c_send.close()
         s2c_recv.close()
 
@@ -1072,6 +1077,7 @@ async def test_shutdown_cancel_during_delivered_result_write_writes_no_second_an
                     stream_closed = True
             assert stream_closed
     finally:
+        await resync_tracer()
         for s in (read_send, read_recv, write_send, write_recv):
             s.close()
     assert outer.cancelled_caught
@@ -1156,6 +1162,7 @@ async def test_notify_after_connection_close_is_dropped_with_debug_log(caplog: p
         with pytest.raises(anyio.EndOfStream):
             c2s_recv.receive_nowait()  # nothing reached the wire
     finally:
+        await resync_tracer()
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
 
@@ -1177,6 +1184,7 @@ async def test_notify_on_torn_down_transport_is_dropped_with_debug_log(caplog: p
             assert "dropped notifications/roots/list_changed: write stream closed" in caplog.text
             tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
 
