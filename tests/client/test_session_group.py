@@ -278,6 +278,24 @@ async def test_client_session_group_disconnect_non_existent_server():
         await group.disconnect_from_server(session)
 
 
+@pytest.mark.anyio
+async def test_client_session_group_context_manager_with_provided_exit_stack():
+    """Provided exit stacks are not entered or closed by the session group."""
+    provided_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    session = mock.Mock(spec=mcp.ClientSession)
+
+    group = ClientSessionGroup(exit_stack=provided_stack)
+    group._session_exit_stacks[session] = session_stack
+
+    assert await group.__aenter__() is group
+    await group.__aexit__(None, None, None)
+
+    provided_stack.__aenter__.assert_not_awaited()
+    provided_stack.aclose.assert_not_awaited()
+    session_stack.aclose.assert_awaited_once()
+
+
 # TODO(Marcelo): This is horrible. We should drop this test.
 @pytest.mark.anyio
 @pytest.mark.parametrize(
