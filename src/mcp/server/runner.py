@@ -19,7 +19,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
-from typing import TYPE_CHECKING, Any, Generic, cast, get_args
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
@@ -38,19 +38,18 @@ from mcp.shared.message import ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    ClientRequest,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    NotificationParams,
     RequestParams,
     RequestParamsMeta,
-    client_request_adapter,
 )
+from mcp.types import methods as _methods
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
@@ -78,14 +77,6 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return RequestParams.model_validate(params, by_name=False).meta
     except ValidationError:
         return None
-
-
-_SPEC_CLIENT_METHODS: frozenset[str] = frozenset(
-    cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(ClientRequest)
-)
-"""Method names in the spec `ClientRequest` union, derived from the
-discriminator literal on each arm. Used to gate upfront validation so custom
-methods registered via `add_request_handler` are not rejected."""
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -228,16 +219,19 @@ class ServerRunner(Generic[LifespanT]):
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         ctx = self._make_context(dctx, _extract_meta(params))
+        # Fallback covers the initialize handshake itself and stateless mode
+        # until the per-request version header is plumbed through.
+        version = self.connection.protocol_version or LATEST_PROTOCOL_VERSION
 
         async def _inner() -> HandlerResult:
-            # TODO(maxisbey): pinned compat: spec methods are validated against
-            # the ClientRequest union before lookup, so malformed params are
-            # INVALID_PARAMS even with no handler registered.
-            if method in _SPEC_CLIENT_METHODS:
-                payload: dict[str, Any] = {"method": method}
-                if params is not None:
-                    payload["params"] = dict(params)
-                client_request_adapter.validate_python(payload, by_name=False)
+            # Pinned compat: spec methods are surface-validated before lookup,
+            # so malformed params are INVALID_PARAMS even with no handler
+            # registered. Custom methods miss the surface map and fall through
+            # to `entry.params_type` exactly as before.
+            try:
+                _methods.validate_client_request(method, version, params)
+            except KeyError:
+                pass  # not a spec method at this version; lookup below handles it
             # TODO(maxisbey): the 2026-07-28 spec drops the handshake; this branch and
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
@@ -265,6 +259,15 @@ class ServerRunner(Generic[LifespanT]):
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
         result = _dump_result(await call())
+        try:
+            _methods.validate_server_result(method, version, result)
+        except KeyError:
+            pass  # custom method; no result schema
+        except ValidationError:
+            # Server bug, not client fault. Detail stays in the server log:
+            # pydantic messages echo the result body.
+            logger.exception("handler for %r returned an invalid result", method)
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -278,18 +281,21 @@ class ServerRunner(Generic[LifespanT]):
         params: Mapping[str, Any] | None,
     ) -> None:
         ctx = self._make_context(dctx, _extract_meta(params))
+        # Same fallback as `_on_request`: covers pre-handshake and stateless.
+        version = self.connection.protocol_version or LATEST_PROTOCOL_VERSION
 
         async def _inner() -> None:
+            try:
+                _methods.validate_client_notification(method, version, params)
+            except KeyError:
+                pass  # not a spec notification at this version
+            except ValidationError:
+                logger.warning("dropped %r: malformed params", method)
+                return
             if method == "notifications/initialized":
-                # Validate before committing so a malformed notification leaves
-                # state untouched; then fall through so a registered handler
-                # observes an initialized connection.
-                if params is not None:
-                    try:
-                        NotificationParams.model_validate(params, by_name=False)
-                    except ValidationError:
-                        logger.warning("dropped %r: malformed params", method)
-                        return
+                # Surface validation above already rejected a malformed body, so
+                # commit; fall through so a registered handler observes an
+                # initialized connection.
                 self.connection.initialized.set()
             elif not self.connection.initialize_accepted:
                 logger.debug("dropped %s: received before initialization", method)

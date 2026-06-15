@@ -728,6 +728,64 @@ def test_sampling_union_keeps_the_complete_arm_first_because_order_is_load_beari
         assert type(parsed) is types.CreateMessageResultWithTools
 
 
+def test_validate_functions_accept_reject_and_gate_like_their_parse_siblings():
+    methods.validate_client_request("tools/call", "2025-11-25", {"name": "echo"})
+    methods.validate_client_notification("notifications/cancelled", "2025-11-25", {"requestId": 1})
+    methods.validate_server_result("tools/list", "2025-11-25", {"tools": []})
+    with pytest.raises(KeyError):
+        methods.validate_client_request("custom/greet", "2025-11-25", None)
+    with pytest.raises(KeyError):
+        methods.validate_client_notification("custom/ping", "2025-11-25", None)
+    with pytest.raises(KeyError):
+        methods.validate_server_result("custom/greet", "2025-11-25", {})
+    with pytest.raises(pydantic.ValidationError):
+        methods.validate_client_request("tools/call", "2025-11-25", None)
+    with pytest.raises(pydantic.ValidationError):
+        methods.validate_client_notification("notifications/progress", "2025-11-25", {"progressToken": []})
+    with pytest.raises(pydantic.ValidationError):
+        methods.validate_server_result("tools/list", "2025-11-25", {"tools": 42})
+    with pytest.raises(ValueError):
+        methods.validate_client_request("ping", "2099-01-01", None)
+
+
+# One minimal monolith result instance per request method, dumped via the same
+# `_dump_result` path the runner uses. Values are chosen so the dump satisfies
+# every `SERVER_RESULTS` row that method appears under.
+MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
+    "completion/complete": types.CompleteResult(completion=types.Completion(values=[])),
+    "initialize": types.InitializeResult(
+        protocol_version="2025-11-25",
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="server", version="1.0"),
+    ),
+    "logging/setLevel": types.EmptyResult(),
+    "ping": types.EmptyResult(),
+    "prompts/get": types.GetPromptResult(messages=[]),
+    "prompts/list": types.ListPromptsResult(prompts=[]),
+    "resources/list": types.ListResourcesResult(resources=[]),
+    "resources/read": types.ReadResourceResult(contents=[]),
+    "resources/subscribe": types.EmptyResult(),
+    "resources/templates/list": types.ListResourceTemplatesResult(resource_templates=[]),
+    "resources/unsubscribe": types.EmptyResult(),
+    "server/discover": types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="server", version="1.0"),
+    ),
+    "subscriptions/listen": types.EmptyResult(result_type="complete"),
+    "tools/call": types.CallToolResult(content=[]),
+    "tools/list": types.ListToolsResult(tools=[]),
+}
+
+
+@pytest.mark.parametrize(("method", "version"), sorted(methods.SERVER_RESULTS))
+def test_dumped_monolith_results_round_trip_through_validate_server_result(method: str, version: str):
+    """The outbound surface check must accept every correctly-typed handler return."""
+    instance = MONOLITH_RESULT_FIXTURES[method]
+    dumped = instance.model_dump(by_alias=True, mode="json", exclude_none=True)
+    methods.validate_server_result(method, version, dumped)
+
+
 def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():
     # Execute a fresh copy so the cache assertion is order-independent.
     spec = importlib.util.find_spec("mcp.types.methods")

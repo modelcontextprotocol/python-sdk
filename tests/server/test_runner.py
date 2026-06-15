@@ -770,6 +770,50 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
 
 
 @pytest.mark.anyio
+async def test_runner_spec_method_with_invalid_params_is_invalid_params_at_the_negotiated_version(server: SrvT):
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": 42})
+    assert exc.value.error.code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_runner_handler_returning_malformed_dict_for_spec_method_is_internal_error(server: SrvT):
+    async def bad_result(ctx: Ctx, params: PaginatedRequestParams | None) -> dict[str, Any]:
+        return {"tools": 42}
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, bad_result)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+    # Result body must not reach the client; detail belongs in the server log.
+    assert exc.value.error.data is None
+
+
+@pytest.mark.anyio
+async def test_runner_handler_returning_typed_monolith_result_passes_outbound_validation(server: SrvT):
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
+
+
+@pytest.mark.anyio
+async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT):
+    """No `SERVER_RESULTS` row for a custom method, so its result reaches the client as-is."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"anything": "goes"}
+
+    server.add_request_handler("custom/greet", RequestParams, custom)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("custom/greet", None)
+    assert result == {"anything": "goes"}
+
+
+@pytest.mark.anyio
 async def test_runner_initialize_result_reflects_init_options():
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
         raise NotImplementedError

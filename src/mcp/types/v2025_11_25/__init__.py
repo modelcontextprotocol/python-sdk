@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from mcp.types._wire_base import WireModel
-from pydantic import AnyUrl, Base64Str, ConfigDict, Field, RootModel
+from pydantic import ConfigDict, Field, RootModel
 
 
 class BaseMetadata(WireModel):
@@ -43,7 +43,7 @@ class BlobResourceContents(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    blob: Base64Str
+    blob: str
     """
     A base64-encoded string representing the binary data of the item.
     """
@@ -51,7 +51,7 @@ class BlobResourceContents(WireModel):
     """
     The MIME type of this resource, if known.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of this resource.
     """
@@ -416,7 +416,7 @@ class Icon(WireModel):
 
     If not provided, the client should assume that the icon can be used at any size.
     """
-    src: AnyUrl
+    src: str
     """
     A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a
     `data:` URI with Base64-encoded image data.
@@ -501,7 +501,7 @@ class Implementation(WireModel):
     if present).
     """
     version: str
-    website_url: Annotated[AnyUrl | None, Field(alias="websiteUrl")] = None
+    website_url: Annotated[str | None, Field(alias="websiteUrl")] = None
     """
     An optional URL of the website for this implementation.
     """
@@ -809,7 +809,7 @@ class ReadResourceRequestParams(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
     """
@@ -875,7 +875,7 @@ class ResourceContents(WireModel):
     """
     The MIME type of this resource, if known.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of this resource.
     """
@@ -906,7 +906,7 @@ class ResourceRequestParams(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
     """
@@ -939,7 +939,7 @@ class ResourceUpdatedNotificationParams(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
     """
@@ -980,7 +980,7 @@ class Root(WireModel):
     identifier for the root, which may be useful for display purposes or for
     referencing the root in other parts of the application.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI identifying the root. This *must* start with file:// for now.
     This restriction may be relaxed in future versions of the protocol to allow
@@ -1180,7 +1180,7 @@ class SubscribeRequestParams(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
     """
@@ -1224,7 +1224,7 @@ class TextResourceContents(WireModel):
     """
     The text of the item. This must only be set if the item can actually be represented as text (not binary data).
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of this resource.
     """
@@ -1516,7 +1516,7 @@ class UnsubscribeRequestParams(WireModel):
     """
     See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
     """
@@ -1648,7 +1648,7 @@ class AudioContent(WireModel):
     """
     Optional annotations for the client.
     """
-    data: Base64Str
+    data: str
     """
     The base64-encoded audio data.
     """
@@ -1787,7 +1787,7 @@ class ElicitRequestURLParams(WireModel):
     Task augmentation is subject to capability negotiation - receivers MUST declare support
     for task augmentation of specific request types in their capabilities.
     """
-    url: AnyUrl
+    url: str
     """
     The URL that the user should navigate to.
     """
@@ -1904,7 +1904,7 @@ class ImageContent(WireModel):
     """
     Optional annotations for the client.
     """
-    data: Base64Str
+    data: str
     """
     The base64-encoded image data.
     """
@@ -2292,7 +2292,7 @@ class Resource(WireModel):
     where `annotations.title` should be given precedence over using `name`,
     if present).
     """
-    uri: AnyUrl
+    uri: str
     """
     The URI of this resource.
     """
@@ -2358,7 +2358,7 @@ class ResourceLink(WireModel):
     if present).
     """
     type: Literal["resource_link"]
-    uri: AnyUrl
+    uri: str
     """
     The URI of this resource.
     """

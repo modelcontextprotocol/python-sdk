@@ -110,6 +110,9 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
             "--enum-field-as-literal", "all",
             "--use-union-operator", "--use-double-quotes",
             "--extra-fields", "allow",
+            # JSON Schema `format` is annotation-only; codegen's defaults
+            # (Base64Str, AnyUrl) over-assert and reject valid wire data.
+            "--type-mappings", "byte=string", "uri=string", "uri-template=string",
             "--disable-timestamp",
         ],
         capture_output=True, text=True,

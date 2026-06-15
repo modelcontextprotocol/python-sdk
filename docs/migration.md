@@ -225,6 +225,10 @@ Because `populate_by_name=True` is set, the old camelCase names still work as co
 
 Serialized results now include `resultType` by default (and `ttlMs`/`cacheScope` on cacheable results). Peers ignore unknown result fields, so this interoperates across protocol versions, but tests or recorded fixtures that compare exact serialized payloads need the new keys added.
 
+### Server handler results are validated against the protocol schema
+
+Results returned from server handlers are now validated against the negotiated protocol version's schema before being sent. A result that does not conform raises on the server side and the client receives an `INTERNAL_ERROR` response. The case most existing code will hit is `Tool.inputSchema`: the spec requires it to contain `"type": "object"`, so an empty `{}` is now rejected.
+
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
 The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
