@@ -348,9 +348,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The dispatcher drops null-id error responses with a debug log; v1 surfaced them to "
-                "message_handler as an MCPError. A typed fault channel restoring visibility is planned "
-                "before v2 stable."
+                "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
+                "non-nullable, so a null-id error response failed transport validation and the resulting "
+                "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
+                "restoring visibility is planned before v2 stable."
             ),
         ),
         deferred=(
