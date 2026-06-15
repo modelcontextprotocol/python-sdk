@@ -9,7 +9,7 @@ Provides OAuth providers for machine-to-machine authentication flows:
 
 import time
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -82,20 +82,22 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Perform client_credentials authorization."""
-        return await self._exchange_token_client_credentials()
+        return await self._exchange_token_client_credentials(headers=headers)
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Build token exchange request for client_credentials grant."""
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        request_headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        if headers:
+            request_headers.update(headers)
 
         # Use standard auth methods (client_secret_basic, client_secret_post, none)
-        token_data, headers = self.context.prepare_token_auth(token_data, headers)
+        token_data, request_headers = self.context.prepare_token_auth(token_data, request_headers)
 
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = self.context.get_resource_url()
@@ -104,7 +106,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx.Request("POST", token_url, data=token_data, headers=request_headers)
 
 
 def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
@@ -296,9 +298,9 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Perform client_credentials authorization with private_key_jwt."""
-        return await self._exchange_token_client_credentials()
+        return await self._exchange_token_client_credentials(headers=headers)
 
     async def _add_client_authentication_jwt(self, *, token_data: dict[str, Any]) -> None:
         """Add JWT assertion for client authentication to token endpoint parameters."""
@@ -314,13 +316,15 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Build token exchange request for client_credentials grant with private_key_jwt."""
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        request_headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        if headers:
+            request_headers.update(headers)
 
         # Add JWT client authentication (RFC 7523 Section 2.2)
         await self._add_client_authentication_jwt(token_data=token_data)
@@ -332,7 +336,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx.Request("POST", token_url, data=token_data, headers=request_headers)
 
 
 class JWTParameters(BaseModel):
@@ -419,21 +423,33 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         self.jwt_parameters = jwt_parameters
 
     async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = None
+        self,
+        auth_code: str,
+        code_verifier: str,
+        *,
+        token_data: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> httpx.Request:  # pragma: no cover
         """Build token exchange request for authorization_code flow."""
         token_data = token_data or {}
         if self.context.client_metadata.token_endpoint_auth_method == "private_key_jwt":
             self._add_client_authentication_jwt(token_data=token_data)
-        return await super()._exchange_token_authorization_code(auth_code, code_verifier, token_data=token_data)
+        return await super()._exchange_token_authorization_code(
+            auth_code,
+            code_verifier,
+            token_data=token_data,
+            headers=headers,
+        )
 
-    async def _perform_authorization(self) -> httpx.Request:  # pragma: no cover
+    async def _perform_authorization(
+        self, headers: Mapping[str, str] | None = None
+    ) -> httpx.Request:  # pragma: no cover
         """Perform the authorization flow."""
         if "urn:ietf:params:oauth:grant-type:jwt-bearer" in self.context.client_metadata.grant_types:
             token_request = await self._exchange_token_jwt_bearer()
             return token_request
         else:
-            return await super()._perform_authorization()
+            return await super()._perform_authorization(headers=headers)
 
     def _add_client_authentication_jwt(self, *, token_data: dict[str, Any]):  # pragma: no cover
         """Add JWT assertion for client authentication to token endpoint parameters."""

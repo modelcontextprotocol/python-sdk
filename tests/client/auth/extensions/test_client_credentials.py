@@ -253,6 +253,27 @@ class TestClientCredentialsOAuthProvider:
         assert "resource=https://api.example.com/v1/mcp" in content
 
     @pytest.mark.anyio
+    async def test_exchange_token_preserves_user_agent_header(self, mock_storage: MockTokenStorage):
+        """Test that client_credentials token requests preserve a caller User-Agent."""
+        provider = ClientCredentialsOAuthProvider(
+            server_url="https://api.example.com/v1/mcp",
+            storage=mock_storage,
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+        )
+        await provider._initialize()
+        provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://api.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://api.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://api.example.com/token"),
+        )
+
+        request = await provider._perform_authorization(headers={"User-Agent": "mcp-python-sdk/issue-1664"})
+
+        assert request.headers["User-Agent"] == "mcp-python-sdk/issue-1664"
+        assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+
+    @pytest.mark.anyio
     async def test_exchange_token_client_secret_post_includes_client_id(self, mock_storage: MockTokenStorage):
         """Test that client_secret_post includes both client_id and client_secret in body (RFC 6749 §2.3.1)."""
         provider = ClientCredentialsOAuthProvider(

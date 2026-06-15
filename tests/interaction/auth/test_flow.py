@@ -118,6 +118,34 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     assert storage.tokens.access_token in provider.access_tokens
 
 
+@requirement("client-transport:http:custom-headers")
+async def test_oauth_flow_preserves_custom_user_agent_on_auth_requests() -> None:
+    """OAuth requests keep the caller's User-Agent from the Streamable HTTP client."""
+    requests: list[httpx.Request] = []
+    server = Server("guarded", on_list_tools=list_tools)
+    user_agent = "mcp-python-sdk/issue-1664"
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=InMemoryAuthorizationServerProvider(),
+            headers={"User-Agent": user_agent},
+            on_request=requests.append,
+        ) as (client, _):
+            await client.list_tools()
+
+    auth_paths = {
+        "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/register",
+        "/token",
+    }
+    auth_requests = [request for request in requests if request.url.path in auth_paths]
+
+    assert {request.url.path for request in auth_requests} == auth_paths
+    assert all(request.headers["user-agent"] == user_agent for request in auth_requests)
+
+
 @requirement("hosting:auth:authinfo-propagates")
 async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() -> None:
     """A tool handler reads the request's access token through `get_access_token()`."""

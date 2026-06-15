@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
@@ -211,12 +212,18 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     return True, None
 
 
-def create_oauth_metadata_request(url: str) -> Request:
-    return Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+def create_oauth_metadata_request(url: str, headers: Mapping[str, str] | None = None) -> Request:
+    request_headers = {MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION}
+    if headers:
+        request_headers.update(headers)
+    return Request("GET", url, headers=request_headers)
 
 
 def create_client_registration_request(
-    auth_server_metadata: OAuthMetadata | None, client_metadata: OAuthClientMetadata, auth_base_url: str
+    auth_server_metadata: OAuthMetadata | None,
+    client_metadata: OAuthClientMetadata,
+    auth_base_url: str,
+    headers: Mapping[str, str] | None = None,
 ) -> Request:
     """Build a client registration request."""
 
@@ -227,7 +234,11 @@ def create_client_registration_request(
 
     registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-    return Request("POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"})
+    request_headers = {"Content-Type": "application/json"}
+    if headers:
+        request_headers.update(headers)
+
+    return Request("POST", registration_url, json=registration_data, headers=request_headers)
 
 
 async def handle_registration_response(response: Response) -> OAuthClientInformationFull:

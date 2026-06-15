@@ -394,6 +394,7 @@ async def connect_with_oauth(
     client_metadata_url: str | None = None,
     headless: HeadlessOAuth | None = None,
     auth: httpx.Auth | None = None,
+    headers: Mapping[str, str] | None = None,
     verify_tokens: bool = True,
     app_shim: Callable[[ASGIApp], ASGIApp] | None = None,
     on_request: Callable[[httpx.Request], None] | None = None,
@@ -455,7 +456,11 @@ async def connect_with_oauth(
         await stack.enter_async_context(server.session_manager.run())
         http_client = await stack.enter_async_context(
             httpx.AsyncClient(
-                transport=StreamingASGITransport(app), base_url=BASE_URL, auth=oauth, event_hooks=event_hooks
+                transport=StreamingASGITransport(app),
+                base_url=BASE_URL,
+                auth=oauth,
+                headers=headers,
+                event_hooks=event_hooks,
             )
         )
         headless.bind(http_client)

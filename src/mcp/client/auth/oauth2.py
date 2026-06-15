@@ -9,7 +9,7 @@ import logging
 import secrets
 import string
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import quote, urlencode, urljoin, urlparse
@@ -303,10 +303,10 @@ class OAuthClientProvider(httpx.Auth):
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Perform the authorization flow."""
         auth_code, code_verifier = await self._perform_authorization_code_grant()
-        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier, headers=headers)
         return token_request
 
     async def _perform_authorization_code_grant(self) -> tuple[str, str]:
@@ -376,7 +376,12 @@ class OAuthClientProvider(httpx.Auth):
         return token_url
 
     async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
+        self,
+        auth_code: str,
+        code_verifier: str,
+        *,
+        token_data: dict[str, Any] | None = {},
+        headers: Mapping[str, str] | None = None,
     ) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
@@ -401,10 +406,12 @@ class OAuthClientProvider(httpx.Auth):
             token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_data, headers = self.context.prepare_token_auth(token_data, headers)
+        request_headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if headers:
+            request_headers.update(headers)
+        token_data, request_headers = self.context.prepare_token_auth(token_data, request_headers)
 
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx.Request("POST", token_url, data=token_data, headers=request_headers)
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
@@ -421,7 +428,7 @@ class OAuthClientProvider(httpx.Auth):
         self.context.update_token_expiry(token_response)
         await self.context.storage.set_tokens(token_response)
 
-    async def _refresh_token(self) -> httpx.Request:
+    async def _refresh_token(self, headers: Mapping[str, str] | None = None) -> httpx.Request:
         """Build token refresh request."""
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
@@ -446,10 +453,12 @@ class OAuthClientProvider(httpx.Auth):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
+        request_headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if headers:
+            request_headers.update(headers)
+        refresh_data, request_headers = self.context.prepare_token_auth(refresh_data, request_headers)
 
-        return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
+        return httpx.Request("POST", token_url, data=refresh_data, headers=request_headers)
 
     async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
@@ -483,6 +492,11 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.current_tokens and self.context.current_tokens.access_token:  # pragma: no branch
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
+    def _auth_flow_request_headers(self, request: httpx.Request) -> dict[str, str]:
+        """Headers that are safe to carry from the MCP request into OAuth requests."""
+        user_agent = request.headers.get("User-Agent")
+        return {"User-Agent": user_agent} if user_agent else {}
+
     async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
@@ -510,10 +524,11 @@ class OAuthClientProvider(httpx.Auth):
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+            auth_flow_headers = self._auth_flow_request_headers(request)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
-                refresh_request = await self._refresh_token()
+                refresh_request = await self._refresh_token(headers=auth_flow_headers)
                 refresh_response = yield refresh_request
 
                 if not await self._handle_refresh_response(refresh_response):
@@ -537,7 +552,7 @@ class OAuthClientProvider(httpx.Auth):
                     )
 
                     for url in prm_discovery_urls:  # pragma: no branch
-                        discovery_request = create_oauth_metadata_request(url)
+                        discovery_request = create_oauth_metadata_request(url, headers=auth_flow_headers)
 
                         discovery_response = yield discovery_request  # sending request
 
@@ -563,7 +578,7 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
                     for url in asm_discovery_urls:  # pragma: no branch
-                        oauth_metadata_request = create_oauth_metadata_request(url)
+                        oauth_metadata_request = create_oauth_metadata_request(url, headers=auth_flow_headers)
                         oauth_metadata_response = yield oauth_metadata_request
 
                         ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
@@ -602,6 +617,7 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.oauth_metadata,
                                 self.context.client_metadata,
                                 self.context.get_authorization_base_url(self.context.server_url),
+                                headers=auth_flow_headers,
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
@@ -609,7 +625,7 @@ class OAuthClientProvider(httpx.Auth):
                             await self.context.storage.set_client_info(client_information)
 
                     # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
+                    token_response = yield await self._perform_authorization(headers=auth_flow_headers)
                     await self._handle_token_response(token_response)
                 except Exception:
                     logger.exception("OAuth flow error")
@@ -634,7 +650,7 @@ class OAuthClientProvider(httpx.Auth):
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange
-                        token_response = yield await self._perform_authorization()
+                        token_response = yield await self._perform_authorization(headers=auth_flow_headers)
                         await self._handle_token_response(token_response)
                     except Exception:  # pragma: no cover
                         logger.exception("OAuth flow error")
