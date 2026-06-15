@@ -64,7 +64,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,30 @@ RequestHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awa
 
 NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[None]]
 """A registered notification handler: `(ctx, params) -> None`."""
+
+
+def _make_transport_builder(
+    transport_kind: str | None,
+    transport_can_send_request: bool | None,
+) -> Callable[[MessageMetadata], TransportContext]:
+    """Build per-message transport metadata from the transport's message wrapper."""
+
+    def build_transport_context(metadata: MessageMetadata) -> TransportContext:
+        request = metadata.request_context if isinstance(metadata, ServerMessageMetadata) else None
+        headers = getattr(request, "headers", None)
+        query_params = getattr(request, "query_params", None)
+
+        kind = transport_kind
+        if kind is None and request is not None:
+            kind = "sse" if query_params is not None and query_params.get("session_id") else "streamable-http"
+
+        return TransportContext(
+            kind=kind or "jsonrpc",
+            can_send_request=transport_can_send_request if transport_can_send_request is not None else True,
+            headers=headers,
+        )
+
+    return build_transport_context
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,11 +430,14 @@ class Server(Generic[LifespanResultT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
+        transport_kind: str | None = None,
+        transport_can_send_request: bool | None = None,
     ) -> None:
         async with self.lifespan(self) as lifespan_context:
             dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
                 read_stream,
                 write_stream,
+                transport_builder=_make_transport_builder(transport_kind, transport_can_send_request),
                 raise_handler_exceptions=raise_exceptions,
                 # Handle `initialize` inline so a client that pipelines it with
                 # the next request (spec says SHOULD NOT, not MUST NOT) sees

@@ -761,6 +761,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="Context.read_resource reads a resource registered on the same server from inside a tool.",
     ),
+    "mcpserver:context:transport-metadata": Requirement(
+        source="issue:#2098",
+        behavior=(
+            "Context exposes the current transport metadata, session id, HTTP request, headers, and auth token "
+            "to tool handlers."
+        ),
+        issue="https://github.com/modelcontextprotocol/python-sdk/issues/2098",
+    ),
+    "lowlevel:context:transport-metadata": Requirement(
+        source="issue:#2098",
+        behavior=(
+            "ServerRequestContext exposes the current transport metadata, session id, HTTP request, headers, and "
+            "auth token to low-level handlers."
+        ),
+        issue="https://github.com/modelcontextprotocol/python-sdk/issues/2098",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Resources
     # ═══════════════════════════════════════════════════════════════════════════

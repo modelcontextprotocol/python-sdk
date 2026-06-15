@@ -350,6 +350,7 @@ class ServerRunner(Generic[LifespanT]):
             request_id=dctx.request_id,
             meta=meta,
             request=request,
+            transport=dctx.transport,
             close_sse_stream=close_sse_stream,
             close_standalone_sse_stream=close_standalone_sse_stream,
         )

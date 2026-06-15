@@ -7,13 +7,15 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import pytest
 
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.connection import Connection
-from mcp.server.context import Context
+from mcp.server.context import Context, ServerRequestContext
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.transport_context import TransportContext
 
@@ -26,6 +28,40 @@ DCtx = DispatchContext[TransportContext]
 @dataclass
 class _Lifespan:
     name: str
+
+
+@dataclass
+class _RequestWithHeaders:
+    headers: Mapping[str, str]
+
+
+@dataclass
+class _RequestWithUser:
+    scope: Mapping[str, Any]
+
+
+def test_server_request_context_reads_headers_from_request_object():
+    ctx = ServerRequestContext(
+        session=cast(Any, object()),
+        lifespan_context={},
+        request=_RequestWithHeaders({"x-test": "present"}),
+        transport=TransportContext(kind="jsonrpc", can_send_request=True),
+    )
+
+    assert ctx.headers == {"x-test": "present"}
+    assert ctx.session_id is None
+
+
+def test_server_request_context_reads_access_token_from_request_user():
+    access_token = AccessToken(token="secret", client_id="client-1", scopes=["tools"])
+    ctx = ServerRequestContext(
+        session=cast(Any, object()),
+        lifespan_context={},
+        request=_RequestWithUser({"user": AuthenticatedUser(access_token)}),
+        transport=TransportContext(kind="streamable-http", can_send_request=True),
+    )
+
+    assert ctx.access_token == access_token
 
 
 @pytest.mark.anyio

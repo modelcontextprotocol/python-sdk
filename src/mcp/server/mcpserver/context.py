@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
 
+from mcp.server.auth.provider import AccessToken
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
     ElicitationResult,
@@ -14,6 +15,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.shared.transport_context import TransportContext
 from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
@@ -227,6 +229,31 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def session(self):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
+
+    @property
+    def transport(self) -> TransportContext:
+        """Transport-specific metadata for this request."""
+        return self.request_context.transport
+
+    @property
+    def session_id(self) -> str | None:
+        """The transport's session id for this connection, when one exists."""
+        return self.request_context.session_id
+
+    @property
+    def request(self) -> RequestT | None:
+        """The HTTP request object for this message, when the transport has one."""
+        return self.request_context.request
+
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        """Request headers carried by this message, when the transport has them."""
+        return self.request_context.headers
+
+    @property
+    def access_token(self) -> AccessToken | None:
+        """The OAuth access token for the current request, if authentication ran."""
+        return self.request_context.access_token
 
     async def close_sse_stream(self) -> None:
         """Close the SSE stream to trigger client reconnection.

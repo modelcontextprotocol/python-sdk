@@ -936,7 +936,10 @@ class MCPServer(Generic[LifespanResultT]):
 
             async with sse.connect_sse(scope, receive, send) as streams:
                 await self._lowlevel_server.run(
-                    streams[0], streams[1], self._lowlevel_server.create_initialization_options()
+                    streams[0],
+                    streams[1],
+                    self._lowlevel_server.create_initialization_options(),
+                    transport_kind="sse",
                 )
             return Response()
 

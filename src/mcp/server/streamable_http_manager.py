@@ -178,6 +178,8 @@ class StreamableHTTPSessionManager:
                         write_stream,
                         self.app.create_initialization_options(),
                         stateless=True,
+                        transport_kind="streamable-http",
+                        transport_can_send_request=False,
                     )
                 except Exception:  # pragma: lax no cover
                     logger.exception("Stateless session crashed")
@@ -268,6 +270,8 @@ class StreamableHTTPSessionManager:
                                     write_stream,
                                     self.app.create_initialization_options(),
                                     stateless=False,
+                                    transport_kind="streamable-http",
+                                    transport_can_send_request=not self.json_response,
                                 )
 
                             if idle_scope.cancelled_caught:

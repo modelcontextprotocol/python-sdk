@@ -1,10 +1,13 @@
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
-from typing import Any, Generic, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Generic, Protocol, cast
 
 from pydantic import BaseModel
 from typing_extensions import TypeVar
 
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.context import BaseContext
@@ -34,8 +37,48 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None
     request: RequestT | None = None
+    transport: TransportContext = field(
+        default_factory=lambda: TransportContext(kind="unknown", can_send_request=False)
+    )
     close_sse_stream: CloseSSEStreamCallback | None = None
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
+
+    @property
+    def session_id(self) -> str | None:
+        """The transport's session id for this request, when one exists."""
+        headers = self.headers
+        if headers is not None:
+            header_session_id = headers.get("mcp-session-id")
+            if header_session_id is not None:
+                return header_session_id
+        query_params = getattr(self.request, "query_params", None)
+        if query_params is None:
+            return None
+        return query_params.get("session_id") or query_params.get("sessionId")
+
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        """Request headers carried by this message, when the transport has them.
+
+        HTTP-based transports expose headers through their request object while
+        direct/in-memory transports may provide them directly on the transport.
+        """
+        if self.transport.headers is not None:
+            return self.transport.headers
+        request_headers = getattr(self.request, "headers", None)
+        if request_headers is None:
+            return None
+        return request_headers
+
+    @property
+    def access_token(self) -> AccessToken | None:
+        """The OAuth access token for the current request, if authentication ran."""
+        scope = getattr(self.request, "scope", None)
+        typed_scope = cast("Mapping[str, object]", scope) if isinstance(scope, Mapping) else None
+        user = typed_scope.get("user") if typed_scope is not None else None
+        if isinstance(user, AuthenticatedUser):
+            return user.access_token
+        return get_access_token()
 
 
 # Covariant: `lifespan` is exposed read-only, so a `Context[AppState]` passes as `Context[object]`.
