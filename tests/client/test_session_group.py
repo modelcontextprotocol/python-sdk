@@ -296,6 +296,18 @@ async def test_client_session_group_context_manager_with_provided_exit_stack():
     session_stack.aclose.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_client_session_group_context_manager_with_owned_exit_stack():
+    """Owned exit stacks are entered and closed by the session group."""
+    session_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    session = mock.Mock(spec=mcp.ClientSession)
+
+    async with ClientSessionGroup() as group:
+        group._session_exit_stacks[session] = session_stack
+
+    session_stack.aclose.assert_awaited_once()
+
+
 # TODO(Marcelo): This is horrible. We should drop this test.
 @pytest.mark.anyio
 @pytest.mark.parametrize(
