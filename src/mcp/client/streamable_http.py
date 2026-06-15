@@ -468,25 +468,33 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async() -> None:
-                        try:
-                            if is_resumption:
-                                await self._handle_resumption_request(ctx)
-                            else:
-                                await self._handle_post_request(ctx)
-                        except httpx.HTTPError as exc:
-                            logger.exception("Transport error handling request")
-                            if isinstance(message, JSONRPCRequest):
+                    # If this is a request, start a new task to handle it
+                    if isinstance(message, JSONRPCRequest):
+                        request_id = message.id
+
+                        async def handle_request_async() -> None:
+                            try:
+                                if is_resumption:
+                                    await self._handle_resumption_request(ctx)
+                                else:
+                                    await self._handle_post_request(ctx)
+                            except httpx.HTTPError as exc:
+                                logger.exception("Transport error handling request")
                                 error_data = ErrorData(code=INTERNAL_ERROR, message=f"Transport error: {exc}")
-                                error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+                                error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
                                 with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
                                     await read_stream_writer.send(error_msg)
 
-                    # If this is a request, start a new task to handle it
-                    if isinstance(message, JSONRPCRequest):
                         tg.start_soon(handle_request_async)
                     else:
-                        await handle_request_async()
+
+                        async def handle_notification_async() -> None:
+                            try:
+                                await self._handle_post_request(ctx)
+                            except httpx.HTTPError:
+                                logger.debug("Transport error handling notification", exc_info=True)
+
+                        await handle_notification_async()
 
                 async for session_message in write_stream_reader:
                     sender_ctx = write_stream_reader.last_context
