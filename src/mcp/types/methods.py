@@ -1,8 +1,12 @@
-"""Per-version method maps and parse functions for inbound MCP traffic.
+"""Per-version method maps and parse/serialize functions for MCP traffic.
 
-Surface maps key `(method, version)` to schema-exact types (key absence is the
-version gate); monolith maps key `method` to the version-free `mcp.types` models
-user code receives. Session-layer wiring is a follow-up."""
+This module is supported public API; the `mcp.types.v*` packages it draws on
+are internal validators and not for direct import.
+
+Surface maps key `(method, version)` to per-version wire types (key absence is
+the version gate; shape validation is per schema era, i.e. 2025-11-25 for every
+pre-2026 version and 2026-07-28 for 2026). Monolith maps key `method` to the
+version-free `mcp.types` models user code receives."""
 
 from __future__ import annotations
 
@@ -34,6 +38,7 @@ __all__ = [
     "parse_server_notification",
     "parse_server_request",
     "parse_server_result",
+    "serialize_server_result",
     "validate_client_notification",
     "validate_client_request",
     "validate_server_result",
@@ -459,9 +464,9 @@ def parse_client_request(
     """Validate a client request against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 
@@ -486,9 +491,9 @@ def parse_server_request(
     """Validate a server request against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 
@@ -533,9 +538,9 @@ def parse_client_notification(
     """Validate a client notification against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 
@@ -560,9 +565,9 @@ def parse_server_notification(
     """Validate a server notification against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 
@@ -576,6 +581,30 @@ def parse_server_notification(
     surface_type = surface[(method, version)]
     surface_type.model_validate({**_NOTIFICATION_STUB, **_body(method, params)}, by_name=False)
     return _monolith_row(monolith, method).model_validate(_body(method, params), by_name=False)
+
+
+def serialize_server_result(
+    method: str,
+    version: str,
+    data: Mapping[str, Any],
+    *,
+    surface: Mapping[tuple[str, str], type[BaseModel] | UnionType] = SERVER_RESULTS,
+) -> dict[str, Any]:
+    """Validate `data` against `surface` and return its surface-shaped dump.
+
+    The surface model carries `extra="ignore"`, so fields not in `version`'s
+    schema are dropped from the returned dict.
+
+    Raises:
+        ValueError: `version` is not a known protocol version.
+        KeyError: `(method, version)` is not in `surface`.
+        pydantic.ValidationError: result fails surface validation.
+    """
+    _check_known_version(version)
+    adapter = _adapter(surface[(method, version)])
+    return adapter.dump_python(
+        adapter.validate_python(data, by_name=False), by_alias=True, mode="json", exclude_none=True
+    )
 
 
 def validate_server_result(
@@ -592,8 +621,7 @@ def validate_server_result(
         KeyError: `(method, version)` is not in `surface`.
         pydantic.ValidationError: result fails surface validation.
     """
-    _check_known_version(version)
-    _adapter(surface[(method, version)]).validate_python(data, by_name=False)
+    serialize_server_result(method, version, data, surface=surface)
 
 
 def parse_server_result(
@@ -607,9 +635,9 @@ def parse_server_result(
     """Validate a server result against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 
@@ -635,9 +663,9 @@ def parse_client_result(
     """Validate a client result against `surface`, then parse and return its `monolith` model.
 
     Args:
-        surface: `(method, version)` to schema-exact type map; the version-gate
-            lookup and shape check run against this. Pass an extended map to
-            admit custom methods.
+        surface: `(method, version)` to wire-type map; the version-gate lookup
+            and (per-schema-era) shape check run against this. Pass an extended
+            map to admit custom methods.
         monolith: `method` to version-free model map; the returned instance is
             parsed from this row. Must cover every method `surface` admits.
 

@@ -749,8 +749,8 @@ def test_validate_functions_accept_reject_and_gate_like_their_parse_siblings():
 
 
 # One minimal monolith result instance per request method, dumped via the same
-# `_dump_result` path the runner uses. Values are chosen so the dump satisfies
-# every `SERVER_RESULTS` row that method appears under.
+# `_dump_result` path the runner uses. Cacheable results set `ttl_ms`/`cache_scope`
+# explicitly because the monolith no longer defaults them and 2026 requires them.
 MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "completion/complete": types.CompleteResult(completion=types.Completion(values=[])),
     "initialize": types.InitializeResult(
@@ -761,29 +761,92 @@ MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "logging/setLevel": types.EmptyResult(),
     "ping": types.EmptyResult(),
     "prompts/get": types.GetPromptResult(messages=[]),
-    "prompts/list": types.ListPromptsResult(prompts=[]),
-    "resources/list": types.ListResourcesResult(resources=[]),
-    "resources/read": types.ReadResourceResult(contents=[]),
+    "prompts/list": types.ListPromptsResult(prompts=[], ttl_ms=0, cache_scope="private"),
+    "resources/list": types.ListResourcesResult(resources=[], ttl_ms=0, cache_scope="private"),
+    "resources/read": types.ReadResourceResult(contents=[], ttl_ms=0, cache_scope="private"),
     "resources/subscribe": types.EmptyResult(),
-    "resources/templates/list": types.ListResourceTemplatesResult(resource_templates=[]),
+    "resources/templates/list": types.ListResourceTemplatesResult(
+        resource_templates=[], ttl_ms=0, cache_scope="private"
+    ),
     "resources/unsubscribe": types.EmptyResult(),
     "server/discover": types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=types.ServerCapabilities(),
         server_info=types.Implementation(name="server", version="1.0"),
+        ttl_ms=0,
+        cache_scope="private",
     ),
     "subscriptions/listen": types.EmptyResult(result_type="complete"),
     "tools/call": types.CallToolResult(content=[]),
-    "tools/list": types.ListToolsResult(tools=[]),
+    "tools/list": types.ListToolsResult(tools=[], ttl_ms=0, cache_scope="private"),
 }
+
+CACHEABLE_METHODS = frozenset(m for m, r in MONOLITH_RESULT_FIXTURES.items() if isinstance(r, types.CacheableResult))
 
 
 @pytest.mark.parametrize(("method", "version"), sorted(methods.SERVER_RESULTS))
-def test_dumped_monolith_results_round_trip_through_validate_server_result(method: str, version: str):
-    """The outbound surface check must accept every correctly-typed handler return."""
+def test_dumped_monolith_results_round_trip_through_serialize_server_result(method: str, version: str):
+    """The outbound sieve must accept every correctly-typed handler return and re-validate."""
     instance = MONOLITH_RESULT_FIXTURES[method]
     dumped = instance.model_dump(by_alias=True, mode="json", exclude_none=True)
-    methods.validate_server_result(method, version, dumped)
+    sieved = methods.serialize_server_result(method, version, dumped)
+    methods.validate_server_result(method, version, sieved)
+
+
+PRE_2026 = [v for v in KNOWN_PROTOCOL_VERSIONS if v < "2026-07-28"]
+
+
+@pytest.mark.parametrize(("method", "version"), [k for k in sorted(methods.SERVER_RESULTS) if k[1] in PRE_2026])
+def test_serialize_server_result_drops_2026_only_keys_at_pre_2026_versions(method: str, version: str):
+    instance = MONOLITH_RESULT_FIXTURES[method]
+    dumped = instance.model_dump(by_alias=True, mode="json", exclude_none=True)
+    sieved = methods.serialize_server_result(method, version, dumped)
+    if getattr(instance, "result_type", None) is not None:
+        assert "resultType" in dumped
+    assert "resultType" not in sieved
+    if method in CACHEABLE_METHODS:
+        assert "ttlMs" in dumped and "cacheScope" in dumped
+    assert "ttlMs" not in sieved
+    assert "cacheScope" not in sieved
+
+
+def test_serialize_server_result_keeps_2026_only_keys_at_2026_07_28():
+    dumped = MONOLITH_RESULT_FIXTURES["tools/list"].model_dump(by_alias=True, mode="json", exclude_none=True)
+    sieved = methods.serialize_server_result("tools/list", "2026-07-28", dumped)
+    assert sieved["resultType"] == "complete"
+    assert sieved["ttlMs"] == 0
+    assert sieved["cacheScope"] == "private"
+
+
+@pytest.mark.parametrize("version", KNOWN_PROTOCOL_VERSIONS)
+def test_serialize_server_result_preserves_arbitrary_meta_value_identically(version: str):
+    meta = {"custom-key": 1, "modelcontextprotocol.io/foo": "bar"}
+    dumped: dict[str, Any] = {"tools": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private", "_meta": meta}
+    sieved = methods.serialize_server_result("tools/list", version, dumped)
+    assert sieved["_meta"] == meta
+
+
+def test_serialize_server_result_preserves_open_type_extras():
+    """`inputSchema` and nested `_meta` are open key-value bags; the sieve must not strip them."""
+    input_schema = {"type": "object", "title": "X", "additionalProperties": False, "$defs": {"Y": {"type": "string"}}}
+    nested_meta = {"com.example/tag": "v"}
+    tool = {"name": "echo", "inputSchema": input_schema, "_meta": nested_meta}
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
+    assert sieved["tools"][0]["inputSchema"] == input_schema
+    assert sieved["tools"][0]["_meta"] == nested_meta
+
+
+def test_serialize_server_result_drops_an_unknown_nested_tool_field():
+    tool = {"name": "echo", "inputSchema": {"type": "object"}, "unknownField": 1}
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool], "resultType": "complete"})
+    assert sieved == {"tools": [{"name": "echo", "inputSchema": {"type": "object"}}]}
+
+
+def test_serialize_server_result_raises_key_error_for_an_absent_row_and_value_error_for_an_unknown_version():
+    with pytest.raises(KeyError):
+        methods.serialize_server_result("server/discover", "2025-11-25", {})
+    with pytest.raises(ValueError):
+        methods.serialize_server_result("ping", "2099-01-01", {})
 
 
 def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():

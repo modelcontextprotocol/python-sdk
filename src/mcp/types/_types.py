@@ -185,16 +185,15 @@ class PaginatedResult(Result):
 class CacheableResult(Result):
     """Base class for results that carry client-side caching directives (2026-07-28).
 
-    Both fields are required on the 2026-07-28 wire and always serialized by
-    this SDK; older peers ignore the extra keys. The defaults are SDK choices
-    (the schema declares none).
+    Both fields are required on the 2026-07-28 wire; the SDK declares no
+    default, so a handler answering at 2026-07-28 must set them explicitly.
     """
 
-    ttl_ms: Annotated[int, Field(ge=0)] = 0
+    ttl_ms: Annotated[int, Field(ge=0)] | None = None
     """How long (ms) the client MAY cache this response, analogous to HTTP
     `Cache-Control: max-age`. 0 means immediately stale."""
 
-    cache_scope: Literal["public", "private"] = "private"
+    cache_scope: Literal["public", "private"] | None = None
     """Analogous to HTTP `Cache-Control: public` vs `private`: "public" allows
     shared caches to serve the response to any user; "private" forbids that."""
 
@@ -203,9 +202,10 @@ class EmptyResult(Result):
     """A result that indicates success but carries no data.
 
     `result_type` defaults to None so this dumps as `{}`: deployed TypeScript
-    and Rust SDK clients validate empty results strictly and reject extra keys.
-    The 2026-07-28 schema requires `resultType`, so code answering an empty
-    result on a 2026-07-28+ session must pass `result_type="complete"`.
+    and Rust SDK peers (clients and servers) validate empty results strictly
+    and reject extra keys. The 2026-07-28 schema requires `resultType`, so code
+    answering an empty result on a 2026-07-28+ session must pass
+    `result_type="complete"`.
     """
 
     result_type: ResultType | None = None

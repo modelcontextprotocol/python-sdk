@@ -18,7 +18,7 @@ class BaseMetadata(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     name: str
     """
@@ -37,7 +37,7 @@ class BaseMetadata(WireModel):
 
 class BlobResourceContents(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -59,7 +59,7 @@ class BlobResourceContents(WireModel):
 
 class BooleanSchema(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: bool | None = None
     description: str | None = None
@@ -69,7 +69,7 @@ class BooleanSchema(WireModel):
 
 class Params(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     task_id: Annotated[str, Field(alias="taskId")]
     """
@@ -83,7 +83,7 @@ class Elicitation(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     form: dict[str, Any] | None = None
     url: dict[str, Any] | None = None
@@ -95,7 +95,7 @@ class Roots(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
@@ -109,7 +109,7 @@ class Sampling(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     context: dict[str, Any] | None = None
     """
@@ -128,7 +128,7 @@ class Elicitation1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     create: dict[str, Any] | None = None
     """
@@ -142,7 +142,7 @@ class Sampling1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     create_message: Annotated[dict[str, Any] | None, Field(alias="createMessage")] = None
     """
@@ -156,7 +156,7 @@ class Requests(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     elicitation: Elicitation1 | None = None
     """
@@ -174,7 +174,7 @@ class Tasks(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     cancel: dict[str, Any] | None = None
     """
@@ -196,7 +196,7 @@ class ClientCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     elicitation: Elicitation | None = None
     """
@@ -226,7 +226,7 @@ class Argument(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     name: str
     """
@@ -244,7 +244,7 @@ class Context(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     arguments: dict[str, str] | None = None
     """
@@ -254,7 +254,7 @@ class Context(WireModel):
 
 class Completion(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     has_more: Annotated[bool | None, Field(alias="hasMore")] = None
     """
@@ -276,7 +276,7 @@ class CompleteResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -298,7 +298,7 @@ class ElicitResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -321,7 +321,7 @@ class ElicitResult(WireModel):
 
 class Params1(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     elicitation_id: Annotated[str, Field(alias="elicitationId")]
     """
@@ -335,7 +335,7 @@ class ElicitationCompleteNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/elicitation/complete"]
@@ -344,7 +344,7 @@ class ElicitationCompleteNotification(WireModel):
 
 class Error(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     code: int
     """
@@ -362,7 +362,7 @@ class Error(WireModel):
 
 class Params2(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     task_id: Annotated[str, Field(alias="taskId")]
     """
@@ -388,7 +388,7 @@ class GetTaskPayloadResult(WireModel):
 
 class Params3(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     task_id: Annotated[str, Field(alias="taskId")]
     """
@@ -402,7 +402,7 @@ class Icon(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     mime_type: Annotated[str | None, Field(alias="mimeType")] = None
     """
@@ -443,7 +443,7 @@ class Icons(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     icons: list[Icon] | None = None
     """
@@ -465,7 +465,7 @@ class Implementation(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     description: str | None = None
     """
@@ -513,7 +513,7 @@ class JSONRPCNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: str
@@ -527,7 +527,7 @@ class LegacyTitledEnumSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: str | None = None
     description: str | None = None
@@ -570,7 +570,7 @@ class LoggingMessageNotificationParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -599,7 +599,7 @@ class ModelHint(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     name: str | None = None
     """
@@ -631,7 +631,7 @@ class ModelPreferences(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     cost_priority: Annotated[float | None, Field(alias="costPriority", ge=0.0, le=1.0)] = None
     """
@@ -665,7 +665,7 @@ class ModelPreferences(WireModel):
 
 class Notification(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     method: str
     params: dict[str, Any] | None = None
@@ -673,7 +673,7 @@ class Notification(WireModel):
 
 class NotificationParams(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -683,7 +683,7 @@ class NotificationParams(WireModel):
 
 class NumberSchema(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: float | None = None
     description: str | None = None
@@ -695,7 +695,7 @@ class NumberSchema(WireModel):
 
 class PaginatedResult(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -721,7 +721,7 @@ class PromptArgument(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     description: str | None = None
     """
@@ -752,7 +752,7 @@ class PromptListChangedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/prompts/list_changed"]
@@ -765,7 +765,7 @@ class PromptReference(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     name: str
     """
@@ -803,7 +803,7 @@ class ReadResourceRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -822,7 +822,7 @@ class RelatedTaskMetadata(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     task_id: Annotated[str, Field(alias="taskId")]
     """
@@ -832,7 +832,7 @@ class RelatedTaskMetadata(WireModel):
 
 class Request(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     method: str
     params: dict[str, Any] | None = None
@@ -851,7 +851,7 @@ class RequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -865,7 +865,7 @@ class ResourceContents(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -887,7 +887,7 @@ class ResourceListChangedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/resources/list_changed"]
@@ -900,7 +900,7 @@ class ResourceRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -918,7 +918,7 @@ class ResourceTemplateReference(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     type: Literal["ref/resource"]
     uri: str
@@ -933,7 +933,7 @@ class ResourceUpdatedNotificationParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -968,7 +968,7 @@ class Root(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -996,7 +996,7 @@ class RootsListChangedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/roots/list_changed"]
@@ -1009,7 +1009,7 @@ class Prompts(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
@@ -1023,7 +1023,7 @@ class Resources(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
@@ -1041,7 +1041,7 @@ class Tools(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     call: dict[str, Any] | None = None
     """
@@ -1055,7 +1055,7 @@ class Requests1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     tools: Tools | None = None
     """
@@ -1069,7 +1069,7 @@ class Tasks1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     cancel: dict[str, Any] | None = None
     """
@@ -1091,7 +1091,7 @@ class Tools1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     list_changed: Annotated[bool | None, Field(alias="listChanged")] = None
     """
@@ -1105,7 +1105,7 @@ class ServerCapabilities(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     completions: dict[str, Any] | None = None
     """
@@ -1143,7 +1143,7 @@ class SetLevelRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1157,7 +1157,7 @@ class SetLevelRequestParams(WireModel):
 
 class StringSchema(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: str | None = None
     description: str | None = None
@@ -1174,7 +1174,7 @@ class SubscribeRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1193,7 +1193,7 @@ class TaskMetadata(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     ttl: int | None = None
     """
@@ -1210,7 +1210,7 @@ class TaskStatus(RootModel[Literal["cancelled", "completed", "failed", "input_re
 
 class TextResourceContents(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1232,7 +1232,7 @@ class TextResourceContents(WireModel):
 
 class AnyOfItem(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     const: str
     """
@@ -1250,7 +1250,7 @@ class Items(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     any_of: Annotated[list[AnyOfItem], Field(alias="anyOf")]
     """
@@ -1264,7 +1264,7 @@ class TitledMultiSelectEnumSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: list[str] | None = None
     """
@@ -1295,7 +1295,7 @@ class TitledMultiSelectEnumSchema(WireModel):
 
 class OneOfItem(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     const: str
     """
@@ -1313,7 +1313,7 @@ class TitledSingleSelectEnumSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: str | None = None
     """
@@ -1379,7 +1379,7 @@ class ToolAnnotations(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     destructive_hint: Annotated[bool | None, Field(alias="destructiveHint")] = None
     """
@@ -1426,7 +1426,7 @@ class ToolChoice(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     mode: Literal["auto", "none", "required"] | None = None
     """
@@ -1443,7 +1443,7 @@ class ToolExecution(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     task_support: Annotated[Literal["forbidden", "optional", "required"] | None, Field(alias="taskSupport")] = None
     """
@@ -1465,7 +1465,7 @@ class ToolListChangedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/tools/list_changed"]
@@ -1478,7 +1478,7 @@ class ToolUseContent(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1510,7 +1510,7 @@ class UnsubscribeRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1528,7 +1528,7 @@ class Items1(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     enum: list[str]
     """
@@ -1543,7 +1543,7 @@ class UntitledMultiSelectEnumSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: list[str] | None = None
     """
@@ -1578,7 +1578,7 @@ class UntitledSingleSelectEnumSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     default: str | None = None
     """
@@ -1605,7 +1605,7 @@ class Annotations(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     audience: list[Role] | None = None
     """
@@ -1638,7 +1638,7 @@ class AudioContent(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1665,7 +1665,7 @@ class CallToolRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1696,7 +1696,7 @@ class CancelTaskRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -1710,7 +1710,7 @@ class CancelledNotificationParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1736,7 +1736,7 @@ class CompleteRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1759,7 +1759,7 @@ class ElicitRequestURLParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1802,7 +1802,7 @@ class EmbeddedResource(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1844,7 +1844,7 @@ class GetPromptRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1866,7 +1866,7 @@ class GetTaskPayloadRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -1880,7 +1880,7 @@ class GetTaskRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -1894,7 +1894,7 @@ class ImageContent(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1921,7 +1921,7 @@ class InitializeRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -1941,7 +1941,7 @@ class InitializeResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -1967,7 +1967,7 @@ class InitializedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/initialized"]
@@ -1980,7 +1980,7 @@ class JSONRPCErrorResponse(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     error: Error
     id: RequestId | None = None
@@ -1993,7 +1993,7 @@ class JSONRPCRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2007,7 +2007,7 @@ class JSONRPCResultResponse(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2026,7 +2026,7 @@ class ListRootsRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2042,7 +2042,7 @@ class ListRootsResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2057,7 +2057,7 @@ class LoggingMessageNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/message"]
@@ -2074,7 +2074,7 @@ class PaginatedRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -2093,7 +2093,7 @@ class PingRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2135,7 +2135,7 @@ class ProgressNotificationParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2165,7 +2165,7 @@ class Prompt(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2212,7 +2212,7 @@ class ReadResourceRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2226,7 +2226,7 @@ class ReadResourceResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2241,7 +2241,7 @@ class Resource(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2306,7 +2306,7 @@ class ResourceLink(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2370,7 +2370,7 @@ class ResourceTemplate(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2427,7 +2427,7 @@ class ResourceUpdatedNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/resources/updated"]
@@ -2440,7 +2440,7 @@ class SetLevelRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2458,7 +2458,7 @@ class SubscribeRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2472,7 +2472,7 @@ class Task(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     created_at: Annotated[str, Field(alias="createdAt")]
     """
@@ -2514,7 +2514,7 @@ class TaskAugmentedRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -2537,7 +2537,7 @@ class TaskStatusNotificationParams(NotificationParams, Task):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
 
 
@@ -2547,7 +2547,7 @@ class TextContent(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2570,7 +2570,7 @@ class Tool(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2644,7 +2644,7 @@ class Data(WireModel):
 
 class Error1(Error):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     code: Literal[-32042]
     """
@@ -2662,7 +2662,7 @@ class URLElicitationRequiredError(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     error: Error1
     id: RequestId | None = None
@@ -2675,7 +2675,7 @@ class UnsubscribeRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2689,7 +2689,7 @@ class CallToolRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2703,7 +2703,7 @@ class CancelTaskResult(Result, Task):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
 
 
@@ -2721,7 +2721,7 @@ class CancelledNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/cancelled"]
@@ -2734,7 +2734,7 @@ class CompleteRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2752,7 +2752,7 @@ class CreateTaskResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2768,7 +2768,7 @@ class RequestedSchema(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     schema_: Annotated[str | None, Field(alias="$schema")] = None
     properties: dict[str, PrimitiveSchemaDefinition]
@@ -2782,7 +2782,7 @@ class ElicitRequestFormParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -2825,7 +2825,7 @@ class GetPromptRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2839,7 +2839,7 @@ class GetTaskResult(Result, Task):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
 
 
@@ -2849,7 +2849,7 @@ class InitializeRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2877,7 +2877,7 @@ class ListPromptsRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2891,7 +2891,7 @@ class ListPromptsResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2911,7 +2911,7 @@ class ListResourceTemplatesRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2925,7 +2925,7 @@ class ListResourceTemplatesResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2945,7 +2945,7 @@ class ListResourcesRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2959,7 +2959,7 @@ class ListResourcesResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -2979,7 +2979,7 @@ class ListTasksRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -2993,7 +2993,7 @@ class ListTasksResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3013,7 +3013,7 @@ class ListToolsRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -3027,7 +3027,7 @@ class ListToolsResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3043,7 +3043,7 @@ class ListToolsResult(WireModel):
 
 class PaginatedRequest(WireModel):
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -3057,7 +3057,7 @@ class ProgressNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/progress"]
@@ -3073,7 +3073,7 @@ class PromptMessage(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     content: ContentBlock
     role: Role
@@ -3085,7 +3085,7 @@ class TaskStatusNotification(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/tasks/status"]
@@ -3098,7 +3098,7 @@ class ToolResultContent(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3142,7 +3142,7 @@ class CallToolResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3239,7 +3239,7 @@ class ElicitRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
@@ -3253,7 +3253,7 @@ class GetPromptResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3342,7 +3342,7 @@ class CreateMessageResult(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3381,7 +3381,7 @@ class SamplingMessage(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
@@ -3428,7 +3428,7 @@ class CreateMessageRequestParams(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
@@ -3494,7 +3494,7 @@ class CreateMessageRequest(WireModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="ignore",
     )
     id: RequestId
     jsonrpc: Literal["2.0"]

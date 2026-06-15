@@ -219,19 +219,22 @@ class ServerRunner(Generic[LifespanT]):
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         ctx = self._make_context(dctx, _extract_meta(params))
-        # Fallback covers the initialize handshake itself and stateless mode
-        # until the per-request version header is plumbed through.
-        version = self.connection.protocol_version or LATEST_PROTOCOL_VERSION
+        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
+        # handshake (which only exists at <=2025) and stateless until the header
+        # is plumbed; its meaning is fixed regardless of LATEST bumps.
+        version = self.connection.protocol_version or "2025-11-25"
+        is_spec_method = method in _methods.MONOLITH_REQUESTS
 
         async def _inner() -> HandlerResult:
             # Pinned compat: spec methods are surface-validated before lookup,
             # so malformed params are INVALID_PARAMS even with no handler
-            # registered. Custom methods miss the surface map and fall through
+            # registered. Custom methods miss the monolith map and fall through
             # to `entry.params_type` exactly as before.
-            try:
-                _methods.validate_client_request(method, version, params)
-            except KeyError:
-                pass  # not a spec method at this version; lookup below handles it
+            if is_spec_method:
+                try:
+                    _methods.validate_client_request(method, version, params)
+                except KeyError:
+                    raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
             # TODO(maxisbey): the 2026-07-28 spec drops the handshake; this branch and
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
@@ -259,15 +262,21 @@ class ServerRunner(Generic[LifespanT]):
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
         result = _dump_result(await call())
-        try:
-            _methods.validate_server_result(method, version, result)
-        except KeyError:
-            pass  # custom method; no result schema
-        except ValidationError:
-            # Server bug, not client fault. Detail stays in the server log:
-            # pydantic messages echo the result body.
-            logger.exception("handler for %r returned an invalid result", method)
-            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        # TODO: reject resultType values outside {"complete", "input_required"} unless the
+        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
+        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
+        if is_spec_method:
+            try:
+                result = _methods.serialize_server_result(method, version, result)
+            except KeyError:
+                # Middleware short-circuited a wrong-version spec method without
+                # calling `call_next`; it owns the result shape.
+                pass
+            except ValidationError:
+                # Server bug, not client fault. Detail stays in the server log:
+                # pydantic messages echo the result body.
+                logger.exception("handler for %r returned an invalid result", method)
+                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -282,16 +291,18 @@ class ServerRunner(Generic[LifespanT]):
     ) -> None:
         ctx = self._make_context(dctx, _extract_meta(params))
         # Same fallback as `_on_request`: covers pre-handshake and stateless.
-        version = self.connection.protocol_version or LATEST_PROTOCOL_VERSION
+        version = self.connection.protocol_version or "2025-11-25"
 
         async def _inner() -> None:
-            try:
-                _methods.validate_client_notification(method, version, params)
-            except KeyError:
-                pass  # not a spec notification at this version
-            except ValidationError:
-                logger.warning("dropped %r: malformed params", method)
-                return
+            if method in _methods.MONOLITH_NOTIFICATIONS:
+                try:
+                    _methods.validate_client_notification(method, version, params)
+                except KeyError:
+                    logger.debug("dropped %r: not defined at %s", method, version)
+                    return
+                except ValidationError:
+                    logger.warning("dropped %r: malformed params", method)
+                    return
             if method == "notifications/initialized":
                 # Surface validation above already rejected a malformed body, so
                 # commit; fall through so a registered handler observes an

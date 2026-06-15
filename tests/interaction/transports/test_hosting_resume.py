@@ -108,7 +108,6 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
                 "content": [{"type": "text", "text": "counted to 2"}],
                 "structuredContent": {"result": "counted to 2"},
                 "isError": False,
-                "resultType": "complete",
             },
         )
     )

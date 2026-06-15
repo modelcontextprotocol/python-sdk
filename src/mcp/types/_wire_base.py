@@ -4,6 +4,6 @@ from pydantic import BaseModel, ConfigDict
 
 
 class WireModel(BaseModel):
-    """Base for generated wire models: enables ``populate_by_name``; subclasses set ``extra="allow"`` themselves."""
+    """Base for generated wire models: enables ``populate_by_name``; subclasses set ``extra`` themselves."""
 
     model_config = ConfigDict(populate_by_name=True)

@@ -52,7 +52,8 @@ def test_notification_frame_has_no_id_and_carries_the_dumped_params():
     )
 
 
-def test_non_empty_result_frame_always_dumps_result_type_complete():
+def test_non_empty_result_dump_carries_result_type_complete_before_the_sieve():
+    """The runner's per-version sieve drops `resultType` for pre-2026 peers; the raw dump carries it."""
     result = CallToolResult(content=[TextContent(text="ok")])
     frame = JSONRPCResponse(jsonrpc="2.0", id=1, result=_body(result))
     assert _frame(frame) == snapshot(
@@ -60,11 +61,12 @@ def test_non_empty_result_frame_always_dumps_result_type_complete():
     )
 
 
-def test_cacheable_list_result_frame_always_dumps_its_caching_directives():
+def test_cacheable_list_result_dump_omits_unset_caching_directives():
+    """`ttl_ms`/`cache_scope` default to None so the raw dump omits them; 2026 handlers set them explicitly."""
     result = ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
     frame = JSONRPCResponse(jsonrpc="2.0", id=2, result=_body(result))
     assert _frame(frame) == snapshot(
-        '{"jsonrpc":"2.0","id":2,"result":{"ttlMs":0,"cacheScope":"private","tools":[{"name":"echo","inputSchema":{"type":"object"}}],"resultType":"complete"}}'
+        '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","inputSchema":{"type":"object"}}],"resultType":"complete"}}'
     )
 
 
