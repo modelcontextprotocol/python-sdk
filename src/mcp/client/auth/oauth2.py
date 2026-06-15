@@ -583,6 +583,21 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.client_metadata.grant_types,
                     )
 
+                    # Step 3.5: Use a stored refresh_token before full re-auth.
+                    # A provider reloaded from storage never restores
+                    # token_expiry_time, so is_token_valid() treats the stale token
+                    # as valid and the proactive-refresh branch above is skipped.
+                    # Without this, every access-token expiry forces an interactive
+                    # re-authorization instead of a silent refresh.
+                    if self.context.can_refresh_token():
+                        refresh_request = await self._refresh_token()
+                        refresh_response = yield refresh_request
+                        if await self._handle_refresh_response(refresh_response):
+                            self._add_auth_header(request)
+                            yield request
+                            return
+                        # refresh failed -> fall through to full re-authorization
+
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
                         if should_use_client_metadata_url(
