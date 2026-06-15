@@ -1,19 +1,9 @@
-"""Shared pydantic bases for the `mcp.types.v*` wire-shape packages.
-
-No alias generator is configured: every wire name is an explicit
-`Field(alias=...)` so each surface file shows exactly what goes on the wire.
-"""
+"""Shared pydantic base for the generated ``mcp.types.v*`` wire-shape packages."""
 
 from pydantic import BaseModel, ConfigDict
 
 
 class WireModel(BaseModel):
-    """Base for surface-package models: unknown fields are accepted and dropped."""
+    """Base for generated wire models: enables ``populate_by_name``; subclasses set ``extra="allow"`` themselves."""
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-
-
-class OpenWireModel(BaseModel):
-    """Base for `_meta` carrier models: unknown fields are retained for round-tripping."""
-
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
+    model_config = ConfigDict(populate_by_name=True)
