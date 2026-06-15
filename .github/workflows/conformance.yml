@@ -13,10 +13,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Pinned conformance harness version. Bump deliberately and reconcile
+  # .github/actions/conformance/expected-failures.yml in the same change.
+  CONFORMANCE_VERSION: "0.2.0-alpha.3"
+
 jobs:
   server-conformance:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -29,11 +33,14 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp-everything-server
-      - run: ./.github/actions/conformance/run-server.sh
+      - name: Run server conformance (active suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite active
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
 
   client-conformance:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -46,4 +53,9 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp
-      - run: npx @modelcontextprotocol/conformance@0.1.13 client --command 'uv run --frozen python .github/actions/conformance/client.py' --suite all
+      - name: Run client conformance (all suite)
+        run: >-
+          npx --yes @modelcontextprotocol/conformance@"$CONFORMANCE_VERSION" client
+          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          --suite all
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
