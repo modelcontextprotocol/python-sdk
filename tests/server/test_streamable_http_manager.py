@@ -601,3 +601,75 @@ async def test_anonymous_session_accepts_anonymous_requests(
     session_id = await _open_session(manager, None)
 
     assert await _request_session(manager, session_id, None) != 404
+
+
+# ---------------------------------------------------------------------------
+# session_idle_timeout: API exposure + in-flight request protection (#2455)
+# ---------------------------------------------------------------------------
+
+
+def test_streamable_http_app_forwards_session_idle_timeout():
+    """The high-level streamable_http_app() API exposes session_idle_timeout.
+
+    Previously the parameter only existed on StreamableHTTPSessionManager, forcing
+    users to drop down to manual session-manager wiring to configure idle reaping.
+    """
+    app = Server("test-idle-expose")
+    app.streamable_http_app(session_idle_timeout=12.5)
+    assert app.session_manager.session_idle_timeout == 12.5
+
+
+def test_streamable_http_app_session_idle_timeout_defaults_to_none():
+    app = Server("test-idle-default")
+    app.streamable_http_app()
+    assert app.session_manager.session_idle_timeout is None
+
+
+@pytest.mark.anyio
+async def test_mark_request_suspends_and_resumes_idle_reaping():
+    """An in-flight request pushes the idle deadline to infinity until it completes.
+
+    Regression for #2455: a request actively being processed must not be counted as
+    an idle session. The deadline is restored only when the last concurrent request
+    finishes, and never moved if the session has no configured timeout.
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    scope = anyio.CancelScope()
+    scope.deadline = 100.0
+    transport.idle_scope = scope
+
+    # Two overlapping requests: deadline stays suspended until both finish.
+    transport.mark_request_started()
+    assert scope.deadline == float("inf")
+    transport.mark_request_started()
+    assert scope.deadline == float("inf")
+
+    transport.mark_request_finished(idle_timeout_seconds=30.0)
+    # Still one request in flight -> still suspended.
+    assert scope.deadline == float("inf")
+
+    transport.mark_request_finished(idle_timeout_seconds=30.0)
+    # Last request done -> deadline re-armed into the future.
+    assert scope.deadline != float("inf")
+    assert scope.deadline > anyio.current_time()
+
+
+@pytest.mark.anyio
+async def test_mark_request_finished_is_noop_without_idle_timeout():
+    """When no idle timeout is configured the deadline is left untouched."""
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    scope = anyio.CancelScope()  # default deadline is +inf
+    transport.idle_scope = scope
+
+    transport.mark_request_started()
+    transport.mark_request_finished(idle_timeout_seconds=None)
+    assert scope.deadline == float("inf")
+
+
+@pytest.mark.anyio
+async def test_mark_request_finished_does_not_underflow():
+    """Unbalanced finishes never drive the active-request counter negative."""
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    transport.mark_request_finished(idle_timeout_seconds=30.0)
+    transport.mark_request_finished(idle_timeout_seconds=30.0)
+    assert transport._active_request_count == 0
