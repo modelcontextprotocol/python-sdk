@@ -468,11 +468,19 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                    async def handle_request_async() -> None:
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except httpx.HTTPError as exc:
+                            logger.exception("Transport error handling request")
+                            if isinstance(message, JSONRPCRequest):
+                                error_data = ErrorData(code=INTERNAL_ERROR, message=f"Transport error: {exc}")
+                                error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+                                with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                    await read_stream_writer.send(error_msg)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
