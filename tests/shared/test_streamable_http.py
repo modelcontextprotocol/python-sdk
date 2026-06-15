@@ -18,16 +18,20 @@ from urllib.parse import urlparse
 import anyio
 import httpx
 import pytest
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import ServerSentEvent
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
+from starlette.types import Message, Scope
 
 from mcp import MCPError, types
+from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
+    GET_STREAM_KEY,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
@@ -41,7 +45,6 @@ from mcp.server.streamable_http import (
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
-from mcp.shared._context import RequestContext
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -1232,7 +1235,7 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
 
     # Define sampling callback that returns a mock response
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
         nonlocal sampling_callback_invoked, captured_message_params
@@ -2224,3 +2227,115 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Standalone-stream teardown while the writer is parked in receive() logs no error (SDK-defined)."""
+    session_manager = StreamableHTTPSessionManager(
+        app=_create_server(),
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
+    notified = anyio.Event()
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        # Only the standalone-stream notification is teed to the handler here.
+        assert isinstance(message, types.ResourceUpdatedNotification)
+        notified.set()
+
+    async with session_manager.run():
+        async with (
+            make_client(app) as http_client,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream, message_handler=message_handler) as session,
+        ):
+            await session.initialize()
+            # A notification with no related request rides the GET stream, proving the writer is live.
+            await session.call_tool("test_tool_with_standalone_notification", {})
+            with anyio.fail_after(5):
+                await notified.wait()
+            # Tear the standalone stream down while the writer is parked on it.
+            (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
+            await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+    assert "Error in standalone SSE writer" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Teardown landing while the standalone writer is between dequeues logs no error.
+
+    SDK-defined: after teardown the writer's next dequeue hits its own closed stream — expected
+    disconnect noise. The public surface cannot force this window (the in-process client consumes
+    SSE without backpressure), so the test drives the transport's ASGI entry point with a gated `send`.
+    """
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    # The GET handler only checks that a read-stream writer exists; it is never written to.
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+
+    stream_registered = anyio.Event()
+
+    class SignalingStreams(
+        dict[types.RequestId, tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]]
+    ):
+        # Only the GET handler inserts here, so any insert is the standalone stream registration.
+        def __setitem__(
+            self,
+            key: types.RequestId,
+            value: tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]],
+        ) -> None:
+            super().__setitem__(key, value)
+            stream_registered.set()
+
+    transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
+
+    gate = anyio.Event()
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+        await gate.wait()
+
+    # Never delivers anything, parking the response's disconnect listener.
+    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
+
+    async def asgi_receive() -> Message:
+        return await disconnect_receive.receive()
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [(b"accept", b"text/event-stream")],
+    }
+    notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+
+    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
+                await stream_registered.wait()
+                standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
+                # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
+                # and is blocked forwarding it past the closed gate — the between-dequeues window.
+                await standalone_send.send(EventMessage(notification))
+                await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+                # Unblock the response; the writer's next dequeue hits its closed stream.
+                gate.set()
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 200
+    body_chunks = [message for message in sent if message["type"] == "http.response.body"]
+    assert b"notifications/initialized" in body_chunks[0]["body"]
+    assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert "Error in standalone SSE writer" not in caplog.text
+    assert "Error in standalone SSE response" not in caplog.text

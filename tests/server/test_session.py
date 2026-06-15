@@ -103,13 +103,13 @@ async def test_send_request_omits_call_options_when_none_given():
 
 
 @pytest.mark.anyio
-async def test_send_request_timeout_zero_means_no_timeout():
-    """0 falls through BaseSession's `or`-fallback, so it has always meant
-    "no timeout"; ClientSession still reads it that way."""
+async def test_send_request_timeout_zero_is_forwarded():
+    """0 is a real timeout (fail at the first checkpoint, `anyio.fail_after(0)`
+    semantics) and must reach the dispatcher; only `None` means "no timeout"."""
     dispatcher = StubDispatcher(result={})
     session = _make_session(dispatcher)
-    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0)
-    assert dispatcher.requests[0][2] is None
+    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
+    assert dispatcher.requests[0][2] == {"timeout": 0.0}
 
 
 @pytest.mark.anyio

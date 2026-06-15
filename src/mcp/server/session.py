@@ -84,7 +84,7 @@ class ServerSession:
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
-        if request_read_timeout_seconds:
+        if request_read_timeout_seconds is not None:
             opts["timeout"] = request_read_timeout_seconds
         if progress_callback is not None:
             opts["on_progress"] = progress_callback

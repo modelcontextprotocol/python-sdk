@@ -634,11 +634,9 @@ server = Server("my-server", on_call_tool=handle_call_tool)
 
 The `mcp.shared.context` module has been removed. `RequestContext` is now split into `ClientRequestContext` (in `mcp.client.context`) and `ServerRequestContext` (in `mcp.server.context`).
 
-The `RequestContext` class has been split to separate shared fields from server-specific fields. The shared `RequestContext` now only takes 1 type parameter (the session type) instead of 3.
-
 **`RequestContext` changes:**
 
-- Type parameters reduced from `RequestContext[SessionT, LifespanContextT, RequestT]` to `RequestContext[SessionT]`
+- The `RequestContext[SessionT, LifespanContextT, RequestT]` generic no longer exists; use `ClientRequestContext` or `ServerRequestContext[LifespanContextT, RequestT]`
 - Server-specific fields (`lifespan_context`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
 
 **Before (v1):**
@@ -1122,9 +1120,9 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
     )
 ```
 
-### `RequestContext`: request-specific fields are now optional
+### `ServerRequestContext`: request-specific fields are now optional
 
-The `RequestContext` class now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
+`ServerRequestContext` now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
 
 ```python
 from mcp.server import ServerRequestContext
@@ -1164,7 +1162,22 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 `BaseSession._in_flight` and the `RequestResponder` members that supported it (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument, and the internal `CancelScope`) have been removed. These existed to let `ServerSession` cancel a handler when a `CancelledNotification` arrived; `ServerSession` no longer drives a receive loop, so they were dead code. Inbound-cancellation handling for the server now lives in `JSONRPCDispatcher`.
 
-`BaseSession` is still used by `ClientSession`, which never relied on these members. `RequestResponder.respond()` is unchanged.
+`BaseSession` itself has since been removed entirely; see the next section.
+
+### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
+
+`ClientSession`'s public surface is unchanged — same constructor, typed methods, manual `initialize()`, and async context-manager lifecycle — but `BaseSession`, the v1 receive loop underneath it, is removed with no shim. The engine now lives in `JSONRPCDispatcher` (`mcp.shared.jsonrpc_dispatcher`). To customize client behavior, use the `ClientSession` constructor callbacks, or pass a pre-built dispatcher via the new keyword-only `dispatcher=` constructor argument (e.g. a `DirectDispatcher` for in-process embedding).
+
+Behavior changes:
+
+- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the request is then answered with an error). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
+- **Timeouts**: a timed-out or abandoned request is now followed by `notifications/cancelled`, so the server stops the handler instead of leaving it running.
+- **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
+- **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
+- **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
+- **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the private `mcp.shared._context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession]` become `ClientRequestContext`.
+
+`mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists.
 
 ### Experimental Tasks support removed
 

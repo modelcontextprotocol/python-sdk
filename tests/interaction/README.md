@@ -193,11 +193,13 @@ many requirements at once; if the assertions would be separate, write separate t
 
 ### Notifications and concurrency
 
-The client's receive loop dispatches each incoming message to completion before reading the next,
-and the in-memory transport delivers everything on one ordered stream. Together these guarantee
-that every notification a server handler emits before its response reaches the client callback
-before the originating request returns — so tests collect notifications into a plain list and
-assert after the call, with no synchronisation. The exceptions:
+The client's dispatcher starts a task per incoming notification in arrival order but does not
+await it before reading the next message, so completion order is not structural. What still
+holds: the in-memory transport delivers everything on one ordered stream, and a callback that
+records synchronously (no `await` before the append) finishes its scheduling slice before the
+awaited request's waiter — woken strictly later — resumes. So tests whose callbacks are plain
+appends may still collect into a list and assert after the call. A callback that awaits before
+recording loses that ordering and must synchronise. The other exceptions:
 
 - a notification not triggered by a request the test is awaiting needs an `anyio.Event` set in
   the receiving handler and awaited under `anyio.fail_after(5)`;
@@ -220,9 +222,8 @@ but still inside an outer `async with`, and no restructure can avoid it.
 
 A handful of `# pragma: lax no cover` markers in `src/` cover teardown exception handlers whose
 execution is timing-dependent under the in-process HTTP bridge — the POST-stream and
-stateless-session `except Exception` handlers in `server/streamable_http*.py`, the `_terminated`
-check in `message_router`, and the response-stream double-close guard in
-`BaseSession._receive_loop`. `strict-no-cover` does not check `lax` lines; do not promote them to
-strict `no cover` without first making the teardown ordering deterministic. The suite also relies
-on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that closes a stream the
-SSE leg would otherwise leak.
+stateless-session `except Exception` handlers in `server/streamable_http*.py` and the
+`_terminated` check in `message_router`. `strict-no-cover` does not check `lax` lines; do not
+promote them to strict `no cover` without first making the teardown ordering deterministic. The
+suite also relies on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that
+closes a stream the SSE leg would otherwise leak.
