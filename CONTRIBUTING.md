@@ -12,6 +12,19 @@ Having an issue doesn't guarantee acceptance. Wait for maintainer feedback or a 
 
 Use issues to validate your idea before investing time in code. PRs are for execution, not exploration.
 
+### AI-Assisted Contributions
+
+> [!IMPORTANT]
+> If you used AI assistance for a contribution, disclose it in the PR or issue.
+
+We use AI tooling constantly and have no problem with you using it too. But somewhere in the loop there has to be a human who actually understands the change. We have a large backlog and limited reviewer time—we're not spending it on code nobody has read. Not disclosing is also just rude to the people on the other end.
+
+- **Disclose it.** One line in the PR or issue description. That's it.
+- **Own it.** You can explain the change in your own words. When a maintainer asks a question, the answer comes from you, not pasted from a chat window.
+- **No drive-by agents.** PRs, issues, or comments produced by an autonomous agent with no human review get closed on sight. If your agent is auto-filing PRs against our open issues, stop.
+
+Undisclosed AI contributions get closed. Repeat offenders get banned from the `modelcontextprotocol` org.
+
 ### The SDK is Opinionated
 
 Not every contribution will be accepted, even with a working implementation. We prioritize maintainability and consistency over adding capabilities. This is at maintainers' discretion.
@@ -129,6 +142,7 @@ A few dozen lines can be reviewed in minutes. Hundreds of lines across many file
 - **Scope creep**: Changes that go beyond what was discussed
 - **Misalignment**: Even well-implemented features may be rejected if they don't fit the SDK's direction
 - **Overengineering**: Unnecessary complexity for simple problems
+- **Undisclosed or unreviewed AI output**: See [AI-Assisted Contributions](#ai-assisted-contributions)
 
 ### Checklist
 
