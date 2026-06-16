@@ -8,8 +8,8 @@ from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
-from mcp.shared.auth import ProtectedResourceMetadata
 from mcp.server.auth.routes import build_resource_metadata_url, create_protected_resource_routes
+from mcp.shared.auth import ProtectedResourceMetadata
 
 
 @pytest.fixture
