@@ -1,6 +1,9 @@
+import subprocess
+import sys
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -360,3 +363,51 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_validation_error_shows_input_by_default():
+    """By default, ValidationError repr includes input_value (pydantic's default behavior)."""
+    with pytest.raises(ValidationError) as exc_info:
+        jsonrpc_message_adapter.validate_json('{"result":{"content":"SECRET-PAYLOAD')
+    assert "input_value" in repr(exc_info.value)
+    assert "SECRET-PAYLOAD" in repr(exc_info.value)
+
+
+_HIDE_INPUT_CHECK_SCRIPT = """
+import pydantic
+from mcp.types import jsonrpc_message_adapter
+from mcp.shared.auth import OAuthToken, OAuthMetadata, ProtectedResourceMetadata, OAuthClientMetadata
+
+def check(fn, name):
+    try:
+        fn()
+    except pydantic.ValidationError as e:
+        err = repr(e)
+        assert "input_value" not in err, f"{name}: input_value leaked: {err!r}"
+        assert "SECRET" not in err, f"{name}: payload leaked: {err!r}"
+        # still useful: error type/location present
+        assert "json_invalid" in err or "validation error" in err
+    else:
+        raise AssertionError(f"{name}: expected ValidationError")
+
+check(lambda: jsonrpc_message_adapter.validate_json('{"result":"SECRET'), "jsonrpc_message_adapter")
+check(lambda: OAuthToken.model_validate_json('{"access_token":"SECRET'), "OAuthToken")
+check(lambda: OAuthMetadata.model_validate_json('{"issuer":"SECRET'), "OAuthMetadata")
+check(lambda: ProtectedResourceMetadata.model_validate_json('{"resource":"SECRET'), "ProtectedResourceMetadata")
+check(lambda: OAuthClientMetadata.model_validate_json('{"redirect_uris":"SECRET'), "OAuthClientMetadata")
+print("OK")
+"""
+
+
+@pytest.mark.parametrize("env_value", ["1", "true", "True", "TRUE"])
+def test_hide_input_in_errors_env_var(env_value: str):
+    """When MCP_HIDE_INPUT_IN_ERRORS is set, ValidationError repr omits input_value."""
+    result = subprocess.run(
+        [sys.executable, "-c", _HIDE_INPUT_CHECK_SCRIPT],
+        env={"MCP_HIDE_INPUT_IN_ERRORS": env_value},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert result.stdout.strip() == "OK"

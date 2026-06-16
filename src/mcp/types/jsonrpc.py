@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+HIDE_INPUT_IN_ERRORS = os.environ.get("MCP_HIDE_INPUT_IN_ERRORS", "").lower() in ("1", "true")
+"""When True, pydantic ValidationError reprs omit the ``input_value`` field.
+
+Set the ``MCP_HIDE_INPUT_IN_ERRORS`` environment variable to ``1`` or ``true`` before
+importing the SDK to prevent raw request/response payloads from appearing in logs
+when JSON parsing or validation fails. The error type and location are still shown.
+"""
 
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
@@ -80,4 +89,6 @@ class JSONRPCError(BaseModel):
 
 
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
-jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage)
+jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(
+    JSONRPCMessage, config=ConfigDict(hide_input_in_errors=HIDE_INPUT_IN_ERRORS)
+)
