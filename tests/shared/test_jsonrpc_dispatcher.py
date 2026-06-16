@@ -1038,10 +1038,14 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
 ):
     """Cancelling the task group hosting run() completes even when the shutdown error write wedges:
     only `_SHUTDOWN_WRITE_TIMEOUT` releases the join (SDK-defined). A 0-buffer stream nobody reads
-    expresses the wedge: run() closes its write stream only after the join, so the send stays parked."""
+    expresses the wedge: drain-mode run() closes its write stream only after the join, so the send stays parked."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv,
+        s2c_send,
+        close_write_stream_on_read_close=False,
+    )
     handler_started = anyio.Event()
 
     async def park(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -1072,10 +1076,15 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
 @pytest.mark.anyio
 async def test_shutdown_answers_in_flight_request_with_connection_closed():
     """Read-stream EOF answers a still-running request with CONNECTION_CLOSED (SDK-defined):
-    run() keeps the write stream open until the task-group join, so the shielded teardown write lands."""
+    drain-mode run() keeps the write stream open until the task-group join, so the shielded teardown write lands."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv,
+        s2c_send,
+        close_write_stream_on_read_close=False,
+        read_eof_drain_timeout_seconds=0.05,
+    )
     handler_started = anyio.Event()
 
     async def park(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
