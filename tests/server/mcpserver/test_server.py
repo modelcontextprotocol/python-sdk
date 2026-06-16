@@ -1501,6 +1501,7 @@ async def test_report_progress_passes_related_request_id():
         session=mock_session,
         meta={"progress_token": "tok-1"},
         lifespan_context=None,
+        protocol_version="2025-11-25",
     )
 
     ctx = Context(request_context=request_context, mcp_server=MagicMock())

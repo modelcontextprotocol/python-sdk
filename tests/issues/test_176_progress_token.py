@@ -21,6 +21,7 @@ async def test_progress_token_zero_first_call():
         session=mock_session,
         meta={"progress_token": 0},
         lifespan_context=None,
+        protocol_version="2025-11-25",
     )
 
     # Create context with our mocks

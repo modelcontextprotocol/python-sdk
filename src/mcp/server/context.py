@@ -12,7 +12,7 @@ from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.peer import Meta
 from mcp.shared.transport_context import TransportContext
-from mcp.types import LATEST_PROTOCOL_VERSION, LoggingLevel, RequestId, RequestParamsMeta
+from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
 # Invariant: parameterizes a mutable dataclass field; dict default matches the default lifespan.
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
@@ -31,15 +31,7 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
 
     session: ServerSession
     lifespan_context: LifespanContextT
-    protocol_version: str = LATEST_PROTOCOL_VERSION
-    """The protocol version this request is being served at.
-
-    Always set. Resolved per request from the handshake-committed value, the
-    request's `_meta`, or the transport's per-message hint (the
-    `MCP-Protocol-Version` header on streamable HTTP). Prefer this over
-    `ctx.session.protocol_version`, which is the handshake result only and is
-    `None` on stateless connections.
-    """
+    protocol_version: str
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None
     request: RequestT | None = None
