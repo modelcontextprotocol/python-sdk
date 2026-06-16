@@ -46,7 +46,41 @@ client:
   # client support for the token-exchange + JWT bearer flow.
   - auth/enterprise-managed-authorization
 
-# The `active` suite (30 scenarios / 42 assertions) is fully green against
-# mcp-everything-server. Draft-suite entries are added when the workflow
-# gains a `--suite draft` step.
-server: []
+server:
+  # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
+  # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
+  # _meta-derived capabilities, error-code mappings, or server/discover yet.
+  - server-stateless
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
+  # most scenarios currently fail early with "Missing session ID" because
+  # mcp-everything-server only runs in stateful mode.
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
+  # stateful-mode "Missing session ID" error.
+  - caching
+  # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
+  # case-insensitive/whitespace-trimmed header validation not implemented.
+  - http-header-validation
+  - http-custom-header-server-validation
+  # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
+  # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
+  # SEP-2164: server returns -32600 (not -32602) and omits error.data.uri.
+  - sep-2164-resource-not-found
+  # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses, ignore
+  # unrecognized inputResponses keys).
+  - input-required-result-missing-input-response
+  - input-required-result-ignore-extra-params
+  # Intentionally NOT baselined (2 of 19 draft scenarios): the SEP-2322
+  # negative-case scenarios input-required-result-unsupported-methods and
+  # input-required-result-validate-input pass today only because the stateful
+  # server's -32600 "Missing session ID" satisfies their assertions. They will
+  # start failing for real once stateless mode lands; add them then.

@@ -38,6 +38,11 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite active
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run server conformance (draft suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite draft
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
 
   client-conformance:
     runs-on: ubuntu-latest
