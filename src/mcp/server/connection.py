@@ -38,6 +38,7 @@ from mcp.types import (
     PingRequest,
     Request,
 )
+from mcp.types import methods as _methods
 
 __all__ = ["Connection"]
 
@@ -175,6 +176,13 @@ class Connection:
             KeyError: `result_type` omitted for a non-spec request type.
         """
         raw = await self.send_raw_request(req.method, dump_params(req.params), opts)
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        if req.method in _methods.MONOLITH_REQUESTS:
+            try:
+                _methods.validate_client_result(req.method, version, raw)
+            except KeyError:
+                pass
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
         return cls.model_validate(raw, by_name=False)
 

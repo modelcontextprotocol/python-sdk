@@ -1,0 +1,14 @@
+[
+  {
+    "protocol_version": "2025-11-25",
+    "source_path_in_spec_repo": "schema/2025-11-25/schema.json",
+    "spec_commit": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+    "sha256": "4e01628360a2149892eab8f298ceee626d24a58862184eb8ec85d95b8f353e31"
+  },
+  {
+    "protocol_version": "2026-07-28",
+    "source_path_in_spec_repo": "schema/draft/schema.json",
+    "spec_commit": "6d441518de8a9d5adbab0b10a76a667a63f90665",
+    "sha256": "bce2e7c9622bb0b449475ba6d8d80228c71190a09250e75dabd502b280ecf3cb"
+  }
+]

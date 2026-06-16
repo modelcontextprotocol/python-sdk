@@ -306,6 +306,48 @@ async def test_runner_on_notify_drops_snake_case_params(server: SrvT, caplog: py
 
 
 @pytest.mark.anyio
+async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiated_version(
+    server: SrvT, caplog: pytest.LogCaptureFixture
+):
+    """`notifications/roots/list_changed` is a client notification but not at
+    2026-07-28; the version gate drops it before handler lookup."""
+    barrier = anyio.Event()
+
+    async def dropped(ctx: Ctx, params: NotificationParams) -> None:
+        raise NotImplementedError  # the version gate drops the notification first
+
+    async def on_progress(ctx: Ctx, params: ProgressNotificationParams) -> None:
+        barrier.set()
+
+    server.add_notification_handler("notifications/roots/list_changed", NotificationParams, dropped)
+    server.add_notification_handler("notifications/progress", ProgressNotificationParams, on_progress)
+    with caplog.at_level("DEBUG", logger="mcp.server.runner"):
+        async with connected_runner(server) as (client, runner):
+            runner.connection.protocol_version = "2026-07-28"
+            await client.notify("notifications/roots/list_changed", None)
+            await client.notify("notifications/progress", {"progressToken": 1, "progress": 0.5})
+            await barrier.wait()
+    assert "dropped 'notifications/roots/list_changed': not defined at 2026-07-28" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
+    """`notifications/message` is a spec method but server-to-client only; on
+    a server it is a custom registration (proxy use) and must reach the
+    handler, not the client-direction version gate."""
+    seen: list[NotificationParams] = []
+
+    async def handler(ctx: Ctx, params: NotificationParams) -> None:
+        seen.append(params)
+
+    server.add_notification_handler("notifications/message", NotificationParams, handler)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/message", {"level": "info", "data": "x"})
+        await client.send_raw_request("tools/list", None)
+    assert len(seen) == 1
+
+
+@pytest.mark.anyio
 async def test_runner_on_notify_initialized_sets_flag_and_connection_event(server: SrvT):
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.notify("notifications/initialized", None)
@@ -767,6 +809,115 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
     assert result == {"greeting": "hello world"}
     assert isinstance(received[0], GreetParams)
     assert received[0].name == "world"
+
+
+@pytest.mark.anyio
+async def test_runner_spec_method_with_invalid_params_is_invalid_params_at_the_negotiated_version(server: SrvT):
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": 42})
+    assert exc.value.error.code == INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_runner_handler_returning_malformed_dict_for_spec_method_is_internal_error(server: SrvT):
+    async def bad_result(ctx: Ctx, params: PaginatedRequestParams | None) -> dict[str, Any]:
+        return {"tools": 42}
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, bad_result)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+    # Result body must not reach the client; detail belongs in the server log.
+    assert exc.value.error.data is None
+
+
+@pytest.mark.anyio
+async def test_runner_handler_returning_typed_monolith_result_passes_outbound_validation(server: SrvT):
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
+
+
+@pytest.mark.anyio
+async def test_runner_outbound_sieve_drops_2026_only_result_keys_at_a_pre_2026_version(server: SrvT):
+    """The handler's `resultType`/`ttlMs`/`cacheScope` are sieved out so a 2025
+    client sees only schema fields."""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})], ttl_ms=5, cache_scope="public")
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == "2025-11-25"
+        result = await client.send_raw_request("tools/list", None)
+    assert result == {"tools": [{"name": "t", "inputSchema": {"type": "object"}}]}
+
+
+@pytest.mark.anyio
+async def test_runner_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
+    """`roots/list` is a spec method but server-to-client only; on a server it
+    is a custom registration (proxy use) and must reach the handler, not the
+    client-direction version gate."""
+
+    async def list_roots(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"roots": [{"uri": "file:///workspace"}]}
+
+    server.add_request_handler("roots/list", RequestParams, list_roots)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("roots/list", None)
+    assert result == {"roots": [{"uri": "file:///workspace"}]}
+
+
+@pytest.mark.anyio
+async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not_found(server: SrvT):
+    """`server/discover` is a spec method (in `MONOLITH_REQUESTS`) but only at
+    2026-07-28; on a 2025 session it must be METHOD_NOT_FOUND even with a
+    registered handler."""
+
+    async def discover(ctx: Ctx, params: RequestParams) -> Any:
+        raise NotImplementedError  # the version gate rejects the request first
+
+    server.add_request_handler("server/discover", RequestParams, discover)
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == "2025-11-25"
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("server/discover", None)
+    assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="server/discover")
+
+
+@pytest.mark.anyio
+async def test_runner_middleware_short_circuit_on_a_wrong_version_spec_method_skips_the_sieve(server: SrvT):
+    """A server-tier middleware that returns without calling `call_next` for a
+    spec method absent at the negotiated version owns the result shape; the
+    outbound sieve has no `(method, version)` row and must not raise."""
+
+    async def short_circuit(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        if method == "server/discover":
+            return {"ok": True}
+        return await call_next()
+
+    server.middleware.append(short_circuit)
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == "2025-11-25"
+        result = await client.send_raw_request("server/discover", None)
+    assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT):
+    """No `SERVER_RESULTS` row for a custom method, so its result reaches the client as-is."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"anything": "goes"}
+
+    server.add_request_handler("custom/greet", RequestParams, custom)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("custom/greet", None)
+    assert result == {"anything": "goes"}
 
 
 @pytest.mark.anyio

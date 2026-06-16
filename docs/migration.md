@@ -221,6 +221,14 @@ Common renames:
 
 Because `populate_by_name=True` is set, the old camelCase names still work as constructor kwargs (e.g., `Tool(inputSchema={...})` is accepted), but attribute access must use snake_case (`tool.input_schema`).
 
+### Server handler results are validated against the protocol schema
+
+Results returned from server handlers are now validated against the negotiated protocol version's schema before being sent. A result that does not conform raises on the server side and the client receives an `INTERNAL_ERROR` response. The case most existing code will hit is `Tool.inputSchema`: the spec requires it to contain `"type": "object"`, so an empty `{}` is now rejected.
+
+### Client validates inbound traffic against the protocol schema
+
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
 The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
@@ -530,6 +538,10 @@ await ctx.log(level="info", data="hello")
 ```
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
+
+### `Context.elicit()` schema gate validates the rendered schema
+
+`Context.elicit()` (and `elicit_with_validation()`) now render the schema first and validate each property against the spec's `PrimitiveSchemaDefinition`, raising `TypeError` at the call site for anything outside it. `Optional[T]` fields render as `{"type": ...}` with the field omitted from `required` (previously the non-spec `anyOf` shape). A bare `list[str]` field is rejected because it renders without the required enum items; use `list[Literal[...]]` or `list[str]` with `json_schema_extra` supplying the items. Unions of multiple primitives (e.g. `int | str`) and nested models are rejected.
 
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
@@ -939,7 +951,7 @@ from mcp.types import (
 )
 
 async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="my_tool", description="A tool", input_schema={})])
+    return ListToolsResult(tools=[Tool(name="my_tool", description="A tool", input_schema={"type": "object"})])
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1181,7 +1193,7 @@ Behavior changes:
 
 ### Experimental Tasks support removed
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with all `Task*` types, the `tasks` capability fields, `Tool.execution`, and the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`.
+Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions.
 
 Tasks are expected to return as a separate MCP extension in a future release.
 
@@ -1226,6 +1238,10 @@ params = CallToolRequestParams(
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
 
 ## New Features
+
+### 2025-11-25 and 2026-07-28 protocol fields modeled
+
+`mcp.types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `None`; `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.
 
 ### `streamable_http_app()` available on lowlevel Server
 

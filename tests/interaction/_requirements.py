@@ -1338,7 +1338,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
                 "validation at the low-level session layer (the high-level Context.elicit / "
-                "elicit_with_validation helper enforces primitive-only fields before generating the schema)."
+                "elicit_with_validation helper enforces primitive-only fields before generating the schema). "
+                "ClientSession likewise does not enforce it: the inbound surface gate is relaxed for "
+                "requestedSchema.properties so older servers that emit anyOf for Optional fields still reach "
+                "the elicitation callback."
             ),
         ),
     ),

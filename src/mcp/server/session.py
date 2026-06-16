@@ -20,6 +20,7 @@ from mcp.shared.dispatcher import CallOptions, ProgressFnT
 from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata
+from mcp.types import methods as _methods
 
 __all__ = ["ServerSession"]
 
@@ -96,6 +97,12 @@ class ServerSession:
         result = await self._dispatcher.send_raw_request(
             data["method"], data.get("params"), opts or None, _related_request_id=related
         )
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            _methods.validate_client_result(request.method, version, result)
+        except KeyError:
+            pass
         return result_type.model_validate(result, by_name=False)
 
     async def send_notification(
