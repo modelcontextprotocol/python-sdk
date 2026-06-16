@@ -1,7 +1,7 @@
 """Internal wire-shape models for protocol 2026-07-28. Generated; do not edit.
 
-Regenerate with ``scripts/gen_surface_types.py`` from ``schema/2026-07-28.json``
-(sha256 ``bce2e7c9622bb0b449475ba6d8d80228c71190a09250e75dabd502b280ecf3cb``)."""
+Regenerate with `scripts/gen_surface_types.py` from `schema/2026-07-28.json`
+(sha256 `bce2e7c9622bb0b449475ba6d8d80228c71190a09250e75dabd502b280ecf3cb`)."""
 # pyright: reportIncompatibleVariableOverride=false, reportGeneralTypeIssues=false
 
 from __future__ import annotations

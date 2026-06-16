@@ -1,10 +1,10 @@
 """Regenerate the per-version wire-shape surface packages from vendored schemas.
 
-Runs ``datamodel-code-generator`` over each ``schema/PINNED.json`` entry and
-writes the result to ``src/mcp/types/v<version>/__init__.py`` with only the
+Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
+writes the result to `src/mcp/types/v<version>/__init__.py` with only the
 fixes the raw output needs: a small JSON pre-patch for the known
-``number``-as-``integer`` schema.json defect, a header, and per-version
-epilogue aliases. Run with ``uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]``.
+`number`-as-`integer` schema.json defect, a header, and per-version
+epilogue aliases. Run with `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
 
 from __future__ import annotations
@@ -24,23 +24,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "schema"
 TYPES_DIR = REPO_ROOT / "src" / "mcp" / "types"
 
-# schema.ts -> schema.json renders TypeScript ``number`` as JSON Schema
-# ``integer`` at these sites; patch the JSON before codegen so floats validate.
-# Patched to ``["integer", "number"]`` (not bare ``"number"``) so codegen emits
-# ``int | float`` and pydantic's smart-union preserves ints on round-trip.
+# schema.ts -> schema.json renders TypeScript `number` as JSON Schema
+# `integer` at these sites; patch the JSON before codegen so floats validate.
+# Patched to `["integer", "number"]` (not bare `"number"`) so codegen emits
+# `int | float` and pydantic's smart-union preserves ints on round-trip.
 # TODO: drop once modelcontextprotocol/modelcontextprotocol fixes the schema.ts -> schema.json number rendering.
 SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
     "2025-11-25": [
         ("$defs/NumberSchema/properties/default/type", "integer", ["integer", "number"]),
         ("$defs/NumberSchema/properties/maximum/type", "integer", ["integer", "number"]),
         ("$defs/NumberSchema/properties/minimum/type", "integer", ["integer", "number"]),
-        # ``null`` arm is monolith superset leniency: hosts may answer optional form fields with null.
+        # `null` arm is monolith superset leniency: hosts may answer optional form fields with null.
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
             ["string", "integer", "number", "boolean", "null"],
         ),
-        # Older python-sdk releases emit ``anyOf`` for Optional fields; the callback's
+        # Older python-sdk releases emit `anyOf` for Optional fields; the callback's
         # own schema validation is the real gate, so accept any property shape inbound.
         # PrimitiveSchemaDefinition becomes an orphan $def after this patch but
         # datamodel-codegen still emits it; elicitation.py imports it as the gate type.
@@ -54,14 +54,14 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
         ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
         ("$defs/NumberSchema/properties/maximum/type", "number", ["integer", "number"]),
         ("$defs/NumberSchema/properties/minimum/type", "number", ["integer", "number"]),
-        # ``null`` arm is monolith superset leniency: hosts may answer optional form fields with null.
+        # `null` arm is monolith superset leniency: hosts may answer optional form fields with null.
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
             ["string", "integer", "number", "boolean", "null"],
         ),
         ("$defs/JSONValue/anyOf/2/type", ["string", "integer", "boolean"], ["string", "integer", "number", "boolean"]),
-        # Older python-sdk releases emit ``anyOf`` for Optional fields; the callback's
+        # Older python-sdk releases emit `anyOf` for Optional fields; the callback's
         # own schema validation is the real gate, so accept any property shape inbound.
         (
             "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
@@ -94,14 +94,14 @@ EPILOGUES: dict[str, str] = {
 HEADER = (
     '"""Internal wire-shape models for protocol {version}. Generated; do not edit.\n'
     "\n"
-    "Regenerate with ``scripts/gen_surface_types.py`` from ``schema/{version}.json``\n"
-    '(sha256 ``{sha}``)."""\n'
+    "Regenerate with `scripts/gen_surface_types.py` from `schema/{version}.json`\n"
+    '(sha256 `{sha}`)."""\n'
     "# pyright: reportIncompatibleVariableOverride=false, reportGeneralTypeIssues=false\n"
 )
 
 
 def load_pinned() -> list[dict[str, str]]:
-    """Read ``schema/PINNED.json`` and verify each vendored file's sha256."""
+    """Read `schema/PINNED.json` and verify each vendored file's sha256."""
     entries: list[dict[str, str]] = json.loads((SCHEMA_DIR / "PINNED.json").read_text())
     for entry in entries:
         path = SCHEMA_DIR / f"{entry['protocol_version']}.json"
@@ -112,7 +112,7 @@ def load_pinned() -> list[dict[str, str]]:
 
 
 def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) -> None:
-    """Apply ``(path, old, new)`` JSON-pointer-ish patches in place, asserting the old value."""
+    """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value."""
     for path, old, new in patches:
         *parts, leaf = path.split("/")
         node: Any = schema
@@ -124,7 +124,7 @@ def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) ->
 
 
 def run_codegen(schema_path: Path, output_path: Path) -> None:
-    """Run datamodel-code-generator at the version pinned in the ``codegen`` dependency group."""
+    """Run datamodel-code-generator at the version pinned in the `codegen` dependency group."""
     # fmt: off
     result = subprocess.run(
         [
@@ -153,10 +153,10 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
 
 
 def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
-    """Restore ``extra="allow"`` on ``open_classes`` only.
+    """Restore `extra="allow"` on `open_classes` only.
 
-    Every other class uses ``extra="ignore"`` so the surface acts as a sieve;
-    ``open_classes`` are the places the spec defines as open key-value bags.
+    Every other class uses `extra="ignore"` so the surface acts as a sieve;
+    `open_classes` are the places the spec defines as open key-value bags.
     """
 
     def patch(match: re.Match[str]) -> str:
@@ -212,7 +212,7 @@ def build(entry: dict[str, str]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point: write each surface package, or diff under ``--check``."""
+    """CLI entry point: write each surface package, or diff under `--check`."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="diff regenerated output against committed files")
     args = parser.parse_args(argv)
