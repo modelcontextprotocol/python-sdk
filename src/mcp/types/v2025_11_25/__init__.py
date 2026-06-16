@@ -41,7 +41,7 @@ class BlobResourceContents(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     blob: str
     """
@@ -280,7 +280,7 @@ class CompleteResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     completion: Completion
 
@@ -317,7 +317,7 @@ class ElicitResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     action: Literal["accept", "cancel", "decline"]
     """
@@ -397,7 +397,7 @@ class GetTaskPayloadResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
 
@@ -589,7 +589,7 @@ class LoggingMessageNotificationParams(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     data: Any
     """
@@ -692,7 +692,7 @@ class NotificationParams(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
 
@@ -714,7 +714,7 @@ class PaginatedResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -800,7 +800,7 @@ class PromptReference(WireModel):
 
 class Meta(WireModel):
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
     model_config = ConfigDict(
@@ -822,7 +822,7 @@ class ReadResourceRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     uri: str
     """
@@ -870,7 +870,7 @@ class RequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
 
@@ -884,7 +884,7 @@ class ResourceContents(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     mime_type: Annotated[str | None, Field(alias="mimeType")] = None
     """
@@ -919,7 +919,7 @@ class ResourceRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     uri: str
     """
@@ -952,7 +952,7 @@ class ResourceUpdatedNotificationParams(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     uri: str
     """
@@ -966,7 +966,7 @@ class Result(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
 
 
@@ -987,7 +987,7 @@ class Root(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     name: str | None = None
     """
@@ -1162,7 +1162,7 @@ class SetLevelRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     level: LoggingLevel
     """
@@ -1193,7 +1193,7 @@ class SubscribeRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     uri: str
     """
@@ -1229,7 +1229,7 @@ class TextResourceContents(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     mime_type: Annotated[str | None, Field(alias="mimeType")] = None
     """
@@ -1500,7 +1500,7 @@ class ToolUseContent(WireModel):
     Optional metadata about the tool use. Clients SHOULD preserve this field when
     including tool uses in subsequent sampling requests to enable caching optimizations.
 
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     id: str
     """
@@ -1529,7 +1529,7 @@ class UnsubscribeRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     uri: str
     """
@@ -1657,7 +1657,7 @@ class AudioContent(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -1684,7 +1684,7 @@ class CallToolRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     arguments: dict[str, Any] | None = None
     """
@@ -1729,7 +1729,7 @@ class CancelledNotificationParams(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     reason: str | None = None
     """
@@ -1755,7 +1755,7 @@ class CompleteRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     argument: Argument
     """
@@ -1778,7 +1778,7 @@ class ElicitRequestFormParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     message: str
     """
@@ -1814,7 +1814,7 @@ class ElicitRequestURLParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     elicitation_id: Annotated[str, Field(alias="elicitationId")]
     """
@@ -1857,7 +1857,7 @@ class EmbeddedResource(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -1899,7 +1899,7 @@ class GetPromptRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     arguments: dict[str, str] | None = None
     """
@@ -1949,7 +1949,7 @@ class ImageContent(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -1976,7 +1976,7 @@ class InitializeRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     capabilities: ClientCapabilities
     client_info: Annotated[Implementation, Field(alias="clientInfo")]
@@ -1996,7 +1996,7 @@ class InitializeResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     capabilities: ServerCapabilities
     instructions: str | None = None
@@ -2097,7 +2097,7 @@ class ListRootsResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     roots: list[Root]
 
@@ -2129,7 +2129,7 @@ class PaginatedRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     cursor: str | None = None
     """
@@ -2190,7 +2190,7 @@ class ProgressNotificationParams(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     message: str | None = None
     """
@@ -2220,7 +2220,7 @@ class Prompt(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     arguments: list[PromptArgument] | None = None
     """
@@ -2281,7 +2281,7 @@ class ReadResourceResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     contents: list[TextResourceContents | BlobResourceContents]
 
@@ -2296,7 +2296,7 @@ class Resource(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -2361,7 +2361,7 @@ class ResourceLink(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -2425,7 +2425,7 @@ class ResourceTemplate(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -2569,7 +2569,7 @@ class TaskAugmentedRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     task: TaskMetadata | None = None
     """
@@ -2602,7 +2602,7 @@ class TextContent(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: Annotations | None = None
     """
@@ -2625,7 +2625,7 @@ class Tool(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     annotations: ToolAnnotations | None = None
     """
@@ -2807,7 +2807,7 @@ class CreateTaskResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     task: Task
 
@@ -2895,7 +2895,7 @@ class ListPromptsResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2929,7 +2929,7 @@ class ListResourceTemplatesResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2963,7 +2963,7 @@ class ListResourcesResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2997,7 +2997,7 @@ class ListTasksResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -3031,7 +3031,7 @@ class ListToolsResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -3105,7 +3105,7 @@ class ToolResultContent(WireModel):
     Optional metadata about the tool result. Clients SHOULD preserve this field when
     including tool results in subsequent sampling requests to enable caching optimizations.
 
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     content: list[ContentBlock]
     """
@@ -3146,7 +3146,7 @@ class CallToolResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     content: list[ContentBlock]
     """
@@ -3257,7 +3257,7 @@ class GetPromptResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     description: str | None = None
     """
@@ -3346,7 +3346,7 @@ class CreateMessageResult(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     content: (
         TextContent
@@ -3385,7 +3385,7 @@ class SamplingMessage(WireModel):
     )
     meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     content: (
         TextContent
@@ -3432,7 +3432,7 @@ class CreateMessageRequestParams(WireModel):
     )
     meta: Annotated[Meta | None, Field(alias="_meta")] = None
     """
-    See [General fields: `_meta`](/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
+    See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) for notes on `_meta` usage.
     """
     include_context: Annotated[
         Literal["allServers", "none", "thisServer"] | None,

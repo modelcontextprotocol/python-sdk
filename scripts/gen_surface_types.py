@@ -3,8 +3,9 @@
 Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
 writes the result to `src/mcp/types/v<version>/__init__.py` with only the
 fixes the raw output needs: a small JSON pre-patch for the known
-`number`-as-`integer` schema.json defect, a header, and per-version
-epilogue aliases. Run with `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
+`number`-as-`integer` schema.json defect, a header, full URLs for the spec's
+site-absolute doc links, and per-version epilogue aliases. Run with
+`uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
 
 from __future__ import annotations
@@ -198,6 +199,10 @@ def build(entry: dict[str, str]) -> str:
     # Codegen appends `| None` to forward refs of nullable models, which is a
     # runtime TypeError on a string ref and redundant since `JSONValue` includes None.
     source = source.replace('"JSONValue" | None', '"JSONValue"')
+    # Schema descriptions link to spec-site pages with site-absolute paths; expand
+    # them to full URLs so they resolve from the rendered API docs and pass the
+    # strict mkdocs link validation.
+    source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
     if epilogue := EPILOGUES.get(version, ""):
         # Insert before the trailing model_rebuild() block: pyright's evaluation
