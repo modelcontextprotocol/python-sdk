@@ -35,6 +35,10 @@ class ServerMessageMetadata:
     # transports, None for stdio). Typed as Any because the server layer is
     # transport-agnostic.
     request_context: Any = None
+    # Protocol version the transport derived for this inbound message (the
+    # validated `MCP-Protocol-Version` header on streamable HTTP). `None` when
+    # the transport has no per-message version signal.
+    protocol_version: str | None = None
     # Callback to close SSE stream for the current request without terminating
     close_sse_stream: CloseSSEStreamCallback | None = None
     # Callback to close the standalone GET SSE stream (for unsolicited notifications)

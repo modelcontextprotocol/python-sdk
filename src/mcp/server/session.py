@@ -56,9 +56,10 @@ class ServerSession:
         """The protocol version negotiated during `initialize`.
 
         `None` before initialization completes. Stateless connections don't
-        require the handshake, so this is normally `None` there (on streamable
-        HTTP the per-request version is the `MCP-Protocol-Version` header,
-        available via `ctx.request.headers`).
+        require the handshake, so this is normally `None` there. For the
+        version that applies to the current request - which is always set,
+        including on stateless connections - read `ctx.protocol_version`
+        instead.
         """
         return self._connection.protocol_version
 

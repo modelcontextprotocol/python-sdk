@@ -87,7 +87,9 @@ class Connection:
     """The protocol version negotiated during `initialize`; `None` before
     initialization. Stateless connections don't require the handshake, so this
     normally stays `None` there (a client that sends `initialize` anyway still
-    commits it). Handlers read this as `ServerSession.protocol_version`."""
+    commits it). For the version that applies to the current request - which is
+    always set, including on stateless connections - read
+    `ctx.protocol_version` instead."""
 
     initialized: anyio.Event
     """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
