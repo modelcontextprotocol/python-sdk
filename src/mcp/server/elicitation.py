@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import types
-from collections.abc import Sequence
-from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
+from pydantic_core import core_schema
 
 from mcp.server.session import ServerSession
 from mcp.types import RequestId
@@ -49,56 +50,43 @@ UrlElicitationResult = AcceptedUrlElicitation | DeclinedElicitation | CancelledE
 _ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
 
 
+class _ElicitationJsonSchema(GenerateJsonSchema):
+    """JSON-Schema generator that flattens `T | None` to `T` and drops `None` defaults.
+
+    The spec's `PrimitiveSchemaDefinition` admits no `anyOf` or null type; an
+    optional field is expressed by leaving it out of `required`, which pydantic
+    already does for any field with a default.
+    """
+
+    def nullable_schema(self, schema: core_schema.NullableSchema) -> JsonSchemaValue:
+        return self.generate_inner(schema["schema"])
+
+    def default_schema(self, schema: core_schema.WithDefaultSchema) -> JsonSchemaValue:
+        result = super().default_schema(schema)
+        if result.get("default") is None:
+            result.pop("default", None)
+        return result
+
+
 def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
     """Validate that a Pydantic model only contains primitive field types."""
     for field_name, field_info in schema.model_fields.items():
-        annotation = field_info.annotation
-
-        if annotation is None or annotation is types.NoneType:  # pragma: no cover
-            continue
-        elif _is_primitive_field(annotation):
-            continue
-        elif _is_string_sequence(annotation):
-            continue
-        else:
+        if not _is_primitive_field(field_info.annotation):
             raise TypeError(
                 f"Elicitation schema field '{field_name}' must be a primitive type "
-                f"{_ELICITATION_PRIMITIVE_TYPES}, a sequence of strings (list[str], etc.), "
-                f"or Optional of these types. Nested models and complex types are not allowed."
+                f"{_ELICITATION_PRIMITIVE_TYPES} or Optional of one. Unions of multiple "
+                f"primitives, lists, and nested models are not allowed."
             )
 
 
-def _is_string_sequence(annotation: type) -> bool:
-    """Check if annotation is a sequence of strings (list[str], Sequence[str], etc)."""
-    origin = get_origin(annotation)
-    # Check if it's a sequence-like type with str elements
-    if origin:
-        try:
-            if issubclass(origin, Sequence):
-                args = get_args(annotation)
-                # Should have single str type arg
-                return len(args) == 1 and args[0] is str
-        except TypeError:  # pragma: no cover
-            # origin is not a class, so it can't be a subclass of Sequence
-            pass
-    return False
-
-
-def _is_primitive_field(annotation: type) -> bool:
-    """Check if a field is a primitive type allowed in elicitation schemas."""
-    # Handle basic primitive types
+def _is_primitive_field(annotation: Any) -> bool:
+    """True if `annotation` is a single primitive type, optionally wrapped in `Optional`."""
     if annotation in _ELICITATION_PRIMITIVE_TYPES:
         return True
-
-    # Handle Union types
     origin = get_origin(annotation)
     if origin is Union or origin is types.UnionType:
-        args = get_args(annotation)
-        # All args must be primitive types, None, or string sequences
-        return all(
-            arg is types.NoneType or arg in _ELICITATION_PRIMITIVE_TYPES or _is_string_sequence(arg) for arg in args
-        )
-
+        non_none = [a for a in get_args(annotation) if a is not types.NoneType]
+        return len(non_none) == 1 and non_none[0] in _ELICITATION_PRIMITIVE_TYPES
     return False
 
 
@@ -121,7 +109,7 @@ async def elicit_with_validation(
     # Validate that schema only contains primitive types and fail loudly if not
     _validate_elicitation_schema(schema)
 
-    json_schema = schema.model_json_schema()
+    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
 
     result = await session.elicit_form(
         message=message,

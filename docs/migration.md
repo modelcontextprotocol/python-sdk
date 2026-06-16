@@ -535,6 +535,10 @@ await ctx.log(level="info", data="hello")
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
 
+### `Context.elicit()` schema gate tightened
+
+`Context.elicit()` (and `elicit_with_validation()`) now accept only schemas whose fields are a single primitive type (`str`, `int`, `float`, `bool`) or `Optional[primitive]`. `list[...]` fields and unions of multiple primitives (e.g. `int | str`) raise `TypeError` at the call site; previously `list[str]` and arbitrary primitive unions were allowed but produced a `requestedSchema` outside the spec's restricted subset. `Optional[T]` fields now render as `{"type": ...}` with the field omitted from `required` instead of the non-spec `anyOf` shape.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:

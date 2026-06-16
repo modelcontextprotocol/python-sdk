@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import anyio.abc
 import anyio.streams.memory
 import pytest
-from pydantic import FileUrl
+from pydantic import FileUrl, ValidationError
 
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext
@@ -21,6 +21,7 @@ from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
@@ -651,7 +652,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
-    mocked_tool = types.Tool(name="sample_tool", input_schema={})
+    mocked_tool = types.Tool(name="sample_tool", input_schema={"type": "object"})
 
     async def mock_server():
         # Receive initialization request from client
@@ -779,6 +780,140 @@ async def test_receive_loop_drops_unknown_notification_method_without_response()
         out = await from_client.receive()
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.id == 1
+
+
+def _set_negotiated_version(session: ClientSession, version: str) -> None:
+    """Force `session.protocol_version` without running the handshake."""
+    session._initialize_result = InitializeResult(
+        protocol_version=version,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    )
+
+
+@pytest.mark.anyio
+async def test_on_request_rejects_a_server_request_absent_at_the_negotiated_version():
+    """`elicitation/create` does not exist at 2025-03-26: the version gate answers
+    METHOD_NOT_FOUND instead of reaching the elicitation callback."""
+    async with raw_client_session() as (session, to_client, from_client):
+        _set_negotiated_version(session, "2025-03-26")
+        await to_client.send(
+            SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="elicitation/create", params={"message": "hi"}))
+        )
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.error.code == METHOD_NOT_FOUND
+    assert out.message.error.data == "elicitation/create"
+
+
+@pytest.mark.anyio
+async def test_on_request_validates_the_callback_result_against_the_surface_schema():
+    """A surface-valid callback result reaches the wire as the dump dict unchanged."""
+
+    async def sampling(
+        ctx: ClientRequestContext, params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult:
+        return types.CreateMessageResult(role="assistant", content=types.TextContent(type="text", text="hi"), model="m")
+
+    request_params = types.CreateMessageRequestParams(
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="q"))],
+        max_tokens=10,
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    async with raw_client_session(sampling_callback=sampling) as (_session, to_client, from_client):
+        await to_client.send(
+            SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="sampling/createMessage", params=request_params))
+        )
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.result == {"role": "assistant", "content": {"type": "text", "text": "hi"}, "model": "m"}
+
+
+@pytest.mark.anyio
+async def test_on_request_callback_returning_a_surface_invalid_result_is_internal_error(
+    caplog: pytest.LogCaptureFixture,
+):
+    """A callback result the surface schema rejects is answered with INTERNAL_ERROR.
+    `EmptyResult` is a `ClientResult` arm so the union accepts it, but `roots/list`
+    requires a `roots` array."""
+
+    async def list_roots(ctx: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:
+        return cast("types.ListRootsResult", types.EmptyResult())
+
+    async with raw_client_session(list_roots_callback=list_roots) as (_session, to_client, from_client):
+        await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=3, method="roots/list")))
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCError)
+    assert out.message.error.code == INTERNAL_ERROR
+    assert out.message.error.message == "Client callback returned an invalid result"
+    assert "client callback for 'roots/list' returned an invalid result" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_version(
+    caplog: pytest.LogCaptureFixture,
+):
+    """`notifications/elicitation/complete` does not exist at 2025-06-18: it is
+    log-warn-dropped without reaching `message_handler`."""
+    seen: list[object] = []
+    delivered = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        delivered.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        _set_negotiated_version(session, "2025-06-18")
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0", method="notifications/elicitation/complete", params={"elicitationId": "e1"}
+                )
+            )
+        )
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
+        await delivered.wait()
+    assert len(seen) == 1
+    assert isinstance(seen[0], types.ToolListChangedNotification)
+    assert "Failed to validate notification" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_send_request_validates_the_server_result_against_the_surface_schema():
+    """A spec-method result that fails the per-version surface schema raises
+    `ValidationError` even when the caller's `result_type` would accept it."""
+    async with raw_client_session() as (session, to_client, from_client):
+        async with anyio.create_task_group() as tg:
+
+            async def call() -> None:
+                with pytest.raises(ValidationError):
+                    await session.send_request(types.ListToolsRequest(), types.EmptyResult)
+
+            tg.start_soon(call)
+            request = await from_client.receive()
+            assert isinstance(request.message, JSONRPCRequest)
+            await to_client.send(
+                SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={"tools": "nope"}))
+            )
+
+
+@pytest.mark.anyio
+async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
+    """Surface row absent for the negotiated version: gate is bypassed and only
+    `result_type` validates."""
+    async with raw_client_session() as (session, to_client, from_client):
+        _set_negotiated_version(session, "2026-07-28")
+        async with anyio.create_task_group() as tg:
+
+            async def call() -> None:
+                result = await session.send_request(types.PingRequest(), types.EmptyResult)
+                assert isinstance(result, types.EmptyResult)
+
+            tg.start_soon(call)
+            request = await from_client.receive()
+            assert isinstance(request.message, JSONRPCRequest)
+            await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={})))
 
 
 @pytest.mark.anyio

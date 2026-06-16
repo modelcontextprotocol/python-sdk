@@ -4,7 +4,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, cast, get_args
+from typing import Any, Protocol, cast
 
 import anyio
 import anyio.abc
@@ -22,7 +22,8 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types import RequestId, RequestParamsMeta
+from mcp.types import INTERNAL_ERROR, METHOD_NOT_FOUND, RequestId, RequestParamsMeta
+from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -115,14 +116,6 @@ async def _default_logging_callback(
 
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
-
-_SERVER_REQUEST_METHODS: frozenset[str] = frozenset(
-    cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(types.ServerRequest)
-)
-"""Method names in the SDK's `ServerRequest` union, derived from the
-discriminator literal on each arm. Requests for any other method — including
-spec methods this SDK deliberately doesn't model, like `tasks/*` — are
-answered with METHOD_NOT_FOUND instead of failing union validation."""
 
 
 class ClientSession:
@@ -244,6 +237,12 @@ class ClientSession:
             # The spec forbids cancelling initialize.
             opts["cancel_on_abandon"] = False
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            _methods.validate_server_result(method, version, raw)
+        except KeyError:
+            pass
         return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
@@ -307,6 +306,11 @@ class ClientSession:
         Contains server_info, capabilities, instructions, and the negotiated protocol_version.
         """
         return self._initialize_result
+
+    @property
+    def protocol_version(self) -> str | None:
+        """The negotiated protocol version. None until `initialize()` has completed."""
+        return self._initialize_result.protocol_version if self._initialize_result else None
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
@@ -506,12 +510,14 @@ class ClientSession:
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         """Answer a server-initiated request via the registered callbacks."""
-        if method not in _SERVER_REQUEST_METHODS:
-            raise MCPError(code=types.METHOD_NOT_FOUND, message="Method not found", data=method)
-        payload: dict[str, Any] = {"method": method}
-        if params is not None:
-            payload["params"] = dict(params)
-        request = types.server_request_adapter.validate_python(payload, by_name=False)
+        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
+        # handshake (which only exists at <=2025) and stateless until the header
+        # is plumbed; its meaning is fixed regardless of LATEST bumps.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            request = cast(types.ServerRequest, _methods.parse_server_request(method, version, params))
+        except KeyError:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
 
         response: types.ClientResult | types.ErrorData
         if isinstance(request, types.PingRequest):
@@ -532,19 +538,24 @@ class ClientSession:
         client_response = ClientResponse.validate_python(response)
         if isinstance(client_response, types.ErrorData):
             raise MCPError.from_error_data(client_response)
-        return client_response.model_dump(by_alias=True, mode="json", exclude_none=True)
+        dumped = client_response.model_dump(by_alias=True, mode="json", exclude_none=True)
+        try:
+            _methods.validate_client_result(method, version, dumped)
+        except ValidationError:
+            logger.exception("client callback for %r returned an invalid result", method)
+            raise MCPError(code=INTERNAL_ERROR, message="Client callback returned an invalid result") from None
+        return dumped
 
     async def _on_notify(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
         """Route a server notification: validate, run the typed callback, tee to message_handler."""
-        payload: dict[str, Any] = {"method": method}
-        if params is not None:
-            payload["params"] = dict(params)
+        # Same fallback as `_on_request`: covers pre-handshake and stateless.
+        version = self.protocol_version or "2025-11-25"
         try:
-            notification = types.server_notification_adapter.validate_python(payload, by_name=False)
-        except ValidationError:
-            logger.warning("Failed to validate notification: %s", payload, exc_info=True)
+            notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
+        except (KeyError, ValidationError):
+            logger.warning("Failed to validate notification: %s", method, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):
             # The dispatcher already applied the cancellation; not surfaced to message_handler.

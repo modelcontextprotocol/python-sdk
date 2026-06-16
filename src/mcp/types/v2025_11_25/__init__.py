@@ -311,7 +311,7 @@ class ElicitResult(WireModel):
     - "decline": User explicitly decline the action
     - "cancel": User dismissed without making an explicit choice
     """
-    content: dict[str, list[str] | str | float | bool] | None = None
+    content: dict[str, list[str] | str | int | float | bool] | None = None
     """
     The submitted form data, only present when action is "accept" and mode was "form".
     Contains values matching the requested schema.
@@ -685,10 +685,10 @@ class NumberSchema(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    default: float | None = None
+    default: int | float | None = None
     description: str | None = None
-    maximum: float | None = None
-    minimum: float | None = None
+    maximum: int | float | None = None
+    minimum: int | float | None = None
     title: str | None = None
     type: Literal["integer", "number"]
 

@@ -27,25 +27,30 @@ TYPES_DIR = REPO_ROOT / "src" / "mcp" / "types"
 
 # schema.ts -> schema.json renders TypeScript ``number`` as JSON Schema
 # ``integer`` at these sites; patch the JSON before codegen so floats validate.
+# Patched to ``["integer", "number"]`` (not bare ``"number"``) so codegen emits
+# ``int | float`` and pydantic's smart-union preserves ints on round-trip.
 # TODO: drop once modelcontextprotocol/modelcontextprotocol fixes the schema.ts -> schema.json number rendering.
 SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
     "2025-11-25": [
-        ("$defs/NumberSchema/properties/default/type", "integer", "number"),
-        ("$defs/NumberSchema/properties/maximum/type", "integer", "number"),
-        ("$defs/NumberSchema/properties/minimum/type", "integer", "number"),
+        ("$defs/NumberSchema/properties/default/type", "integer", ["integer", "number"]),
+        ("$defs/NumberSchema/properties/maximum/type", "integer", ["integer", "number"]),
+        ("$defs/NumberSchema/properties/minimum/type", "integer", ["integer", "number"]),
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
-            ["string", "number", "boolean"],
+            ["string", "integer", "number", "boolean"],
         ),
     ],
     "2026-07-28": [
+        ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
+        ("$defs/NumberSchema/properties/maximum/type", "number", ["integer", "number"]),
+        ("$defs/NumberSchema/properties/minimum/type", "number", ["integer", "number"]),
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
-            ["string", "number", "boolean"],
+            ["string", "integer", "number", "boolean"],
         ),
-        ("$defs/JSONValue/anyOf/2/type", ["string", "integer", "boolean"], ["string", "number", "boolean"]),
+        ("$defs/JSONValue/anyOf/2/type", ["string", "integer", "boolean"], ["string", "integer", "number", "boolean"]),
     ],
 }
 

@@ -1338,7 +1338,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
                 "validation at the low-level session layer (the high-level Context.elicit / "
-                "elicit_with_validation helper enforces primitive-only fields before generating the schema)."
+                "elicit_with_validation helper enforces primitive-only fields before generating the schema). "
+                "ClientSession does enforce it: the inbound request is validated against the per-version "
+                "surface schema and a non-conformant requestedSchema is answered with INVALID_PARAMS."
             ),
         ),
     ),
