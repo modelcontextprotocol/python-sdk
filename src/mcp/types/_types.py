@@ -1995,9 +1995,6 @@ class ElicitResult(Result):
     Contains values matching the requested schema. Values can be strings, integers, floats,
     booleans, arrays of strings, or null.
     For URL mode, this field is omitted.
-
-    The null value arm is superset leniency; the schema-exact surface types
-    declare no null arm.
     """
 
 
