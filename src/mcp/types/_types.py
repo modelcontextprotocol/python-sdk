@@ -26,6 +26,7 @@ https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protoc
 
 ProgressToken = str | int
 Role = Literal["user", "assistant"]
+CacheScope: TypeAlias = Literal["public", "private"]
 
 IconTheme = Literal["light", "dark"]
 
@@ -104,12 +105,32 @@ class Result(MCPModel):
     """
 
 
+class CacheableResult(Result):
+    """A result that supports cache hints."""
+
+    ttl_ms: Annotated[int, Field(ge=0)] = 0
+    """Time-to-live in milliseconds. A value of 0 means the result should be considered immediately stale."""
+
+    cache_scope: CacheScope = "public"
+    """The intended cache scope for this result."""
+
+
 class PaginatedResult(Result):
     next_cursor: str | None = None
     """
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
     """
+
+
+class CacheablePaginatedResult(PaginatedResult):
+    """A paginated result that supports cache hints."""
+
+    ttl_ms: Annotated[int, Field(ge=0)] = 0
+    """Time-to-live in milliseconds. A value of 0 means the result should be considered immediately stale."""
+
+    cache_scope: CacheScope = "public"
+    """The intended cache scope for this result."""
 
 
 class EmptyResult(Result):
@@ -445,7 +466,7 @@ class ResourceTemplate(BaseMetadata):
     """
 
 
-class ListResourcesResult(PaginatedResult):
+class ListResourcesResult(CacheablePaginatedResult):
     """The server's response to a resources/list request from the client."""
 
     resources: list[Resource]
@@ -457,7 +478,7 @@ class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates
     method: Literal["resources/templates/list"] = "resources/templates/list"
 
 
-class ListResourceTemplatesResult(PaginatedResult):
+class ListResourceTemplatesResult(CacheablePaginatedResult):
     """The server's response to a resources/templates/list request from the client."""
 
     resource_templates: list[ResourceTemplate]
@@ -511,7 +532,7 @@ class BlobResourceContents(ResourceContents):
     """A base64-encoded string representing the binary data of the item."""
 
 
-class ReadResourceResult(Result):
+class ReadResourceResult(CacheableResult):
     """The server's response to a resources/read request from the client."""
 
     contents: list[TextResourceContents | BlobResourceContents]
@@ -617,7 +638,7 @@ class Prompt(BaseMetadata):
     """
 
 
-class ListPromptsResult(PaginatedResult):
+class ListPromptsResult(CacheablePaginatedResult):
     """The server's response to a prompts/list request from the client."""
 
     prompts: list[Prompt]
@@ -915,7 +936,7 @@ class Tool(BaseMetadata):
     """
 
 
-class ListToolsResult(PaginatedResult):
+class ListToolsResult(CacheablePaginatedResult):
     """The server's response to a tools/list request from the client."""
 
     tools: list[Tool]

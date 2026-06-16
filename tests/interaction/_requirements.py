@@ -587,6 +587,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/tools#listing-tools",
         behavior="tools/list returns the registered tools with name, description, and inputSchema.",
     ),
+    "tools:list:cache-hints": Requirement(
+        source="issue:#2802",
+        behavior="tools/list responses include SEP-2549 cache hints on the wire.",
+        transports=("in-memory",),
+    ),
     "tools:list:metadata": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
         behavior=(
