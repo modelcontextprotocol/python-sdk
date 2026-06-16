@@ -43,6 +43,7 @@ from mcp.types import (
     PaginatedRequestParams,
     ProgressNotificationParams,
     RequestParams,
+    RequestParamsMeta,
     SetLevelRequestParams,
     Tool,
 )
@@ -654,69 +655,49 @@ async def test_runner_server_middleware_wraps_notifications(server: SrvT):
 
 
 def test_resolve_protocol_version_handshake_committed_value_wins():
-    """A handshake-committed version governs the whole connection; per-request
-    `_meta` and the transport hint are ignored."""
     md = ServerMessageMetadata(protocol_version="2025-03-26")
-    params = {"_meta": {PROTOCOL_VERSION_META_KEY: "2025-03-26"}}
-    assert _resolve_protocol_version("2025-06-18", params, md) == "2025-06-18"
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-03-26"}
+    assert _resolve_protocol_version("2025-06-18", meta, md) == "2025-06-18"
 
 
 def test_resolve_protocol_version_reads_per_request_meta_when_no_handshake():
-    """With no handshake, a supported `_meta` value is the answer (even with a
-    transport hint also present)."""
     md = ServerMessageMetadata(protocol_version="2025-03-26")
-    params = {"_meta": {PROTOCOL_VERSION_META_KEY: "2025-06-18"}}
-    assert _resolve_protocol_version(None, params, md) == "2025-06-18"
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-06-18"}
+    assert _resolve_protocol_version(None, meta, md) == "2025-06-18"
 
 
 def test_resolve_protocol_version_skips_unsupported_meta_value():
-    """A `_meta` value the SDK does not serve falls through to the transport
-    hint rather than poisoning surface validation."""
     md = ServerMessageMetadata(protocol_version="2025-03-26")
-    params = {"_meta": {PROTOCOL_VERSION_META_KEY: "1900-01-01"}}
-    assert _resolve_protocol_version(None, params, md) == "2025-03-26"
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "1900-01-01"}
+    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
 
 
 def test_resolve_protocol_version_skips_non_string_meta_value():
     md = ServerMessageMetadata(protocol_version="2025-03-26")
-    params: dict[str, Any] = {"_meta": {PROTOCOL_VERSION_META_KEY: 42}}
-    assert _resolve_protocol_version(None, params, md) == "2025-03-26"
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: 42}
+    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
 
 
 def test_resolve_protocol_version_reads_transport_hint_when_no_handshake_or_meta():
-    """The streamable-HTTP header path: stateless connection, no `_meta`."""
     md = ServerMessageMetadata(protocol_version="2025-06-18")
-    assert _resolve_protocol_version(None, {"name": "x"}, md) == "2025-06-18"
     assert _resolve_protocol_version(None, None, md) == "2025-06-18"
+    assert _resolve_protocol_version(None, {}, md) == "2025-06-18"
 
 
 def test_resolve_protocol_version_skips_unsupported_transport_hint():
-    """The transport may pass through an unvalidated value (the raw `initialize`
-    params version on streamable HTTP); a value the SDK does not serve falls
-    through to the terminal default."""
+    """The `initialize` params version reaches the metadata unvalidated; surface validation must never see it."""
     md = ServerMessageMetadata(protocol_version="1900-01-01")
     assert _resolve_protocol_version(None, None, md) == "2025-11-25"
 
 
 def test_resolve_protocol_version_terminal_default_with_no_signals():
-    """stdio and in-memory transports attach no metadata; before the handshake
-    only `ping` and `initialize` reach the runner, and both exist at the last
-    handshake-based revision."""
     assert _resolve_protocol_version(None, None, None) == "2025-11-25"
-    assert _resolve_protocol_version(None, {}, None) == "2025-11-25"
     assert _resolve_protocol_version(None, None, ServerMessageMetadata()) == "2025-11-25"
     assert _resolve_protocol_version(None, None, ClientMessageMetadata()) == "2025-11-25"
 
 
-def test_resolve_protocol_version_ignores_non_mapping_meta():
-    assert _resolve_protocol_version(None, {"_meta": "oops"}, None) == "2025-11-25"
-
-
 @pytest.mark.anyio
 async def test_runner_ctx_protocol_version_is_terminal_default_on_stateless_in_memory(server: SrvT):
-    """In-memory transport attaches no per-message metadata, so on a stateless
-    connection `ctx.protocol_version` is the resolver's terminal default while
-    the handshake-only `ctx.session.protocol_version` stays `None`."""
     async with connected_runner(server, initialized=False, stateless=True) as (client, runner):
         await client.send_raw_request("tools/list", None)
     ctx = _seen_ctx[0]

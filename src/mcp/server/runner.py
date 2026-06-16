@@ -82,28 +82,21 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
 
 def _resolve_protocol_version(
     negotiated: str | None,
-    params: Mapping[str, Any] | None,
+    meta: RequestParamsMeta | None,
     md: MessageMetadata,
 ) -> str:
-    """Resolve the protocol version that applies to this inbound message.
+    """Resolve the protocol version for this inbound message.
 
-    A handshake-committed value governs the whole connection when present.
-    Otherwise the per-request signals apply: `_meta` (2026-07-28+), then the
-    transport's hint (the validated `MCP-Protocol-Version` header on
-    streamable HTTP). Values outside `SUPPORTED_PROTOCOL_VERSIONS` are
-    skipped so an unrecognized declaration falls through rather than poisons
-    surface validation. The literal terminal default is the last
-    handshake-based revision and is fixed regardless of LATEST bumps.
+    Handshake-committed value wins; else per-request `_meta`, else the
+    transport hint. Unsupported values fall through so surface validation
+    never sees them.
     """
     if negotiated is not None:
         return negotiated
-    match params:
-        case {"_meta": {**meta}}:
-            v = meta.get(PROTOCOL_VERSION_META_KEY)
-            if isinstance(v, str) and v in SUPPORTED_PROTOCOL_VERSIONS:
-                return v
-        case _:
-            pass
+    if meta is not None:
+        v = meta.get(PROTOCOL_VERSION_META_KEY)
+        if isinstance(v, str) and v in SUPPORTED_PROTOCOL_VERSIONS:
+            return v
     if isinstance(md, ServerMessageMetadata):
         hint = md.protocol_version
         if hint is not None and hint in SUPPORTED_PROTOCOL_VERSIONS:
@@ -250,8 +243,9 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        version = _resolve_protocol_version(self.connection.protocol_version, params, dctx.message_metadata)
-        ctx = self._make_context(dctx, _extract_meta(params), version)
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
         is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner() -> HandlerResult:
@@ -318,8 +312,9 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> None:
-        version = _resolve_protocol_version(self.connection.protocol_version, params, dctx.message_metadata)
-        ctx = self._make_context(dctx, _extract_meta(params), version)
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
 
         async def _inner() -> None:
             if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:

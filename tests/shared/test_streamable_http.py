@@ -1371,10 +1371,7 @@ async def stateless_context_app() -> AsyncIterator[Starlette]:
 async def test_streamablehttp_stateless_ctx_protocol_version_tracks_the_header(
     stateless_context_app: Starlette, header_value: str | None, expected: str
 ) -> None:
-    """A stateless server has no handshake-committed version; the validated
-    `MCP-Protocol-Version` header reaches the handler as `ctx.protocol_version`
-    (with the spec's `2025-03-26` default when absent) while the handshake-only
-    `ctx.session.protocol_version` stays `None`."""
+    """No handshake on stateless: the header (or the spec's 2025-03-26 default) reaches `ctx.protocol_version`."""
     body = JSONRPCRequest(
         jsonrpc="2.0",
         id=1,

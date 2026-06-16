@@ -55,11 +55,8 @@ class ServerSession:
     def protocol_version(self) -> str | None:
         """The protocol version negotiated during `initialize`.
 
-        `None` before initialization completes. Stateless connections don't
-        require the handshake, so this is normally `None` there. For the
-        version that applies to the current request - which is always set,
-        including on stateless connections - read `ctx.protocol_version`
-        instead.
+        `None` before initialization, and normally `None` on stateless
+        connections. For the per-request value, read `ctx.protocol_version`.
         """
         return self._connection.protocol_version
 
