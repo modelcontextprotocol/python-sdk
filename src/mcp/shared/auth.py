@@ -1,6 +1,7 @@
 from typing import Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -193,3 +194,18 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but omitted here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+
+    @field_serializer("resource")
+    def _serialize_resource(self, value: AnyHttpUrl) -> str:
+        """Preserve canonical root resources without a trailing slash.
+
+        Pydantic normalizes `https://example.com` to `https://example.com/`.
+        RFC 9728 resource metadata is compared as a canonical resource URL, so
+        when the resource path is the origin root we serialize it back without
+        that synthetic slash.
+        """
+        url = str(value)
+        parsed = urlsplit(url)
+        if parsed.path != "/":
+            return url
+        return urlunsplit((parsed.scheme, parsed.netloc, "", parsed.query, parsed.fragment))
