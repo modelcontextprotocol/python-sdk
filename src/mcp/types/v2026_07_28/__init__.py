@@ -3536,8 +3536,8 @@ class JSONObject(RootModel[dict[str, "JSONValue"]]):
     root: dict[str, "JSONValue"]
 
 
-class JSONValue(RootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool]]):
-    root: Union[JSONObject, list["JSONValue"], str | int | float | bool]
+class JSONValue(RootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool | None]]):
+    root: Union[JSONObject, list["JSONValue"], str | int | float | bool | None]
 
 
 AnyCallToolResult = CallToolResult | InputRequiredResult

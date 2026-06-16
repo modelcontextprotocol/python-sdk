@@ -25,7 +25,7 @@ NAME_MAP: dict[str, type[BaseModel]] = {
     "v2025_11_25.Context": monolith.CompletionContext,
     "v2025_11_25.Data": monolith.ElicitationRequiredErrorData,
     "v2025_11_25.Elicitation": monolith.ElicitationCapability,
-    "v2025_11_25.Elicitation1": _types.TasksElicitationCapability,
+    "v2025_11_25.Elicitation1": monolith.TasksElicitationCapability,
     "v2025_11_25.ElicitationCompleteNotification": monolith.ElicitCompleteNotification,
     "v2025_11_25.Params": monolith.CancelTaskRequestParams,
     "v2025_11_25.Params1": monolith.ElicitCompleteNotificationParams,
@@ -35,15 +35,15 @@ NAME_MAP: dict[str, type[BaseModel]] = {
     "v2025_11_25.JSONRPCErrorResponse": monolith.JSONRPCError,
     "v2025_11_25.JSONRPCResultResponse": monolith.JSONRPCResponse,
     "v2025_11_25.Prompts": monolith.PromptsCapability,
-    "v2025_11_25.Requests": _types.ClientTasksRequestsCapability,
-    "v2025_11_25.Requests1": _types.ServerTasksRequestsCapability,
+    "v2025_11_25.Requests": monolith.ClientTasksRequestsCapability,
+    "v2025_11_25.Requests1": monolith.ServerTasksRequestsCapability,
     "v2025_11_25.Resources": monolith.ResourcesCapability,
     "v2025_11_25.Roots": monolith.RootsCapability,
     "v2025_11_25.Sampling": monolith.SamplingCapability,
-    "v2025_11_25.Sampling1": _types.TasksSamplingCapability,
-    "v2025_11_25.Tasks": _types.ClientTasksCapability,
-    "v2025_11_25.Tasks1": _types.ServerTasksCapability,
-    "v2025_11_25.Tools": _types.TasksToolsCapability,
+    "v2025_11_25.Sampling1": monolith.TasksSamplingCapability,
+    "v2025_11_25.Tasks": monolith.ClientTasksCapability,
+    "v2025_11_25.Tasks1": monolith.ServerTasksCapability,
+    "v2025_11_25.Tools": monolith.TasksToolsCapability,
     "v2025_11_25.Tools1": monolith.ToolsCapability,
     # v2026_07_28
     "v2026_07_28.Argument": monolith.CompletionArgument,
@@ -181,6 +181,28 @@ def test_monolith_is_superset_of_surface_fields(
     excused = {alias for (cls, alias) in FIELD_EXCEPTIONS if cls is surface_cls}
     missing = surface_fields - _wire_aliases(mono_cls) - excused
     assert not missing, f"{qualname}: monolith {mono_cls.__name__} missing wire fields {sorted(missing)}"
+
+
+# Monolith model classes intentionally kept out of `mcp.types.__all__`.
+PRIVATE_MONOLITH_MODELS: frozenset[str] = frozenset(
+    {
+        "MCPModel",  # internal base; users subclass the concrete spec types instead
+    }
+)
+
+
+def test_every_public_monolith_model_is_exported_from_mcp_types() -> None:
+    defined = {
+        name
+        for name, obj in vars(_types).items()
+        if name.isidentifier()  # skip pydantic's `Request[...]` generic-alias entries
+        and not name.startswith("_")
+        and inspect.isclass(obj)
+        and issubclass(obj, BaseModel)
+        and obj.__module__ == _types.__name__
+    }
+    missing = defined - set(monolith.__all__) - PRIVATE_MONOLITH_MODELS
+    assert not missing, f"_types models not in mcp.types.__all__: {sorted(missing)}"
 
 
 def test_every_surface_class_is_accounted_for() -> None:
