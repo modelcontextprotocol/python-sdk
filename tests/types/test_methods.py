@@ -732,18 +732,23 @@ def test_validate_functions_accept_reject_and_gate_like_their_parse_siblings():
     methods.validate_client_request("tools/call", "2025-11-25", {"name": "echo"})
     methods.validate_client_notification("notifications/cancelled", "2025-11-25", {"requestId": 1})
     methods.validate_server_result("tools/list", "2025-11-25", {"tools": []})
+    methods.validate_client_result("roots/list", "2025-11-25", {"roots": []})
     with pytest.raises(KeyError):
         methods.validate_client_request("custom/greet", "2025-11-25", None)
     with pytest.raises(KeyError):
         methods.validate_client_notification("custom/ping", "2025-11-25", None)
     with pytest.raises(KeyError):
         methods.validate_server_result("custom/greet", "2025-11-25", {})
+    with pytest.raises(KeyError):
+        methods.validate_client_result("roots/list", "2026-07-28", {})
     with pytest.raises(pydantic.ValidationError):
         methods.validate_client_request("tools/call", "2025-11-25", None)
     with pytest.raises(pydantic.ValidationError):
         methods.validate_client_notification("notifications/progress", "2025-11-25", {"progressToken": []})
     with pytest.raises(pydantic.ValidationError):
         methods.validate_server_result("tools/list", "2025-11-25", {"tools": 42})
+    with pytest.raises(pydantic.ValidationError):
+        methods.validate_client_result("roots/list", "2025-11-25", {"roots": 42})
     with pytest.raises(ValueError):
         methods.validate_client_request("ping", "2099-01-01", None)
 

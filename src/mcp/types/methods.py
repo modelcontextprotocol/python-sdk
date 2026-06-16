@@ -41,6 +41,7 @@ __all__ = [
     "serialize_server_result",
     "validate_client_notification",
     "validate_client_request",
+    "validate_client_result",
     "validate_server_result",
 ]
 
@@ -652,6 +653,24 @@ def parse_server_result(
     return result
 
 
+def validate_client_result(
+    method: str,
+    version: str,
+    data: Mapping[str, Any],
+    *,
+    surface: Mapping[tuple[str, str], type[BaseModel] | UnionType] = CLIENT_RESULTS,
+) -> None:
+    """Validate a client result against `surface` only.
+
+    Raises:
+        ValueError: `version` is not a known protocol version.
+        KeyError: `(method, version)` is not in `surface`.
+        pydantic.ValidationError: result fails surface validation.
+    """
+    _check_known_version(version)
+    _adapter(surface[(method, version)]).validate_python(data, by_name=False)
+
+
 def parse_client_result(
     method: str,
     version: str,
@@ -675,7 +694,6 @@ def parse_client_result(
         pydantic.ValidationError: result fails surface or monolith validation.
         RuntimeError: surface matched but `method` has no monolith row.
     """
-    _check_known_version(version)
-    _adapter(surface[(method, version)]).validate_python(data, by_name=False)
+    validate_client_result(method, version, data, surface=surface)
     result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(data, by_name=False)
     return result
