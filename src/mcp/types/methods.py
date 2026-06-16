@@ -32,6 +32,8 @@ __all__ = [
     "SERVER_NOTIFICATIONS",
     "SERVER_REQUESTS",
     "SERVER_RESULTS",
+    "SPEC_CLIENT_METHODS",
+    "SPEC_CLIENT_NOTIFICATION_METHODS",
     "parse_client_notification",
     "parse_client_request",
     "parse_client_result",
@@ -323,6 +325,15 @@ CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
     }
 )
 """Results clients send, keyed by the originating server request's (method, version)."""
+
+
+# --- Direction-specific method sets ---
+
+SPEC_CLIENT_METHODS: Final[frozenset[str]] = frozenset(m for m, _ in CLIENT_REQUESTS)
+"""Spec request methods a client may send (any version); the server-side spec-method discriminator."""
+
+SPEC_CLIENT_NOTIFICATION_METHODS: Final[frozenset[str]] = frozenset(m for m, _ in CLIENT_NOTIFICATIONS)
+"""Spec notification methods a client may send (any version); the server-side spec-method discriminator."""
 
 
 # --- Monolith maps ---

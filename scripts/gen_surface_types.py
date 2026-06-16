@@ -14,7 +14,6 @@ import difflib
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,22 +34,40 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
         ("$defs/NumberSchema/properties/default/type", "integer", ["integer", "number"]),
         ("$defs/NumberSchema/properties/maximum/type", "integer", ["integer", "number"]),
         ("$defs/NumberSchema/properties/minimum/type", "integer", ["integer", "number"]),
+        # ``null`` arm is monolith superset leniency: hosts may answer optional form fields with null.
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
-            ["string", "integer", "number", "boolean"],
+            ["string", "integer", "number", "boolean", "null"],
+        ),
+        # Older python-sdk releases emit ``anyOf`` for Optional fields; the callback's
+        # own schema validation is the real gate, so accept any property shape inbound.
+        # PrimitiveSchemaDefinition becomes an orphan $def after this patch but
+        # datamodel-codegen still emits it; elicitation.py imports it as the gate type.
+        (
+            "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
+            {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
+            {},
         ),
     ],
     "2026-07-28": [
         ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
         ("$defs/NumberSchema/properties/maximum/type", "number", ["integer", "number"]),
         ("$defs/NumberSchema/properties/minimum/type", "number", ["integer", "number"]),
+        # ``null`` arm is monolith superset leniency: hosts may answer optional form fields with null.
         (
             "$defs/ElicitResult/properties/content/additionalProperties/anyOf/1/type",
             ["string", "integer", "boolean"],
-            ["string", "integer", "number", "boolean"],
+            ["string", "integer", "number", "boolean", "null"],
         ),
         ("$defs/JSONValue/anyOf/2/type", ["string", "integer", "boolean"], ["string", "integer", "number", "boolean"]),
+        # Older python-sdk releases emit ``anyOf`` for Optional fields; the callback's
+        # own schema validation is the real gate, so accept any property shape inbound.
+        (
+            "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
+            {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
+            {},
+        ),
     ],
 }
 
@@ -107,13 +124,11 @@ def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) ->
 
 
 def run_codegen(schema_path: Path, output_path: Path) -> None:
-    """Run datamodel-code-generator (from the ``codegen`` dependency group)."""
-    exe = shutil.which("datamodel-codegen")
-    cmd = [exe] if exe else ["uv", "run", "--frozen", "--group", "codegen", "datamodel-codegen"]
+    """Run datamodel-code-generator at the version pinned in the ``codegen`` dependency group."""
     # fmt: off
     result = subprocess.run(
         [
-            *cmd,
+            "uv", "run", "--frozen", "--group", "codegen", "datamodel-codegen",
             "--input", str(schema_path),
             "--input-file-type", "jsonschema",
             "--output", str(output_path),

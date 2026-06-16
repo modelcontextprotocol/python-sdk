@@ -853,7 +853,7 @@ async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_ve
     caplog: pytest.LogCaptureFixture,
 ):
     """`notifications/elicitation/complete` does not exist at 2025-06-18: it is
-    log-warn-dropped without reaching `message_handler`."""
+    debug-log-dropped without reaching `message_handler`."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -861,22 +861,50 @@ async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_ve
         seen.append(msg)
         delivered.set()
 
-    async with raw_client_session(message_handler=handler) as (session, to_client, _):
-        _set_negotiated_version(session, "2025-06-18")
-        await to_client.send(
-            SessionMessage(
-                JSONRPCNotification(
-                    jsonrpc="2.0", method="notifications/elicitation/complete", params={"elicitationId": "e1"}
+    with caplog.at_level("DEBUG", logger="client"):
+        async with raw_client_session(message_handler=handler) as (session, to_client, _):
+            _set_negotiated_version(session, "2025-06-18")
+            await to_client.send(
+                SessionMessage(
+                    JSONRPCNotification(
+                        jsonrpc="2.0", method="notifications/elicitation/complete", params={"elicitationId": "e1"}
+                    )
                 )
             )
-        )
-        await to_client.send(
-            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
-        )
-        await delivered.wait()
+            await to_client.send(
+                SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+            )
+            await delivered.wait()
     assert len(seen) == 1
     assert isinstance(seen[0], types.ToolListChangedNotification)
-    assert "Failed to validate notification" in caplog.text
+    assert "dropped 'notifications/elicitation/complete': not defined at 2025-06-18" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_on_request_elicitation_with_loose_property_schema_reaches_the_callback():
+    """Older python-sdk servers emit `anyOf` for `Optional` form fields; the
+    inbound surface gate must let that through to the elicitation callback."""
+    seen: list[types.ElicitRequestParams] = []
+
+    async def elicitation(ctx: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
+        seen.append(params)
+        return types.ElicitResult(action="accept", content={"x": 1})
+
+    request_params = {
+        "message": "m",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {"x": {"anyOf": [{"type": "integer"}, {"type": "null"}]}},
+        },
+    }
+    async with raw_client_session(elicitation_callback=elicitation) as (_session, to_client, from_client):
+        await to_client.send(
+            SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=4, method="elicitation/create", params=request_params))
+        )
+        out = await from_client.receive()
+    assert isinstance(out.message, JSONRPCResponse)
+    assert out.message.result == {"action": "accept", "content": {"x": 1}}
+    assert len(seen) == 1
 
 
 @pytest.mark.anyio
@@ -939,8 +967,8 @@ async def test_raising_sampling_callback_answers_with_code_zero():
 
 @pytest.mark.anyio
 async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest.LogCaptureFixture):
-    """A malformed notification is logged and dropped without reaching `message_handler` (SDK-defined).
-    Scripted peer: the typed API cannot emit a method outside the spec's notification union."""
+    """A malformed notification is warn-logged and dropped without reaching `message_handler` (SDK-defined).
+    Scripted peer: the typed API cannot emit malformed params for a spec method."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -949,14 +977,16 @@ async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest
         delivered.set()
 
     async with raw_client_session(message_handler=handler) as (_session, to_client, _):
-        await to_client.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="not/a/spec/notification")))
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress", params={"broken": 1}))
+        )
         # Follow with a valid notification so we know the loop is still alive.
         await to_client.send(
             SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
         )
         await delivered.wait()
     assert isinstance(seen[0], types.ToolListChangedNotification)
-    assert "Failed to validate notification" in caplog.text
+    assert "Failed to validate notification: notifications/progress" in caplog.text
 
 
 @pytest.mark.anyio

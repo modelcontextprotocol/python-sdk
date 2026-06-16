@@ -223,7 +223,7 @@ class ServerRunner(Generic[LifespanT]):
         # handshake (which only exists at <=2025) and stateless until the header
         # is plumbed; its meaning is fixed regardless of LATEST bumps.
         version = self.connection.protocol_version or "2025-11-25"
-        is_spec_method = method in _methods.MONOLITH_REQUESTS
+        is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner() -> HandlerResult:
             # Pinned compat: spec methods are surface-validated before lookup,
@@ -294,7 +294,7 @@ class ServerRunner(Generic[LifespanT]):
         version = self.connection.protocol_version or "2025-11-25"
 
         async def _inner() -> None:
-            if method in _methods.MONOLITH_NOTIFICATIONS:
+            if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:
                 try:
                     _methods.validate_client_notification(method, version, params)
                 except KeyError:

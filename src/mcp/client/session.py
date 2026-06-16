@@ -554,7 +554,10 @@ class ClientSession:
         version = self.protocol_version or "2025-11-25"
         try:
             notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
-        except (KeyError, ValidationError):
+        except KeyError:
+            logger.debug("dropped %r: not defined at %s", method, version)
+            return
+        except ValidationError:
             logger.warning("Failed to validate notification: %s", method, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):

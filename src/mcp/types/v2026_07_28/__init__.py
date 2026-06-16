@@ -102,6 +102,44 @@ class Cursor(RootModel[str]):
     """
 
 
+class RequestedSchema(WireModel):
+    """
+    A restricted subset of JSON Schema.
+    Only top-level properties are allowed, without nesting.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    schema_: Annotated[str | None, Field(alias="$schema")] = None
+    properties: dict[str, Any]
+    required: list[str] | None = None
+    type: Literal["object"]
+
+
+class ElicitRequestFormParams(WireModel):
+    """
+    The parameters for a request to elicit non-sensitive information from the user via a form in the client.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    message: str
+    """
+    The message to present to the user describing what information is being requested.
+    """
+    mode: Literal["form"] = "form"
+    """
+    The elicitation mode.
+    """
+    requested_schema: Annotated[RequestedSchema, Field(alias="requestedSchema")]
+    """
+    A restricted subset of JSON Schema.
+    Only top-level properties are allowed, without nesting.
+    """
+
+
 class ElicitRequestURLParams(WireModel):
     """
     The parameters for a request to elicit information from the user via a URL in the client.
@@ -144,7 +182,7 @@ class ElicitResult(WireModel):
     - `"decline"`: User explicitly declined the action
     - `"cancel"`: User dismissed without making an explicit choice
     """
-    content: dict[str, list[str] | str | int | float | bool] | None = None
+    content: dict[str, list[str] | str | int | float | bool | None] | None = None
     """
     The submitted form data, only present when action is `"accept"` and mode was `"form"`.
     Contains values matching the requested schema.
@@ -1538,6 +1576,13 @@ class CompleteResultResponse(WireModel):
     result: CompleteResult
 
 
+class ElicitRequestParams(RootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
+    root: ElicitRequestFormParams | ElicitRequestURLParams
+    """
+    The parameters for a request to elicit additional information from the user via the client.
+    """
+
+
 class EmbeddedResource(WireModel):
     """
     The contents of a resource, embedded into a prompt or tool call result.
@@ -2148,49 +2193,16 @@ class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | Resourc
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
-class RequestedSchema(WireModel):
+class ElicitRequest(WireModel):
     """
-    A restricted subset of JSON Schema.
-    Only top-level properties are allowed, without nesting.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    schema_: Annotated[str | None, Field(alias="$schema")] = None
-    properties: dict[str, PrimitiveSchemaDefinition]
-    required: list[str] | None = None
-    type: Literal["object"]
-
-
-class ElicitRequestFormParams(WireModel):
-    """
-    The parameters for a request to elicit non-sensitive information from the user via a form in the client.
+    A request from the server to elicit additional information from the user via the client.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    message: str
-    """
-    The message to present to the user describing what information is being requested.
-    """
-    mode: Literal["form"] = "form"
-    """
-    The elicitation mode.
-    """
-    requested_schema: Annotated[RequestedSchema, Field(alias="requestedSchema")]
-    """
-    A restricted subset of JSON Schema.
-    Only top-level properties are allowed, without nesting.
-    """
-
-
-class ElicitRequestParams(RootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
-    root: ElicitRequestFormParams | ElicitRequestURLParams
-    """
-    The parameters for a request to elicit additional information from the user via the client.
-    """
+    method: Literal["elicitation/create"]
+    params: ElicitRequestParams
 
 
 class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
@@ -2614,18 +2626,6 @@ class CallToolResult(WireModel):
 
 class ClientNotification(RootModel[CancelledNotification | ProgressNotification]):
     root: CancelledNotification | ProgressNotification
-
-
-class ElicitRequest(WireModel):
-    """
-    A request from the server to elicit additional information from the user via the client.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    method: Literal["elicitation/create"]
-    params: ElicitRequestParams
 
 
 class GetPromptResult(WireModel):

@@ -455,15 +455,13 @@ async def test_elicit_form_schema_with_every_primitive_and_enum_type_reaches_the
 
 
 @requirement("elicitation:form:schema:restricted-subset")
-async def test_elicit_form_with_a_nested_schema_is_rejected_by_the_client_with_invalid_params(
-    connect: Connect,
-) -> None:
-    """A requested schema with nested-object and array-of-object properties is rejected client-side.
+async def test_elicit_form_with_a_nested_schema_is_forwarded_unchanged(connect: Connect) -> None:
+    """A requested schema with nested-object and array-of-object properties passes through unchanged.
 
-    The spec restricts form-mode requested schemas to flat objects with primitive-typed properties.
-    The low-level server forwards the dict unchanged (see the divergence on the requirement), but
-    the client validates the inbound request against the per-version surface schema and answers
-    INVALID_PARAMS, so the elicitation callback is never reached.
+    The spec restricts form-mode requested schemas to flat objects with primitive-typed properties;
+    this test pins that the SDK does not enforce that restriction on either side (see the
+    divergence on the requirement). The inbound surface gate is deliberately relaxed here so older
+    servers that emit `anyOf` for `Optional` form fields still reach the elicitation callback.
     """
     schema: ElicitRequestedSchema = {
         "type": "object",
@@ -486,27 +484,25 @@ async def test_elicit_form_with_a_nested_schema_is_rejected_by_the_client_with_i
             tools=[types.Tool(name="profile", description="Collect a profile.", input_schema={"type": "object"})]
         )
 
-    error: ErrorData | None = None
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        nonlocal error
         assert params.name == "profile"
-        try:
-            await ctx.session.elicit_form("Profile details.", schema)
-        except MCPError as exc:
-            error = exc.error
-        return CallToolResult(content=[TextContent(text="done")])
+        answer = await ctx.session.elicit_form("Profile details.", schema)
+        return CallToolResult(content=[TextContent(text=answer.action)])
 
     server = Server("profiler", on_list_tools=list_tools, on_call_tool=call_tool)
 
+    received: list[types.ElicitRequestParams] = []
+
     async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
-        raise NotImplementedError
+        received.append(params)
+        return ElicitResult(action="decline")
 
     async with connect(server, elicitation_callback=answer_form) as client:
         await client.call_tool("profile", {})
 
-    assert error is not None
-    assert error.code == types.INVALID_PARAMS
+    assert len(received) == 1
+    assert isinstance(received[0], ElicitRequestFormParams)
+    assert received[0].requested_schema == schema
 
 
 @requirement("elicitation:form:response-validation")

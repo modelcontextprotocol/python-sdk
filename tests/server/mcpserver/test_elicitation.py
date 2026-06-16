@@ -1,6 +1,6 @@
 """Test the elicitation feature over the in-memory client transport."""
 
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import BaseModel, Field
@@ -211,15 +211,10 @@ async def test_elicitation_with_optional_fields():
         text_contains=["Validation failed:", "optional_list"],
     )
 
-    # list[str] (and Optional[list[str]]) are rejected: bare list[str] does not
-    # render as a spec MultiSelectEnumSchema.
+    # Bare `list[str]` renders without enum items and so is not a spec MultiSelectEnumSchema.
     class BareListSchema(BaseModel):
         name: str = Field(description="Name")
         tags: list[str] = Field(description="Tags")
-
-    class OptionalListSchema(BaseModel):
-        name: str = Field(description="Name")
-        tags: list[str] | None = Field(default=None, description="Optional tags")
 
     def make_reject_tool(tool_name: str, schema_cls: type[BaseModel]) -> None:
         @mcp.tool(name=tool_name, description="Tool with a rejected field")
@@ -231,14 +226,11 @@ async def test_elicitation_with_optional_fields():
             raise NotImplementedError
 
     make_reject_tool("bare_list_tool", BareListSchema)
-    make_reject_tool("optional_list_tool", OptionalListSchema)
+    await call_tool_and_assert(
+        mcp, elicitation_callback, "bare_list_tool", {}, text_contains=["Validation failed:", "tags"]
+    )
 
-    for tool_name in ("bare_list_tool", "optional_list_tool"):
-        await call_tool_and_assert(
-            mcp, elicitation_callback, tool_name, {}, text_contains=["Validation failed:", "tags"]
-        )
-
-    # A union of two primitives is rejected (only `T | None` is allowed).
+    # A union of two primitives renders as `anyOf`, outside `PrimitiveSchemaDefinition`.
     class MultiPrimitiveSchema(BaseModel):
         value: int | str = Field(description="Value")
 
@@ -346,7 +338,33 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"  # pragma: no cover
 
+    # Test multi-select with titles using items.anyOf
+    class FavoriteColorsSchema(BaseModel):
+        user_name: str = Field(description="Your name")
+        favorite_colors: list[str] = Field(
+            description="Select your favorite colors",
+            json_schema_extra={
+                "items": {
+                    "anyOf": [
+                        {"const": "red", "title": "Red"},
+                        {"const": "green", "title": "Green"},
+                        {"const": "blue", "title": "Blue"},
+                        {"const": "yellow", "title": "Yellow"},
+                    ]
+                }
+            },
+        )
+
+    @mcp.tool(description="Multiple color selection")
+    async def select_favorite_colors(ctx: Context) -> str:
+        result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
+        if result.action == "accept" and result.data:
+            return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
+        raise NotImplementedError
+
     async def enum_callback(context: ClientRequestContext, params: ElicitRequestParams):
+        if "colors" in params.message:
+            return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         if "legacy" in params.message:
             return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
         return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
@@ -354,5 +372,33 @@ async def test_elicitation_with_enum_titles():
     # Test single-select with titles
     await call_tool_and_assert(mcp, enum_callback, "select_favorite_color", {}, "User: Alice, Favorite: blue")
 
+    # Test multi-select with titles
+    await call_tool_and_assert(mcp, enum_callback, "select_favorite_colors", {}, "User: Bob, Colors: red, green")
+
     # Test legacy enumNames format
     await call_tool_and_assert(mcp, enum_callback, "select_color_legacy", {}, "User: Charlie, Color: green")
+
+
+@pytest.mark.anyio
+async def test_elicitation_literal_field_renders_as_a_spec_enum_schema():
+    """`Literal[...]` and `list[Literal[...]]` render as the spec's enum schemas and pass the gate."""
+    mcp = MCPServer(name="LiteralServer")
+
+    class LiteralSchema(BaseModel):
+        size: Literal["s", "m", "l"] = Field(description="Size")
+        extras: list[Literal["a", "b"]] = Field(description="Extras")
+
+    @mcp.tool(description="Literal selection")
+    async def pick(ctx: Context) -> str:
+        result = await ctx.elicit(message="Pick", schema=LiteralSchema)
+        if result.action == "accept" and result.data:
+            return f"{result.data.size}:{','.join(result.data.extras)}"
+        raise NotImplementedError
+
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams):
+        assert isinstance(params, types.ElicitRequestFormParams)
+        assert params.requested_schema["properties"]["size"]["enum"] == ["s", "m", "l"]
+        assert params.requested_schema["properties"]["extras"]["items"]["enum"] == ["a", "b"]
+        return ElicitResult(action="accept", content={"size": "m", "extras": ["a"]})
+
+    await call_tool_and_assert(mcp, callback, "pick", {}, "m:a")

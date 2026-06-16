@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import types
-from typing import Any, Generic, Literal, TypeVar, Union, get_args, get_origin
+from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 
 from mcp.server.session import ServerSession
 from mcp.types import RequestId
+
+# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
+from mcp.types.v2025_11_25 import PrimitiveSchemaDefinition
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 
@@ -46,10 +48,6 @@ class AcceptedUrlElicitation(BaseModel):
 UrlElicitationResult = AcceptedUrlElicitation | DeclinedElicitation | CancelledElicitation
 
 
-# Primitive types allowed in elicitation schemas
-_ELICITATION_PRIMITIVE_TYPES = (str, int, float, bool)
-
-
 class _ElicitationJsonSchema(GenerateJsonSchema):
     """JSON-Schema generator that flattens `T | None` to `T` and drops `None` defaults.
 
@@ -68,26 +66,20 @@ class _ElicitationJsonSchema(GenerateJsonSchema):
         return result
 
 
-def _validate_elicitation_schema(schema: type[BaseModel]) -> None:
-    """Validate that a Pydantic model only contains primitive field types."""
-    for field_name, field_info in schema.model_fields.items():
-        if not _is_primitive_field(field_info.annotation):
+def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
+    """Reject any `properties` entry the spec's `PrimitiveSchemaDefinition` won't accept.
+
+    Catches whatever the renderer let through that isn't spec-valid: bare
+    `list[str]` (no enum), multi-primitive unions, nested models.
+    """
+    for field_name, prop in json_schema.get("properties", {}).items():
+        try:
+            PrimitiveSchemaDefinition.model_validate(prop)
+        except ValidationError:
             raise TypeError(
-                f"Elicitation schema field '{field_name}' must be a primitive type "
-                f"{_ELICITATION_PRIMITIVE_TYPES} or Optional of one. Unions of multiple "
-                f"primitives, lists, and nested models are not allowed."
-            )
-
-
-def _is_primitive_field(annotation: Any) -> bool:
-    """True if `annotation` is a single primitive type, optionally wrapped in `Optional`."""
-    if annotation in _ELICITATION_PRIMITIVE_TYPES:
-        return True
-    origin = get_origin(annotation)
-    if origin is Union or origin is types.UnionType:
-        non_none = [a for a in get_args(annotation) if a is not types.NoneType]
-        return len(non_none) == 1 and non_none[0] in _ELICITATION_PRIMITIVE_TYPES
-    return False
+                f"Elicitation schema field {field_name!r} rendered as {prop!r}, "
+                f"which is not a valid PrimitiveSchemaDefinition"
+            ) from None
 
 
 async def elicit_with_validation(
@@ -106,10 +98,8 @@ async def elicit_with_validation(
 
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
     """
-    # Validate that schema only contains primitive types and fail loudly if not
-    _validate_elicitation_schema(schema)
-
     json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
+    _validate_rendered_properties(json_schema)
 
     result = await session.elicit_form(
         message=message,

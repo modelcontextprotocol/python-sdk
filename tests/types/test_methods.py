@@ -436,6 +436,38 @@ def test_maps_define_exactly_the_expected_methods_for_every_known_version():
             assert derived == EXPECTED_METHODS[version][map_name], f"{map_name} at {version}"
 
 
+def test_spec_client_method_sets_are_the_client_direction_projection_of_the_surface_maps():
+    assert methods.SPEC_CLIENT_METHODS == {m for m, _ in methods.CLIENT_REQUESTS}
+    assert methods.SPEC_CLIENT_NOTIFICATION_METHODS == {m for m, _ in methods.CLIENT_NOTIFICATIONS}
+    # Server-direction methods stay out so a server-side custom registration routes as custom.
+    assert "roots/list" not in methods.SPEC_CLIENT_METHODS
+    assert "notifications/message" not in methods.SPEC_CLIENT_NOTIFICATION_METHODS
+
+
+def test_elicit_result_surface_accepts_null_content_values_at_every_version_that_defines_it():
+    """Monolith superset leniency: hosts may answer optional form fields with null."""
+    for (method, _), surface in methods.CLIENT_RESULTS.items():
+        if method != "elicitation/create":
+            continue
+        assert isinstance(surface, type)
+        surface.model_validate({"action": "accept", "content": {"name": "x", "age": None}})
+    for surface in (v2025.ElicitResult, v2026.ElicitResult):
+        surface.model_validate({"action": "accept", "content": {"name": "x", "age": None}})
+
+
+def test_elicit_request_surface_accepts_loose_property_schemas():
+    """Older python-sdk emits `anyOf` for `Optional` form fields; the surface gate must let it through."""
+    params = {
+        "message": "m",
+        "requestedSchema": {
+            "type": "object",
+            "properties": {"x": {"anyOf": [{"type": "integer"}, {"type": "null"}]}},
+        },
+    }
+    parsed = methods.parse_server_request("elicitation/create", "2025-11-25", params)
+    assert isinstance(parsed, types.ElicitRequest)
+
+
 def test_response_map_keys_mirror_the_request_map_keys():
     assert set(methods.SERVER_RESULTS) == set(methods.CLIENT_REQUESTS)
     assert set(methods.CLIENT_RESULTS) == set(methods.SERVER_REQUESTS)

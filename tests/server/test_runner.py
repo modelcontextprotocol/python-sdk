@@ -306,21 +306,45 @@ async def test_runner_on_notify_drops_snake_case_params(server: SrvT, caplog: py
 
 
 @pytest.mark.anyio
-async def test_runner_on_notify_drops_a_spec_notification_with_no_client_surface_row(
+async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiated_version(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ):
-    """`notifications/message` is in `MONOLITH_NOTIFICATIONS` but never a client
-    notification, so the version gate drops it before handler lookup."""
+    """`notifications/roots/list_changed` is a client notification but not at
+    2026-07-28; the version gate drops it before handler lookup."""
+    barrier = anyio.Event()
 
-    async def handler(ctx: Ctx, params: NotificationParams) -> None:
+    async def dropped(ctx: Ctx, params: NotificationParams) -> None:
         raise NotImplementedError  # the version gate drops the notification first
 
-    server.add_notification_handler("notifications/message", NotificationParams, handler)
+    async def on_progress(ctx: Ctx, params: ProgressNotificationParams) -> None:
+        barrier.set()
+
+    server.add_notification_handler("notifications/roots/list_changed", NotificationParams, dropped)
+    server.add_notification_handler("notifications/progress", ProgressNotificationParams, on_progress)
     with caplog.at_level("DEBUG", logger="mcp.server.runner"):
-        async with connected_runner(server) as (client, _):
-            await client.notify("notifications/message", {"level": "info", "data": "x"})
-            await client.send_raw_request("tools/list", None)
-    assert "dropped 'notifications/message': not defined at 2025-11-25" in caplog.text
+        async with connected_runner(server) as (client, runner):
+            runner.connection.protocol_version = "2026-07-28"
+            await client.notify("notifications/roots/list_changed", None)
+            await client.notify("notifications/progress", {"progressToken": 1, "progress": 0.5})
+            await barrier.wait()
+    assert "dropped 'notifications/roots/list_changed': not defined at 2026-07-28" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
+    """`notifications/message` is a spec method but server-to-client only; on
+    a server it is a custom registration (proxy use) and must reach the
+    handler, not the client-direction version gate."""
+    seen: list[NotificationParams] = []
+
+    async def handler(ctx: Ctx, params: NotificationParams) -> None:
+        seen.append(params)
+
+    server.add_notification_handler("notifications/message", NotificationParams, handler)
+    async with connected_runner(server) as (client, _):
+        await client.notify("notifications/message", {"level": "info", "data": "x"})
+        await client.send_raw_request("tools/list", None)
+    assert len(seen) == 1
 
 
 @pytest.mark.anyio
@@ -831,6 +855,21 @@ async def test_runner_outbound_sieve_drops_2026_only_result_keys_at_a_pre_2026_v
         assert runner.connection.protocol_version == "2025-11-25"
         result = await client.send_raw_request("tools/list", None)
     assert result == {"tools": [{"name": "t", "inputSchema": {"type": "object"}}]}
+
+
+@pytest.mark.anyio
+async def test_runner_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
+    """`roots/list` is a spec method but server-to-client only; on a server it
+    is a custom registration (proxy use) and must reach the handler, not the
+    client-direction version gate."""
+
+    async def list_roots(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"roots": [{"uri": "file:///workspace"}]}
+
+    server.add_request_handler("roots/list", RequestParams, list_roots)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("roots/list", None)
+    assert result == {"roots": [{"uri": "file:///workspace"}]}
 
 
 @pytest.mark.anyio
