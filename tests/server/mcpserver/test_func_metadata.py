@@ -13,8 +13,8 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
-from mcp.types import CallToolResult
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.types import CallToolResult, TextContent
 
 
 class SomeInputModelA(BaseModel):
@@ -201,6 +201,26 @@ def test_skip_names():
     model: BaseModel = meta.arg_model.model_validate({"keep_this": 1, "also_keep": 2.5})  # type: ignore
     assert model.keep_this == 1  # type: ignore
     assert model.also_keep == 2.5  # type: ignore
+
+
+def test_convert_result_serializes_unstructured_dict_to_text_content():
+    """Unstructured dict returns are content blocks, not raw dict values."""
+
+    def func_dict():  # pragma: no cover
+        return {"ok": True, "count": 2}
+
+    meta: FuncMetadata = func_metadata(func_dict)
+
+    assert meta.output_schema is None
+    assert meta.convert_result({"ok": True, "count": 2}) == [
+        TextContent(
+            type="text",
+            text="""{
+  "ok": true,
+  "count": 2
+}""",
+        )
+    ]
 
 
 def test_structured_output_dict_str_types():
