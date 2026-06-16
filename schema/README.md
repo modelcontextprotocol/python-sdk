@@ -7,6 +7,6 @@ package for, vendored from the [spec repository] at the commit recorded in
 
 To bump: drop the new `schema.json` here as `<protocol-version>.json`, update
 the matching entry in `PINNED.json` (commit + sha256), and run
-`uv run --group codegen python scripts/gen_surface_types.py`.
+`uv run --frozen --group codegen python scripts/gen_surface_types.py`.
 
 [spec repository]: https://github.com/modelcontextprotocol/modelcontextprotocol
