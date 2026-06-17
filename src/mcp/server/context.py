@@ -31,6 +31,7 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
 
     session: ServerSession
     lifespan_context: LifespanContextT
+    protocol_version: str
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None
     request: RequestT | None = None

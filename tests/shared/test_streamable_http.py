@@ -49,6 +49,7 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    DEFAULT_NEGOTIATED_VERSION,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -81,14 +82,18 @@ BASE_URL = "http://127.0.0.1:8000"
 
 
 # Helper functions
-def extract_protocol_version_from_sse(response: httpx.Response) -> str:
-    """Extract the negotiated protocol version from an SSE initialization response."""
+def first_sse_data(response: httpx.Response) -> dict[str, Any]:
+    """Return the first SSE `data:` payload of a response, parsed as JSON."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
         if line.startswith("data: "):
-            init_data = json.loads(line[6:])
-            return init_data["result"]["protocolVersion"]
-    raise ValueError("Could not extract protocol version from SSE response")  # pragma: no cover
+            return json.loads(line.removeprefix("data: "))
+    raise ValueError("No data event in SSE response")  # pragma: no cover
+
+
+def extract_protocol_version_from_sse(response: httpx.Response) -> str:
+    """Extract the negotiated protocol version from an SSE initialization response."""
+    return first_sse_data(response)["result"]["protocolVersion"]
 
 
 # Simple in-memory event store for testing
@@ -1318,13 +1323,14 @@ async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolR
         "headers": dict(ctx.request.headers),
         "method": ctx.request.method,
         "path": ctx.request.url.path,
+        "protocol_version": ctx.protocol_version,
+        "session_protocol_version": ctx.session.protocol_version,
     }
     return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
 
-@pytest.fixture
-async def context_app() -> AsyncIterator[Starlette]:
-    """An app whose server echoes request context, served in process."""
+@asynccontextmanager
+async def _run_context_app(*, stateless: bool) -> AsyncIterator[Starlette]:
     server = Server(
         "ContextAwareServer",
         on_list_tools=_handle_context_list_tools,
@@ -1332,11 +1338,57 @@ async def context_app() -> AsyncIterator[Starlette]:
     )
     session_manager = StreamableHTTPSessionManager(
         app=server,
+        stateless=stateless,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
     async with session_manager.run():
         yield app
+
+
+@pytest.fixture
+async def context_app() -> AsyncIterator[Starlette]:
+    """An app whose server echoes request context, served in process."""
+    async with _run_context_app(stateless=False) as app:
+        yield app
+
+
+@pytest.fixture
+async def stateless_context_app() -> AsyncIterator[Starlette]:
+    async with _run_context_app(stateless=True) as app:
+        yield app
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("header_value", "expected"),
+    [
+        ("2025-06-18", "2025-06-18"),
+        ("2025-11-25", "2025-11-25"),
+        (None, DEFAULT_NEGOTIATED_VERSION),
+    ],
+)
+async def test_streamablehttp_stateless_ctx_protocol_version_tracks_the_header(
+    stateless_context_app: Starlette, header_value: str | None, expected: str
+) -> None:
+    """No handshake on stateless: the header (or the spec's 2025-03-26 default) reaches `ctx.protocol_version`."""
+    body = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params={"name": "echo_context", "arguments": {"request_id": "r"}},
+    )
+    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    if header_value is not None:
+        headers[MCP_PROTOCOL_VERSION_HEADER] = header_value
+    async with make_client(stateless_context_app) as client:
+        response = await client.post(
+            f"{BASE_URL}/mcp", json=body.model_dump(by_alias=True, exclude_none=True), headers=headers
+        )
+    assert response.status_code == 200
+    echoed = json.loads(first_sse_data(response)["result"]["content"][0]["text"])
+    assert echoed["protocol_version"] == expected
+    assert echoed["session_protocol_version"] is None
 
 
 @pytest.mark.anyio

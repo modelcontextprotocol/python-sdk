@@ -18,11 +18,12 @@ import mcp.server.runner
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, _extract_meta, otel_middleware
+from mcp.server.runner import ServerRunner, _extract_meta, _resolve_protocol_version, otel_middleware
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -31,6 +32,7 @@ from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     CallToolRequestParams,
     ClientCapabilities,
     ErrorData,
@@ -41,6 +43,7 @@ from mcp.types import (
     PaginatedRequestParams,
     ProgressNotificationParams,
     RequestParams,
+    RequestParamsMeta,
     SetLevelRequestParams,
     Tool,
 )
@@ -218,6 +221,7 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
     assert isinstance(ctx.session, ServerSession)
     assert ctx.session is runner.session
     assert ctx.request_id is not None
+    assert ctx.protocol_version == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
@@ -648,6 +652,65 @@ async def test_runner_server_middleware_wraps_notifications(server: SrvT):
         ("notifications/initialized", True),
         ("notifications/roots/list_changed", True),
     ]
+
+
+def test_resolve_protocol_version_handshake_committed_value_wins():
+    md = ServerMessageMetadata(protocol_version="2025-03-26")
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-03-26"}
+    assert _resolve_protocol_version("2025-06-18", meta, md) == "2025-06-18"
+
+
+def test_resolve_protocol_version_reads_per_request_meta_when_no_handshake():
+    md = ServerMessageMetadata(protocol_version="2025-03-26")
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-06-18"}
+    assert _resolve_protocol_version(None, meta, md) == "2025-06-18"
+
+
+def test_resolve_protocol_version_skips_unsupported_meta_value():
+    md = ServerMessageMetadata(protocol_version="2025-03-26")
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "1900-01-01"}
+    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
+
+
+def test_resolve_protocol_version_skips_non_string_meta_value():
+    md = ServerMessageMetadata(protocol_version="2025-03-26")
+    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: 42}
+    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
+
+
+def test_resolve_protocol_version_reads_transport_hint_when_no_handshake_or_meta():
+    md = ServerMessageMetadata(protocol_version="2025-06-18")
+    assert _resolve_protocol_version(None, None, md) == "2025-06-18"
+    assert _resolve_protocol_version(None, {}, md) == "2025-06-18"
+
+
+def test_resolve_protocol_version_skips_unsupported_transport_hint():
+    """The `initialize` params version reaches the metadata unvalidated; surface validation must never see it."""
+    md = ServerMessageMetadata(protocol_version="1900-01-01")
+    assert _resolve_protocol_version(None, None, md) == "2025-11-25"
+
+
+def test_resolve_protocol_version_terminal_default_with_no_signals():
+    assert _resolve_protocol_version(None, None, None) == "2025-11-25"
+    assert _resolve_protocol_version(None, None, ServerMessageMetadata()) == "2025-11-25"
+    assert _resolve_protocol_version(None, None, ClientMessageMetadata()) == "2025-11-25"
+
+
+@pytest.mark.anyio
+async def test_runner_ctx_protocol_version_is_terminal_default_on_stateless_in_memory(server: SrvT):
+    async with connected_runner(server, initialized=False, stateless=True) as (client, runner):
+        await client.send_raw_request("tools/list", None)
+    ctx = _seen_ctx[0]
+    assert ctx.protocol_version == "2025-11-25"
+    assert ctx.session.protocol_version is None
+    assert runner.connection.protocol_version is None
+
+
+@pytest.mark.anyio
+async def test_runner_ctx_protocol_version_tracks_per_request_meta_on_stateless(server: SrvT):
+    async with connected_runner(server, initialized=False, stateless=True) as (client, _):
+        await client.send_raw_request("tools/list", {"_meta": {PROTOCOL_VERSION_META_KEY: "2025-06-18"}})
+    assert _seen_ctx[0].protocol_version == "2025-06-18"
 
 
 def test_extract_meta_returns_none_for_absent_or_malformed():

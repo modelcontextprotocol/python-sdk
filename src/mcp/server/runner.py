@@ -34,7 +34,7 @@ from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ServerMessageMetadata
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -42,6 +42,7 @@ from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     Implementation,
     InitializeRequestParams,
@@ -77,6 +78,30 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return RequestParams.model_validate(params, by_name=False).meta
     except ValidationError:
         return None
+
+
+def _resolve_protocol_version(
+    negotiated: str | None,
+    meta: RequestParamsMeta | None,
+    md: MessageMetadata,
+) -> str:
+    """Resolve the protocol version for this inbound message.
+
+    Handshake-committed value wins; else per-request `_meta`, else the
+    transport hint. Unsupported values fall through so surface validation
+    never sees them.
+    """
+    if negotiated is not None:
+        return negotiated
+    if meta is not None:
+        v = meta.get(PROTOCOL_VERSION_META_KEY)
+        if isinstance(v, str) and v in SUPPORTED_PROTOCOL_VERSIONS:
+            return v
+    if isinstance(md, ServerMessageMetadata):
+        hint = md.protocol_version
+        if hint is not None and hint in SUPPORTED_PROTOCOL_VERSIONS:
+            return hint
+    return "2025-11-25"
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -218,11 +243,9 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        ctx = self._make_context(dctx, _extract_meta(params))
-        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
-        # handshake (which only exists at <=2025) and stateless until the header
-        # is plumbed; its meaning is fixed regardless of LATEST bumps.
-        version = self.connection.protocol_version or "2025-11-25"
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
         is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner() -> HandlerResult:
@@ -289,9 +312,9 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> None:
-        ctx = self._make_context(dctx, _extract_meta(params))
-        # Same fallback as `_on_request`: covers pre-handshake and stateless.
-        version = self.connection.protocol_version or "2025-11-25"
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
 
         async def _inner() -> None:
             if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:
@@ -349,7 +372,7 @@ class ServerRunner(Generic[LifespanT]):
         return call
 
     def _make_context(
-        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None
+        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None, protocol_version: str
     ) -> ServerRequestContext[LifespanT, Any]:
         # TODO(maxisbey): remove for Context rework. Reads the SHTTP per-request
         # data off the raw `dctx.message_metadata` carrier; replace with the
@@ -366,6 +389,7 @@ class ServerRunner(Generic[LifespanT]):
             lifespan_context=self.lifespan_state,
             request_id=dctx.request_id,
             meta=meta,
+            protocol_version=protocol_version,
             request=request,
             close_sse_stream=close_sse_stream,
             close_standalone_sse_stream=close_standalone_sse_stream,
