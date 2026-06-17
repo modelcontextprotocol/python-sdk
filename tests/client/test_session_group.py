@@ -99,9 +99,9 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
     mock_resource1.name = "resource_b"
     mock_prompt1 = mock.Mock(spec=types.Prompt)
     mock_prompt1.name = "prompt_c"
-    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool1])
-    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource1])
-    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt1])
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool1], next_cursor=None)
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource1], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt1], next_cursor=None)
 
     # --- Test Execution ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
@@ -134,9 +134,9 @@ async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_s
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
     mock_tool = mock.Mock(spec=types.Tool)
     mock_tool.name = "base_tool"
-    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool])
-    mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
-    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool], next_cursor=None)
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
 
     # --- Test Setup ---
     def name_hook(name: str, server_info: types.Implementation) -> str:
@@ -245,10 +245,10 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
     # Configure the new session to return a tool with the *same name*
     duplicate_tool = mock.Mock(spec=types.Tool)
     duplicate_tool.name = existing_tool_name
-    mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool])
+    mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool], next_cursor=None)
     # Keep other lists empty for simplicity
-    mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[])
-    mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
+    mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
 
     # --- Test Execution and Assertion ---
     with pytest.raises(MCPError) as excinfo:
@@ -385,3 +385,45 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_aggregates_paginated_tools(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    """ClientSessionGroup must drain `next_cursor` so it sees every page.
+
+    Regression for https://github.com/modelcontextprotocol/python-sdk/issues/2556:
+    aggregators across multiple MCP servers are the most likely place to hit
+    pagination, so the group should not stop at page one.
+    """
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "PaginatedServer"
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    tool_page1_a = mock.Mock(spec=types.Tool)
+    tool_page1_a.name = "tool_a"
+    tool_page1_b = mock.Mock(spec=types.Tool)
+    tool_page1_b.name = "tool_b"
+    tool_page2 = mock.Mock(spec=types.Tool)
+    tool_page2.name = "tool_c"
+
+    list_tools_responses = [
+        mock.AsyncMock(tools=[tool_page1_a, tool_page1_b], next_cursor="page-2"),
+        mock.AsyncMock(tools=[tool_page2], next_cursor=None),
+    ]
+    mock_session.list_tools.side_effect = list_tools_responses
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", return_value=(mock_server_info, mock_session)):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert set(group.tools.keys()) == {"tool_a", "tool_b", "tool_c"}
+    # Two pages -> two `list_tools` calls.
+    assert mock_session.list_tools.await_count == 2
+    # Second call should have supplied the cursor returned by the first.
+    second_call_kwargs = mock_session.list_tools.await_args_list[1].kwargs
+    assert second_call_kwargs["params"] is not None
+    assert second_call_kwargs["params"].cursor == "page-2"
