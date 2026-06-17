@@ -17,30 +17,9 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.validation import validate_issuer_url
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
-
-
-def validate_issuer_url(url: AnyHttpUrl):
-    """Validate that the issuer URL meets OAuth 2.0 requirements.
-
-    Args:
-        url: The issuer URL to validate.
-
-    Raises:
-        ValueError: If the issuer URL is invalid.
-    """
-
-    # RFC 8414 requires HTTPS, but we allow loopback/localhost HTTP for testing
-    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
-        raise ValueError("Issuer URL must be HTTPS")
-
-    # No fragments or query parameters allowed
-    if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")
-    if url.query:
-        raise ValueError("Issuer URL must not have a query string")
-
 
 AUTHORIZATION_PATH = "/authorize"
 TOKEN_PATH = "/token"

@@ -279,22 +279,17 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 
 
 @requirement("hosting:auth:as:redirect-uri-scheme")
-async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
+async def test_a_non_loopback_http_redirect_uri_is_rejected_at_registration(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """A registration carrying a non-HTTPS, non-loopback redirect URI is accepted.
-
-    The spec requires every redirect URI to be either HTTPS or a loopback host; the bundled
-    registration handler does not enforce this and registers `http://evil.example/callback`
-    successfully. See the divergence on the requirement.
-    """
-    http, provider = as_app
+    """Non-loopback HTTP redirect URIs must be rejected during DCR."""
+    http, _provider = as_app
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
     body["redirect_uris"] = ["http://evil.example/callback"]
 
     response = await http.post("/register", json=body)
 
-    assert response.status_code == 201
-    info = OAuthClientInformationFull.model_validate_json(response.content)
-    assert [str(u) for u in (info.redirect_uris or [])] == ["http://evil.example/callback"]
-    assert info.client_id in provider.clients
+    assert response.status_code == 400
+    error = response.json()
+    assert error["error"] == "invalid_client_metadata"
+    assert "unless loopback" in error["error_description"]
