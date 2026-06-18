@@ -21,6 +21,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -139,6 +140,7 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
                 self._session_owners.clear()
+        await resync_tracer()
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.

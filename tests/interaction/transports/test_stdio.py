@@ -56,11 +56,15 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     notification before the call returns; the server exits when the transport closes its
     stdin.
     """
-    # After stdin closes, the child must unwind, write the clean-exit line, and let coverage's
-    # atexit hook persist its subprocess data file before escalation. The production 2s default
-    # was too tight on slow Windows runners: the child was killed mid-atexit (test stayed green)
-    # and the silently missing data file tripped the 100% coverage gate. Not under test.
-    monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 10.0)
+    # After stdin closes, the child must unwind, flush its subprocess coverage data, and write
+    # the clean-exit line before escalation (the server saves coverage *before* printing, so a
+    # post-print kill can no longer silently lose the data file -- see _stdio_server.main). The
+    # production 2s default is too tight for the unwind+save tail on loaded Windows runners
+    # (measured in-situ p99 of the whole test is ~7s); a kill before the print fails the stderr
+    # assertion below loudly rather than tripping the coverage gate. The 20s grace covers even a
+    # badly starved runner (a >10s stall has been seen once in CI) and costs nothing when the
+    # child exits promptly. Not under test.
+    monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 20.0)
 
     received: list[LoggingMessageNotificationParams] = []
 
@@ -83,8 +87,8 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
             errlog=errlog,
         )
 
-        # Must exceed session time plus the patched PROCESS_TERMINATION_TIMEOUT (10s).
-        with anyio.fail_after(20):
+        # Must exceed session time plus the patched PROCESS_TERMINATION_TIMEOUT (20s).
+        with anyio.fail_after(30):
             async with Client(transport, logging_callback=collect) as client:
                 assert client.initialize_result.server_info.name == "stdio-echo"
                 result = await client.call_tool("echo", {"text": "across\nprocesses"})

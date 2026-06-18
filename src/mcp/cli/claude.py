@@ -1,5 +1,6 @@
 """Claude app integration utilities."""
 
+import importlib.metadata
 import json
 import os
 import shutil
@@ -11,7 +12,24 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
-MCP_PACKAGE = "mcp[cli]"
+
+def mcp_requirement(package: str = "mcp") -> str:
+    """Requirement string pinning spawned environments to the running SDK version.
+
+    `uv run --with mcp` resolves the requirement in a fresh environment, where
+    an unpinned `mcp` means the latest stable release — not necessarily the
+    version the user installed (pre-releases in particular are never selected
+    without an explicit pin). Source builds carry dev/local version segments
+    that are not published to PyPI, so they fall back to the unpinned form,
+    as does a missing distribution (no metadata to pin from).
+    """
+    try:
+        version = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        return package
+    if ".dev" in version or "+" in version:
+        return package
+    return f"{package}=={version}"
 
 
 def get_claude_config_path() -> Path | None:  # pragma: no cover
@@ -102,7 +120,7 @@ def update_claude_config(
         args = ["run", "--frozen"]
 
         # Collect all packages in a set to deduplicate
-        packages = {MCP_PACKAGE}
+        packages = {mcp_requirement("mcp[cli]")}
         if with_packages:
             packages.update(pkg for pkg in with_packages if pkg)
 

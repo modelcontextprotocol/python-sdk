@@ -28,7 +28,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
@@ -238,7 +238,7 @@ class StreamableHTTPServerTransport:
         the stream is closed early because they didn't receive a priming event.
         """
         # Only provide close callbacks when client supports resumability
-        if self._event_store and protocol_version >= "2025-11-25":
+        if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
             async def close_stream_callback() -> None:
                 self.close_sse_stream(request_id)
@@ -248,11 +248,12 @@ class StreamableHTTPServerTransport:
 
             metadata = ServerMessageMetadata(
                 request_context=request,
+                protocol_version=protocol_version,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request)
+            metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -271,7 +272,7 @@ class StreamableHTTPServerTransport:
         if not self._event_store:
             return
         # Priming events have empty data which older clients cannot handle.
-        if protocol_version < "2025-11-25":
+        if not is_version_at_least(protocol_version, "2025-11-25"):
             return
         priming_event_id = await self._event_store.store_event(
             str(request_id),  # Convert RequestId to StreamId (str)
@@ -506,7 +507,10 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                metadata = ServerMessageMetadata(request_context=request)
+                metadata = ServerMessageMetadata(
+                    request_context=request,
+                    protocol_version=request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION),
+                )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
 
@@ -529,7 +533,7 @@ class StreamableHTTPServerTransport:
 
             if self.is_json_response_enabled:
                 # Process the message
-                metadata = ServerMessageMetadata(request_context=request)
+                metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
@@ -633,7 +637,10 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:
+        except Exception as err:  # pragma: lax no cover
+            # Reached only when something raises during POST handling outside
+            # the per-SSE-stream guard above; whether tests reach this depends
+            # on client teardown timing.
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -641,7 +648,7 @@ class StreamableHTTPServerTransport:
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            if writer:  # pragma: no cover
+            if writer:
                 await writer.send(Exception(err))
             return  # pragma: no cover
 
@@ -714,6 +721,9 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
+            except anyio.ClosedResourceError:
+                # Session teardown can close the stream while the writer is between dequeues.
+                pass
             except Exception:
                 logger.exception("Error in standalone SSE writer")  # pragma: no cover
             finally:

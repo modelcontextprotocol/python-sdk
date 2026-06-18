@@ -81,7 +81,9 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
                     description="The project's front page.",
                     mime_type="text/markdown",
                     size=1024,
-                    annotations=Annotations(audience=["user", "assistant"], priority=0.8),
+                    annotations=Annotations(
+                        audience=["user", "assistant"], priority=0.8, last_modified="2025-01-01T00:00:00Z"
+                    ),
                     icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
@@ -236,7 +238,9 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
         with pytest.raises(MCPError) as exc_info:
             await client.subscribe_resource("file:///watched.txt")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
+    )
 
 
 @requirement("resources:unsubscribe")

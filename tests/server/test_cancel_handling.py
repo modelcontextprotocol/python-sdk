@@ -41,7 +41,7 @@ async def test_server_remains_functional_after_cancel():
                 Tool(
                     name="test_tool",
                     description="Tool for testing",
-                    input_schema={},
+                    input_schema={"type": "object"},
                 )
             ]
         )

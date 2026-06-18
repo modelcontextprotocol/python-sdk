@@ -1098,10 +1098,10 @@ class TestContextInjection:
                 assert "Logged messages for test" in content.text
 
                 assert mock_log.call_count == 4
-                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="2")
 
     async def test_optional_context(self):
         """Test that context is optional."""
@@ -1501,6 +1501,7 @@ async def test_report_progress_passes_related_request_id():
         session=mock_session,
         meta={"progress_token": "tok-1"},
         lifespan_context=None,
+        protocol_version="2025-11-25",
     )
 
     ctx = Context(request_context=request_context, mcp_server=MagicMock())

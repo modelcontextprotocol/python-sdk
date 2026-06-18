@@ -262,7 +262,9 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
 
         await client.call_tool("chatter", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="logging/setLevel")
+    )
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="debug", data="noise"),

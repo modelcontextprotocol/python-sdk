@@ -21,7 +21,6 @@ import pytest
 
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.client.websocket import websocket_client
 
 
 @contextmanager
@@ -104,16 +103,3 @@ async def test_streamable_http_client_closes_all_streams_on_exit() -> None:
     with _assert_no_memory_stream_leak():
         async with streamable_http_client("http://127.0.0.1:1/mcp"):
             pass
-
-
-@pytest.mark.anyio
-async def test_websocket_client_closes_all_streams_on_connection_error(free_tcp_port: int) -> None:
-    """websocket_client must close all 4 stream ends when ws_connect fails.
-
-    Before the fix, there was no try/finally at all — if ws_connect raised,
-    all 4 streams were leaked.
-    """
-    with _assert_no_memory_stream_leak():
-        with pytest.raises(OSError):
-            async with websocket_client(f"ws://127.0.0.1:{free_tcp_port}/ws"):
-                pytest.fail("should not reach here")  # pragma: no cover

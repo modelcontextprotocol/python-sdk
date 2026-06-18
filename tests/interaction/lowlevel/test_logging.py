@@ -1,12 +1,8 @@
 """Logging interactions against the low-level Server, driven through the public Client API.
 
-Notification ordering: the in-memory transport delivers every server-to-client message on one
-ordered stream, and the client's receive loop dispatches each incoming message to completion
-before reading the next one. Over streamable HTTP that ordered single-stream guarantee holds
-only for messages that carry a ``related_request_id`` (they ride the originating request's POST
-stream); without it the message routes to the standalone GET stream and may arrive after the
-response. These tests pass ``related_request_id`` so they can collect into a plain list and
-assert after the request completes on every transport leg -- no events, no waiting.
+Notification ordering: await-free callbacks finish in arrival order, and passing
+``related_request_id`` keeps each notification on the originating request's POST stream over
+streamable HTTP, so plain-list collection is deterministic on every transport leg.
 """
 
 import pytest

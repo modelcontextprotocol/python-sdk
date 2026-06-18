@@ -1,9 +1,8 @@
 import pytest
 
 from mcp import Client
-from mcp.client.session import ClientSession
+from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared._context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -26,7 +25,7 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
@@ -71,7 +70,7 @@ async def test_create_message_backwards_compat_single_content():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return

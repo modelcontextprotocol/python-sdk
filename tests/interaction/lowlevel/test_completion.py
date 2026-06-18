@@ -128,4 +128,6 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
         with pytest.raises(MCPError) as exc_info:
             await client.complete(PromptReference(name="anything"), argument={"name": "topic", "value": ""})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="completion/complete")
+    )

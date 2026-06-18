@@ -616,11 +616,7 @@ class MCPServer(Generic[LifespanResultT]):
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )
 
-            # TODO(maxisbey): remove private access — completion needs post-construction
-            #   handler registration, find a better pattern for this
-            self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
-                "completion/complete", handler
-            )
+            self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func
 
         return decorator

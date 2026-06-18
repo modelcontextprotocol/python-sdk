@@ -1,188 +1,120 @@
-"""ServerSession Module
+"""`ServerSession`: server-to-client requests and notifications.
 
-This module provides the ServerSession class, which manages communication between the
-server and client in the MCP (Model Context Protocol) framework. It is most commonly
-used in MCP servers to interact with the client.
+A thin proxy over `JSONRPCDispatcher` and `Connection`. One instance per
+client connection (built by `ServerRunner`). Handlers reach it as
+`ctx.session` and use the typed helpers (`create_message`, `elicit_form`,
+`send_log_message`, ...) to call back to the client.
 
-Common usage pattern:
-```
-    async def handle_call_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
-        # Check client capabilities before proceeding
-        if ctx.session.check_client_capability(
-            types.ClientCapabilities(experimental={"advanced_tools": dict()})
-        ):
-            result = await perform_advanced_tool_operation(params.arguments)
-        else:
-            result = await perform_basic_tool_operation(params.arguments)
-        return result
-
-    async def handle_list_prompts(ctx: RequestContext, params) -> ListPromptsResult:
-        if ctx.session.client_params:
-            return ListPromptsResult(prompts=generate_custom_prompts(ctx.session.client_params))
-        return ListPromptsResult(prompts=default_prompts)
-
-    server = Server(name, on_call_tool=handle_call_tool, on_list_prompts=handle_list_prompts)
-```
-
-The ServerSession class is typically used internally by the Server class and should not
-be instantiated directly by users of the MCP framework.
+The receive-loop, initialize handling, and per-request task isolation that
+used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 """
 
-from enum import Enum
 from typing import Any, TypeVar, overload
 
-import anyio
-import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import AnyUrl, BaseModel
 
 from mcp import types
-from mcp.server.models import InitializationOptions
+from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
-from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.exceptions import StatelessModeNotSupported
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.session import (
-    BaseSession,
-    RequestResponder,
-)
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.dispatcher import CallOptions, ProgressFnT
+from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ServerMessageMetadata
+from mcp.types import methods as _methods
+
+__all__ = ["ServerSession"]
+
+ResultT = TypeVar("ResultT", bound=BaseModel)
 
 
-class InitializationState(Enum):
-    NotInitialized = 1
-    Initializing = 2
-    Initialized = 3
+class ServerSession:
+    """Connection-scoped proxy for server-to-client requests and notifications.
 
-
-ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
-
-ServerRequestResponder = (
-    RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
-)
-
-
-class ServerSession(
-    BaseSession[
-        types.ServerRequest,
-        types.ServerNotification,
-        types.ServerResult,
-        types.ClientRequest,
-        types.ClientNotification,
-    ]
-):
-    _initialized: InitializationState = InitializationState.NotInitialized
-    _client_params: types.InitializeRequestParams | None = None
+    `send_request` / `send_notification` model-dump their argument and forward
+    to the dispatcher; the typed helpers below are unchanged from the previous
+    implementation and only call those two methods.
+    """
 
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
-        init_options: InitializationOptions,
+        dispatcher: JSONRPCDispatcher[Any],
+        connection: Connection,
+        *,
         stateless: bool = False,
     ) -> None:
-        super().__init__(read_stream, write_stream)
+        self._dispatcher = dispatcher
+        self._connection = connection
         self._stateless = stateless
-        self._initialization_state = (
-            InitializationState.Initialized if stateless else InitializationState.NotInitialized
-        )
-
-        self._init_options = init_options
-        self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
-            ServerRequestResponder
-        ](0)
-        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
-
-    @property
-    def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
-        return types.client_request_adapter
-
-    @property
-    def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
-        return types.client_notification_adapter
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
-        return self._client_params
+        """The client's `initialize` request params; `None` before initialization."""
+        return self._connection.client_params
+
+    @property
+    def protocol_version(self) -> str | None:
+        """The protocol version negotiated during `initialize`.
+
+        `None` before initialization, and normally `None` on stateless
+        connections. For the per-request value, read `ctx.protocol_version`.
+        """
+        return self._connection.protocol_version
+
+    async def send_request(
+        self,
+        request: types.ServerRequest,
+        result_type: type[ResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: ServerMessageMetadata | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ResultT:
+        """Send a typed server-to-client request and validate the result.
+
+        `metadata.related_request_id` (when supplied) routes the outgoing
+        message onto the originating request's response stream over
+        streamable HTTP; it is the only metadata field honored here.
+
+        Raises:
+            MCPError: The peer responded with an error.
+            NoBackChannelError: If there is no related request to ride on and
+                the connection has no standalone channel (stateless HTTP), so
+                a response could never arrive.
+            pydantic.ValidationError: The peer's result does not match `result_type`.
+        """
+        data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        opts: CallOptions = {}
+        if request_read_timeout_seconds is not None:
+            opts["timeout"] = request_read_timeout_seconds
+        if progress_callback is not None:
+            opts["on_progress"] = progress_callback
+        related = metadata.related_request_id if metadata is not None else None
+        if related is None and not self._connection.has_standalone_channel:
+            # Fail fast instead of parking forever on a response that cannot
+            # arrive; matches `Connection.send_raw_request`.
+            raise NoBackChannelError(data["method"])
+        result = await self._dispatcher.send_raw_request(
+            data["method"], data.get("params"), opts or None, _related_request_id=related
+        )
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            _methods.validate_client_result(request.method, version, result)
+        except KeyError:
+            pass
+        return result_type.model_validate(result, by_name=False)
+
+    async def send_notification(
+        self,
+        notification: types.ServerNotification,
+        related_request_id: types.RequestId | None = None,
+    ) -> None:
+        """Send a typed server-to-client notification."""
+        data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+        await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:  # pragma: lax no cover
-            return False
-
-        client_caps = self._client_params.capabilities
-
-        if capability.roots is not None:  # pragma: lax no cover
-            if client_caps.roots is None:
-                return False
-            if capability.roots.list_changed and not client_caps.roots.list_changed:
-                return False
-
-        if capability.sampling is not None:  # pragma: lax no cover
-            if client_caps.sampling is None:
-                return False
-            if capability.sampling.context is not None and client_caps.sampling.context is None:
-                return False
-            if capability.sampling.tools is not None and client_caps.sampling.tools is None:
-                return False
-
-        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
-            return False
-
-        if capability.experimental is not None:  # pragma: lax no cover
-            if client_caps.experimental is None:
-                return False
-            for exp_key, exp_value in capability.experimental.items():
-                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
-                    return False
-
-        return True
-
-    async def _receive_loop(self) -> None:
-        async with self._incoming_message_stream_writer:
-            await super()._receive_loop()
-
-    async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
-        match responder.request:
-            case types.InitializeRequest(params=params):
-                requested_version = params.protocol_version
-                self._initialization_state = InitializationState.Initializing
-                self._client_params = params
-                with responder:
-                    await responder.respond(
-                        types.InitializeResult(
-                            protocol_version=requested_version
-                            if requested_version in SUPPORTED_PROTOCOL_VERSIONS
-                            else types.LATEST_PROTOCOL_VERSION,
-                            capabilities=self._init_options.capabilities,
-                            server_info=types.Implementation(
-                                name=self._init_options.server_name,
-                                title=self._init_options.title,
-                                description=self._init_options.description,
-                                version=self._init_options.server_version,
-                                website_url=self._init_options.website_url,
-                                icons=self._init_options.icons,
-                            ),
-                            instructions=self._init_options.instructions,
-                        )
-                    )
-                self._initialization_state = InitializationState.Initialized
-            case types.PingRequest():
-                # Ping requests are allowed at any time
-                pass
-            case _:
-                if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError("Received request before initialization was complete")
-
-    async def _received_notification(self, notification: types.ClientNotification) -> None:
-        # Need this to avoid ASYNC910
-        await anyio.lowlevel.checkpoint()
-        match notification:
-            case types.InitializedNotification():
-                self._initialization_state = InitializationState.Initialized
-            case _:
-                if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
-                    raise RuntimeError("Received notification before initialization was complete")
+        return self._connection.check_capability(capability)
 
     async def send_log_message(
         self,
@@ -293,7 +225,7 @@ class ServerSession(
         """
         if self._stateless:
             raise StatelessModeNotSupported(method="sampling")
-        client_caps = self._client_params.capabilities if self._client_params else None
+        client_caps = self.client_params.capabilities if self.client_params else None
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
@@ -313,7 +245,6 @@ class ServerSession(
         )
         metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
 
-        # Use different result types based on whether tools are provided
         if tools is not None:
             return await self.send_request(
                 request=request,
@@ -488,10 +419,3 @@ class ServerSession(
             ),
             related_request_id,
         )
-
-    async def _handle_incoming(self, req: ServerRequestResponder) -> None:
-        await self._incoming_message_stream_writer.send(req)
-
-    @property
-    def incoming_messages(self) -> MemoryObjectReceiveStream[ServerRequestResponder]:
-        return self._incoming_message_stream_reader

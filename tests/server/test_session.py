@@ -1,535 +1,254 @@
-from typing import Any
+"""Tests for `ServerSession`.
 
-import anyio
+`ServerSession` is a thin proxy over a dispatcher and a `Connection`. Tested
+with a stub dispatcher so we can assert what reaches the wire (method, params,
+`CallOptions`, related-request-id) without standing up a full transport.
+"""
+
+from collections.abc import Mapping
+from typing import Any, cast
+
 import pytest
+from pydantic import ValidationError
 
 from mcp import types
-from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
-from mcp.server.lowlevel import NotificationOptions
-from mcp.server.models import InitializationOptions
+from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ServerMessageMetadata
 from mcp.types import (
-    ClientNotification,
-    CompletionsCapability,
-    InitializedNotification,
-    PromptsCapability,
-    ResourcesCapability,
-    ServerCapabilities,
+    LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequestParams,
+    SamplingCapability,
+    SamplingToolsCapability,
 )
 
+from .test_runner import connected_runner
 
-@pytest.mark.anyio
-async def test_server_session_initialize():
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
-    # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
+class StubDispatcher:
+    """Records `send_raw_request` / `notify` calls and returns a canned result."""
 
-    received_initialized = False
+    def __init__(self, result: dict[str, Any] | None = None) -> None:
+        self.requests: list[tuple[str, Mapping[str, Any] | None, CallOptions | None, Any]] = []
+        self.result = result if result is not None else {}
 
-    async def run_server():
-        nonlocal received_initialized
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+        *,
+        _related_request_id: Any = None,
+    ) -> dict[str, Any]:
+        self.requests.append((method, params, opts, _related_request_id))
+        return self.result
 
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="mcp",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as server_session:
-            async for message in server_session.incoming_messages:  # pragma: no branch
-                if isinstance(message, Exception):  # pragma: no cover
-                    raise message
+    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
 
-                if isinstance(message, ClientNotification) and isinstance(
-                    message, InitializedNotification
-                ):  # pragma: no branch
-                    received_initialized = True
-                    return
 
-    try:
-        async with (
-            ClientSession(
-                server_to_client_receive,
-                client_to_server_send,
-                message_handler=message_handler,
-            ) as client_session,
-            anyio.create_task_group() as tg,
-        ):
-            tg.start_soon(run_server)
-
-            await client_session.initialize()
-    except anyio.ClosedResourceError:  # pragma: no cover
-        pass
-
-    assert received_initialized
+def _make_session(
+    dispatcher: StubDispatcher,
+    *,
+    capabilities: ClientCapabilities | None = None,
+    has_standalone_channel: bool = True,
+    protocol_version: str | None = None,
+) -> ServerSession:
+    conn = Connection(dispatcher, has_standalone_channel=has_standalone_channel)
+    conn.protocol_version = protocol_version
+    if capabilities is not None:
+        conn.client_params = InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=capabilities,
+            client_info=Implementation(name="c", version="0"),
+        )
+    # cast: `ServerSession` is typed to take `JSONRPCDispatcher` but only ever
+    # calls `send_raw_request` / `notify`, so the stub is structurally sufficient.
+    return ServerSession(cast("JSONRPCDispatcher[Any]", dispatcher), conn)
 
 
 @pytest.mark.anyio
-async def test_check_client_capability():
-    """check_client_capability reflects the capabilities sent by the client at initialize."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+async def test_send_request_forwards_timeout_and_progress_callback_as_call_options():
+    dispatcher = StubDispatcher(result={"roots": []})
+    session = _make_session(dispatcher)
 
-    initialized = anyio.Event()
-
-    async def list_roots_callback(context: Any) -> types.ListRootsResult:  # pragma: no cover
-        return types.ListRootsResult(roots=[])
-
-    async def run_server(server_session: ServerSession):
-        async for message in server_session.incoming_messages:  # pragma: no branch
-            if isinstance(message, ClientNotification) and isinstance(
-                message, InitializedNotification
-            ):  # pragma: no branch
-                initialized.set()
-                return
-
-    async with (
-        ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(server_name="mcp", server_version="0.1.0", capabilities=ServerCapabilities()),
-        ) as server_session,
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-            list_roots_callback=list_roots_callback,
-        ) as client_session,
-        anyio.create_task_group() as tg,
-    ):
-        tg.start_soon(run_server, server_session)
-        await client_session.initialize()
-        with anyio.fail_after(5):
-            await initialized.wait()
-
-        # ClientSession advertises roots when a list_roots_callback is provided.
-        assert server_session.check_client_capability(types.ClientCapabilities(roots=types.RootsCapability()))
-        # ClientSession does not advertise sampling without a sampling_callback.
-        assert not server_session.check_client_capability(types.ClientCapabilities(sampling=types.SamplingCapability()))
-
-
-@pytest.mark.anyio
-async def test_server_capabilities():
-    notification_options = NotificationOptions()
-    experimental_capabilities: dict[str, Any] = {}
-
-    async def noop_list_prompts(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListPromptsResult:
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
         raise NotImplementedError
 
-    async def noop_list_resources(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListResourcesResult:
-        raise NotImplementedError
-
-    async def noop_completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
-        raise NotImplementedError
-
-    # No capabilities
-    server = Server("test")
-    caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts is None
-    assert caps.resources is None
-    assert caps.completions is None
-
-    # With prompts handler
-    server = Server("test", on_list_prompts=noop_list_prompts)
-    caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(list_changed=False)
-    assert caps.resources is None
-    assert caps.completions is None
-
-    # With prompts + resources handlers
-    server = Server("test", on_list_prompts=noop_list_prompts, on_list_resources=noop_list_resources)
-    caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(list_changed=False)
-    assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
-    assert caps.completions is None
-
-    # With prompts + resources + completion handlers
-    server = Server(
-        "test",
-        on_list_prompts=noop_list_prompts,
-        on_list_resources=noop_list_resources,
-        on_completion=noop_completion,
+    result = await session.send_request(
+        types.ListRootsRequest(),
+        types.ListRootsResult,
+        request_read_timeout_seconds=2.5,
+        metadata=ServerMessageMetadata(related_request_id=7),
+        progress_callback=on_progress,
     )
-    caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(list_changed=False)
-    assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
-    assert caps.completions == CompletionsCapability()
+    assert isinstance(result, types.ListRootsResult)
+    method, _params, opts, related = dispatcher.requests[0]
+    assert method == "roots/list"
+    assert opts == {"timeout": 2.5, "on_progress": on_progress}
+    assert related == 7
 
 
 @pytest.mark.anyio
-async def test_server_session_initialize_with_older_protocol_version():
-    """Test that server accepts and responds with older protocol (2024-11-05)."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    received_initialized = False
-    received_protocol_version = None
-
-    async def run_server():
-        nonlocal received_initialized
-
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="mcp",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as server_session:
-            async for message in server_session.incoming_messages:  # pragma: no branch
-                if isinstance(message, Exception):  # pragma: no cover
-                    raise message
-
-                if isinstance(message, types.ClientNotification) and isinstance(
-                    message, InitializedNotification
-                ):  # pragma: no branch
-                    received_initialized = True
-                    return
-
-    async def mock_client():
-        nonlocal received_protocol_version
-
-        # Send initialization request with older protocol version (2024-11-05)
-        await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id=1,
-                    method="initialize",
-                    params=types.InitializeRequestParams(
-                        protocol_version="2024-11-05",
-                        capabilities=types.ClientCapabilities(),
-                        client_info=types.Implementation(name="test-client", version="1.0.0"),
-                    ).model_dump(by_alias=True, mode="json", exclude_none=True),
-                )
-            )
-        )
-
-        # Wait for the initialize response
-        init_response_message = await server_to_client_receive.receive()
-        assert isinstance(init_response_message.message, types.JSONRPCResponse)
-        result_data = init_response_message.message.result
-        init_result = types.InitializeResult.model_validate(result_data)
-
-        # Check that the server responded with the requested protocol version
-        received_protocol_version = init_result.protocol_version
-        assert received_protocol_version == "2024-11-05"
-
-        # Send initialized notification
-        await client_to_server_send.send(
-            SessionMessage(types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"))
-        )
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-        anyio.create_task_group() as tg,
-    ):
-        tg.start_soon(run_server)
-        tg.start_soon(mock_client)
-
-    assert received_initialized
-    assert received_protocol_version == "2024-11-05"
+async def test_send_request_omits_call_options_when_none_given():
+    dispatcher = StubDispatcher(result={"roots": []})
+    session = _make_session(dispatcher)
+    await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
+    _method, _params, opts, related = dispatcher.requests[0]
+    assert opts is None
+    assert related is None
 
 
 @pytest.mark.anyio
-async def test_ping_request_before_initialization():
-    """Test that ping requests are allowed before initialization is complete."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    ping_response_received = False
-    ping_response_id = None
-
-    async def run_server():
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="mcp",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as server_session:
-            async for message in server_session.incoming_messages:  # pragma: no branch
-                if isinstance(message, Exception):  # pragma: no cover
-                    raise message
-
-                # We should receive a ping request before initialization
-                if isinstance(message, RequestResponder) and isinstance(
-                    message.request, types.PingRequest
-                ):  # pragma: no branch
-                    # Respond to the ping
-                    with message:
-                        await message.respond(types.EmptyResult())
-                    return
-
-    async def mock_client():
-        nonlocal ping_response_received, ping_response_id
-
-        # Send ping request before any initialization
-        await client_to_server_send.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=42, method="ping")))
-
-        # Wait for the ping response
-        ping_response_message = await server_to_client_receive.receive()
-        assert isinstance(ping_response_message.message, types.JSONRPCResponse)
-
-        ping_response_received = True
-        ping_response_id = ping_response_message.message.id
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-        anyio.create_task_group() as tg,
-    ):
-        tg.start_soon(run_server)
-        tg.start_soon(mock_client)
-
-    assert ping_response_received
-    assert ping_response_id == 42
+async def test_send_request_timeout_zero_is_forwarded():
+    """0 is a real timeout (fail at the first checkpoint, `anyio.fail_after(0)`
+    semantics) and must reach the dispatcher; only `None` means "no timeout"."""
+    dispatcher = StubDispatcher(result={})
+    session = _make_session(dispatcher)
+    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
+    assert dispatcher.requests[0][2] == {"timeout": 0.0}
 
 
 @pytest.mark.anyio
-async def test_create_message_tool_result_validation():
-    """Test tool_use/tool_result validation in create_message."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-    ):
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="test",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as session:
-            # Set up client params with sampling.tools capability for the test
-            session._client_params = types.InitializeRequestParams(
-                protocol_version=types.LATEST_PROTOCOL_VERSION,
-                capabilities=types.ClientCapabilities(
-                    sampling=types.SamplingCapability(tools=types.SamplingToolsCapability())
-                ),
-                client_info=types.Implementation(name="test", version="1.0"),
-            )
-
-            tool = types.Tool(name="test_tool", input_schema={"type": "object"})
-            text = types.TextContent(type="text", text="hello")
-            tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
-            tool_result = types.ToolResultContent(type="tool_result", tool_use_id="call_1", content=[])
-
-            # Case 1: tool_result mixed with other content
-            with pytest.raises(ValueError, match="only tool_result content"):
-                await session.create_message(
-                    messages=[
-                        types.SamplingMessage(role="user", content=text),
-                        types.SamplingMessage(role="assistant", content=tool_use),
-                        types.SamplingMessage(role="user", content=[tool_result, text]),  # mixed!
-                    ],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 2: tool_result without previous message
-            with pytest.raises(ValueError, match="requires a previous message"):
-                await session.create_message(
-                    messages=[types.SamplingMessage(role="user", content=tool_result)],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 3: tool_result without previous tool_use
-            with pytest.raises(ValueError, match="do not match any tool_use"):
-                await session.create_message(
-                    messages=[
-                        types.SamplingMessage(role="user", content=text),
-                        types.SamplingMessage(role="user", content=tool_result),
-                    ],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 4: mismatched tool IDs
-            with pytest.raises(ValueError, match="ids of tool_result blocks and tool_use blocks"):
-                await session.create_message(
-                    messages=[
-                        types.SamplingMessage(role="user", content=text),
-                        types.SamplingMessage(role="assistant", content=tool_use),
-                        types.SamplingMessage(
-                            role="user",
-                            content=types.ToolResultContent(type="tool_result", tool_use_id="wrong_id", content=[]),
-                        ),
-                    ],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 5: text-only message with tools (no tool_results) - passes validation
-            # Covers has_tool_results=False branch.
-            # We use move_on_after because validation happens synchronously before
-            # send_request, which would block indefinitely waiting for a response.
-            # The timeout lets validation pass, then cancels the blocked send.
-            with anyio.move_on_after(0.01):
-                await session.create_message(
-                    messages=[types.SamplingMessage(role="user", content=text)],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 6: valid matching tool_result/tool_use IDs - passes validation
-            # Covers tool_use_ids == tool_result_ids branch.
-            # (see Case 5 comment for move_on_after explanation)
-            with anyio.move_on_after(0.01):
-                await session.create_message(
-                    messages=[
-                        types.SamplingMessage(role="user", content=text),
-                        types.SamplingMessage(role="assistant", content=tool_use),
-                        types.SamplingMessage(role="user", content=tool_result),
-                    ],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-
-            # Case 7: validation runs even without `tools` parameter
-            # (tool loop continuation may omit tools while containing tool_result)
-            with pytest.raises(ValueError, match="do not match any tool_use"):
-                await session.create_message(
-                    messages=[
-                        types.SamplingMessage(role="user", content=text),
-                        types.SamplingMessage(role="user", content=tool_result),
-                    ],
-                    max_tokens=100,
-                    # Note: no tools parameter
-                )
-
-            # Case 8: empty messages list - skips validation entirely
-            # Covers the `if messages:` branch (line 280->302)
-            with anyio.move_on_after(0.01):  # pragma: no branch
-                await session.create_message(messages=[], max_tokens=100)
+async def test_send_request_without_back_channel_or_related_id_fails_fast():
+    """No standalone channel and no related request to ride on: raise instead
+    of parking forever on a response that cannot arrive."""
+    dispatcher = StubDispatcher(result={})
+    session = _make_session(dispatcher, has_standalone_channel=False)
+    with pytest.raises(NoBackChannelError):
+        await session.send_request(types.PingRequest(), types.EmptyResult)
+    assert dispatcher.requests == []
+    # With a related request id the message rides that request's stream.
+    await session.send_request(
+        types.PingRequest(), types.EmptyResult, metadata=ServerMessageMetadata(related_request_id=3)
+    )
+    assert dispatcher.requests[0][3] == 3
 
 
 @pytest.mark.anyio
-async def test_create_message_without_tools_capability():
-    """Test that create_message raises MCPError when tools are provided without capability."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-    ):
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="test",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as session:
-            # Set up client params WITHOUT sampling.tools capability
-            session._client_params = types.InitializeRequestParams(
-                protocol_version=types.LATEST_PROTOCOL_VERSION,
-                capabilities=types.ClientCapabilities(sampling=types.SamplingCapability()),
-                client_info=types.Implementation(name="test", version="1.0"),
-            )
-
-            tool = types.Tool(name="test_tool", input_schema={"type": "object"})
-            text = types.TextContent(type="text", text="hello")
-
-            # Should raise MCPError when tools are provided but client lacks capability
-            with pytest.raises(MCPError) as exc_info:
-                await session.create_message(
-                    messages=[types.SamplingMessage(role="user", content=text)],
-                    max_tokens=100,
-                    tools=[tool],
-                )
-            assert "does not support sampling tools capability" in exc_info.value.error.message
-
-            # Should also raise MCPError when tool_choice is provided
-            with pytest.raises(MCPError) as exc_info:
-                await session.create_message(
-                    messages=[types.SamplingMessage(role="user", content=text)],
-                    max_tokens=100,
-                    tool_choice=types.ToolChoice(mode="auto"),
-                )
-            assert "does not support sampling tools capability" in exc_info.value.error.message
+async def test_send_request_validates_the_client_result_against_the_surface_schema():
+    """A spec-method result that fails the per-version surface schema raises
+    `ValidationError` even when the caller's `result_type` would accept it."""
+    session = _make_session(StubDispatcher(result={"roots": "nope"}))
+    with pytest.raises(ValidationError):
+        await session.send_request(types.ListRootsRequest(), types.EmptyResult)
 
 
 @pytest.mark.anyio
-async def test_other_requests_blocked_before_initialization():
-    """Test that non-ping requests are still blocked before initialization."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+async def test_send_request_passes_a_spec_valid_client_result():
+    """A spec-valid client result passes the surface gate and parses to the typed model."""
+    session = _make_session(StubDispatcher(result={"roots": [{"uri": "file:///ws"}]}))
+    result = await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
+    assert isinstance(result, types.ListRootsResult)
+    assert str(result.roots[0].uri) == "file:///ws"
 
-    error_response_received = False
-    error_code = None
 
-    async def run_server():
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="mcp",
-                server_version="0.1.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ):
-            # Server should handle the request and send an error response
-            # No need to process incoming_messages since the error is handled automatically
-            await anyio.sleep(0.1)  # Give time for the request to be processed
+@pytest.mark.anyio
+async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
+    """Surface row absent for the negotiated version: gate is bypassed and only
+    `result_type` validates."""
+    session = _make_session(StubDispatcher(result={}), protocol_version="2026-07-28")
+    result = await session.send_request(types.PingRequest(), types.EmptyResult)
+    assert isinstance(result, types.EmptyResult)
 
-    async def mock_client():
-        nonlocal error_response_received, error_code
 
-        # Try to send a non-ping request before initialization
-        await client_to_server_send.send(
-            SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="prompts/list"))
-        )
+@pytest.mark.anyio
+async def test_send_request_validates_result_alias_only():
+    """Peer results validate alias-only; a snake_case key from the wire is
+    ignored as extra, not populated by Python field name."""
+    snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
+    session = _make_session(StubDispatcher(result=snake))
+    request = types.CreateMessageRequest(params=types.CreateMessageRequestParams(messages=[], max_tokens=1))
+    result = await session.send_request(request, types.CreateMessageResult)
+    assert result.stop_reason is None
 
-        # Wait for the error response
-        error_message = await server_to_client_receive.receive()
-        if isinstance(error_message.message, types.JSONRPCError):  # pragma: no branch
-            error_response_received = True
-            error_code = error_message.message.error.code
 
-    async with (
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-        server_to_client_receive,
-        anyio.create_task_group() as tg,
-    ):
-        tg.start_soon(run_server)
-        tg.start_soon(mock_client)
+@pytest.mark.anyio
+async def test_create_message_with_tools_returns_with_tools_result():
+    dispatcher = StubDispatcher(result={"role": "assistant", "content": [{"type": "text", "text": "ok"}], "model": "m"})
+    session = _make_session(
+        dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
+    )
+    result = await session.create_message(
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
+        max_tokens=10,
+        tools=[types.Tool(name="t", input_schema={"type": "object"})],
+    )
+    assert isinstance(result, types.CreateMessageResultWithTools)
+    method, params, _opts, _related = dispatcher.requests[0]
+    assert method == "sampling/createMessage"
+    assert params is not None and params["tools"][0]["name"] == "t"
 
-    assert error_response_received
-    assert error_code == types.INVALID_PARAMS
+
+def test_check_client_capability_delegates_to_connection():
+    dispatcher = StubDispatcher()
+    session = _make_session(dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability()))
+    assert session.check_client_capability(ClientCapabilities(sampling=SamplingCapability())) is True
+    assert session.check_client_capability(ClientCapabilities(experimental={"x": {}})) is False
+
+
+def _runner_server(seen_versions: list[str | None]) -> Server[dict[str, Any]]:
+    """A lowlevel Server whose tools/list handler records `ctx.session.protocol_version`."""
+
+    async def list_tools(
+        ctx: ServerRequestContext[dict[str, Any], Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        seen_versions.append(ctx.session.protocol_version)
+        return types.ListToolsResult(tools=[])
+
+    return Server(name="test-server", version="0.0.1", on_list_tools=list_tools)
+
+
+def _init_params(protocol_version: str) -> dict[str, Any]:
+    return InitializeRequestParams(
+        protocol_version=protocol_version,
+        capabilities=ClientCapabilities(),
+        client_info=Implementation(name="test-client", version="1.0"),
+    ).model_dump(by_alias=True, exclude_none=True)
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_none_before_initialize():
+    """No negotiated version is readable before the initialize handshake."""
+    async with connected_runner(_runner_server([]), initialized=False) as (_client, runner):
+        assert runner.session.protocol_version is None
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_negotiated_version_after_initialize():
+    """A supported requested version is echoed back and readable on the session,
+    both directly and from inside a handler via `ctx.session`."""
+    seen: list[str | None] = []
+    async with connected_runner(_runner_server(seen), initialized=False) as (client, runner):
+        result = await client.send_raw_request("initialize", _init_params("2025-03-26"))
+        assert result["protocolVersion"] == "2025-03-26"
+        assert runner.session.protocol_version == "2025-03-26"
+        await client.send_raw_request("tools/list", None)
+        assert seen == ["2025-03-26"]
+
+
+@pytest.mark.anyio
+async def test_protocol_version_reads_latest_when_requested_version_unsupported():
+    """An unsupported requested version negotiates down to LATEST_PROTOCOL_VERSION."""
+    async with connected_runner(_runner_server([]), initialized=False) as (client, runner):
+        result = await client.send_raw_request("initialize", _init_params("1999-01-01"))
+        assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
+        assert runner.session.protocol_version == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_protocol_version_is_none_on_stateless_connection():
+    """Stateless connections never see a handshake: requests flow, but the
+    negotiated version legitimately stays None."""
+    seen: list[str | None] = []
+    async with connected_runner(_runner_server(seen), initialized=False, stateless=True) as (client, runner):
+        result = await client.send_raw_request("tools/list", None)
+        assert result == {"tools": []}
+        assert seen == [None]
+        assert runner.session.protocol_version is None

@@ -1,3 +1,4 @@
+import importlib.metadata
 import subprocess
 import sys
 from pathlib import Path
@@ -6,6 +7,15 @@ from typing import Any
 import pytest
 
 from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
+
+
+def _set_mcp_version(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    real_version = importlib.metadata.version
+
+    def fake_version(distribution_name: str) -> str:
+        return version if distribution_name == "mcp" else real_version(distribution_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
 
 
 @pytest.mark.parametrize(
@@ -38,14 +48,23 @@ def test_parse_file_exit_on_dir(tmp_path: Path):
         _parse_file_path(str(dir_path))
 
 
-def test_build_uv_command_minimal():
-    """Should emit core command when no extras specified."""
+def test_build_uv_command_pins_the_running_mcp_version(monkeypatch: pytest.MonkeyPatch):
+    """The spawned environment installs the same SDK version that is running, not the latest stable."""
+    _set_mcp_version(monkeypatch, "1.2.3")
+    cmd = _build_uv_command("foo.py")
+    assert cmd == ["uv", "run", "--with", "mcp==1.2.3", "mcp", "run", "foo.py"]
+
+
+def test_build_uv_command_leaves_source_builds_unpinned(monkeypatch: pytest.MonkeyPatch):
+    """Source-build versions are not on PyPI, so the requirement stays unpinned."""
+    _set_mcp_version(monkeypatch, "2.0.0a2.dev3+g0123abc")
     cmd = _build_uv_command("foo.py")
     assert cmd == ["uv", "run", "--with", "mcp", "mcp", "run", "foo.py"]
 
 
-def test_build_uv_command_adds_editable_and_packages():
+def test_build_uv_command_adds_editable_and_packages(monkeypatch: pytest.MonkeyPatch):
     """Should include --with-editable and every --with pkg in correct order."""
+    _set_mcp_version(monkeypatch, "1.2.3")
     test_path = Path("/pkg")
     cmd = _build_uv_command(
         "foo.py",
@@ -56,7 +75,7 @@ def test_build_uv_command_adds_editable_and_packages():
         "uv",
         "run",
         "--with",
-        "mcp",
+        "mcp==1.2.3",
         "--with-editable",
         str(test_path),  # Use str() to match what the function does
         "--with",
