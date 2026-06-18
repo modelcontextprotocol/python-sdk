@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 
 from mcp import types
 from mcp.server import Server, ServerRequestContext
@@ -57,8 +58,10 @@ def _make_session(
     *,
     capabilities: ClientCapabilities | None = None,
     has_standalone_channel: bool = True,
+    protocol_version: str | None = None,
 ) -> ServerSession:
     conn = Connection(dispatcher, has_standalone_channel=has_standalone_channel)
+    conn.protocol_version = protocol_version
     if capabilities is not None:
         conn.client_params = InitializeRequestParams(
             protocol_version=LATEST_PROTOCOL_VERSION,
@@ -103,13 +106,13 @@ async def test_send_request_omits_call_options_when_none_given():
 
 
 @pytest.mark.anyio
-async def test_send_request_timeout_zero_means_no_timeout():
-    """0 falls through BaseSession's `or`-fallback, so it has always meant
-    "no timeout"; ClientSession still reads it that way."""
+async def test_send_request_timeout_zero_is_forwarded():
+    """0 is a real timeout (fail at the first checkpoint, `anyio.fail_after(0)`
+    semantics) and must reach the dispatcher; only `None` means "no timeout"."""
     dispatcher = StubDispatcher(result={})
     session = _make_session(dispatcher)
-    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0)
-    assert dispatcher.requests[0][2] is None
+    await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
+    assert dispatcher.requests[0][2] == {"timeout": 0.0}
 
 
 @pytest.mark.anyio
@@ -126,6 +129,33 @@ async def test_send_request_without_back_channel_or_related_id_fails_fast():
         types.PingRequest(), types.EmptyResult, metadata=ServerMessageMetadata(related_request_id=3)
     )
     assert dispatcher.requests[0][3] == 3
+
+
+@pytest.mark.anyio
+async def test_send_request_validates_the_client_result_against_the_surface_schema():
+    """A spec-method result that fails the per-version surface schema raises
+    `ValidationError` even when the caller's `result_type` would accept it."""
+    session = _make_session(StubDispatcher(result={"roots": "nope"}))
+    with pytest.raises(ValidationError):
+        await session.send_request(types.ListRootsRequest(), types.EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_send_request_passes_a_spec_valid_client_result():
+    """A spec-valid client result passes the surface gate and parses to the typed model."""
+    session = _make_session(StubDispatcher(result={"roots": [{"uri": "file:///ws"}]}))
+    result = await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
+    assert isinstance(result, types.ListRootsResult)
+    assert str(result.roots[0].uri) == "file:///ws"
+
+
+@pytest.mark.anyio
+async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
+    """Surface row absent for the negotiated version: gate is bypassed and only
+    `result_type` validates."""
+    session = _make_session(StubDispatcher(result={}), protocol_version="2026-07-28")
+    result = await session.send_request(types.PingRequest(), types.EmptyResult)
+    assert isinstance(result, types.EmptyResult)
 
 
 @pytest.mark.anyio

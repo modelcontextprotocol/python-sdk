@@ -8,11 +8,11 @@ shape and inject failures.
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from mcp.server.connection import Connection
 from mcp.shared.dispatcher import CallOptions
@@ -29,6 +29,8 @@ from mcp.types import (
     ListRootsRequest,
     ListRootsResult,
     PingRequest,
+    Request,
+    RequestParams,
     RootsCapability,
     SamplingCapability,
     SamplingContextCapability,
@@ -142,6 +144,54 @@ async def test_connection_send_request_nonconforming_result_raises_validation_er
     conn = Connection(StubOutbound(result={"bogus": 1}), has_standalone_channel=True)
     with pytest.raises(ValidationError):
         await conn.send_request(ListRootsRequest())
+
+
+@pytest.mark.anyio
+async def test_send_request_validates_the_client_result_against_the_surface_schema():
+    """A spec-method result that fails the per-version surface schema raises
+    `ValidationError` even when the caller's `result_type` would accept it."""
+    conn = Connection(StubOutbound(result={"roots": "nope"}), has_standalone_channel=True)
+    with pytest.raises(ValidationError):
+        await conn.send_request(ListRootsRequest(), result_type=EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_send_request_passes_a_spec_valid_client_result():
+    """A spec-valid client result passes the surface gate and parses to the typed model."""
+    conn = Connection(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}), has_standalone_channel=True)
+    conn.protocol_version = "2025-11-25"
+    result = await conn.send_request(ListRootsRequest())
+    assert isinstance(result, ListRootsResult)
+    assert str(result.roots[0].uri) == "file:///ws"
+
+
+class _CustomRequest(Request[RequestParams | None, Literal["custom/echo"]]):
+    method: Literal["custom/echo"] = "custom/echo"
+    params: RequestParams | None = None
+
+
+class _CustomResult(BaseModel):
+    value: int
+
+
+@pytest.mark.anyio
+async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
+    """Surface row absent for the negotiated version: gate is bypassed and only
+    the inferred result type validates."""
+    conn = Connection(StubOutbound(result={}), has_standalone_channel=True)
+    conn.protocol_version = "2026-07-28"
+    result = await conn.send_request(PingRequest())
+    assert isinstance(result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_send_request_with_a_custom_method_skips_the_surface_gate():
+    """Non-spec methods are not blocked by the surface gate; `result_type` validates."""
+    conn = Connection(StubOutbound(result={"value": 7}), has_standalone_channel=True)
+    conn.protocol_version = "2025-11-25"
+    result = await conn.send_request(_CustomRequest(), result_type=_CustomResult)
+    assert isinstance(result, _CustomResult)
+    assert result.value == 7
 
 
 @pytest.mark.anyio

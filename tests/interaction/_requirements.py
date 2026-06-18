@@ -268,32 +268,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; the server sends an error response (code 0, 'Request cancelled'), which is what "
-                "unblocks the SDK client's pending call."
+                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
+                "server for cancelled client requests, and the client for cancelled server-initiated "
+                "requests — which is what unblocks the sender's pending call."
             ),
         ),
     ),
     "protocol:cancel:initialize-not-cancellable": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior="The client never sends notifications/cancelled for the initialize request.",
-        deferred=(
-            "Not implemented in the SDK: the client has no public cancellation API at all, so no pathway "
-            "exists that could cancel initialize; there is no distinct behaviour to pin beyond that absence."
-        ),
     ),
     "protocol:cancel:late-response-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A response that arrives after the sender issued notifications/cancelled is ignored; the "
             "request stays failed and no error is raised."
-        ),
-        divergence=Divergence(
-            note=(
-                "A response whose id matches no in-flight request is delivered to the message handler "
-                "as a RuntimeError rather than being silently ignored. The post-cancellation case is the "
-                "same code path; tested in its unknown-id form because that is deterministic without the "
-                "client-side cancellation API the SDK does not yet provide."
-            ),
         ),
     ),
     "protocol:cancel:server-survives": Requirement(
@@ -305,19 +294,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
             "cancels it, and the client stops processing the cancelled request."
-        ),
-        divergence=Divergence(
-            note=(
-                "Abandoning a server-side send_request emits no cancellation notification, and the client "
-                "could not act on one anyway: client callbacks run inline in the receive loop, so a "
-                "cancellation is not even read until the callback has finished."
-            ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: abandoning a server-side send_request emits no cancellation "
-            "notification (the same sender-side gap recorded on protocol:timeout:sends-cancellation), and "
-            "the client could not act on one anyway because client callbacks run inline in the receive "
-            "loop, so a cancellation would not even be read until the callback had already finished."
         ),
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
@@ -362,6 +338,27 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:error:method-not-found": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior="A request whose method has no registered handler is answered with a METHOD_NOT_FOUND error.",
+    ),
+    "protocol:error:null-id": Requirement(
+        source="sdk",
+        behavior=(
+            "An error response carrying a null id — the JSON-RPC shape for a peer reporting a failure it "
+            "could not attribute to a request, such as a parse error — is surfaced to the application "
+            "rather than silently discarded."
+        ),
+        divergence=Divergence(
+            note=(
+                "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
+                "non-nullable, so a null-id error response failed transport validation and the resulting "
+                "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
+                "restoring visibility is planned before v2 stable."
+            ),
+        ),
+        deferred=(
+            "Not yet covered here: the current drop is pinned at the dispatcher level by "
+            "tests/shared/test_jsonrpc_dispatcher.py; an interaction-level test waits on the planned "
+            "fault channel."
+        ),
     ),
     "protocol:meta:related-task": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#related-task-metadata",
@@ -465,11 +462,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "When a request times out, the sender issues notifications/cancelled for that request before "
             "failing the local call."
-        ),
-        divergence=Divergence(
-            note=(
-                "The client only raises locally and sends nothing on timeout, so the server keeps running the handler."
-            ),
         ),
     ),
     "protocol:timeout:session-survives": Requirement(
@@ -1346,7 +1338,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
                 "validation at the low-level session layer (the high-level Context.elicit / "
-                "elicit_with_validation helper enforces primitive-only fields before generating the schema)."
+                "elicit_with_validation helper enforces primitive-only fields before generating the schema). "
+                "ClientSession likewise does not enforce it: the inbound surface gate is relaxed for "
+                "requestedSchema.properties so older servers that emit anyOf for Optional fields still reach "
+                "the elicitation callback."
             ),
         ),
     ),

@@ -20,6 +20,7 @@ from mcp.shared.dispatcher import CallOptions, ProgressFnT
 from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata
+from mcp.types import methods as _methods
 
 __all__ = ["ServerSession"]
 
@@ -54,10 +55,8 @@ class ServerSession:
     def protocol_version(self) -> str | None:
         """The protocol version negotiated during `initialize`.
 
-        `None` before initialization completes. Stateless connections don't
-        require the handshake, so this is normally `None` there (on streamable
-        HTTP the per-request version is the `MCP-Protocol-Version` header,
-        available via `ctx.request.headers`).
+        `None` before initialization, and normally `None` on stateless
+        connections. For the per-request value, read `ctx.protocol_version`.
         """
         return self._connection.protocol_version
 
@@ -84,7 +83,7 @@ class ServerSession:
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
-        if request_read_timeout_seconds:
+        if request_read_timeout_seconds is not None:
             opts["timeout"] = request_read_timeout_seconds
         if progress_callback is not None:
             opts["on_progress"] = progress_callback
@@ -96,6 +95,12 @@ class ServerSession:
         result = await self._dispatcher.send_raw_request(
             data["method"], data.get("params"), opts or None, _related_request_id=related
         )
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            _methods.validate_client_result(request.method, version, result)
+        except KeyError:
+            pass
         return result_type.model_validate(result, by_name=False)
 
     async def send_notification(

@@ -19,7 +19,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
-from typing import TYPE_CHECKING, Any, Generic, cast, get_args
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
@@ -34,23 +34,23 @@ from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ServerMessageMetadata
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    ClientRequest,
+    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    NotificationParams,
     RequestParams,
     RequestParamsMeta,
-    client_request_adapter,
 )
+from mcp.types import methods as _methods
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
@@ -80,12 +80,28 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return None
 
 
-_SPEC_CLIENT_METHODS: frozenset[str] = frozenset(
-    cast(type[BaseModel], arm).model_fields["method"].default for arm in get_args(ClientRequest)
-)
-"""Method names in the spec `ClientRequest` union, derived from the
-discriminator literal on each arm. Used to gate upfront validation so custom
-methods registered via `add_request_handler` are not rejected."""
+def _resolve_protocol_version(
+    negotiated: str | None,
+    meta: RequestParamsMeta | None,
+    md: MessageMetadata,
+) -> str:
+    """Resolve the protocol version for this inbound message.
+
+    Handshake-committed value wins; else per-request `_meta`, else the
+    transport hint. Unsupported values fall through so surface validation
+    never sees them.
+    """
+    if negotiated is not None:
+        return negotiated
+    if meta is not None:
+        v = meta.get(PROTOCOL_VERSION_META_KEY)
+        if isinstance(v, str) and v in SUPPORTED_PROTOCOL_VERSIONS:
+            return v
+    if isinstance(md, ServerMessageMetadata):
+        hint = md.protocol_version
+        if hint is not None and hint in SUPPORTED_PROTOCOL_VERSIONS:
+            return hint
+    return "2025-11-25"
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -227,17 +243,21 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        ctx = self._make_context(dctx, _extract_meta(params))
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
+        is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner() -> HandlerResult:
-            # TODO(maxisbey): pinned compat: spec methods are validated against
-            # the ClientRequest union before lookup, so malformed params are
-            # INVALID_PARAMS even with no handler registered.
-            if method in _SPEC_CLIENT_METHODS:
-                payload: dict[str, Any] = {"method": method}
-                if params is not None:
-                    payload["params"] = dict(params)
-                client_request_adapter.validate_python(payload, by_name=False)
+            # Pinned compat: spec methods are surface-validated before lookup,
+            # so malformed params are INVALID_PARAMS even with no handler
+            # registered. Custom methods miss the monolith map and fall through
+            # to `entry.params_type` exactly as before.
+            if is_spec_method:
+                try:
+                    _methods.validate_client_request(method, version, params)
+                except KeyError:
+                    raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
             # TODO(maxisbey): the 2026-07-28 spec drops the handshake; this branch and
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
@@ -265,6 +285,21 @@ class ServerRunner(Generic[LifespanT]):
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
         result = _dump_result(await call())
+        # TODO: reject resultType values outside {"complete", "input_required"} unless the
+        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
+        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
+        if is_spec_method:
+            try:
+                result = _methods.serialize_server_result(method, version, result)
+            except KeyError:
+                # Middleware short-circuited a wrong-version spec method without
+                # calling `call_next`; it owns the result shape.
+                pass
+            except ValidationError:
+                # Server bug, not client fault. Detail stays in the server log:
+                # pydantic messages echo the result body.
+                logger.exception("handler for %r returned an invalid result", method)
+                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -277,19 +312,24 @@ class ServerRunner(Generic[LifespanT]):
         method: str,
         params: Mapping[str, Any] | None,
     ) -> None:
-        ctx = self._make_context(dctx, _extract_meta(params))
+        meta = _extract_meta(params)
+        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        ctx = self._make_context(dctx, meta, version)
 
         async def _inner() -> None:
+            if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:
+                try:
+                    _methods.validate_client_notification(method, version, params)
+                except KeyError:
+                    logger.debug("dropped %r: not defined at %s", method, version)
+                    return
+                except ValidationError:
+                    logger.warning("dropped %r: malformed params", method)
+                    return
             if method == "notifications/initialized":
-                # Validate before committing so a malformed notification leaves
-                # state untouched; then fall through so a registered handler
-                # observes an initialized connection.
-                if params is not None:
-                    try:
-                        NotificationParams.model_validate(params, by_name=False)
-                    except ValidationError:
-                        logger.warning("dropped %r: malformed params", method)
-                        return
+                # Surface validation above already rejected a malformed body, so
+                # commit; fall through so a registered handler observes an
+                # initialized connection.
                 self.connection.initialized.set()
             elif not self.connection.initialize_accepted:
                 logger.debug("dropped %s: received before initialization", method)
@@ -332,7 +372,7 @@ class ServerRunner(Generic[LifespanT]):
         return call
 
     def _make_context(
-        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None
+        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None, protocol_version: str
     ) -> ServerRequestContext[LifespanT, Any]:
         # TODO(maxisbey): remove for Context rework. Reads the SHTTP per-request
         # data off the raw `dctx.message_metadata` carrier; replace with the
@@ -349,6 +389,7 @@ class ServerRunner(Generic[LifespanT]):
             lifespan_context=self.lifespan_state,
             request_id=dctx.request_id,
             meta=meta,
+            protocol_version=protocol_version,
             request=request,
             close_sse_stream=close_sse_stream,
             close_standalone_sse_stream=close_standalone_sse_stream,

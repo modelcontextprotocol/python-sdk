@@ -38,6 +38,7 @@ from mcp.types import (
     PingRequest,
     Request,
 )
+from mcp.types import methods as _methods
 
 __all__ = ["Connection"]
 
@@ -86,7 +87,7 @@ class Connection:
     """The protocol version negotiated during `initialize`; `None` before
     initialization. Stateless connections don't require the handshake, so this
     normally stays `None` there (a client that sends `initialize` anyway still
-    commits it). Handlers read this as `ServerSession.protocol_version`."""
+    commits it). For the per-request value, read `ctx.protocol_version`."""
 
     initialized: anyio.Event
     """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
@@ -175,6 +176,13 @@ class Connection:
             KeyError: `result_type` omitted for a non-spec request type.
         """
         raw = await self.send_raw_request(req.method, dump_params(req.params), opts)
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        if req.method in _methods.MONOLITH_REQUESTS:
+            try:
+                _methods.validate_client_result(req.method, version, raw)
+            except KeyError:
+                pass
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
         return cls.model_validate(raw, by_name=False)
 
