@@ -31,9 +31,8 @@ from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
-from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -175,7 +174,7 @@ class ServerRunner(Generic[LifespanT]):
     """Per-connection orchestrator. One instance per client connection."""
 
     server: Server[LifespanT]
-    dispatcher: JSONRPCDispatcher[Any]
+    dispatcher: Dispatcher[Any]
     lifespan_state: LifespanT
     has_standalone_channel: bool
     init_options: InitializationOptions | None = None

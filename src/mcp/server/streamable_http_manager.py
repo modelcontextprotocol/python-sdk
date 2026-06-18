@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server._experimental.streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -149,6 +150,13 @@ class StreamableHTTPSessionManager:
         """
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
+
+        # TODO: header-only routing for now; body-primary classification
+        # (per SEP-2575) is a follow-up. 2025 paths below remain unchanged.
+        pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == b"mcp-protocol-version"), None)
+        if pv == "2026-07-28":
+            await handle_modern_request(self, scope, receive, send)
+            return
 
         # Dispatch to the appropriate handler
         if self.stateless:
