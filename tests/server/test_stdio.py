@@ -169,3 +169,24 @@ def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatc
     assert events == ["setup", "cleanup"]
     response = jsonrpc_message_adapter.validate_json(captured.getvalue().decode().strip())
     assert response == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+
+def test_mcpserver_run_stdio_emits_lf_not_crlf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`MCPServer.run("stdio")` emits LF only, not CRLF, on Windows.
+
+    The default stdout path in stdio_server() wraps sys.stdout.buffer with
+    newline="" so JSON lines end with \\n regardless of platform.
+    """
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    stdin_bytes = io.BytesIO(ping.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    captured = _KeepOpenBytesIO()
+    # Simulate a "default" stdout WITHOUT newline="" — the fix in stdio_server
+    # must still produce LF-only output by wrapping sys.stdout.buffer itself.
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin_bytes, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(captured, encoding="utf-8"))
+
+    _run_stdio_bounded(MCPServer(name="LfStdioServer"))
+
+    raw = captured.getvalue()
+    assert b"\r\n" not in raw, f"stdout should not contain CRLF: {raw!r}"
+    assert raw.endswith(b"\n"), f"stdout should end with LF: {raw!r}"

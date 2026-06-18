@@ -41,7 +41,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     if not stdin:
         stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        # newline="" prevents \n → \r\n translation on Windows, which would
+        # corrupt newline-delimited JSON messages (the MCP protocol uses \n).
+        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline=""))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
