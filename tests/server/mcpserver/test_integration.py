@@ -26,9 +26,7 @@ from examples.snippets.servers import (
     structured_output,
     tool_progress,
 )
-from mcp.client import Client
-from mcp.client.session import ClientSession
-from mcp.shared._context import RequestContext
+from mcp.client import Client, ClientRequestContext
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
@@ -80,9 +78,7 @@ class NotificationCollector:
                 self.tool_notifications.append(message.params)
 
 
-async def sampling_callback(
-    context: RequestContext[ClientSession], params: CreateMessageRequestParams
-) -> CreateMessageResult:
+async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
     """Sampling callback for tests."""
     return CreateMessageResult(
         role="assistant",
@@ -94,7 +90,7 @@ async def sampling_callback(
     )
 
 
-async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:

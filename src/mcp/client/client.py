@@ -12,7 +12,7 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
-from mcp.shared.session import ProgressFnT
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.types import (
     CallToolResult,
     CompleteResult,

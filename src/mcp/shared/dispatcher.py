@@ -55,6 +55,13 @@ class CallOptions(TypedDict, total=False):
     timeout: float
     """Seconds to wait for a result before raising and sending `notifications/cancelled`."""
 
+    cancel_on_abandon: bool
+    """Whether abandoning this request (timeout or caller cancellation) sends `notifications/cancelled`.
+
+    Defaults to `True`. Set `False` for requests the protocol forbids cancelling, such as `initialize`.
+    Also suppressed when resumption hints reach the transport, or when the request was never written.
+    """
+
     on_progress: ProgressFnT
     """Receive `notifications/progress` updates for this request."""
 
@@ -96,9 +103,6 @@ class Outbound(Protocol):
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
         """Send a request and await its raw result dict.
-
-        `opts` carries per-call `timeout` / `on_progress` / resumption hints;
-        see `CallOptions`.
 
         Raises:
             MCPError: If the peer responded with an error, or the handler
@@ -187,6 +191,8 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
 
     Implementations own correlation of outbound requests to inbound results, the
     receive loop, per-request concurrency, and cancellation/progress wiring.
+
+    The lifecycle surface is provisional; `run()` may change before v2 stable.
     """
 
     async def run(

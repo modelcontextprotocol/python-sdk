@@ -81,7 +81,9 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
                     description="The project's front page.",
                     mime_type="text/markdown",
                     size=1024,
-                    annotations=Annotations(audience=["user", "assistant"], priority=0.8),
+                    annotations=Annotations(
+                        audience=["user", "assistant"], priority=0.8, last_modified="2025-01-01T00:00:00Z"
+                    ),
                     icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]

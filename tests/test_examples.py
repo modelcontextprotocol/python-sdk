@@ -94,7 +94,7 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 # TODO(v2): Change back to README.md when v2 is released
-@pytest.mark.parametrize("example", find_examples("README.v2.md"), ids=str)
+@pytest.mark.parametrize("example", list(find_examples("README.v2.md")), ids=str)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
 
