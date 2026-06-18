@@ -11,10 +11,19 @@ import importlib
 import re
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import pytest
 
-from tests.interaction._requirements import REQUIREMENTS, Requirement, covered_by, requirement
+from tests.interaction._requirements import (
+    REQUIREMENTS,
+    ArmExclusion,
+    KnownFailure,
+    Requirement,
+    SpecVersion,
+    covered_by,
+    requirement,
+)
 
 _SUITE_ROOT = Path(__file__).parent
 _REPO_ROOT = _SUITE_ROOT.parent.parent
@@ -103,3 +112,45 @@ def test_invalid_requirement_source_is_rejected() -> None:
     """A requirement whose source is not a spec URL, 'sdk', or an issue reference fails at construction."""
     with pytest.raises(ValueError, match="source must be a specification URL"):
         Requirement(source="https://example.com/not-the-spec", behavior="Never constructed.")
+
+
+def test_arm_exclusion_with_unknown_spec_version_is_rejected() -> None:
+    """An arm exclusion naming a spec version outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
+    with pytest.raises(ValueError, match="is not in KNOWN_PROTOCOL_VERSIONS"):
+        ArmExclusion(reason="requires-session", spec_version=cast("SpecVersion", "2099-01-01"))
+
+
+def test_known_failure_with_empty_note_is_rejected() -> None:
+    """A known failure with a blank note fails at construction."""
+    with pytest.raises(ValueError, match="note must be non-empty"):
+        KnownFailure(note="   ")
+
+
+def test_known_failure_with_unknown_spec_version_is_rejected() -> None:
+    """A known failure naming a spec version outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
+    with pytest.raises(ValueError, match="is not in KNOWN_PROTOCOL_VERSIONS"):
+        KnownFailure(note="x", spec_version=cast("SpecVersion", "2099-01-01"))
+
+
+def test_known_failure_with_malformed_issue_is_rejected() -> None:
+    """A known failure whose issue reference is neither '#<n>' nor a GitHub URL fails at construction."""
+    with pytest.raises(ValueError, match="must be '#<n>' or a GitHub URL"):
+        KnownFailure(note="x", issue="not-a-link")
+
+
+def test_requirement_with_unknown_added_in_is_rejected() -> None:
+    """A requirement whose added_in is outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
+    with pytest.raises(ValueError, match="added_in .* is not in KNOWN_PROTOCOL_VERSIONS"):
+        Requirement(source="sdk", behavior="x", added_in=cast("SpecVersion", "2099-01-01"))
+
+
+def test_requirement_with_unknown_removed_in_is_rejected() -> None:
+    """A requirement whose removed_in is outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
+    with pytest.raises(ValueError, match="removed_in .* is not in KNOWN_PROTOCOL_VERSIONS"):
+        Requirement(source="sdk", behavior="x", removed_in=cast("SpecVersion", "2099-01-01"))
+
+
+def test_requirement_with_empty_version_range_is_rejected() -> None:
+    """A requirement whose added_in is not strictly earlier than its removed_in fails at construction."""
+    with pytest.raises(ValueError, match="must be earlier than"):
+        Requirement(source="sdk", behavior="x", added_in="2025-11-25", removed_in="2025-11-25")

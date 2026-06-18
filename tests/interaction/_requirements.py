@@ -33,9 +33,9 @@ entry by entry; IDs that exist in only one SDK reflect genuinely different API s
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 import pytest
 
@@ -2889,3 +2889,74 @@ _COVERAGE: dict[str, list[str]] = {}
 def covered_by(requirement_id: str) -> list[str]:
     """Return the (mutable) list of test names recorded as exercising `requirement_id`."""
     return _COVERAGE.setdefault(requirement_id, [])
+
+
+def cell_id(transport: Transport, version: SpecVersion, *, spec_versions: Sequence[SpecVersion] = SPEC_VERSIONS) -> str:
+    """Return the pytest node-id suffix for a (transport, spec_version) cell.
+
+    While the active matrix has a single spec version, the suffix is just the transport name so
+    existing node ids stay byte-identical; once a second version is on the axis the suffix becomes
+    ``transport-version``.
+    """
+    return transport if len(spec_versions) == 1 else f"{transport}-{version}"
+
+
+def compute_cells(
+    requirements: Sequence[Requirement],
+    *,
+    spec_versions: Sequence[SpecVersion] = SPEC_VERSIONS,
+    transports: Sequence[Transport] = CONNECTABLE_TRANSPORTS,
+) -> list[Any]:
+    """Compute the (transport, spec_version) parametrization cells for a test.
+
+    Stacked ``@requirement`` decorators contribute multiple entries; the cells emitted are the
+    INTERSECTION across all of them: a cell is dropped if it falls outside any requirement's
+    ``[added_in, removed_in)`` window or matches any requirement's ``arm_exclusions``. An empty
+    ``requirements`` sequence yields the full transport x spec-version grid.
+
+    ``Requirement.transports`` is intentionally NOT consulted -- it is descriptive metadata about
+    where a behaviour is observable, not a cell filter (only ``arm_exclusions`` / ``added_in`` /
+    ``removed_in`` drive cell generation).
+
+    Returns a list of ``pytest.param((transport, version), id=..., marks=...)`` values for use as
+    ``metafunc.parametrize`` argvalues.
+    """
+    cells: list[Any] = []
+    for version in spec_versions:
+        version_ordinal = KNOWN_PROTOCOL_VERSIONS.index(version)
+        for transport in sorted(transports):
+            if transport in TRANSPORT_SPEC_VERSIONS and version not in TRANSPORT_SPEC_VERSIONS[transport]:
+                continue
+            # Requirement.transports is descriptive metadata only and does not filter cells.
+            if any(
+                (req.added_in is not None and version_ordinal < KNOWN_PROTOCOL_VERSIONS.index(req.added_in))
+                or (req.removed_in is not None and version_ordinal >= KNOWN_PROTOCOL_VERSIONS.index(req.removed_in))
+                for req in requirements
+            ):
+                continue
+            if any(
+                (ex.transport is None or ex.transport == transport)
+                and (ex.spec_version is None or ex.spec_version == version)
+                for req in requirements
+                for ex in req.arm_exclusions
+            ):
+                continue
+            matched_failure = next(
+                (
+                    kf
+                    for req in requirements
+                    for kf in req.known_failures
+                    if (kf.transport is None or kf.transport == transport)
+                    and (kf.spec_version is None or kf.spec_version == version)
+                ),
+                None,
+            )
+            marks = [pytest.mark.xfail(reason=matched_failure.note, strict=True)] if matched_failure else ()
+            cells.append(
+                pytest.param(
+                    (transport, version),
+                    id=cell_id(transport, version, spec_versions=spec_versions),
+                    marks=marks,
+                )
+            )
+    return cells
