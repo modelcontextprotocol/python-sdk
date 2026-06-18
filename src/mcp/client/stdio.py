@@ -106,7 +106,7 @@ class StdioServerParameters(BaseModel):
     encoding: str = "utf-8"
     """Text encoding for messages to and from the server."""
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
     """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers."""
 
 
