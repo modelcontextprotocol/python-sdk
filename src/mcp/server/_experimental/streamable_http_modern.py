@@ -25,7 +25,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.runner import ServerRunner, otel_middleware
-from mcp.server.transport_security import TransportSecurityMiddleware
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
@@ -42,7 +42,7 @@ from mcp.types import (
 )
 
 if TYPE_CHECKING:
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,8 @@ class SingleExchangeDispatcher:
 
 
 async def handle_modern_request(
-    manager: StreamableHTTPSessionManager,
+    app: Server[Any],
+    security_settings: TransportSecuritySettings | None,
     scope: Scope,
     receive: Receive,
     send: Send,
@@ -169,7 +170,7 @@ async def handle_modern_request(
     """
     request = Request(scope, receive)
 
-    security = TransportSecurityMiddleware(manager.security_settings)
+    security = TransportSecurityMiddleware(security_settings)
     err = await security.validate_request(request, is_post=(request.method == "POST"))
     if err is not None:
         await err(scope, receive, send)
@@ -196,9 +197,9 @@ async def handle_modern_request(
 
     dispatcher = SingleExchangeDispatcher(request)
     # TODO: per-request lifespan re-entry matches stateless_http=True today; revisit in #2893.
-    async with manager.app.lifespan(manager.app) as lifespan_state:
+    async with app.lifespan(app) as lifespan_state:
         runner = ServerRunner(
-            server=manager.app,
+            server=app,
             dispatcher=dispatcher,
             lifespan_state=lifespan_state,
             has_standalone_channel=False,
