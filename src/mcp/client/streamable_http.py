@@ -2,8 +2,10 @@
 
 from __future__ import annotations as _annotations
 
+import base64
 import contextlib
 import logging
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -44,11 +47,41 @@ StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
+MCP_METHOD = "mcp-method"
+MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
+
+_B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
+# RFC 7230 token chars minus DEL; visible ASCII 0x20-0x7E is the practical bound for a header value.
+_HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
+
+
+def _encode_header_value(value: str) -> str:
+    if _HEADER_SAFE.fullmatch(value) and not _B64_SENTINEL.fullmatch(value):
+        return value
+    return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
+
+
+def _body_derived_headers(message: JSONRPCMessage) -> dict[str, str]:
+    """Derive 2026-era headers from an envelope-bearing request body. Empty dict for legacy bodies."""
+    if not isinstance(message, JSONRPCRequest) or message.params is None:
+        return {}
+    meta = message.params.get("_meta")
+    if meta is None:
+        return {}
+    version = meta.get(PROTOCOL_VERSION_META_KEY)
+    if not isinstance(version, str):
+        return {}
+    headers: dict[str, str] = {MCP_PROTOCOL_VERSION: version, MCP_METHOD: message.method}
+    if message.method == "tools/call":
+        name = message.params.get("name")
+        if isinstance(name, str):
+            headers[MCP_NAME] = _encode_header_value(name)
+    return headers
 
 
 class StreamableHTTPError(Exception):
@@ -256,6 +289,7 @@ class StreamableHTTPTransport:
         """Handle a POST request with response processing."""
         headers = self._prepare_headers()
         message = ctx.session_message.message
+        headers.update(_body_derived_headers(message))
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(

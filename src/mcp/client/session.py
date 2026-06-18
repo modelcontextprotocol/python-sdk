@@ -22,7 +22,15 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types import INTERNAL_ERROR, METHOD_NOT_FOUND, RequestId, RequestParamsMeta
+from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
+    RequestId,
+    RequestParamsMeta,
+)
 from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -141,11 +149,13 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        protocol_version: str | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
+        self._pinned_version = protocol_version
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -218,6 +228,18 @@ class ClientSession:
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
+        if self._pinned_version is not None:
+            params = data.setdefault("params", {})
+            envelope_meta = params.setdefault("_meta", {})
+            envelope_meta.setdefault(PROTOCOL_VERSION_META_KEY, self._pinned_version)
+            envelope_meta.setdefault(
+                CLIENT_INFO_META_KEY,
+                self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
+            envelope_meta.setdefault(
+                CLIENT_CAPABILITIES_META_KEY,
+                self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
         opts: CallOptions = {}
         timeout = (
             request_read_timeout_seconds
@@ -254,7 +276,7 @@ class ClientSession:
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         await self._dispatcher.notify(data["method"], data.get("params"))
 
-    async def initialize(self) -> types.InitializeResult:
+    def _build_capabilities(self) -> types.ClientCapabilities:
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
             if self._sampling_callback is not _default_sampling_callback
@@ -273,17 +295,17 @@ class ClientSession:
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
+        return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
 
+    async def initialize(self) -> types.InitializeResult:
+        if self._pinned_version is not None:
+            raise RuntimeError("initialize() must not be called on a session pinned to a stateless protocol version")
+        capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
                     protocol_version=types.LATEST_PROTOCOL_VERSION,
-                    capabilities=types.ClientCapabilities(
-                        sampling=sampling,
-                        elicitation=elicitation,
-                        experimental=None,
-                        roots=roots,
-                    ),
+                    capabilities=capabilities,
                     client_info=self._client_info,
                 ),
             ),
@@ -309,7 +331,9 @@ class ClientSession:
 
     @property
     def protocol_version(self) -> str | None:
-        """The negotiated protocol version. None until `initialize()` has completed."""
+        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction."""
+        if self._pinned_version is not None:
+            return self._pinned_version
         return self._initialize_result.protocol_version if self._initialize_result else None
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
