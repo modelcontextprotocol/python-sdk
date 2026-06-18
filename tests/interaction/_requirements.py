@@ -39,10 +39,40 @@ from typing import Literal, TypeVar
 
 import pytest
 
-SPEC_REVISION = "2025-11-25"
+from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
+
+SpecVersion = Literal["2025-11-25", "2026-07-28"]
+"""A protocol version the suite parametrizes over. Both values are typed even though only one is
+on the active axis (SPEC_VERSIONS) until the 2026-07-28 implementation lands."""
+
+SPEC_VERSIONS: tuple[SpecVersion, ...] = ("2025-11-25",)
+"""The active spec-version matrix axis, ordered oldest to newest. Every entry must be in KNOWN_PROTOCOL_VERSIONS."""
+
+SPEC_REVISION = SPEC_VERSIONS[-1]
 SPEC_BASE_URL = f"https://modelcontextprotocol.io/specification/{SPEC_REVISION}"
 
 Transport = Literal["in-memory", "stdio", "streamable-http", "sse"]
+
+CONNECTABLE_TRANSPORTS: tuple[Transport, ...] = ("in-memory", "sse", "streamable-http")
+"""Transports the connect fixture fans out over (the subset with a factory in conftest._FACTORIES)."""
+
+TRANSPORT_SPEC_VERSIONS: dict[Transport, tuple[SpecVersion, ...]] = {
+    "sse": ("2025-11-25",),
+}
+"""Transports that only serve a subset of SPEC_VERSIONS. Absent => serves all. Consulted by compute_cells()."""
+
+ArmExclusionReason = Literal[
+    "asserts-legacy-handshake",
+    "method-not-in-modern-registry",
+    "legacy-only-vocabulary",
+    "modern-error-surface",
+    "requires-session",
+    "drives-transport-directly",
+    "server-initiated-request",
+]
+"""Machine-readable reasons a requirement is excluded from a (transport, spec_version) matrix cell.
+The set doubles as a re-admission checklist: when a feature lands, grep for its reason to find the
+cells to re-admit. Values are kept byte-identical to the typescript-sdk's EntryExclusionReason."""
 
 _TestFn = TypeVar("_TestFn", bound=Callable[..., object])
 
@@ -64,6 +94,38 @@ class Divergence:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ArmExclusion:
+    """Excludes a requirement from a (transport, spec_version) matrix cell, with a typed reason."""
+
+    reason: ArmExclusionReason
+    transport: Transport | None = None
+    spec_version: SpecVersion | None = None
+    note: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.spec_version is not None and self.spec_version not in KNOWN_PROTOCOL_VERSIONS:
+            raise ValueError(f"spec_version {self.spec_version!r} is not in KNOWN_PROTOCOL_VERSIONS")
+
+
+@dataclass(frozen=True, kw_only=True)
+class KnownFailure:
+    """A (transport, spec_version) cell where the requirement's test is expected to fail (strict xfail)."""
+
+    note: str
+    transport: Transport | None = None
+    spec_version: SpecVersion | None = None
+    issue: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.note.strip():
+            raise ValueError("note must be non-empty")
+        if self.spec_version is not None and self.spec_version not in KNOWN_PROTOCOL_VERSIONS:
+            raise ValueError(f"spec_version {self.spec_version!r} is not in KNOWN_PROTOCOL_VERSIONS")
+        if self.issue is not None and not re.fullmatch(r"#\d+|https://github\.com/\S+", self.issue):
+            raise ValueError(f"issue must be '#<n>' or a GitHub URL, got {self.issue!r}")
+
+
+@dataclass(frozen=True, kw_only=True)
 class Requirement:
     """A single testable behaviour and the provenance of why it must hold."""
 
@@ -73,10 +135,27 @@ class Requirement:
     divergence: Divergence | None = None
     deferred: str | None = None
     issue: str | None = None
+    note: str | None = None
+    added_in: SpecVersion | None = None
+    removed_in: SpecVersion | None = None
+    supersedes: tuple[str, ...] = ()
+    superseded_by: str | None = None
+    arm_exclusions: tuple[ArmExclusion, ...] = ()
+    known_failures: tuple[KnownFailure, ...] = ()
 
     def __post_init__(self) -> None:
         if not _SOURCE_PATTERN.fullmatch(self.source):
             raise ValueError(f"source must be a specification URL, 'sdk', or 'issue:#n', got {self.source!r}")
+        if self.added_in is not None and self.added_in not in KNOWN_PROTOCOL_VERSIONS:
+            raise ValueError(f"added_in {self.added_in!r} is not in KNOWN_PROTOCOL_VERSIONS")
+        if self.removed_in is not None and self.removed_in not in KNOWN_PROTOCOL_VERSIONS:
+            raise ValueError(f"removed_in {self.removed_in!r} is not in KNOWN_PROTOCOL_VERSIONS")
+        if (
+            self.added_in is not None
+            and self.removed_in is not None
+            and KNOWN_PROTOCOL_VERSIONS.index(self.added_in) >= KNOWN_PROTOCOL_VERSIONS.index(self.removed_in)
+        ):
+            raise ValueError(f"added_in {self.added_in!r} must be earlier than removed_in {self.removed_in!r}")
 
 
 REQUIREMENTS: dict[str, Requirement] = {

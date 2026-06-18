@@ -69,6 +69,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
+        protocol_version: str = LATEST_PROTOCOL_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -83,6 +84,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport."""
     async with Client(
@@ -113,6 +115,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
@@ -326,6 +329,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)
