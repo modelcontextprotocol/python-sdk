@@ -15,9 +15,12 @@ from typing import cast
 
 import pytest
 
+from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
+from mcp.types import LATEST_PROTOCOL_VERSION
 from tests.interaction._requirements import (
     CONNECTABLE_TRANSPORTS,
     REQUIREMENTS,
+    SPEC_VERSIONS,
     ArmExclusion,
     KnownFailure,
     Requirement,
@@ -28,6 +31,7 @@ from tests.interaction._requirements import (
     covered_by,
     requirement,
 )
+from tests.interaction.conftest import _FACTORIES
 
 _SUITE_ROOT = Path(__file__).parent
 _REPO_ROOT = _SUITE_ROOT.parent.parent
@@ -104,6 +108,59 @@ def test_deferral_reasons_cite_existing_paths() -> None:
         if not (_REPO_ROOT / cited).exists()
     )
     assert not missing, f"Deferral reasons citing paths that do not exist: {missing}"
+
+
+def test_spec_versions_are_known_and_include_latest() -> None:
+    """Every active spec version is one the SDK knows about, and the SDK's latest is on the active axis."""
+    assert set(SPEC_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
+    assert LATEST_PROTOCOL_VERSION in SPEC_VERSIONS
+
+
+def test_connectable_transports_match_connect_factories() -> None:
+    """CONNECTABLE_TRANSPORTS and the conftest factory map name exactly the same transports."""
+    assert set(CONNECTABLE_TRANSPORTS) == set(_FACTORIES)
+
+
+def test_supersession_links_are_symmetric_and_versioned() -> None:
+    """``supersedes``/``superseded_by`` reference real entries, agree in both directions, and carry version bounds."""
+    broken = [
+        f"{req_id} -> {target}"
+        for req_id, req in REQUIREMENTS.items()
+        for target in req.supersedes
+        if target not in REQUIREMENTS or REQUIREMENTS[target].superseded_by != req_id or req.added_in is None
+    ] + [
+        f"{req_id} <- {req.superseded_by}"
+        for req_id, req in REQUIREMENTS.items()
+        if req.superseded_by is not None
+        if req.superseded_by not in REQUIREMENTS
+        or req_id not in REQUIREMENTS[req.superseded_by].supersedes
+        or req.removed_in is None
+    ]
+    assert not broken, f"Broken supersession links (forward '->' or back '<-'): {broken}"
+
+
+def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
+    """Every arm exclusion names a connectable transport and an active spec version (or wildcards)."""
+    unreachable = [
+        f"{req_id}: {exclusion}"
+        for req_id, req in REQUIREMENTS.items()
+        for exclusion in req.arm_exclusions
+        if (exclusion.transport is not None and exclusion.transport not in CONNECTABLE_TRANSPORTS)
+        or (exclusion.spec_version is not None and exclusion.spec_version not in SPEC_VERSIONS)
+    ]
+    assert not unreachable, f"Arm exclusions targeting unreachable cells: {unreachable}"
+
+
+def test_every_known_failure_targets_a_reachable_cell() -> None:
+    """Every known failure names a connectable transport and an active spec version (or wildcards)."""
+    unreachable = [
+        f"{req_id}: {failure}"
+        for req_id, req in REQUIREMENTS.items()
+        for failure in req.known_failures
+        if (failure.transport is not None and failure.transport not in CONNECTABLE_TRANSPORTS)
+        or (failure.spec_version is not None and failure.spec_version not in SPEC_VERSIONS)
+    ]
+    assert not unreachable, f"Known failures targeting unreachable cells: {unreachable}"
 
 
 def test_unknown_requirement_id_is_rejected() -> None:
