@@ -16,11 +16,15 @@ from typing import cast
 import pytest
 
 from tests.interaction._requirements import (
+    CONNECTABLE_TRANSPORTS,
     REQUIREMENTS,
     ArmExclusion,
     KnownFailure,
     Requirement,
     SpecVersion,
+    Transport,
+    cell_id,
+    compute_cells,
     covered_by,
     requirement,
 )
@@ -154,3 +158,102 @@ def test_requirement_with_empty_version_range_is_rejected() -> None:
     """A requirement whose added_in is not strictly earlier than its removed_in fails at construction."""
     with pytest.raises(ValueError, match="must be earlier than"):
         Requirement(source="sdk", behavior="x", added_in="2025-11-25", removed_in="2025-11-25")
+
+
+def _req(
+    *,
+    added_in: SpecVersion | None = None,
+    removed_in: SpecVersion | None = None,
+    transports: tuple[Transport, ...] | None = None,
+    arm_exclusions: tuple[ArmExclusion, ...] = (),
+    known_failures: tuple[KnownFailure, ...] = (),
+) -> Requirement:
+    """Build a synthetic Requirement for compute_cells() unit tests."""
+    return Requirement(
+        source="sdk",
+        behavior="x",
+        added_in=added_in,
+        removed_in=removed_in,
+        transports=transports,
+        arm_exclusions=arm_exclusions,
+        known_failures=known_failures,
+    )
+
+
+def test_compute_cells_with_no_requirements_yields_full_grid() -> None:
+    """An empty requirement list yields one cell per connectable transport at the single active spec version."""
+    cells = compute_cells([])
+    assert [c.id for c in cells] == ["in-memory", "sse", "streamable-http"]
+    assert [c.values for c in cells] == [
+        (("in-memory", "2025-11-25"),),
+        (("sse", "2025-11-25"),),
+        (("streamable-http", "2025-11-25"),),
+    ]
+
+
+def test_compute_cells_intersects_stacked_version_ranges() -> None:
+    """Stacked requirements intersect their [added_in, removed_in) windows: a cell survives only if all admit it."""
+    cells = compute_cells(
+        [_req(removed_in="2026-07-28"), _req(added_in="2025-11-25")],
+        spec_versions=("2025-11-25", "2026-07-28"),
+    )
+    assert [c.id for c in cells] == ["in-memory-2025-11-25", "sse-2025-11-25", "streamable-http-2025-11-25"]
+
+
+def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None:
+    """A transport listed in TRANSPORT_SPEC_VERSIONS only appears for the spec versions it serves."""
+    cells = compute_cells([], spec_versions=("2025-11-25", "2026-07-28"))
+    assert [c.id for c in cells] == [
+        "in-memory-2025-11-25",
+        "sse-2025-11-25",
+        "streamable-http-2025-11-25",
+        "in-memory-2026-07-28",
+        "streamable-http-2026-07-28",
+    ]
+
+
+def test_compute_cells_honours_arm_exclusion_from_any_stacked_requirement() -> None:
+    """An arm exclusion on any stacked requirement drops the matching cell even when other requirements have none."""
+    cells = compute_cells([_req(), _req(arm_exclusions=(ArmExclusion(reason="requires-session", transport="sse"),))])
+    assert [c.id for c in cells] == ["in-memory", "streamable-http"]
+
+
+def test_compute_cells_wildcard_arm_exclusion_drops_every_cell() -> None:
+    """An arm exclusion with both transport and spec_version unset matches every cell, leaving none."""
+    cells = compute_cells([_req(arm_exclusions=(ArmExclusion(reason="requires-session"),))])
+    assert cells == []
+
+
+def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
+    """A known failure attaches a strict xfail mark to exactly the matching cell and leaves others unmarked."""
+    cells = compute_cells([_req(known_failures=(KnownFailure(note="broken on sse", transport="sse"),))])
+    by_id = {c.id: c for c in cells}
+    assert set(by_id) == {"in-memory", "sse", "streamable-http"}
+    assert by_id["sse"].marks[0].name == "xfail"
+    assert by_id["sse"].marks[0].kwargs == {"reason": "broken on sse", "strict": True}
+    assert by_id["in-memory"].marks == ()
+    assert by_id["streamable-http"].marks == ()
+
+
+def test_compute_cells_wildcard_known_failure_marks_every_cell() -> None:
+    """A known failure with both transport and spec_version unset marks every emitted cell as strict xfail."""
+    cells = compute_cells([_req(known_failures=(KnownFailure(note="all broken"),))])
+    assert len(cells) == 3
+    assert all(c.marks[0].name == "xfail" for c in cells)
+    assert all(c.marks[0].kwargs == {"reason": "all broken", "strict": True} for c in cells)
+
+
+def test_compute_cells_ignores_transports_field() -> None:
+    """Requirement.transports is descriptive metadata only and does not filter the cell grid."""
+    cells = compute_cells([_req(transports=("stdio",))])
+    assert [c.id for c in cells] == list(CONNECTABLE_TRANSPORTS)
+
+
+def test_cell_id_omits_version_when_single_spec_version() -> None:
+    """With one active spec version the cell id is just the transport name, keeping today's node ids byte-identical."""
+    assert cell_id("sse", "2025-11-25") == "sse"
+
+
+def test_cell_id_appends_version_when_multiple_spec_versions() -> None:
+    """With more than one active spec version the cell id gains a -<version> suffix."""
+    assert cell_id("sse", "2025-11-25", spec_versions=("2025-11-25", "2026-07-28")) == "sse-2025-11-25"
