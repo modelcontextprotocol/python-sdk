@@ -7,7 +7,7 @@ import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
@@ -308,20 +308,11 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        if isinstance(result, CallToolResult):
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -390,11 +381,22 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]:
+    ) -> CallToolResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
-        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
+        result = await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
+        if isinstance(result, CallToolResult):
+            return result
+        if isinstance(result, tuple) and len(result) == 2:  # type: ignore[arg-type]
+            unstructured_content, structured_content = cast(
+                tuple[Sequence[ContentBlock], dict[str, Any]], result
+            )
+            return CallToolResult(
+                content=list(unstructured_content),
+                structured_content=structured_content,
+            )
+        return CallToolResult(content=list(result))  # type: ignore[arg-type]
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
