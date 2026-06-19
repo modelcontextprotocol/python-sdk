@@ -1,4 +1,4 @@
-"""Unit tests for the experimental 2026-07-28 single-exchange HTTP serving entry.
+"""Unit tests for the 2026-07-28 single-exchange HTTP serving entry.
 
 The interaction suite under ``tests/interaction/transports/test_hosting_http_modern.py`` pins
 the wire contract end to end; these tests cover the module's internal seams directly --
@@ -16,9 +16,9 @@ import pytest
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-import mcp.server._experimental.streamable_http_modern as modern
+import mcp.server._streamable_http_modern as modern
 from mcp.server import Server, ServerRequestContext
-from mcp.server._experimental.streamable_http_modern import (
+from mcp.server._streamable_http_modern import (
     SingleExchangeDispatcher,
     _SingleExchangeDispatchContext,
     handle_modern_request,

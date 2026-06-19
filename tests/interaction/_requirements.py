@@ -329,7 +329,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "lifecycle:stateless:no-initialize": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
-        behavior="A ClientSession pinned to 2026-07-28 rejects initialize() before any frame is sent.",
+        behavior=(
+            "A ClientSession pinned to 2026-07-28 is born initialized: initialize() is idempotent "
+            "and returns the synthesized result without any frame sent."
+        ),
         added_in="2026-07-28",
         deferred="covered by a tests/client/ unit test; not observable as an interaction",
     ),

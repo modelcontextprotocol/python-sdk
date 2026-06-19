@@ -21,7 +21,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
+from mcp.shared.version import FIRST_MODERN_VERSION, SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -156,7 +156,9 @@ class ClientSession:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._pinned_version = protocol_version
-        self._stateless_pinned = protocol_version is not None and is_version_at_least(protocol_version, "2026-07-28")
+        self._stateless_pinned = protocol_version is not None and is_version_at_least(
+            protocol_version, FIRST_MODERN_VERSION
+        )
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -164,7 +166,19 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._initialize_result: types.InitializeResult | None = None
+        self._initialize_result: types.InitializeResult | None
+        if self._stateless_pinned:
+            assert protocol_version is not None
+            # A stateless-pinned session is born initialized: there is no handshake
+            # at 2026-07-28+, so we synthesize the result locally. `server_info` is a
+            # placeholder until `server/discover` is implemented to populate it.
+            self._initialize_result = types.InitializeResult(
+                protocol_version=protocol_version,
+                capabilities=types.ServerCapabilities(),
+                server_info=types.Implementation(name="", version=""),
+            )
+        else:
+            self._initialize_result = None
         self._task_group: anyio.abc.TaskGroup | None = None
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
@@ -300,8 +314,8 @@ class ClientSession:
         return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
 
     async def initialize(self) -> types.InitializeResult:
-        if self._stateless_pinned:
-            raise RuntimeError("initialize() must not be called on a session pinned to a stateless protocol version")
+        if self._initialize_result is not None:
+            return self._initialize_result
         capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
@@ -329,7 +343,11 @@ class ClientSession:
     def initialize_result(self) -> types.InitializeResult | None:
         """The server's InitializeResult. None until initialize() has been called.
 
-        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
+        A stateless-pinned session (protocol_version >= 2026-07-28) is born
+        initialized: this property is populated at construction with a
+        synthesized result and `initialize()` returns it without touching the
+        wire. Contains server_info, capabilities, instructions, and the
+        negotiated protocol_version.
         """
         return self._initialize_result
 

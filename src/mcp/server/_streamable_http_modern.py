@@ -1,8 +1,8 @@
-"""Experimental, unstable. Single-exchange HTTP serving for protocol version 2026-07-28.
+"""Single-exchange HTTP serving for protocol version 2026-07-28.
 
-No public API; everything in this module may change or vanish without
-deprecation. The legacy streamable-HTTP transport is untouched and remains the
-supported entry point.
+Private module — entry is via `StreamableHTTPSessionManager.handle_request`.
+The legacy streamable-HTTP transport is untouched and remains the supported
+path for earlier protocol revisions.
 
 A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
 `Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. This
@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import anyio.abc
@@ -34,6 +34,7 @@ from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
+from mcp.shared.version import FIRST_MODERN_VERSION as MODERN_PROTOCOL_VERSION
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -49,10 +50,6 @@ if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
-
-MODERN_PROTOCOL_VERSION: Final[str] = "2026-07-28"
-"""The protocol version this module serves. Kept local so it does not leak into
-`SUPPORTED_PROTOCOL_VERSIONS` or the legacy handshake."""
 
 
 @dataclass

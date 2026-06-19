@@ -1401,17 +1401,19 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
 
 
 @pytest.mark.anyio
-async def test_initialize_on_a_stateless_pinned_session_raises_before_any_frame_is_sent():
-    """A session pinned to the 2026-07-28 stateless protocol rejects ``initialize()`` locally.
+async def test_initialize_on_a_stateless_pinned_session_returns_the_synthesized_result_without_any_frame_sent():
+    """A session pinned to the 2026-07-28 stateless protocol is born initialized.
 
     The 2026-07-28 lifecycle replaces the initialize handshake with a per-request ``_meta``
-    envelope, so calling ``initialize()`` on a stateless-pinned session is a programmer error
-    and raises immediately rather than reaching the wire.
+    envelope, so ``initialize()`` is idempotent and returns a locally-synthesized result
+    without ever touching the wire.
     """
     async with raw_client_session(protocol_version="2026-07-28") as (session, _send, from_client):
-        with pytest.raises(RuntimeError, match="pinned to a stateless"):
-            await session.initialize()
+        result = await session.initialize()
+        assert result.protocol_version == "2026-07-28"
+        assert isinstance(result.capabilities, ServerCapabilities)
         assert from_client.statistics().current_buffer_used == 0
+        assert (await session.initialize()) is result
 
 
 @pytest.mark.anyio
@@ -1419,8 +1421,13 @@ async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
     """A session pinned to a pre-2026 stateful version still runs the handshake, but the
     outgoing ``initialize`` frame requests the pinned version rather than ``LATEST``."""
     async with raw_client_session(protocol_version="2025-06-18") as (session, to_client, from_client):
+        first: list[InitializeResult] = []
+
+        async def do_initialize() -> None:
+            first.append(await session.initialize())
+
         async with anyio.create_task_group() as tg:
-            tg.start_soon(session.initialize)
+            tg.start_soon(do_initialize)
             out = await from_client.receive()
             assert isinstance(out.message, JSONRPCRequest)
             assert out.message.params is not None
@@ -1439,6 +1446,14 @@ async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
                     )
                 )
             )
+        # Drain the notifications/initialized frame so the buffer-used assertion below
+        # measures only what the second initialize() emits.
+        notif = await from_client.receive()
+        assert isinstance(notif.message, JSONRPCNotification)
+        # A second call returns the cached result without a second handshake frame.
+        again = await session.initialize()
+        assert again is first[0]
+        assert from_client.statistics().current_buffer_used == 0
 
 
 @pytest.mark.anyio
