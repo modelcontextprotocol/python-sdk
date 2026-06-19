@@ -102,7 +102,7 @@ async def test_initialize_on_a_pinned_session_is_rejected_before_any_frame_is_se
     async with create_client_server_memory_streams() as ((client_read, client_write), (server_read, _server_write)):
         async with ClientSession(client_read, client_write, protocol_version="2026-07-28") as session:
             with anyio.fail_after(5):
-                with pytest.raises(RuntimeError) as exc_info:
+                with pytest.raises(RuntimeError) as exc_info:  # pragma: no branch
                     await session.initialize()
         assert str(exc_info.value) == snapshot(
             "initialize() must not be called on a session pinned to a stateless protocol version"
@@ -110,7 +110,7 @@ async def test_initialize_on_a_pinned_session_is_rejected_before_any_frame_is_se
         # Nothing left the client: closing the sender turns an empty buffer into EndOfStream.
         await client_write.aclose()
         with anyio.fail_after(5):
-            with pytest.raises(anyio.EndOfStream):
+            with pytest.raises(anyio.EndOfStream):  # pragma: no branch
                 await server_read.receive()
 
 

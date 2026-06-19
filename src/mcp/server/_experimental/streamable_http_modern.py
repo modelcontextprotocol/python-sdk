@@ -24,7 +24,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.runner import ServerRunner, otel_middleware
+from mcp.server.runner import (
+    _EXIT_STACK_CLOSE_TIMEOUT,  # type: ignore[reportPrivateUsage]
+    ServerRunner,
+    otel_middleware,
+)
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -180,7 +184,7 @@ async def handle_modern_request(
 
     if request.method != "POST":
         # TODO: GET/DELETE rejection (405 + -32601) lands with the validation ladder.
-        await Response(status_code=405)(scope, receive, send)
+        await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
         return
 
     body = await request.body()
@@ -189,7 +193,7 @@ async def handle_modern_request(
     except ValidationError:
         msg = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await Response(
-            msg.model_dump_json(by_alias=True, exclude_none=True),
+            msg.model_dump_json(by_alias=True),
             status_code=400,
             media_type="application/json",
         )(scope, receive, send)
@@ -210,11 +214,20 @@ async def handle_modern_request(
         try:
             msg = await dispatcher.handle(req, runner._compose_on_request())  # type: ignore[reportPrivateUsage]
         finally:
-            await runner.connection.exit_stack.aclose()
+            with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True) as cancel_scope:
+                try:
+                    await runner.connection.exit_stack.aclose()
+                except Exception:
+                    logger.exception("connection exit_stack cleanup raised")
+            if cancel_scope.cancelled_caught:
+                logger.warning(
+                    "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
+                    _EXIT_STACK_CLOSE_TIMEOUT,
+                )
 
-    # TODO: error.code -> HTTP status mapping is a follow-up; 200 for all JSONRPCError bodies for now.
-    await Response(
-        msg.model_dump_json(by_alias=True, exclude_none=True),
-        status_code=200,
-        media_type="application/json",
-    )(scope, receive, send)
+        # TODO: error.code -> HTTP status mapping is a follow-up; 200 for all JSONRPCError bodies for now.
+        await Response(
+            msg.model_dump_json(by_alias=True, exclude_none=True),
+            status_code=200,
+            media_type="application/json",
+        )(scope, receive, send)

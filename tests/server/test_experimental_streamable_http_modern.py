@@ -6,15 +6,18 @@ the closed back-channel on the dispatcher and dispatch context, the exception-to
 mapping in ``handle()``, and the request-validation ladder in ``handle_modern_request``.
 """
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
+import anyio
 import httpx
 import pytest
 from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-from mcp.server import Server
+import mcp.server._experimental.streamable_http_modern as modern
+from mcp.server import Server, ServerRequestContext
 from mcp.server._experimental.streamable_http_modern import (
     SingleExchangeDispatcher,
     _SingleExchangeDispatchContext,
@@ -24,7 +27,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INVALID_PARAMS, PARSE_ERROR, JSONRPCError, JSONRPCRequest
+from mcp.types import INVALID_PARAMS, PARSE_ERROR, JSONRPCError, JSONRPCRequest, ListToolsResult, PaginatedRequestParams
 
 pytestmark = pytest.mark.anyio
 
@@ -98,6 +101,7 @@ async def test_handle_modern_request_rejects_non_post_with_405() -> None:
     async with _asgi_client(Server("test")) as http:
         response = await http.get("/mcp")
     assert response.status_code == 405
+    assert response.headers["allow"] == "POST"
 
 
 async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -> None:
@@ -106,7 +110,11 @@ async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -
         response = await http.post("/mcp", content=b"not json", headers={"content-type": "application/json"})
     assert response.status_code == 400
     assert response.headers["content-type"].split(";", 1)[0] == "application/json"
-    assert response.json() == {"jsonrpc": "2.0", "error": {"code": PARSE_ERROR, "message": "Parse error"}}
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": PARSE_ERROR, "message": "Parse error", "data": None},
+    }
 
 
 async def test_handle_modern_request_returns_transport_security_error_response() -> None:
@@ -116,3 +124,66 @@ async def test_handle_modern_request_returns_transport_security_error_response()
         response = await http.post("/mcp", json={}, headers={"content-type": "application/json"})
     assert response.status_code == 421
     assert response.text == "Invalid Host header"
+
+
+def _list_tools_body() -> dict[str, Any]:
+    """A minimal valid 2026-07-28 ``tools/list`` request body, including the required ``_meta`` envelope."""
+    meta = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "raw", "version": "0.0.0"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta}}
+
+
+async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising ``connection.exit_stack`` callback is logged and swallowed; the computed result still ships.
+
+    The exit-stack guard mirrors ``ServerRunner.run``: cleanup runs in a ``finally`` after the
+    handler, and an exception there must not displace the JSON-RPC response that was already built.
+    """
+
+    async def boom() -> None:
+        raise RuntimeError("cleanup failed")
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        ctx.session._connection.exit_stack.push_async_callback(boom)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    with caplog.at_level(logging.ERROR, logger=modern.__name__):
+        async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
+            response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
+
+    assert response.status_code == 200
+    assert response.json()["result"]["tools"] == []
+    assert "connection exit_stack cleanup raised" in caplog.text
+
+
+async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hangs(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A blocking ``connection.exit_stack`` callback is abandoned at the grace deadline; the response still ships.
+
+    Grace patched to 0 so the deadline is already expired on entry: the bounded unwind cancels the
+    blocker at its first checkpoint, the abandonment warning is logged, and the JSON-RPC response
+    that was built before cleanup is sent unchanged.
+    """
+    monkeypatch.setattr(modern, "_EXIT_STACK_CLOSE_TIMEOUT", 0)
+
+    async def block() -> None:
+        await anyio.Event().wait()
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        ctx.session._connection.exit_stack.push_async_callback(block)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    with anyio.fail_after(5), caplog.at_level(logging.WARNING, logger=modern.__name__):
+        async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
+            response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
+
+    assert response.status_code == 200
+    assert response.json()["result"]["tools"] == []
+    assert "abandoning remaining callbacks" in caplog.text
