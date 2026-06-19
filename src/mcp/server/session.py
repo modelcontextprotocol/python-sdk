@@ -91,8 +91,11 @@ class ServerSession:
             # Fail fast instead of parking forever on a response that cannot
             # arrive; matches `Connection.send_raw_request`.
             raise NoBackChannelError(data["method"])
-        # TODO: _related_request_id is not on the Dispatcher Protocol; either
-        # add it there or refactor ServerSession once the legacy path is compat-only.
+        # TODO: _related_request_id is not on the Dispatcher Protocol (and must not
+        # be — it's transport-specific). The fix is to give `ctx.session` a per-request
+        # Outbound (the DispatchContext, which threads its own request_id) alongside
+        # the connection-level one, with `related_request_id` as the selector; that
+        # belongs with the ServerSession/Context rework, not here.
         result = cast(
             "dict[str, Any]",
             await self._dispatcher.send_raw_request(

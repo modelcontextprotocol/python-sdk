@@ -331,6 +331,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
         behavior="A ClientSession pinned to 2026-07-28 rejects initialize() before any frame is sent.",
         added_in="2026-07-28",
+        deferred="covered by a tests/client/ unit test; not observable as an interaction",
     ),
     "lifecycle:stateless:caller-meta-preserved": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
@@ -339,13 +340,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "io.modelcontextprotocol/* keys are added alongside, never overwriting the caller's keys."
         ),
         added_in="2026-07-28",
-    ),
-    "lifecycle:stateless:unpinned-legacy-wire": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
-        behavior=(
-            "An unpinned session that negotiates an earlier protocol version emits no 2026-07-28 "
-            "vocabulary on any JSON-RPC frame in either direction."
-        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
@@ -3137,16 +3131,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
     ),
-    "client-transport:http:body-derived-headers": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
-        behavior=(
-            "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method, and (for tools/call) "
-            "Mcp-Name headers on the outgoing HTTP request; a body without the envelope yields none."
-        ),
-        added_in="2026-07-28",
-        transports=("streamable-http",),
-        note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
-    ),
     "client-transport:http:stateless-ignores-session-id": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
         behavior=(
@@ -3156,6 +3140,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: session-id, GET stream and DELETE are streamable-HTTP mechanics.",
+        deferred="defensive against a misbehaving peer; covered by a tests/client/ unit test",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth

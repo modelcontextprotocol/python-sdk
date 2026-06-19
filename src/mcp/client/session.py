@@ -21,7 +21,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, StatelessProtocolVersion
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -149,7 +149,7 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
-        protocol_version: str | None = None,
+        protocol_version: StatelessProtocolVersion | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
@@ -228,6 +228,7 @@ class ClientSession:
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
+        opts: CallOptions = {}
         if self._pinned_version is not None:
             params = data.setdefault("params", {})
             envelope_meta = params.setdefault("_meta", {})
@@ -238,8 +239,6 @@ class ClientSession:
             envelope_meta[CLIENT_CAPABILITIES_META_KEY] = self._build_capabilities().model_dump(
                 by_alias=True, mode="json", exclude_none=True
             )
-        opts: CallOptions = {}
-        if self._pinned_version is not None:
             # Stateless pinned mode: disconnect-as-cancel is the spec mechanism, so the
             # dispatcher must not emit notifications/cancelled when the caller abandons.
             opts["cancel_on_abandon"] = False

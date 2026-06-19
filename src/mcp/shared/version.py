@@ -7,9 +7,12 @@ conservatively instead of accidentally (e.g. "zzz" > "2025-11-25"). All
 ordering questions go through KNOWN_PROTOCOL_VERSIONS.
 """
 
-from typing import Final
+from typing import Final, Literal
 
 from mcp.types import LATEST_PROTOCOL_VERSION
+
+StatelessProtocolVersion = Literal["2026-07-28"]
+"""Protocol revisions that use the stateless per-request envelope (no `initialize`)."""
 
 KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
     "2024-11-05",

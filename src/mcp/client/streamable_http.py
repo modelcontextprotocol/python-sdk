@@ -21,6 +21,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.version import StatelessProtocolVersion, is_version_at_least
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
@@ -60,7 +61,7 @@ _HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
 
 
 def _encode_header_value(value: str) -> str:
-    if _HEADER_SAFE.fullmatch(value) and not _B64_SENTINEL.fullmatch(value):
+    if _HEADER_SAFE.fullmatch(value) and value == value.strip(" ") and not _B64_SENTINEL.fullmatch(value):
         return value
     return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
@@ -107,11 +108,13 @@ class StreamableHTTPTransport:
         MCP-Protocol-Version is not emitted here — `_prepare_headers()` already adds it
         from `self.protocol_version` for every request.
         """
-        if self.protocol_version is None or self.protocol_version < "2026-07-28":
+        if self.protocol_version is None or not is_version_at_least(self.protocol_version, "2026-07-28"):
             return {}
         if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
             return {}
         headers: dict[str, str] = {MCP_METHOD: message.method}
+        # TODO: Mcp-Name is also REQUIRED for prompts/get (params.name) and resources/read
+        # (params.uri); a method->param-key map replaces this gate when those land.
         if (
             isinstance(message, JSONRPCRequest)
             and message.method == "tools/call"
@@ -564,7 +567,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-    protocol_version: str | None = None,
+    protocol_version: StatelessProtocolVersion | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 

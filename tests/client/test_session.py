@@ -1401,6 +1401,19 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
 
 
 @pytest.mark.anyio
+async def test_initialize_on_a_pinned_session_raises_before_any_frame_is_sent():
+    """A session pinned to the 2026-07-28 stateless protocol rejects ``initialize()`` locally.
+
+    The 2026-07-28 lifecycle replaces the initialize handshake with a per-request ``_meta``
+    envelope, so calling ``initialize()`` on a pinned session is a programmer error and raises
+    immediately rather than reaching the wire.
+    """
+    async with raw_client_session(protocol_version="2026-07-28") as (session, _send, _recv):
+        with pytest.raises(RuntimeError, match="pinned to a stateless"):
+            await session.initialize()
+
+
+@pytest.mark.anyio
 async def test_send_notification_after_close_is_dropped_silently():
     """Post-close `send_notification` is fire-and-forget: the notification is dropped,
     not surfaced as a raw transport error (v1 leaked `anyio.ClosedResourceError`)."""

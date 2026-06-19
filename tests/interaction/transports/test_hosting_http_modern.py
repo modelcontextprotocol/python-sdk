@@ -64,11 +64,10 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server() -> Server:
-    """A low-level server with one ``add`` tool, listed so the SDK client's implicit tools/list resolves."""
+    """A low-level server with one ``add`` tool for the raw-httpx tests below."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        tool = Tool(name="add", input_schema={"type": "object"})
-        return ListToolsResult(tools=[tool], ttl_ms=0, cache_scope="public")
+        raise NotImplementedError
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "add"
@@ -194,6 +193,8 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
+@requirement("lifecycle:stateless:request-envelope")
+@requirement("lifecycle:stateless:caller-meta-preserved")
 async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern_entry() -> None:
     """First end-to-end exercise of the 2026-07-28 stateless request style: SDK client to SDK server.
 
@@ -201,12 +202,30 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     single-exchange serving entry compose so that ``call_tool`` returns ``resultType: complete``
     with no ``initialize`` ever sent, no ``Mcp-Session-Id`` on any request or response, and every
     POST carrying the body-derived ``MCP-Protocol-Version`` / ``Mcp-Method`` / ``Mcp-Name`` headers
-    plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. Asserted at the wire via
-    the ``mounted_app`` httpx event hooks because none of the headers, the envelope, or the
-    handshake-absence is observable through the public client API. The recorded log shows two
-    POSTs: the ``tools/call`` itself and the client's implicit ``tools/list`` output-schema fetch
-    (see ``client:output-schema:auto-list``), both of which must satisfy the stateless contract.
+    plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. The caller passes a
+    ``custom-key`` under ``meta=`` and the server handler captures the incoming ``ctx.meta``,
+    proving the envelope merge is additive: the caller's key sits alongside the three envelope keys
+    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx event
+    hooks because none of the headers, the envelope, or the handshake-absence is observable through
+    the public client API. The recorded log shows two POSTs: the ``tools/call`` itself and the
+    client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
+    both of which must satisfy the stateless contract.
     """
+    observed_metas: list[dict[str, object]] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        tool = Tool(name="add", input_schema={"type": "object"})
+        return ListToolsResult(tools=[tool], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "add"
+        assert params.arguments is not None
+        assert ctx.meta is not None
+        observed_metas.append(dict(ctx.meta))
+        return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
+
+    server = Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
+
     requests: list[httpx.Request] = []
     responses: list[httpx.Response] = []
 
@@ -219,14 +238,14 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     client_info = Implementation(name="e2e-client", version="1.0.0")
     with anyio.fail_after(5):
         async with (
-            mounted_app(_server(), on_request=on_request, on_response=on_response) as (http, _),
+            mounted_app(server, on_request=on_request, on_response=on_response) as (http, _),
             streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version=MODERN_VERSION) as (
                 read,
                 write,
             ),
             ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
         ):
-            result = await session.call_tool("add", {"a": 2, "b": 3})
+            result = await session.call_tool("add", {"a": 2, "b": 3}, meta={"custom-key": "x"})
 
     assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
         {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
@@ -240,18 +259,23 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     )
     assert all("initialize" not in body["method"] for body in bodies)
 
-    # The tools/call POST carries the body-derived headers and the three-key envelope.
+    # The tools/call POST carries the body-derived headers, and its _meta envelope merges the
+    # caller's key alongside the three io.modelcontextprotocol/* keys.
     call = requests[0]
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-")} == snapshot(
         {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "add"}
     )
     assert bodies[0]["params"]["_meta"] == snapshot(
         {
+            "custom-key": "x",
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": {"name": "e2e-client", "version": "1.0.0"},
             "io.modelcontextprotocol/clientCapabilities": {},
         }
     )
+
+    # The server handler observed the same merged _meta on ctx.meta.
+    assert observed_metas == [bodies[0]["params"]["_meta"]]
 
     # No session id on any request or response: the exchange is sessionless end to end.
     assert len(responses) == len(requests)
