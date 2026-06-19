@@ -139,6 +139,16 @@ def test_supersession_links_are_symmetric_and_versioned() -> None:
     assert not broken, f"Broken supersession links (forward '->' or back '<-'): {broken}"
 
 
+def test_removed_entry_has_disposition() -> None:
+    """Every retired requirement carries either a forward link or a prose note explaining the retirement."""
+    undisposed = [
+        req_id
+        for req_id, req in REQUIREMENTS.items()
+        if req.removed_in is not None and req.superseded_by is None and req.note is None
+    ]
+    assert not undisposed, f"Requirements with removed_in but no superseded_by or note: {undisposed}"
+
+
 def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
     """Every arm exclusion names a connectable transport (or wildcards).
 

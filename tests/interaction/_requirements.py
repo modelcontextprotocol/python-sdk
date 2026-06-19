@@ -243,14 +243,20 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:ping": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/ping#behavior-requirements",
         behavior="ping in either direction returns an empty result.",
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); ping deleted from the schema, no replacement.",
     ),
     "ping:client-to-server": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/ping#behavior-requirements",
         behavior="A client-initiated ping receives an empty result from the server.",
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); ping deleted from the schema, no replacement.",
     ),
     "ping:server-to-client": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/ping#behavior-requirements",
         behavior="A server-initiated ping receives an empty result from the client.",
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); ping deleted from the schema, no replacement.",
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "lifecycle:requests-before-initialized": Requirement(
@@ -449,6 +455,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#related-task-metadata",
         behavior="Messages may carry related-task _meta associating them with a task.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "meta:request-to-handler": Requirement(
         source=f"{SPEC_BASE_URL}/basic#_meta",
@@ -814,6 +825,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool function that raises the URL-elicitation-required error surfaces to the caller as "
             "error -32042 with the elicitation parameters intact."
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); error -32042 retired, replaced by an MRTR input_required result "
+            "carrying inputRequests."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer: Context helpers (SDK)
@@ -900,11 +916,18 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:subscribe": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
         behavior="resources/subscribe delivers the URI to the server's subscribe handler and returns an empty result.",
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); resources/subscribe replaced by subscriptions/listen.",
     ),
     "resources:subscribe:capability-required": Requirement(
         source="sdk",
         behavior=(
             "resources/subscribe to a server that did not advertise the subscribe capability is rejected with an error."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); the resources.subscribe sub-capability is replaced by the subscriptions "
+            "capability."
         ),
     ),
     "resources:subscribe:updated": Requirement(
@@ -915,6 +938,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "updated notifications; emitting updates is entirely handler code. The two halves are pinned "
             "separately by resources:subscribe and resources:updated-notification."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); resources/subscribe replaced by subscriptions/listen.",
     ),
     "resources:templates:list": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#resource-templates",
@@ -931,6 +956,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "resources/unsubscribe delivers the URI to the server's unsubscribe handler and returns an empty result."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); resources/unsubscribe replaced by subscriptions/listen.",
     ),
     "resources:unsubscribe:stops-updates": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -940,6 +967,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "notifications stop after unsubscribe is entirely handler code; there is no SDK behaviour to "
             "pin beyond the unsubscribe request reaching the handler (covered by resources:unsubscribe)."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); resources/unsubscribe replaced by subscriptions/listen.",
     ),
     "resources:updated-notification": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -1170,14 +1199,29 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "filtering; messages are delivered at every severity regardless of the requested level."
             ),
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
+            "io.modelcontextprotocol/logLevel in _meta."
+        ),
     ),
     "logging:set-level": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
+            "io.modelcontextprotocol/logLevel in _meta."
+        ),
     ),
     "logging:set-level:invalid-level": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
+            "io.modelcontextprotocol/logLevel in _meta."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)
@@ -1496,6 +1540,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An elicitation/complete notification sent by the server after an out-of-band elicitation "
             "finishes reaches the client carrying the elicitationId."
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (spec PR #2891); notifications/elicitation/complete and elicitationId removed, no "
+            "replacement (under MRTR the client learns completion by retrying)."
+        ),
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:complete-unknown-ignored": Requirement(
@@ -1504,6 +1553,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The client ignores an elicitation/complete notification referencing an unknown or "
             "already-completed elicitationId without error."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (spec PR #2891); notifications/elicitation/complete removed, no replacement.",
     ),
     "elicitation:url:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1527,6 +1578,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A handler that cannot proceed without a URL elicitation rejects the request with error "
             "-32042, carrying the pending elicitations in the error data."
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); error -32042 retired, replaced by an MRTR input_required result "
+            "carrying inputRequests."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Roots (server → client)
@@ -1534,6 +1590,11 @@ REQUIREMENTS: dict[str, Requirement] = {
     "roots:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
         behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); notifications/roots/list_changed removed, no replacement (the stateless "
+            "model carries no client→server change notifications)."
+        ),
     ),
     "roots:list-changed:client-emits": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
@@ -1547,6 +1608,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "provides send_roots_list_changed() for the host to call when its roots change, and that "
             "emission path is covered by roots:list-changed."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); notifications/roots/list_changed removed, no replacement.",
     ),
     "roots:list:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#listing-roots",
@@ -1671,11 +1734,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:bidirectional": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#definitions",
         behavior="Task APIs are bidirectional: the server may create, get, list, and cancel tasks on the client.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:cancel:no-handler-abort": Requirement(
         source="sdk",
@@ -1684,6 +1757,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(the spec says receivers SHOULD attempt to stop execution)."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:cancel:remains-cancelled": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-cancellation",
@@ -1692,16 +1770,31 @@ REQUIREMENTS: dict[str, Requirement] = {
             "completes or fails."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:cancel:terminal-rejected": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-cancellation",
         behavior="tasks/cancel on a task already in a terminal state returns Invalid params (-32602).",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:cancel:working": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-cancellation",
         behavior="tasks/cancel on a working task transitions it to cancelled and returns the updated task.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:create:ttl-honored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#ttl-and-resource-management",
@@ -1710,21 +1803,41 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the create-task result carries the same value."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:create:via-tool-call": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#creating-tasks",
         behavior="A task-augmented tools/call returns a create-task result instead of the tool result.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:get": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#getting-tasks",
         behavior="tasks/get returns the task's current status, ttl, timestamps, and status message.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:lifecycle:initial-working": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-status-lifecycle",
         behavior="A newly created task has status 'working'.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:lifecycle:input-required": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#input-required-status",
@@ -1733,16 +1846,31 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response arrives the task leaves input_required (typically returning to working)."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:list:invalid-cursor": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#protocol-errors",
         behavior="tasks/list with an invalid cursor returns Invalid params (-32602).",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/list dropped in the redesign)."
+        ),
     ),
     "tasks:list:pagination": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#listing-tasks",
         behavior="tasks/list returns created tasks and supports cursor pagination.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/list dropped in the redesign)."
+        ),
     ),
     "tasks:no-capability:ignore-task-param": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-support-and-handling",
@@ -1751,6 +1879,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "normally and returns the ordinary result, ignoring the task augmentation."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:progress:after-create": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-progress-notifications",
@@ -1759,36 +1892,71 @@ REQUIREMENTS: dict[str, Requirement] = {
             "continue to reach the caller until the task is terminal."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:request-cancel:no-task-cancel": Requirement(
         source="sdk",
         behavior="A cancellation notification for the originating request does not auto-cancel the created task.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:result:failed": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-execution-errors",
         behavior="tasks/result for a failed task returns the failure result (isError true).",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result dropped in the redesign)."
+        ),
     ),
     "tasks:result:related-task-meta": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#related-task-metadata",
         behavior="The tasks/result response carries related-task _meta naming the requested task.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result dropped in the redesign)."
+        ),
     ),
     "tasks:result:terminal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#result-retrieval",
         behavior="tasks/result for a completed task returns the stored result of the original request type.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:drain-fifo": Requirement(
         source="sdk",
         behavior="tasks/result drains queued related-task messages in FIFO order before returning the final result.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:drop-on-cancel": Requirement(
         source="sdk",
         behavior="When a task is cancelled before tasks/result, queued related-task messages are dropped.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:elicitation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#input-required-status",
@@ -1797,6 +1965,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "client's response routes back to the handler."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:queue": Requirement(
         source="sdk",
@@ -1804,6 +1977,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Server-to-client requests with related-task metadata sent while no tasks/result is open are queued."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:sampling": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#input-required-status",
@@ -1812,6 +1990,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the client's response routes back to the task."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:side-channel:stream": Requirement(
         source="sdk",
@@ -1820,11 +2003,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "produced, then returns the result."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension (tasks/result side-channel dropped in the redesign)."
+        ),
     ),
     "tasks:status-notification": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-status-notification",
         behavior="Task status notifications deliver status updates carrying the full task fields.",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:tool-level:forbidden-with-task-32601": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#tool-level-negotiation",
@@ -1832,16 +2025,31 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A task-augmented tools/call on a tool that does not support tasks returns Method not found (-32601)."
         ),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:tool-level:required-no-task-32601": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#tool-level-negotiation",
         behavior=("A plain tools/call on a tool that requires task augmentation returns Method not found (-32601)."),
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     "tasks:unknown-id": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#protocol-errors",
         behavior="tasks/get, tasks/result, and tasks/cancel for an unknown task id return Invalid params (-32602).",
         deferred=_TASKS_DEFERRAL,
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2663); tasks moved out of core into the io.modelcontextprotocol/tasks "
+            "extension."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Transports (in-suite coverage)
@@ -1891,6 +2099,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "own stream."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the standalone GET stream is replaced by subscriptions/listen.",
     ),
     "transport:streamable-http:server-to-client": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -1903,6 +2113,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior="A client that reconnects with Last-Event-ID receives the events it missed.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); Last-Event-ID resumability/redelivery dropped, no replacement.",
     ),
     "transport:streamable-http:origin-validation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
@@ -1947,6 +2159,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="CORS configuration exposes the Mcp-Session-Id header so browser clients can read it.",
         transports=("streamable-http",),
         deferred="Not implemented in the SDK: CORS configuration is left to the hosting ASGI application.",
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id removed, no replacement.",
     ),
     "hosting:session:create": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
@@ -1955,26 +2169,42 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response headers."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2567); Mcp-Session-Id and protocol-level sessions removed, no replacement "
+            "(cross-call state moves to explicit server-minted handles)."
+        ),
     ),
     "hosting:session:delete": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="DELETE with a valid Mcp-Session-Id terminates the session.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
     ),
     "hosting:session:id-charset": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="Generated Mcp-Session-Id values contain only visible ASCII characters.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id removed, no replacement.",
     ),
     "hosting:session:isolation": Requirement(
         source="sdk",
         behavior="Each session gets its own server instance; closing one session does not affect others.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2567); per-session server instances retired with Mcp-Session-Id, no "
+            "replacement."
+        ),
     ),
     "hosting:session:missing-id": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A non-initialize POST without Mcp-Session-Id in stateful mode returns 400.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id validation removed, no replacement.",
     ),
     "hosting:session:post-termination-404": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
@@ -1983,6 +2213,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "404 Not Found."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id removed, no replacement.",
     ),
     "hosting:session:reinitialize": Requirement(
         source="sdk",
@@ -1994,16 +2226,25 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "server, which answers it as a fresh handshake; nothing rejects re-initialization."
             ),
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2567); per-session initialize guard retired with Mcp-Session-Id, no "
+            "replacement."
+        ),
     ),
     "hosting:session:reuse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A POST carrying a valid Mcp-Session-Id routes to that session's transport with state preserved.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id routing removed, no replacement.",
     ),
     "hosting:session:unknown-id": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="A POST, GET, or DELETE with an unknown Mcp-Session-Id returns 404.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id removed, no replacement.",
     ),
     "hosting:stateless:concurrent-clients": Requirement(
         source="sdk",
@@ -2201,21 +2442,29 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "events."
             ),
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); Last-Event-ID resumability dropped, no replacement.",
     ),
     "hosting:resume:buffered-replay": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="Notifications emitted while no client is connected are replayed in order on reconnect.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "hosting:resume:close-stream": Requirement(
         source="sdk",
         behavior="Handlers can close an SSE stream cleanly when an event store is configured.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the event-store / resumability path is dropped, no replacement.",
     ),
     "hosting:resume:event-ids": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="With an event store configured, every SSE event carries an id field.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE event-id assignment for resumability dropped, no replacement.",
     ),
     "hosting:resume:priming": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2232,16 +2481,25 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "is configured and the negotiated protocol version is at least 2025-11-25."
             ),
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); the priming-event / retry-hint requirement is dropped with "
+            "resumability, no replacement."
+        ),
     ),
     "hosting:resume:replay": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="GET with Last-Event-ID replays stored events for that stream after the given id.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); Last-Event-ID replay dropped, no replacement.",
     ),
     "hosting:resume:stream-scoped": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
         behavior="Replay via Last-Event-ID returns only messages from the stream that event id belongs to.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); Last-Event-ID replay dropped, no replacement.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: HTTP semantics
@@ -2278,6 +2536,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "handler; the request continues and its result remains retrievable."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); resumability dropped and the rule is inverted (closing the response "
+            "stream is now the HTTP cancellation signal), no replacement."
+        ),
     ),
     "hosting:http:dns-rebinding": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
@@ -2312,6 +2575,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "exactly one stream, never duplicated."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2567); the per-session multiple-connections section is removed with "
+            "Mcp-Session-Id, no replacement."
+        ),
     ),
     "hosting:http:notifications-202": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2357,6 +2625,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A second concurrent standalone GET SSE stream on the same session is rejected.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the standalone GET stream is replaced by subscriptions/listen.",
     ),
     "hosting:http:sse-close-after-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2367,6 +2637,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="GET opens a standalone SSE stream that receives server-initiated messages.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the standalone GET endpoint is replaced by subscriptions/listen.",
     ),
     "hosting:http:standalone-sse-no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
@@ -2375,6 +2647,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response, except when resuming a prior request stream."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the standalone GET endpoint is replaced by subscriptions/listen.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
@@ -2401,11 +2675,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Not implemented in the SDK: the client surfaces a Session terminated error instead of "
             "re-initializing (the surfaced error is pinned by client-transport:http:404-surfaces)."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id and protocol-level sessions removed, no replacement.",
     ),
     "client-transport:http:accept-header-get": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="The client GET to the MCP endpoint includes an Accept header listing text/event-stream.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); the standalone GET endpoint is replaced by the subscriptions/listen "
+            "POST."
+        ),
     ),
     "client-transport:http:accept-header-post": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2475,6 +2756,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "would require accepting that real-time wait. The POST-stream reconnection path is covered "
             "by client-transport:http:reconnect-post-priming."
         ),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "client-transport:http:reconnect-post-priming": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2483,11 +2766,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "if a priming event (an event carrying an ID) was received on it."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "client-transport:http:reconnect-retry-value": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="Reconnection delay honours the server-provided SSE retry value when one was sent.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "client-transport:http:resume-stream-api": Requirement(
         source="sdk",
@@ -2496,6 +2783,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the notifications it missed."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "client-transport:http:session-stored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
@@ -2504,16 +2793,25 @@ REQUIREMENTS: dict[str, Requirement] = {
             "every subsequent request."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); Mcp-Session-Id and protocol-level sessions removed, no replacement.",
     ),
     "client-transport:http:sse-405-tolerated": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
         behavior="Opening the standalone GET SSE stream tolerates a 405 response without failing the connection.",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); the standalone GET endpoint is replaced by the subscriptions/listen "
+            "POST."
+        ),
     ),
     "client-transport:http:terminate-405-ok": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior="Session termination succeeds without error if the server answers 405 (termination unsupported).",
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth
@@ -2859,12 +3157,22 @@ REQUIREMENTS: dict[str, Requirement] = {
             "client request' deterministically would also require knowing the standalone GET stream is "
             "established, which has no synchronization signal."
         ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); the standalone GET stream and session initialization are both gone, no "
+            "replacement."
+        ),
     ),
     "flow:elicitation:url-required-then-retry": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#url-elicitation-required-error",
         behavior=(
             "A tool call rejected with the URL-elicitation-required error can be retried successfully "
             "after the client completes the URL flow and the server announces completion."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the -32042 + elicitation/complete flow is replaced by the MRTR "
+            "input_required/retry loop."
         ),
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
@@ -2875,6 +3183,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "only the notifications produced by their own requests."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); per-client Mcp-Session-Id sessions removed, no replacement.",
     ),
     "flow:oauth:authorization-code-roundtrip": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-flow-steps",
@@ -2891,11 +3201,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the last-seen event id, delivering only the remaining notifications and the final result."
         ),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); SSE stream resumability/redelivery dropped, no replacement.",
     ),
     "flow:session:terminate-then-reconnect": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
         behavior=("After terminating a session, a fresh connection obtains a new session id and operations succeed."),
         transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
     ),
     "flow:tool-result:resource-link-follow": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#resource-links",
