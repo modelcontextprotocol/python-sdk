@@ -183,7 +183,8 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
     with anyio.fail_after(5), caplog.at_level(logging.WARNING, logger=modern.__name__):
         async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
             response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
-
-    assert response.status_code == 200
-    assert response.json()["result"]["tools"] == []
-    assert "abandoning remaining callbacks" in caplog.text
+    # coverage.py on Python 3.11 misreports the lines below as unhit (the test passes there);
+    # the shielded-cancel path inside the request task disrupts the tracer in this frame.
+    assert response.status_code == 200  # pragma: lax no cover
+    assert response.json()["result"]["tools"] == []  # pragma: lax no cover
+    assert "abandoning remaining callbacks" in caplog.text  # pragma: lax no cover
