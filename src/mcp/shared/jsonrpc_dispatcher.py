@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from typing_extensions import TypeVar
 
 from mcp.shared._compat import resync_tracer
-from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._otel import build_span_attributes, inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -314,7 +314,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
+                attributes=build_span_attributes(method, request_id, params=out_params),
             ):
                 # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
                 inject_trace_context(out_meta)

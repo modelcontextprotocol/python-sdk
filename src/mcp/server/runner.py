@@ -30,7 +30,7 @@ from mcp.server.connection import Connection
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._otel import build_span_attributes, extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
@@ -107,10 +107,10 @@ def _resolve_protocol_version(
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
     """Dispatch-tier middleware that wraps each request in an OpenTelemetry span.
 
-    Mirrors the span shape of the existing `Server._handle_request`: span name
-    `"MCP handle <method> [<target>]"`, `mcp.method.name` attribute, W3C
-    trace context extracted from `params._meta` (SEP-414), and an ERROR
-    status if the handler raises.
+    Span name: `"MCP handle <method> [<target>]"`. Attributes follow the GenAI
+    semconv for MCP: `gen_ai.operation.name`, `gen_ai.tool.name`, `rpc.system`,
+    `mcp.method.name`, `jsonrpc.request.id`. W3C trace context is extracted from
+    `params._meta` (SEP-414) to parent the span under the client span.
     """
 
     async def wrapped(
@@ -130,7 +130,7 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
                 parent = None
         span_name = f"MCP handle {method}{f' {target}' if target else ''}"
         # `otel_middleware` wraps `on_request` only, so `request_id` is always set.
-        attributes = {"mcp.method.name": method, "jsonrpc.request.id": str(dctx.request_id)}
+        attributes = build_span_attributes(method, dctx.request_id, params=params)
         with otel_span(
             span_name,
             kind=SpanKind.SERVER,
