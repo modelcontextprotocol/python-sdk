@@ -21,7 +21,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, StatelessProtocolVersion
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -149,13 +149,14 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
-        protocol_version: StatelessProtocolVersion | None = None,
+        protocol_version: str | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._pinned_version = protocol_version
+        self._stateless_pinned = protocol_version is not None and is_version_at_least(protocol_version, "2026-07-28")
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -229,7 +230,7 @@ class ClientSession:
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
-        if self._pinned_version is not None:
+        if self._stateless_pinned:
             params = data.setdefault("params", {})
             envelope_meta = params.setdefault("_meta", {})
             envelope_meta[PROTOCOL_VERSION_META_KEY] = self._pinned_version
@@ -299,13 +300,15 @@ class ClientSession:
         return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
 
     async def initialize(self) -> types.InitializeResult:
-        if self._pinned_version is not None:
+        if self._stateless_pinned:
             raise RuntimeError("initialize() must not be called on a session pinned to a stateless protocol version")
         capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=types.LATEST_PROTOCOL_VERSION,
+                    protocol_version=self._pinned_version
+                    if self._pinned_version is not None
+                    else types.LATEST_PROTOCOL_VERSION,
                     capabilities=capabilities,
                     client_info=self._client_info,
                 ),

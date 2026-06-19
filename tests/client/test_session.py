@@ -1401,17 +1401,44 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
 
 
 @pytest.mark.anyio
-async def test_initialize_on_a_pinned_session_raises_before_any_frame_is_sent():
+async def test_initialize_on_a_stateless_pinned_session_raises_before_any_frame_is_sent():
     """A session pinned to the 2026-07-28 stateless protocol rejects ``initialize()`` locally.
 
     The 2026-07-28 lifecycle replaces the initialize handshake with a per-request ``_meta``
-    envelope, so calling ``initialize()`` on a pinned session is a programmer error and raises
-    immediately rather than reaching the wire.
+    envelope, so calling ``initialize()`` on a stateless-pinned session is a programmer error
+    and raises immediately rather than reaching the wire.
     """
     async with raw_client_session(protocol_version="2026-07-28") as (session, _send, from_client):
         with pytest.raises(RuntimeError, match="pinned to a stateless"):
             await session.initialize()
         assert from_client.statistics().current_buffer_used == 0
+
+
+@pytest.mark.anyio
+async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
+    """A session pinned to a pre-2026 stateful version still runs the handshake, but the
+    outgoing ``initialize`` frame requests the pinned version rather than ``LATEST``."""
+    async with raw_client_session(protocol_version="2025-06-18") as (session, to_client, from_client):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(session.initialize)
+            out = await from_client.receive()
+            assert isinstance(out.message, JSONRPCRequest)
+            assert out.message.params is not None
+            assert out.message.params["protocolVersion"] == "2025-06-18"
+            result = InitializeResult(
+                protocol_version="2025-06-18",
+                capabilities=ServerCapabilities(),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
+            )
+            await to_client.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=out.message.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
 
 
 @pytest.mark.anyio

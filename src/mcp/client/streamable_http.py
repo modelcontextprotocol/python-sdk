@@ -21,7 +21,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.version import StatelessProtocolVersion, is_version_at_least
+from mcp.shared.version import is_version_at_least
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
@@ -567,7 +567,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-    protocol_version: StatelessProtocolVersion | None = None,
+    protocol_version: str | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
