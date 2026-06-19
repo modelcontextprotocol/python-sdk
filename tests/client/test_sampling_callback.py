@@ -53,7 +53,7 @@ async def test_sampling_callback():
         result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.is_error is True
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
+        assert result.content[0].text == "Error executing tool test_sampling: unexpected internal error"
 
 
 @pytest.mark.anyio

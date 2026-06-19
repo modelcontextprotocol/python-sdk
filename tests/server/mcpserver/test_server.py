@@ -265,7 +265,8 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn: unexpected internal error"
+            assert "Test error" not in content.text
             assert result.is_error is True
 
     async def test_tool_error_handling(self):
@@ -276,11 +277,12 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn: unexpected internal error"
+            assert "Test error" not in content.text
             assert result.is_error is True
 
     async def test_tool_error_details(self):
-        """Test that exception details are properly formatted in the response"""
+        """Test that unexpected exception details are hidden in the response."""
         mcp = MCPServer()
         mcp.add_tool(error_tool_fn)
         async with Client(mcp) as client:
@@ -288,7 +290,8 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn: unexpected internal error"
+            assert "Test error" not in content.text
             assert result.is_error is True
 
     async def test_tool_return_value_conversion(self):
