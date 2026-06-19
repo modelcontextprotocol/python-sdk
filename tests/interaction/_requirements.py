@@ -361,7 +361,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "requests — which is what unblocks the sender's pending call."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:cancel:initialize-not-cancellable": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -377,7 +380,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:cancel:server-survives": Requirement(
         source="sdk",
         behavior="The session continues to serve new requests after an earlier request was cancelled.",
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:cancel:server-to-client": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -385,7 +391,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
             "cancels it, and the client stops processing the cancelled request."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#error-handling",
@@ -464,6 +473,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "meta:request-to-handler": Requirement(
         source=f"{SPEC_BASE_URL}/basic#_meta",
         behavior="The _meta object the client attaches to a request is visible to the server handler.",
+        arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
     ),
     "meta:result-to-client": Requirement(
         source=f"{SPEC_BASE_URL}/basic#_meta",
@@ -482,6 +492,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Supplying a progress callback attaches a progress token to the outgoing request, which the "
             "server-side handler can observe in its request metadata."
         ),
+        arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
     ),
     "protocol:progress:token-unique": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -508,7 +519,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "completed; the late notification is sent and reaches the client."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:progress:late-dropped-by-client": Requirement(
         source="sdk",
@@ -609,7 +623,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool handler that issues an elicitation receives the client's result and can embed it in "
             "the tool call result."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "tools:call:is-error": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
@@ -654,6 +671,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "tools:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#capabilities",
         behavior="A server with a list_tools handler advertises the tools capability in its initialize result.",
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "tools:input-schema:json-schema-2020-12": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
@@ -680,7 +698,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the tool set changes, the server sends notifications/tools/list_changed and it reaches "
             "the client's handler."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "tools:list:basic": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#listing-tools",
@@ -764,7 +785,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Tool functions can access request metadata (request id, client params, session) through the "
             "Context parameter."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),
+        ),
     ),
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
@@ -884,7 +908,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the resource set changes, the server sends notifications/resources/list_changed and it "
             "reaches the client's handler."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "resources:list:basic": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#listing-resources",
@@ -976,7 +1003,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A resources/updated notification sent by the server reaches the client carrying the URI of "
             "the changed resource."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Resources: SDK guarantees
@@ -1071,7 +1101,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the prompt set changes, the server sends notifications/prompts/list_changed and it "
             "reaches the client's handler."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "prompts:list:basic": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#listing-prompts",
@@ -1162,6 +1195,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "MCPServer advertises the completions capability when at least one completion source is "
             "registered, and omits it otherwise."
         ),
+        arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Logging
@@ -1177,10 +1211,12 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "even though the Context helpers send log message notifications."
             ),
         ),
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
@@ -1188,6 +1224,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
         ),
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "logging:message:filtered": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
@@ -1231,7 +1268,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A client that handles sampling requests advertises the sampling capability in its initialize request."
         ),
-        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
@@ -1239,12 +1279,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling/createMessage request from a server handler is answered by the client's sampling "
             "callback, and the callback's result (role, content, model, stopReason) is returned to the handler."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create:include-context": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
         behavior="The includeContext value supplied by the server reaches the client callback intact.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:context:server-gated-by-capability": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
@@ -1285,12 +1331,18 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:create-message:audio-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#audio-content",
         behavior="Sampling messages can carry audio content: base64 data with a mimeType.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create-message:image-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#image-content",
         behavior="Sampling messages can carry image content: base64 data with a mimeType.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create-message:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
@@ -1298,7 +1350,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling request to a client that did not declare the sampling capability fails with an "
             "error rather than hanging or being silently dropped; the spec names no error code for this case."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:error:user-rejected": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#error-handling",
@@ -1306,12 +1361,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling request the user rejects is answered with a JSON-RPC error (the spec's code for "
             "this case is -1, 'User rejected sampling request'), surfaced to the requesting handler as an MCPError."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:message:content-cardinality": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling",
         behavior="A sampling message's content may be a single block or an array of blocks.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:result:no-tools-single-content": Requirement(
         source="sdk",
@@ -1326,7 +1387,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "pydantic.ValidationError from the server's response parsing (send_request) instead."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:result:with-tools-array-content": Requirement(
         source="sdk",
@@ -1345,7 +1409,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A user sampling message that carries tool_result content contains only tool_result blocks; "
             "mixing tool_result with text, image, or audio content is rejected as invalid."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:tool-use:result-balance": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tool-use-and-result-balance",
@@ -1372,7 +1439,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server validates tool_use/tool_result balance before sending a sampling/createMessage "
             "request; an unmatched tool_use raises ValueError and the request never reaches the wire."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:tools:server-gated-by-capability": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tools-in-sampling",
@@ -1380,7 +1450,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool-enabled sampling request to a client that did not declare sampling.tools is rejected "
             "by the server before anything reaches the wire (the SDK surfaces this as an Invalid params error)."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Elicitation (server → client)
@@ -1428,12 +1501,18 @@ REQUIREMENTS: dict[str, Requirement] = {
     "elicitation:form:action:cancel": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:action:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A form-mode elicitation answered with action 'decline' returns no content to the handler.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-elicitation-requests",
@@ -1466,7 +1545,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note="The client's default callback answers with -32600 Invalid request instead of -32602.",
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:schema:enum-variants": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1478,7 +1560,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "elicitation:form:schema:primitives": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
         behavior="Requested-schema fields may be string (with format), number or integer, or boolean.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:schema:restricted-subset": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1496,7 +1581,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "the elicitation callback."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:response-validation": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-security",
@@ -1511,7 +1599,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "validates server-side, but the low-level session API does not)."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:url:action:accept-no-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1527,12 +1618,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A url-mode elicitation delivers the elicitation id and URL to the client callback exactly as "
             "the server sent them."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:url:cancel": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:url:complete-notification": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#completion-notifications-for-url-mode-elicitation",
@@ -1559,7 +1656,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "elicitation:url:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A URL-mode elicitation answered with decline returns the action with no content.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:url:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#error-handling",
@@ -1617,17 +1717,26 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A roots/list request from a server handler is answered by the client's roots callback, and "
             "the returned roots (uri, name) reach the handler."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "roots:list:client-error": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#error-handling",
         behavior="A roots callback that answers with an error surfaces to the requesting handler as an MCPError.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "roots:list:empty": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#listing-roots",
         behavior="An empty roots list is a valid response and reaches the handler as such.",
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "roots:list:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#error-handling",
@@ -1638,7 +1747,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note="The client's default callback answers with -32600 Invalid request instead of -32601.",
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "roots:uri:file-scheme": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root",
@@ -3141,7 +3253,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A single tool handler issues sequential elicitations; an accept on one step feeds the next, "
             "and a decline or cancel at any step short-circuits to a final result."
         ),
-        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "flow:elicitation:url-at-session-init": Requirement(
         source="sdk",
