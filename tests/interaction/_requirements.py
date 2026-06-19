@@ -953,8 +953,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         removed_in="2026-07-28",
         note=(
-            "removed in 2026-07-28 (SEP-2575); the resources.subscribe sub-capability is replaced by the subscriptions "
-            "capability."
+            "removed in 2026-07-28 (SEP-2575); the resources/subscribe RPC is gone. The resources.subscribe "
+            "capability flag is retained but reinterpreted as opt-in for the resourceSubscriptions filter on "
+            "subscriptions/listen -- there is no separate subscriptions capability."
         ),
     ),
     "resources:subscribe:updated": Requirement(
@@ -1216,7 +1217,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
@@ -1224,7 +1224,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
         ),
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "logging:message:filtered": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
