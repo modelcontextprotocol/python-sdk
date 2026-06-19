@@ -2173,11 +2173,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "streamable HTTP framing in its default stateful SSE-response mode."
         ),
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: exercises the stateful HTTP framing end to end.",
     ),
     "transport:streamable-http:json-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior="The interaction round trip works when the server answers with plain JSON instead of SSE.",
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -2186,6 +2188,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "fresh transport with no session id."
         ),
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: stateless mode is an HTTP hosting option.",
     ),
     "transport:streamable-http:notifications": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -2194,6 +2197,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the client's callbacks, in order, before the response."
         ),
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: per-request SSE streams are HTTP-specific.",
     ),
     "transport:streamable-http:stateless-restrictions": Requirement(
         source="sdk",
@@ -2202,6 +2206,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "result, because there is no session to call back through."
         ),
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: stateless mode is an HTTP hosting option.",
     ),
     "transport:streamable-http:unrelated-messages": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -2220,6 +2225,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server-initiated request nested inside an in-flight call round-trips over stateful streamable HTTP."
         ),
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: exercises stateful HTTP session callbacks.",
     ),
     "transport:streamable-http:resumability": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -2232,6 +2238,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
         behavior="Requests with an invalid Origin header are rejected with 403 before reaching the session.",
         transports=("streamable-http",),
+        note="Only observable over streamable HTTP: Origin is an HTTP header.",
     ),
     "transport:sse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
@@ -2240,11 +2247,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "requests, with server messages delivered on the SSE stream."
         ),
         transports=("sse",),
+        note="Only observable over the legacy SSE transport.",
     ),
     "transport:sse:endpoint-event": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
         behavior="Opening the SSE stream delivers an `endpoint` event naming the message-POST URL as the first event.",
         transports=("sse",),
+        note="Only observable over the legacy SSE transport.",
     ),
     "transport:sse:post:session-routing": Requirement(
         source="sdk",
@@ -2254,6 +2263,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "no session id, a malformed session id, or an unknown session id is rejected (400/400/404)."
         ),
         transports=("sse",),
+        note="Only observable over the legacy SSE transport.",
     ),
     "transport:stdio": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
@@ -2262,6 +2272,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and receives notifications and results over the child process's stdin/stdout."
         ),
         transports=("stdio",),
+        note="Only observable over stdio: exercises the child-process framing end to end.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: session lifecycle
@@ -2362,16 +2373,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="Multiple independent clients can connect to a stateless server concurrently.",
         transports=("streamable-http",),
+        note="Stateless mode is a streamable-HTTP hosting option.",
     ),
     "hosting:stateless:no-reuse": Requirement(
         source="sdk",
         behavior="A stateless per-request transport cannot be reused for a second request.",
         transports=("streamable-http",),
+        note="Stateless mode is a streamable-HTTP hosting option.",
     ),
     "hosting:stateless:no-session-id": Requirement(
         source="sdk",
         behavior="In stateless mode no Mcp-Session-Id is emitted and no session validation is performed.",
         transports=("streamable-http",),
+        note="Stateless mode is a streamable-HTTP hosting option; Mcp-Session-Id is an HTTP header.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: auth
@@ -2383,11 +2397,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(and revocation when supported)."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the AS router is an ASGI app.",
     ),
     "hosting:auth:aud-validation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#access-token-usage",
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer.",
         divergence=Divergence(
             note=(
                 "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
@@ -2399,11 +2415,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A valid token's auth info is exposed to request handlers.",
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer.",
     ),
     "hosting:auth:expired-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="An expired token returns 401 invalid_token.",
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
         divergence=Divergence(
             note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
         ),
@@ -2412,6 +2430,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="A malformed bearer token or token-verification failure returns 401 with WWW-Authenticate.",
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
         divergence=Divergence(
             note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
         ),
@@ -2424,6 +2443,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "at its own."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; well-known endpoints are HTTP routes.",
     ),
     "hosting:auth:missing-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
@@ -2432,6 +2452,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carries resource_metadata (one of the spec's two permitted discovery mechanisms)."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
         divergence=Divergence(
             note=(
                 "The SDK never emits a `scope` parameter in any WWW-Authenticate challenge — neither the "
@@ -2448,6 +2469,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The protected-resource metadata document includes an authorization_servers array with at least one entry."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; PRM is served over HTTP.",
     ),
     "hosting:auth:query-token-ignored": Requirement(
         source="sdk",
@@ -2456,6 +2478,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "unauthenticated."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; query strings are URL-specific.",
     ),
     "hosting:auth:scope-403": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#runtime-insufficient-scope-errors",
@@ -2464,6 +2487,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "insufficient_scope, the required scope, and resource_metadata."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; 403 is an HTTP status code.",
         divergence=Divergence(
             note=(
                 'The SDK emits error="insufficient_scope" and error_description but never the `scope` '
@@ -2479,6 +2503,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "`code_challenge` with `invalid_request`."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     "hosting:auth:as:verifier-mismatch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
@@ -2487,6 +2512,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "does not hash to the stored `code_challenge` with `invalid_grant`."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     "hosting:auth:as:code-single-use": Requirement(
         source="sdk",
@@ -2496,6 +2522,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the handler relies on `load_authorization_code` returning None."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     "hosting:auth:as:redirect-uri-binding": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",
@@ -2505,6 +2532,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "`redirect_uri` not in the client's registered list without redirecting to it."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
         divergence=Divergence(
             note=(
                 "RFC 6749 §5.2 assigns redirect_uri mismatch at the token endpoint to invalid_grant; "
@@ -2519,6 +2547,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
         divergence=Divergence(
             note=(
                 "Not enforced: the registration handler models redirect_uris as AnyUrl with no scheme or "
@@ -2531,6 +2560,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior=("Every token-endpoint response carries `Cache-Control: no-store` and `Pragma: no-cache`."),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; Cache-Control is an HTTP header.",
     ),
     "hosting:auth:as:register-error-response": Requirement(
         source="sdk",
@@ -2539,6 +2569,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "RFC 7591 error body."
         ),
         transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: resumability
@@ -2620,6 +2651,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A request whose Accept header does not allow the response representation returns 406.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: 406 is an HTTP status code.",
     ),
     "hosting:http:batch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2628,11 +2660,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "that forbid them."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: POST-body framing is HTTP-specific.",
     ),
     "hosting:http:content-type-415": Requirement(
         source="sdk",
         behavior="A POST with a Content-Type other than application/json returns 415.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: 415 is an HTTP status code.",
         divergence=Divergence(
             note=(
                 "The transport-security middleware rejects a non-JSON Content-Type with 400 'Invalid "
@@ -2661,6 +2695,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Origin is rejected with 403 Forbidden."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: Origin is an HTTP header.",
         divergence=Divergence(
             note=(
                 "The spec's Origin validation is an unconditional MUST; the SDK enables it only when the "
@@ -2674,11 +2709,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="With JSON response mode enabled, POST returns application/json instead of SSE.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: response Content-Type is HTTP-specific.",
     ),
     "hosting:http:method-405": Requirement(
         source="sdk",
         behavior="An unsupported HTTP method on the MCP endpoint returns 405.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: 405 is an HTTP status code.",
     ),
     "hosting:http:no-broadcast": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#multiple-connections",
@@ -2697,11 +2734,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A POST containing only notifications or responses returns 202 with no body.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: 202 is an HTTP status code.",
     ),
     "hosting:http:onerror": Requirement(
         source="sdk",
         behavior="Transport-level rejections are reported through an error callback on the server transport.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: these rejections happen at the HTTP framing layer.",
         deferred="Not implemented in the SDK: the server transport has no error callback; rejections are logged.",
     ),
     "hosting:http:parse-error-400": Requirement(
@@ -2711,11 +2750,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the body may carry a JSON-RPC error response (the SDK sends a Parse error body)."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: 400 is an HTTP status code.",
     ),
     "hosting:http:protocol-version-400": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
         behavior="An invalid or unsupported MCP-Protocol-Version header returns 400 Bad Request.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",
     ),
     "hosting:http:protocol-version-default": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
@@ -2724,6 +2765,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "way, the server assumes protocol version 2025-03-26."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",
     ),
     "hosting:http:response-same-connection": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
@@ -2732,6 +2774,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "that stream's resumed continuation), not on an unrelated stream."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: SSE stream affinity is HTTP-specific.",
     ),
     "hosting:http:second-sse-rejected": Requirement(
         source="sdk",
@@ -2744,6 +2787,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="The server terminates a POST-initiated SSE stream after writing the JSON-RPC response.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: SSE stream lifecycle is HTTP-specific.",
     ),
     "hosting:http:standalone-sse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#listening-for-messages-from-the-server",
@@ -2769,6 +2813,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A 404 (session expired) on a request surfaces as an error to the caller.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: 404 is an HTTP status code.",
     ),
     "client-transport:http:session-404-reinitialize": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
@@ -2807,11 +2852,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and text/event-stream."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: Accept is an HTTP request header.",
     ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",
         behavior="Multiple concurrent POST-initiated SSE streams each deliver their response to the right caller.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: per-request SSE streams are HTTP-specific.",
     ),
     "client-transport:http:custom-client": Requirement(
         source="sdk",
@@ -2820,26 +2867,31 @@ REQUIREMENTS: dict[str, Requirement] = {
             "including auth flows."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: the httpx client is HTTP-specific.",
     ),
     "client-transport:http:custom-headers": Requirement(
         source="sdk",
         behavior="Caller-supplied headers are sent on every POST, GET, and DELETE to the MCP endpoint.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: headers are an HTTP concept.",
     ),
     "client-transport:http:json-response-parsed": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A Content-Type application/json response is parsed as a single JSON-RPC message.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: Content-Type is an HTTP response header.",
     ),
     "client-transport:http:no-reconnect-after-close": Requirement(
         source="sdk",
         behavior="After the transport is closed, no further reconnection attempts are scheduled.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: stream reconnection is HTTP-specific.",
     ),
     "client-transport:http:no-reconnect-after-response": Requirement(
         source="sdk",
         behavior="A POST-initiated stream that already delivered its response is not reconnected when it closes.",
         transports=("streamable-http",),
+        note="Only observable over HTTP: stream reconnection is HTTP-specific.",
     ),
     "client-transport:http:protocol-version-header": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#protocol-version-header",
@@ -2848,6 +2900,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "subsequent HTTP request."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",
     ),
     "client-transport:http:protocol-version-stored": Requirement(
         source="sdk",
@@ -2855,6 +2908,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The client transport stores the negotiated protocol version and sends it on every subsequent request."
         ),
         transports=("streamable-http",),
+        note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",
     ),
     "client-transport:http:reconnect-get": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",
@@ -2934,11 +2988,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "If the server still returns 401 after a successful authorization, the client fails instead of looping."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:401-triggers-flow": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
         behavior="A 401 on a request triggers the OAuth authorization flow once.",
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:403-scope-upgrade": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
@@ -2946,6 +3002,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt; repeated 403s do not loop."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:as-metadata-discovery:priority-order": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
@@ -2955,6 +3012,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "root-path forms when the issuer URL has no path)."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:as-metadata-discovery:issuer-validation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
@@ -2963,6 +3021,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "metadata was retrieved from (RFC 8414 section 3.3)."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
                 "The SDK parses authorization-server metadata without comparing issuer to the discovery "
@@ -2977,6 +3036,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "request is issued, surfacing as an error to the caller."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
                 "The callback contract has no error form, so the client surfaces 'No authorization code "
@@ -2992,6 +3052,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and prompt=consent is added to the authorize request."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:bearer-header:every-request": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-requirements",
@@ -3000,11 +3061,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "request to the MCP server, never in the query string."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:cimd": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#client-id-metadata-documents",
         behavior="The client can use a client-ID metadata document URL as its OAuth client_id instead of registration.",
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:client-credentials": Requirement(
         source="sdk",
@@ -3013,6 +3076,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "bearer token authorizes subsequent requests."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:dcr:registration-error-surfaces": Requirement(
         source="sdk",
@@ -3021,6 +3085,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying the status and the server's RFC 7591 error body."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:dcr": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#dynamic-client-registration",
@@ -3029,6 +3094,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "client_id is preconfigured."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:invalid-client-clears-all": Requirement(
         source="sdk",
@@ -3036,6 +3102,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An invalid-client or unauthorized-client error during authorization invalidates all stored credentials."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
                 "The token-response handlers do not parse the error body; an invalid_client or "
@@ -3052,6 +3119,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="An invalid-grant error during authorization invalidates only the stored tokens.",
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:pkce:refuse-if-unsupported": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
@@ -3060,6 +3128,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "code_challenge_methods_supported, since PKCE support cannot be verified."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
                 "The client never inspects code_challenge_methods_supported and proceeds with PKCE S256 "
@@ -3074,6 +3143,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the matching verifier."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:pre-registration": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#preregistration",
@@ -3081,11 +3151,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A client with statically preconfigured credentials skips dynamic registration and uses them directly."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:private-key-jwt": Requirement(
         source="sdk",
         behavior="The client can authenticate the client-credentials grant with a signed JWT assertion.",
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:prm-discovery:fallback-order": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
@@ -3094,6 +3166,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "well-known protected-resource locations in the documented order."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:prm-discovery:no-prm-fallback": Requirement(
         source="sdk",
@@ -3103,6 +3176,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "rather than aborting."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:prm-resource-mismatch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -3111,6 +3185,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "match the server URL it is connecting to."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:refresh:transparent": Requirement(
         source="sdk",
@@ -3120,6 +3195,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and the new token is persisted."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:resource-parameter": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#resource-parameter-implementation",
@@ -3128,6 +3204,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "authorization request and the token request."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:scope-selection:priority": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#scope-selection-strategy",
@@ -3136,6 +3213,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "uses scopes_supported from the PRM document; otherwise omits scope."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
                 "The SDK inserts an extra fallback step between PRM and omit: if the authorization "
@@ -3151,11 +3229,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "missing or mismatched state are discarded."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:token-endpoint-auth-method": Requirement(
         source="sdk",
         behavior="The client authenticates to the token endpoint using the auth method established at registration.",
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "client-auth:token-provenance": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
@@ -3164,6 +3244,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "never tokens obtained elsewhere."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
         deferred=(
             "Untestable negative through the public API: there is no path to inject a token obtained "
             "elsewhere into the auth provider's state, so the absence cannot be observed end to end."
@@ -3176,6 +3257,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#shutdown",
         behavior="Closing the client transport closes the child process's stdin and the server exits cleanly.",
         transports=("stdio",),
+        note="Only observable over stdio: child-process lifecycle is stdio-specific.",
     ),
     "transport:stdio:stream-purity": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
@@ -3184,6 +3266,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "is not a valid MCP message is written to its stdin."
         ),
         transports=("stdio",),
+        note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
                 "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
@@ -3196,6 +3279,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
         behavior="Serialized JSON-RPC messages on stdio contain no embedded newlines; one message per line.",
         transports=("stdio",),
+        note="Only observable over stdio: newline-delimited framing is stdio-specific.",
     ),
     "transport:stdio:shutdown-escalation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#stdio",
@@ -3204,6 +3288,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "it (and kills it if still alive) after a grace period."
         ),
         transports=("stdio",),
+        note="Only observable over stdio: child-process lifecycle is stdio-specific.",
         deferred=(
             "A server that ignores stdin close takes the full PROCESS_TERMINATION_TIMEOUT (2.0 s) grace "
             "period plus up to a further 2.0 s for SIGTERM/SIGKILL escalation; testing that path is "
@@ -3215,6 +3300,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="Server stderr is available to the client and is not consumed by the transport.",
         transports=("stdio",),
+        note="Only observable over stdio: stderr is a child-process stream.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Composite end-to-end flows
@@ -3226,6 +3312,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "concurrently; clients on either transport can call the same tools."
         ),
         transports=("streamable-http", "sse"),
+        note="Exercises both HTTP transports side by side; not applicable to stdio.",
     ),
     "flow:compat:streamable-then-sse-fallback": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
@@ -3234,6 +3321,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "SSE client transport against the same server connects successfully."
         ),
         transports=("streamable-http", "sse"),
+        note="Exercises the HTTP-to-SSE fallback path; not applicable to stdio.",
         divergence=Divergence(
             note=(
                 "The SDK provides no automatic streamable-HTTP-to-SSE client fallback; the spec's "
@@ -3308,6 +3396,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "attempt requires authorization, the code is exchanged, and a subsequent connection succeeds."
         ),
         transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     "flow:resume:tool-call-resumption-token": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#resumability-and-redelivery",

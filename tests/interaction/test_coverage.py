@@ -149,6 +149,12 @@ def test_removed_entry_has_disposition() -> None:
     assert not undisposed, f"Requirements with removed_in but no superseded_by or note: {undisposed}"
 
 
+def test_transport_restriction_has_note() -> None:
+    """Every transport-restricted requirement carries a note explaining why it is transport-specific."""
+    missing = [req_id for req_id, req in REQUIREMENTS.items() if req.transports is not None and req.note is None]
+    assert not missing, f"Requirements with transports= but no note: {missing}"
+
+
 def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
     """Every arm exclusion names a connectable transport (or wildcards).
 
