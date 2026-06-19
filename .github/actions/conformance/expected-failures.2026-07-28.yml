@@ -89,26 +89,13 @@ server:
   # the server rejects before the handler runs. These scenarios all pass on
   # the 2025 legs; they unblock once mcp-everything-server routes 2026
   # requests through a stateless path.
-  - completion-complete
   - tools-list
-  - tools-call-simple-text
-  - tools-call-image
-  - tools-call-audio
-  - tools-call-embedded-resource
-  - tools-call-mixed-content
-  - tools-call-error
   - tools-call-with-progress
-  - server-sse-multiple-streams
   - resources-list
   - resources-read-text
   - resources-read-binary
   - resources-templates-read
   - prompts-list
-  - prompts-get-simple
-  - prompts-get-with-args
-  - prompts-get-embedded-resource
-  - prompts-get-with-image
-  - dns-rebinding-protection
   # SEP-2106 (JSON Schema 2020-12 in tool inputSchema): the fixture tool's
   # schema has none of the 2020-12 keywords the scenario checks. The scenario
   # is in `--suite all` but not `--suite active`, so this is the only leg that
@@ -130,6 +117,7 @@ server:
   - input-required-result-result-type
   - input-required-result-tampered-state
   - input-required-result-capability-check
+  - input-required-result-validate-input
   # SEP-2549 (caching): no ttlMs/cacheScope support.
   - caching
   # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
@@ -143,7 +131,5 @@ server:
   # as the draft suite in expected-failures.yml.
   # SEP-2164: server returns -32600 (not -32602) and omits error.data.uri.
   - sep-2164-resource-not-found
-  # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses,
-  # ignore unrecognized inputResponses keys).
+  # SEP-2322 SHOULD-level behaviour (re-request missing inputResponses).
   - input-required-result-missing-input-response
-  - input-required-result-ignore-extra-params
