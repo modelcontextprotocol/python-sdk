@@ -7,19 +7,30 @@ endpoint is byte-unchanged. The SDK client never exposes the response headers or
 result-envelope shape, so every assertion here is necessarily wire-level.
 """
 
+import json
+
+import anyio
+import httpx
 import pytest
 from inline_snapshot import snapshot
 
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     CallToolRequestParams,
     CallToolResult,
+    Implementation,
     JSONRPCError,
     JSONRPCResponse,
+    ListToolsResult,
+    PaginatedRequestParams,
     TextContent,
+    Tool,
 )
-from tests.interaction._connect import base_headers, initialize_body, mounted_app
+from tests.interaction._connect import BASE_URL, base_headers, initialize_body, initialize_via_http, mounted_app
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -53,14 +64,18 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server() -> Server:
-    """A low-level server with one ``add`` tool, for the 2026-07-28 happy-path tools/call."""
+    """A low-level server with one ``add`` tool, listed so the SDK client's implicit tools/list resolves."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        tool = Tool(name="add", input_schema={"type": "object"})
+        return ListToolsResult(tools=[tool], ttl_ms=0, cache_scope="public")
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "add"
         assert params.arguments is not None
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
-    return Server("modern", on_call_tool=call_tool)
+    return Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
@@ -124,3 +139,118 @@ async def test_modern_initialize_is_method_not_found() -> None:
 
     assert response.status_code == 200
     assert JSONRPCError.model_validate(response.json()).error.code == METHOD_NOT_FOUND
+
+
+@requirement("hosting:http:modern:legacy-fallthrough")
+async def test_non_modern_version_header_falls_through_to_legacy_transport_unchanged() -> None:
+    """The 2026-07-28 routing branch fires only on its exact header; everything else reaches legacy.
+
+    SDK-defined under the draft versioning rules: the modern entry must not change any 2025-era
+    byte. A 2025-era initialize on the same endpoint still completes (legacy serves it), and an
+    unrecognised ``MCP-Protocol-Version`` still falls through to the legacy gate and produces the
+    ``Unsupported protocol version`` literal that peer SDKs substring-sniff. Asserted at the wire
+    because the literal is only observable in the raw response body.
+    """
+    async with mounted_app(_server()) as (http, _):
+        # 2025-era initialize through the same endpoint: the modern branch must not intercept it.
+        session_id = await initialize_via_http(http)
+        unrecognised = await http.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "ping"},
+            headers=base_headers(session_id=session_id) | {"mcp-protocol-version": "9999-01-01"},
+        )
+
+    assert unrecognised.status_code == 400
+    assert "Unsupported protocol version" in unrecognised.text
+
+
+@requirement("hosting:http:modern:handler-exception-internal-error")
+async def test_modern_handler_exception_maps_to_internal_error_without_leaking_the_message() -> None:
+    """A handler exception on the 2026-07-28 path returns -32603 with a generic message.
+
+    Spec-mandated for the code: -32603 is the JSON-RPC Internal error code. SDK-defined for the
+    message: the 2026-07-28 entry deliberately does not echo ``str(exc)`` (the legacy dispatcher's
+    code-0 leak is the recorded divergence on ``protocol:error:internal-error``). Asserted at the
+    wire because the SDK client surfaces only the error object, not the HTTP status it travelled on.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "boom"
+        raise RuntimeError("kaboom")
+
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "boom", "arguments": {}, "_meta": _meta_envelope()},
+    }
+    async with mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _):
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="tools/call", name="boom"))
+
+    assert response.status_code == 200
+    error = JSONRPCError.model_validate(response.json()).error
+    assert error.code == INTERNAL_ERROR
+    assert "kaboom" not in error.message
+
+
+@requirement("hosting:http:modern:tools-call-stateless")
+async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern_entry() -> None:
+    """First end-to-end exercise of the 2026-07-28 stateless request style: SDK client to SDK server.
+
+    Spec-mandated under the draft stateless transport: the pinned ``ClientSession`` and the
+    single-exchange serving entry compose so that ``call_tool`` returns ``resultType: complete``
+    with no ``initialize`` ever sent, no ``Mcp-Session-Id`` on any request or response, and every
+    POST carrying the body-derived ``MCP-Protocol-Version`` / ``Mcp-Method`` / ``Mcp-Name`` headers
+    plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. Asserted at the wire via
+    the ``mounted_app`` httpx event hooks because none of the headers, the envelope, or the
+    handshake-absence is observable through the public client API. The recorded log shows two
+    POSTs: the ``tools/call`` itself and the client's implicit ``tools/list`` output-schema fetch
+    (see ``client:output-schema:auto-list``), both of which must satisfy the stateless contract.
+    """
+    requests: list[httpx.Request] = []
+    responses: list[httpx.Response] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        requests.append(request)
+
+    async def on_response(response: httpx.Response) -> None:
+        responses.append(response)
+
+    client_info = Implementation(name="e2e-client", version="1.0.0")
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_server(), on_request=on_request, on_response=on_response) as (http, _),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
+        ):
+            result = await session.call_tool("add", {"a": 2, "b": 3})
+
+    assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
+        {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
+    )
+
+    # Exactly the tools/call POST and the implicit tools/list POST -- no initialize, no
+    # notifications/initialized, no standalone GET stream, no closing DELETE.
+    bodies = [json.loads(r.content) for r in requests]
+    assert [(r.method, body["method"]) for r, body in zip(requests, bodies, strict=True)] == snapshot(
+        [("POST", "tools/call"), ("POST", "tools/list")]
+    )
+    assert all("initialize" not in body["method"] for body in bodies)
+
+    # The tools/call POST carries the body-derived headers and the three-key envelope.
+    call = requests[0]
+    assert {k: v for k, v in call.headers.items() if k.startswith("mcp-")} == snapshot(
+        {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "add"}
+    )
+    assert bodies[0]["params"]["_meta"] == snapshot(
+        {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "e2e-client", "version": "1.0.0"},
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+    )
+
+    # No session id on any request or response: the exchange is sessionless end to end.
+    assert len(responses) == len(requests)
+    assert all("mcp-session-id" not in r.headers for r in requests)
+    assert all("mcp-session-id" not in r.headers for r in responses)
