@@ -43,7 +43,7 @@ class JSONRPCResponse(BaseModel):
 
 # MCP error codes occupy the JSON-RPC server-error range -32000..-32099.
 # Per the 2026-07-28 spec's allocation policy:
-#   -32000..-32019  implementation-defined (SDK-local; never on the wire as a spec code)
+#   -32000..-32019  implementation-defined
 #   -32020..-32099  reserved for spec-defined codes, allocated sequentially from -32020
 #   -32002, -32042  reserved-never-reused (retired by earlier protocol versions)
 
