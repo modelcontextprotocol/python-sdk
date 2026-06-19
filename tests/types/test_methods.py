@@ -674,6 +674,33 @@ def test_embedded_input_request_entries_without_method_reject_at_the_surface_ste
         methods.parse_server_result("tools/call", "2026-07-28", body)
 
 
+def test_input_required_url_elicit_without_elicitation_id_parses_at_2026():
+    """A 2026-07-28 `InputRequiredResult` embedding a URL-mode elicitation parses
+    through both the surface and monolith steps without `elicitationId`.
+
+    Spec-mandated: the field is required at 2025-11-25 only and removed at
+    2026-07-28; the monolith model carries it as optional so the superset can
+    accept both versions.
+    """
+    body = {
+        "resultType": "input_required",
+        "inputRequests": {
+            "r1": {
+                "method": "elicitation/create",
+                "params": {"mode": "url", "message": "Please sign in", "url": "https://example.com/auth"},
+            }
+        },
+    }
+    parsed = methods.parse_server_result("tools/call", "2026-07-28", body)
+    assert isinstance(parsed, types.InputRequiredResult)
+    assert parsed.input_requests is not None
+    request = parsed.input_requests["r1"]
+    assert isinstance(request, types.ElicitRequest)
+    assert isinstance(request.params, types.ElicitRequestURLParams)
+    assert request.params.url == "https://example.com/auth"
+    assert request.params.elicitation_id is None
+
+
 def test_none_params_omit_the_key_so_required_params_reject():
     with pytest.raises(pydantic.ValidationError) as excinfo:
         methods.parse_client_request("tools/call", "2025-11-25", None)

@@ -1868,7 +1868,9 @@ class CancelledNotificationParams(NotificationParams):
     The ID of the request to cancel.
 
     This MUST correspond to the ID of a request previously issued in the same direction.
-    Required on the wire through 2025-06-18; optional from 2025-11-25.
+    Required on the wire through 2025-06-18; optional at 2025-11-25; required again from
+    2026-07-28, where it must name a request the client previously issued (servers send
+    this notification only to terminate a `subscriptions/listen` stream).
     """
     reason: str | None = None
     """An optional string describing the reason for the cancellation."""
@@ -1956,10 +1958,11 @@ class ElicitRequestURLParams(RequestParams):
     url: str
     """The URL that the user should navigate to."""
 
-    elicitation_id: str
+    elicitation_id: str | None = None
     """The ID of the elicitation, which must be unique within the context of the server.
 
-    The client MUST treat this ID as an opaque value.
+    The client MUST treat this ID as an opaque value. Required on the wire at
+    2025-11-25; removed at 2026-07-28.
     """
 
     task: TaskMetadata | None = None

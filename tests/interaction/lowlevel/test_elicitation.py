@@ -309,7 +309,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
     returns; the same ordering already holds on in-memory and SSE transports.
     """
     elicitation_id = "auth-001"
-    elicited_ids: list[str] = []
+    elicited_ids: list[str | None] = []
     received: list[IncomingMessage] = []
 
     async def collect(message: IncomingMessage) -> None:
