@@ -140,25 +140,31 @@ def test_supersession_links_are_symmetric_and_versioned() -> None:
 
 
 def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
-    """Every arm exclusion names a connectable transport and an active spec version (or wildcards)."""
+    """Every arm exclusion names a connectable transport (or wildcards).
+
+    spec_version is type-checked against the SpecVersion Literal and may reference a version not yet
+    on the active SPEC_VERSIONS axis, so pre-staged exclusions for an upcoming revision are permitted.
+    """
     unreachable = [
         f"{req_id}: {exclusion}"
         for req_id, req in REQUIREMENTS.items()
         for exclusion in req.arm_exclusions
-        if (exclusion.transport is not None and exclusion.transport not in CONNECTABLE_TRANSPORTS)
-        or (exclusion.spec_version is not None and exclusion.spec_version not in SPEC_VERSIONS)
+        if exclusion.transport is not None and exclusion.transport not in CONNECTABLE_TRANSPORTS
     ]
     assert not unreachable, f"Arm exclusions targeting unreachable cells: {unreachable}"
 
 
 def test_every_known_failure_targets_a_reachable_cell() -> None:
-    """Every known failure names a connectable transport and an active spec version (or wildcards)."""
+    """Every known failure names a connectable transport (or wildcards).
+
+    spec_version is type-checked against the SpecVersion Literal and may reference a version not yet
+    on the active SPEC_VERSIONS axis, so pre-staged exclusions for an upcoming revision are permitted.
+    """
     unreachable = [
         f"{req_id}: {failure}"
         for req_id, req in REQUIREMENTS.items()
         for failure in req.known_failures
-        if (failure.transport is not None and failure.transport not in CONNECTABLE_TRANSPORTS)
-        or (failure.spec_version is not None and failure.spec_version not in SPEC_VERSIONS)
+        if failure.transport is not None and failure.transport not in CONNECTABLE_TRANSPORTS
     ]
     assert not unreachable, f"Known failures targeting unreachable cells: {unreachable}"
 
