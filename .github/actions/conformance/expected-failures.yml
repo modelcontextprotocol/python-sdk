@@ -68,7 +68,7 @@ server:
   # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
   # stateful-mode "Missing session ID" error.
   - caching
-  # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
+  # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
   # case-insensitive/whitespace-trimmed header validation not implemented.
   - http-header-validation
   - http-custom-header-server-validation

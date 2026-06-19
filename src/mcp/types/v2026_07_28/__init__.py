@@ -1,7 +1,7 @@
 """Internal wire-shape models for protocol 2026-07-28. Generated; do not edit.
 
 Regenerate with `scripts/gen_surface_types.py` from `schema/2026-07-28.json`
-(sha256 `bce2e7c9622bb0b449475ba6d8d80228c71190a09250e75dabd502b280ecf3cb`)."""
+(sha256 `ed1ad4ba94aaeb2068b78969ef901b1150f7b2f06cf86472b3032abee1380b6a`)."""
 # pyright: reportIncompatibleVariableOverride=false, reportGeneralTypeIssues=false
 
 from __future__ import annotations
@@ -148,11 +148,6 @@ class ElicitRequestURLParams(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    elicitation_id: Annotated[str, Field(alias="elicitationId")]
-    """
-    The ID of the elicitation, which must be unique within the context of the server.
-    The client MUST treat this ID as an opaque value.
-    """
     message: str
     """
     The message to present to the user explaining why the interaction is needed.
@@ -190,29 +185,6 @@ class ElicitResult(WireModel):
     """
 
 
-class Params(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    elicitation_id: Annotated[str, Field(alias="elicitationId")]
-    """
-    The ID of the elicitation that completed.
-    """
-
-
-class ElicitationCompleteNotification(WireModel):
-    """
-    An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/elicitation/complete"]
-    params: Params
-
-
 class Error(WireModel):
     model_config = ConfigDict(
         extra="ignore",
@@ -228,6 +200,16 @@ class Error(WireModel):
     message: str
     """
     A short description of the error. The message SHOULD be limited to a concise single sentence.
+    """
+
+
+class Error1(Error):
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    code: Literal[-32020]
+    """
+    The error type that occurred.
     """
 
 
@@ -507,7 +489,7 @@ class MethodNotFoundError(WireModel):
 
     In MCP, a server returns this error when a client invokes a method the server does not implement — either a genuinely unknown method, or one gated behind a server capability the server did not advertise (e.g., calling `prompts/list` when the `prompts` capability was not advertised).
 
-    A request that requires a client capability the client did not declare is signalled instead by {@link MissingRequiredClientCapabilityError} (`-32003`).
+    A request that requires a client capability the client did not declare is signalled instead by {@link MissingRequiredClientCapabilityError} (`-32021`).
     """
 
     model_config = ConfigDict(
@@ -608,17 +590,6 @@ class Notification(WireModel):
     params: dict[str, Any] | None = None
 
 
-class NotificationParams(WireModel):
-    """
-    Common params for any notification.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-
-
 class NumberSchema(WireModel):
     model_config = ConfigDict(
         extra="ignore",
@@ -713,19 +684,6 @@ class PromptArgument(WireModel):
     """
 
 
-class PromptListChangedNotification(WireModel):
-    """
-    An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/prompts/list_changed"]
-    params: NotificationParams | None = None
-
-
 class PromptReference(WireModel):
     """
     Identifies a prompt.
@@ -784,19 +742,6 @@ class ResourceContents(WireModel):
     """
 
 
-class ResourceListChangedNotification(WireModel):
-    """
-    An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/resources/list_changed"]
-    params: NotificationParams | None = None
-
-
 class ResourceTemplateReference(WireModel):
     """
     A reference to a resource or resource template definition.
@@ -809,21 +754,6 @@ class ResourceTemplateReference(WireModel):
     uri: str
     """
     The URI or URI template of the resource.
-    """
-
-
-class ResourceUpdatedNotificationParams(WireModel):
-    """
-    Parameters for a `notifications/resources/updated` notification.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    uri: str
-    """
-    The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
     """
 
 
@@ -979,24 +909,6 @@ class SubscriptionFilter(WireModel):
     """
 
 
-class SubscriptionsAcknowledgedNotificationParams(WireModel):
-    """
-    Parameters for a {@link SubscriptionsAcknowledgedNotificationnotifications/subscriptions/acknowledged} notification.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    notifications: SubscriptionFilter
-    """
-    The subset of requested notification types the server agreed to honor.
-    Only includes notification types the server actually supports; if the
-    client requested an unsupported type (e.g., `promptsListChanged` when
-    the server has no prompts), it is omitted from this set.
-    """
-
-
 class TextResourceContents(WireModel):
     model_config = ConfigDict(
         extra="ignore",
@@ -1130,6 +1042,11 @@ class InputSchema(WireModel):
     (`if`/`then`/`else`), reference keywords (`$ref`, `$defs`, `$anchor`), and any other
     standard validation or annotation keywords.
 
+    Property schemas may carry an `x-mcp-header` annotation to mirror the
+    argument value into an HTTP header on the Streamable HTTP transport. See
+    the Streamable HTTP transport specification for the validity and
+    extraction rules.
+
     Defaults to JSON Schema 2020-12 when no explicit `$schema` is provided.
     """
 
@@ -1225,19 +1142,6 @@ class ToolChoice(WireModel):
     """
 
 
-class ToolListChangedNotification(WireModel):
-    """
-    An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/tools/list_changed"]
-    params: NotificationParams | None = None
-
-
 class ToolUseContent(WireModel):
     """
     A request from the assistant to call a tool.
@@ -1287,11 +1191,11 @@ class Data1(WireModel):
     """
 
 
-class Error2(Error):
+class Error3(Error):
     model_config = ConfigDict(
         extra="ignore",
     )
-    code: Literal[-32004]
+    code: Literal[-32022]
     """
     The error type that occurred.
     """
@@ -1312,7 +1216,7 @@ class UnsupportedProtocolVersionError(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    error: Error2
+    error: Error3
     id: RequestId | None = None
     jsonrpc: Literal["2.0"]
 
@@ -1484,11 +1388,13 @@ class CacheableResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     result_type: Annotated[str, Field(alias="resultType")]
     """
@@ -1510,27 +1416,6 @@ class CacheableResult(WireModel):
       The client MAY re-fetch every time the result is needed.
     - If positive, the client SHOULD consider the result fresh for this many
       milliseconds after receiving the response.
-    """
-
-
-class CancelledNotificationParams(WireModel):
-    """
-    Parameters for a `notifications/cancelled` notification.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    reason: str | None = None
-    """
-    An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
-    """
-    request_id: Annotated[RequestId | None, Field(alias="requestId")] = None
-    """
-    The ID of the request to cancel.
-
-    This MUST correspond to the ID of a request previously issued in the same direction.
     """
 
 
@@ -1628,6 +1513,22 @@ class EnumSchema(
     )
 
 
+class HeaderMismatchError(WireModel):
+    """
+    Returned when a server rejects a request because the values in the HTTP
+    headers do not match the corresponding values in the request body, or
+    because required headers are missing or malformed. For HTTP, the response
+    status code MUST be `400 Bad Request`.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    error: Error1
+    id: RequestId | None = None
+    jsonrpc: Literal["2.0"]
+
+
 class ImageContent(WireModel):
     """
     An image provided to or from an LLM.
@@ -1692,6 +1593,31 @@ class JSONRPCResultResponse(WireModel):
     result: Result
 
 
+class Params(WireModel):
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+
+
+class ListRootsRequest(WireModel):
+    """
+    Sent from the server to request a list of root URIs from the client. Roots allow
+    servers to ask for specific directories or files to operate on. A common example
+    for roots is providing a set of repositories or directories a server should operate
+    on.
+
+    This request is typically used when the server needs to understand the file system
+    structure or access specific locations that the client has permission to read from.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    method: Literal["roots/list"]
+    params: Params | None = None
+
+
 class ListRootsResult(WireModel):
     """
     The result returned by the client for a {@link ListRootsRequestroots/list} request.
@@ -1705,31 +1631,44 @@ class ListRootsResult(WireModel):
     roots: list[Root]
 
 
-class LoggingMessageNotificationParams(WireModel):
+class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
+    root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
+
+
+class NotificationMetaObject(WireModel):
     """
-    Parameters for a `notifications/message` notification.
+    Extends {@link MetaObject} with additional notification-specific fields. All key naming rules from `MetaObject` apply.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    io_modelcontextprotocol_subscription_id: Annotated[
+        RequestId | None, Field(alias="io.modelcontextprotocol/subscriptionId")
+    ] = None
+    """
+    Identifies the subscription stream a notification was delivered on. The
+    server MUST include this key on every notification delivered via a
+    {@link SubscriptionsListenRequestsubscriptions/listen} stream, so the
+    client can correlate the notification with the originating subscription.
+    The key is absent on notifications not delivered via a subscription
+    stream (e.g. progress notifications for an in-flight request), which is
+    why it is optional here.
+
+    The value is the JSON-RPC ID of the `subscriptions/listen` request that
+    opened the stream.
+    """
+
+
+class NotificationParams(WireModel):
+    """
+    Common params for any notification.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    data: Any
-    """
-    The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
-    """
-    level: LoggingLevel
-    """
-    The severity of this log message.
-    """
-    logger: str | None = None
-    """
-    An optional name of the logger issuing this message.
-    """
-
-
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
-    root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
 
 
 class PrimitiveSchemaDefinition(
@@ -1768,7 +1707,7 @@ class ProgressNotificationParams(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
     message: str | None = None
     """
     An optional message describing the current progress.
@@ -1831,6 +1770,19 @@ class Prompt(WireModel):
     """
 
 
+class PromptListChangedNotification(WireModel):
+    """
+    An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `promptsListChanged` filter field.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/prompts/list_changed"]
+    params: NotificationParams | None = None
+
+
 class ReadResourceResult(WireModel):
     """
     The result returned by the server for a {@link ReadResourceRequestresources/read} request.
@@ -1845,11 +1797,13 @@ class ReadResourceResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     contents: list[TextResourceContents | BlobResourceContents]
     result_type: Annotated[str, Field(alias="resultType")]
@@ -1998,6 +1952,19 @@ class ResourceLink(WireModel):
     """
 
 
+class ResourceListChangedNotification(WireModel):
+    """
+    An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `resourcesListChanged` filter field.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/resources/list_changed"]
+    params: NotificationParams | None = None
+
+
 class ResourceTemplate(WireModel):
     """
     A template description for resources available on the server.
@@ -2052,37 +2019,41 @@ class ResourceTemplate(WireModel):
     """
 
 
-class ResourceUpdatedNotification(WireModel):
+class ResourceUpdatedNotificationParams(WireModel):
     """
-    A notification from the server to the client, informing it that a resource has changed and may need to be read again. This is only sent for resources the client opted in to via the `resourceSubscriptions` field of a {@link SubscriptionsListenRequestsubscriptions/listen} request.
+    Parameters for a `notifications/resources/updated` notification.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/resources/updated"]
-    params: ResourceUpdatedNotificationParams
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
+    uri: str
+    """
+    The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
+    """
 
 
 class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
-class SubscriptionsAcknowledgedNotification(WireModel):
+class SubscriptionsAcknowledgedNotificationParams(WireModel):
     """
-    Sent by the server as the first message on a
-    {@link SubscriptionsListenRequestsubscriptions/listen} stream to acknowledge
-    that the subscription has been established and to report which notification
-    types it agreed to honor.
+    Parameters for a {@link SubscriptionsAcknowledgedNotificationnotifications/subscriptions/acknowledged} notification.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/subscriptions/acknowledged"]
-    params: SubscriptionsAcknowledgedNotificationParams
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
+    notifications: SubscriptionFilter
+    """
+    The subset of requested notification types the server agreed to honor.
+    Only includes notification types the server actually supports; if the
+    client requested an unsupported type (e.g., `promptsListChanged` when
+    the server has no prompts), it is omitted from this set.
+    """
 
 
 class TextContent(WireModel):
@@ -2148,6 +2119,11 @@ class Tool(WireModel):
     (`if`/`then`/`else`), reference keywords (`$ref`, `$defs`, `$anchor`), and any other
     standard validation or annotation keywords.
 
+    Property schemas may carry an `x-mcp-header` annotation to mirror the
+    argument value into an HTTP header on the Streamable HTTP transport. See
+    the Streamable HTTP transport specification for the validity and
+    extraction rules.
+
     Defaults to JSON Schema 2020-12 when no explicit `$schema` is provided.
     """
     name: str
@@ -2172,9 +2148,45 @@ class Tool(WireModel):
     """
 
 
-class CancelledNotification(WireModel):
+class ToolListChangedNotification(WireModel):
     """
-    This notification can be sent by either side to indicate that it is cancelling a previously-issued request.
+    An optional notification from the server to the client, informing it that the list of tools it offers has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `toolsListChanged` filter field.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/tools/list_changed"]
+    params: NotificationParams | None = None
+
+
+class CancelledNotificationParams(WireModel):
+    """
+    Parameters for a `notifications/cancelled` notification.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
+    reason: str | None = None
+    """
+    An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
+    """
+    request_id: Annotated[RequestId, Field(alias="requestId")]
+    """
+    The ID of the request to cancel.
+
+    This MUST correspond to the ID of a request the client previously issued.
+    """
+
+
+class ClientNotification(WireModel):
+    """
+    This notification is sent by the client to indicate that it is cancelling a request it previously issued.
+
+    On stdio, the server also sends this notification, solely to terminate a {@link SubscriptionsListenRequestsubscriptions/listen} stream: it references the ID of the `subscriptions/listen` request that opened the stream. Servers MUST NOT use this notification to cancel any other request.
 
     The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
 
@@ -2233,11 +2245,13 @@ class ListPromptsResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2295,11 +2309,13 @@ class ListResourceTemplatesResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2357,11 +2373,13 @@ class ListResourcesResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2419,11 +2437,13 @@ class ListToolsResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
@@ -2467,17 +2487,27 @@ class ListToolsResultResponse(WireModel):
     result: ListToolsResult
 
 
-class LoggingMessageNotification(WireModel):
+class LoggingMessageNotificationParams(WireModel):
     """
-    JSONRPCNotification of a log message passed from server to client. The client opts in by setting `"io.modelcontextprotocol/logLevel"` in a request's `_meta`.
+    Parameters for a `notifications/message` notification.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    jsonrpc: Literal["2.0"]
-    method: Literal["notifications/message"]
-    params: LoggingMessageNotificationParams
+    meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
+    data: Any
+    """
+    The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
+    """
+    level: LoggingLevel
+    """
+    The severity of this log message.
+    """
+    logger: str | None = None
+    """
+    An optional name of the logger issuing this message.
+    """
 
 
 class ProgressNotification(WireModel):
@@ -2508,30 +2538,33 @@ class PromptMessage(WireModel):
     role: Role
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | SubscriptionsAcknowledgedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | LoggingMessageNotification
-        | ElicitationCompleteNotification
-    ]
-):
-    root: (
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | SubscriptionsAcknowledgedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | LoggingMessageNotification
-        | ElicitationCompleteNotification
+class ResourceUpdatedNotification(WireModel):
+    """
+    A notification from the server to the client, informing it that a resource has changed and may need to be read again. This is only sent for resources the client opted in to via the `resourceSubscriptions` field of a {@link SubscriptionsListenRequestsubscriptions/listen} request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
     )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/resources/updated"]
+    params: ResourceUpdatedNotificationParams
+
+
+class SubscriptionsAcknowledgedNotification(WireModel):
+    """
+    Sent by the server as the first message on a
+    {@link SubscriptionsListenRequestsubscriptions/listen} stream to acknowledge
+    that the subscription has been established and to report which notification
+    types it agreed to honor.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/subscriptions/acknowledged"]
+    params: SubscriptionsAcknowledgedNotificationParams
 
 
 class ToolResultContent(WireModel):
@@ -2624,8 +2657,23 @@ class CallToolResult(WireModel):
     """
 
 
-class ClientNotification(RootModel[CancelledNotification | ProgressNotification]):
-    root: CancelledNotification | ProgressNotification
+class CancelledNotification(WireModel):
+    """
+    This notification is sent by the client to indicate that it is cancelling a request it previously issued.
+
+    On stdio, the server also sends this notification, solely to terminate a {@link SubscriptionsListenRequestsubscriptions/listen} stream: it references the ID of the `subscriptions/listen` request that opened the stream. Servers MUST NOT use this notification to cancel any other request.
+
+    The request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.
+
+    This notification indicates that the result will be unused, so any associated processing SHOULD cease.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/cancelled"]
+    params: CancelledNotificationParams
 
 
 class GetPromptResult(WireModel):
@@ -2654,10 +2702,47 @@ class GetPromptResult(WireModel):
     """
 
 
+class LoggingMessageNotification(WireModel):
+    """
+    JSONRPCNotification of a log message passed from server to client. The client opts in by setting `"io.modelcontextprotocol/logLevel"` in a request's `_meta`.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    jsonrpc: Literal["2.0"]
+    method: Literal["notifications/message"]
+    params: LoggingMessageNotificationParams
+
+
 class SamplingMessageContentBlock(
     RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
 ):
     root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+
+
+class ServerNotification(
+    RootModel[
+        CancelledNotification
+        | ProgressNotification
+        | ResourceListChangedNotification
+        | SubscriptionsAcknowledgedNotification
+        | ResourceUpdatedNotification
+        | PromptListChangedNotification
+        | ToolListChangedNotification
+        | LoggingMessageNotification
+    ]
+):
+    root: (
+        CancelledNotification
+        | ProgressNotification
+        | ResourceListChangedNotification
+        | SubscriptionsAcknowledgedNotification
+        | ResourceUpdatedNotification
+        | PromptListChangedNotification
+        | ToolListChangedNotification
+        | LoggingMessageNotification
+    )
 
 
 class CreateMessageResult(WireModel):
@@ -2832,6 +2917,9 @@ class ClientCapabilities(WireModel):
     Optional MCP extensions that the client supports. Keys are extension identifiers
     (e.g., "io.modelcontextprotocol/oauth-client-credentials"), and values are
     per-extension settings objects. An empty object indicates support with no settings.
+
+    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
+    mandatory prefix.
     """
     roots: dict[str, Any] | None = None
     """
@@ -2974,11 +3062,13 @@ class DiscoverResult(WireModel):
     Indicates the intended scope of the cached response, analogous to HTTP
     `Cache-Control: public` vs `Cache-Control: private`.
 
-    - `"public"`: Any client or intermediary (e.g., shared gateway, proxy)
-      MAY cache the response and serve it to any user.
-    - `"private"`: Only the requesting user's client MAY cache the response.
-      Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached
-      copy to a different user.
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
     """
     capabilities: ServerCapabilities
     """
@@ -3163,24 +3253,6 @@ class ListResourcesRequest(WireModel):
     params: PaginatedRequestParams
 
 
-class ListRootsRequest(WireModel):
-    """
-    Sent from the server to request a list of root URIs from the client. Roots allow
-    servers to ask for specific directories or files to operate on. A common example
-    for roots is providing a set of repositories or directories a server should operate
-    on.
-
-    This request is typically used when the server needs to understand the file system
-    structure or access specific locations that the client has permission to read from.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    method: Literal["roots/list"]
-    params: RequestParams | None = None
-
-
 class ListToolsRequest(WireModel):
     """
     Sent from the client to request a list of tools the server has.
@@ -3209,11 +3281,11 @@ class Data(WireModel):
     """
 
 
-class Error1(Error):
+class Error2(Error):
     model_config = ConfigDict(
         extra="ignore",
     )
-    code: Literal[-32003]
+    code: Literal[-32021]
     """
     The error type that occurred.
     """
@@ -3233,7 +3305,7 @@ class MissingRequiredClientCapabilityError(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    error: Error1
+    error: Error2
     id: RequestId | None = None
     jsonrpc: Literal["2.0"]
 
@@ -3405,6 +3477,9 @@ class ServerCapabilities(WireModel):
     Optional MCP extensions that the server supports. Keys are extension identifiers
     (e.g., "io.modelcontextprotocol/tasks"), and values are per-extension settings
     objects. An empty object indicates support with no settings.
+
+    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
+    mandatory prefix.
     """
     logging: JSONObject | None = None
     """
@@ -3457,6 +3532,10 @@ class SubscriptionsListenRequestParams(WireModel):
     """
 
 
+class InputRequest(RootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+    root: CreateMessageRequest | ListRootsRequest | ElicitRequest
+
+
 class ServerResult(
     RootModel[
         Result
@@ -3485,10 +3564,6 @@ class ServerResult(
         | CallToolResult
         | CompleteResult
     )
-
-
-class InputRequest(RootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
-    root: CreateMessageRequest | ListRootsRequest | ElicitRequest
 
 
 class ClientRequest(
@@ -3565,7 +3640,6 @@ InputResponseRequestParams.model_rebuild()
 ListPromptsRequest.model_rebuild()
 ListResourceTemplatesRequest.model_rebuild()
 ListResourcesRequest.model_rebuild()
-ListRootsRequest.model_rebuild()
 ListToolsRequest.model_rebuild()
 PaginatedRequest.model_rebuild()
 PaginatedRequestParams.model_rebuild()

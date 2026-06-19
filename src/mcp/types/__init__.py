@@ -199,6 +199,7 @@ from mcp.types._types import (
 # Re-export JSONRPC types
 from mcp.types.jsonrpc import (
     CONNECTION_CLOSED,
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -423,6 +424,7 @@ __all__ = [
     "server_result_adapter",
     # JSON-RPC types
     "CONNECTION_CLOSED",
+    "HEADER_MISMATCH",
     "INTERNAL_ERROR",
     "INVALID_PARAMS",
     "INVALID_REQUEST",
