@@ -25,7 +25,6 @@ from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
-    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -66,24 +65,6 @@ def _encode_header_value(value: str) -> str:
     return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
 
-def _body_derived_headers(message: JSONRPCMessage) -> dict[str, str]:
-    """Derive 2026-era headers from an envelope-bearing request body. Empty dict for legacy bodies."""
-    if not isinstance(message, JSONRPCRequest) or message.params is None:
-        return {}
-    meta = message.params.get("_meta")
-    if meta is None:
-        return {}
-    version = meta.get(PROTOCOL_VERSION_META_KEY)
-    if not isinstance(version, str):
-        return {}
-    headers: dict[str, str] = {MCP_PROTOCOL_VERSION: version, MCP_METHOD: message.method}
-    if message.method == "tools/call":
-        name = message.params.get("name")
-        if isinstance(name, str):
-            headers[MCP_NAME] = _encode_header_value(name)
-    return headers
-
-
 class StreamableHTTPError(Exception):
     """Base exception for StreamableHTTP transport errors."""
 
@@ -106,15 +87,39 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, protocol_version: str | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            protocol_version: Pin the MCP-Protocol-Version header from the first request
+                instead of waiting to snoop it from an InitializeResult. Required for
+                stateless 2026-07-28 sessions that never send initialize.
         """
         self.url = url
         self.session_id: str | None = None
-        self.protocol_version: str | None = None
+        self.protocol_version: str | None = protocol_version
+
+    # TODO: header derivation from the pin (not body _meta) per spec; body envelope is request-only.
+    def _per_message_headers(self, message: JSONRPCMessage) -> dict[str, str]:
+        """Per-POST routing headers (Mcp-Method, Mcp-Name) for 2026-07-28+ pinned transports.
+
+        MCP-Protocol-Version is not emitted here — `_prepare_headers()` already adds it
+        from `self.protocol_version` for every request.
+        """
+        if self.protocol_version is None or self.protocol_version < "2026-07-28":
+            return {}
+        if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
+            return {}
+        headers: dict[str, str] = {MCP_METHOD: message.method}
+        if (
+            isinstance(message, JSONRPCRequest)
+            and message.method == "tools/call"
+            and message.params
+            and isinstance(name := message.params.get("name"), str)
+        ):
+            headers[MCP_NAME] = _encode_header_value(name)
+        return headers
 
     def _prepare_headers(self) -> dict[str, str]:
         """Build MCP-specific request headers.
@@ -150,6 +155,9 @@ class StreamableHTTPTransport:
 
     def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
+        if self.protocol_version is not None:
+            # Constructor pin wins over snooping the InitializeResult.
+            return
         if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
@@ -289,7 +297,7 @@ class StreamableHTTPTransport:
         """Handle a POST request with response processing."""
         headers = self._prepare_headers()
         message = ctx.session_message.message
-        headers.update(_body_derived_headers(message))
+        headers.update(self._per_message_headers(message))
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(
@@ -556,6 +564,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    protocol_version: str | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -565,6 +574,8 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        protocol_version: Pin the MCP-Protocol-Version header for stateless 2026-07-28 sessions.
+            Tracer-bullet duplication — also pass to `ClientSession(protocol_version=...)`.
 
     Yields:
         Tuple containing:
@@ -582,7 +593,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, protocol_version=protocol_version)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

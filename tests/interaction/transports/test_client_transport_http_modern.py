@@ -1,10 +1,11 @@
 """Behaviour of the streamable-HTTP client transport under the 2026-07-28 stateless protocol.
 
 A pinned session stamps the ``io.modelcontextprotocol/*`` `_meta` envelope onto every outgoing
-request, and the streamable-HTTP transport derives the ``MCP-Protocol-Version`` / ``Mcp-Method`` /
-``Mcp-Name`` headers from that body. These tests pin the composition through a real ``httpx``
-request against a canned ``httpx.MockTransport`` -- no in-process 2026 server exists yet to record
-the headers against. The header-derivation helpers themselves are unit-tested in
+request, and a pinned streamable-HTTP transport adds the ``MCP-Protocol-Version`` / ``Mcp-Method`` /
+``Mcp-Name`` headers to each POST. The pin is a tracer-bullet duplication: both
+``streamable_http_client()`` and ``ClientSession()`` take ``protocol_version`` until the higher-level
+client wires them together. These tests drive the composition through a real ``httpx`` request
+against a canned ``httpx.MockTransport``; the per-message header derivation itself is unit-tested in
 ``tests/client/test_streamable_http.py``.
 """
 
@@ -27,14 +28,13 @@ pytestmark = pytest.mark.anyio
 @requirement("client-transport:http:body-derived-headers")
 @requirement("lifecycle:stateless:request-envelope")
 async def test_pinned_session_post_carries_body_derived_headers_on_the_wire() -> None:
-    """A pinned ``call_tool`` over streamable HTTP lands as a POST whose headers were derived from its body.
+    """A pinned ``call_tool`` over streamable HTTP lands as a POST carrying the three stateless headers.
 
     Spec-mandated for the body-derived headers and the request envelope: this is the wire-seam proof
-    that the ``ClientSession`` envelope stamp and the transport's header derivation are actually
-    composed -- the streamable-HTTP POST wiring is driven through a real ``httpx`` request. A canned
-    ``httpx.MockTransport`` stands in for the (not-yet-existing) 2026 server; the ``isError`` result
-    skips the client's implicit ``tools/list`` output-schema fetch so the recorded log is the single
-    POST.
+    that the ``ClientSession`` envelope stamp and the pinned transport's header derivation are
+    actually composed -- the streamable-HTTP POST wiring is driven through a real ``httpx`` request.
+    A canned ``httpx.MockTransport`` stands in for the server; the ``isError`` result skips the
+    client's implicit ``tools/list`` output-schema fetch so the recorded log is the single POST.
     """
     recorded: list[httpx.Request] = []
 
@@ -47,7 +47,7 @@ async def test_pinned_session_post_carries_body_derived_headers_on_the_wire() ->
     with anyio.fail_after(5):
         async with (
             httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version="2026-07-28") as (read, write),
             ClientSession(
                 read,
                 write,
@@ -103,7 +103,7 @@ async def test_pinned_session_ignores_returned_session_id_and_never_opens_get_or
     with anyio.fail_after(5):
         async with (
             httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version="2026-07-28") as (read, write),
             ClientSession(read, write, protocol_version="2026-07-28") as session,
         ):
             await session.call_tool("add", {"a": 2, "b": 3})

@@ -1,8 +1,9 @@
 """Unit tests for the streamable-HTTP client transport.
 
 The full client<->server round trip is pinned by the interaction suite under
-tests/interaction/transports/; these tests cover the private header-derivation helpers
-directly because the headers are an HTTP-seam observation the public client never exposes.
+tests/interaction/transports/; these tests cover the transport's per-message header
+derivation directly because the headers are an HTTP-seam observation the public client
+never exposes.
 """
 
 import base64
@@ -10,47 +11,50 @@ import base64
 import pytest
 from inline_snapshot import snapshot
 
-from mcp.client.streamable_http import _body_derived_headers, _encode_header_value
-from mcp.types import PROTOCOL_VERSION_META_KEY, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest
-
-_ENVELOPE = {PROTOCOL_VERSION_META_KEY: "2026-07-28"}
+from mcp.client.streamable_http import StreamableHTTPTransport, _encode_header_value
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
 @pytest.mark.parametrize(
     ("message", "expected"),
     [
         (
-            JSONRPCRequest(
-                jsonrpc="2.0", id=1, method="tools/call", params={"name": "add", "arguments": {}, "_meta": _ENVELOPE}
-            ),
-            snapshot({"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "add"}),
+            JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "add", "arguments": {}}),
+            snapshot({"mcp-method": "tools/call", "mcp-name": "add"}),
         ),
         (
-            JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={"_meta": _ENVELOPE}),
-            snapshot({"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list"}),
+            JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={}),
+            snapshot({"mcp-method": "tools/list"}),
         ),
         (
-            JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/call", params={"_meta": _ENVELOPE}),
-            snapshot({"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"}),
+            JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled"),
+            snapshot({"mcp-method": "notifications/cancelled"}),
         ),
         (
-            JSONRPCRequest(jsonrpc="2.0", id=3, method="tools/call", params={"name": "add", "arguments": {}}),
-            snapshot({}),
-        ),
-        (
-            JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"),
+            JSONRPCResponse(jsonrpc="2.0", id=3, result={}),
             snapshot({}),
         ),
     ],
 )
-def test_body_derived_headers_reflect_the_envelope_on_the_request_body(
+def test_per_message_headers_for_pinned_transport_carry_method_and_name(
     message: JSONRPCMessage, expected: dict[str, str]
 ) -> None:
-    """An envelope-bearing body yields the three stateless headers; a legacy body yields none.
+    """A 2026-07-28-pinned transport derives ``Mcp-Method`` (and ``Mcp-Name`` for tools/call) from the body.
 
-    Legacy bodies returning ``{}`` is what keeps the unpinned wire byte-identical to a pre-2026 client.
+    ``MCP-Protocol-Version`` is not in the per-message set: ``_prepare_headers()`` adds it from the
+    pin for every request, so only the method/name advisory headers vary per POST. Responses yield
+    nothing because the spec only defines the headers for requests and notifications.
     """
-    assert _body_derived_headers(message) == expected
+    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2026-07-28")
+    assert transport._per_message_headers(message) == expected  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize("protocol_version", [None, "2025-11-25"])
+def test_per_message_headers_are_empty_for_legacy_or_unpinned_transport(protocol_version: str | None) -> None:
+    """An unpinned or 2025-era transport emits no per-message headers, keeping the wire byte-identical to v1."""
+    transport = StreamableHTTPTransport("http://test/mcp", protocol_version=protocol_version)
+    message = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "add", "arguments": {}})
+    assert transport._per_message_headers(message) == {}  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.parametrize(
@@ -78,3 +82,19 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
         assert base64.b64decode(encoded.removeprefix("=?base64?").removesuffix("?=")).decode() == raw
     else:
         assert encoded == raw
+
+
+def test_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:
+    """A protocol_version passed at construction wins over the InitializeResult snoop."""
+    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2026-07-28")
+    init = JSONRPCResponse(
+        jsonrpc="2.0",
+        id=1,
+        result={
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "serverInfo": {"name": "s", "version": "0"},
+        },
+    )
+    transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
+    assert transport.protocol_version == "2026-07-28"

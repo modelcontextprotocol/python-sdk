@@ -220,7 +220,10 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     with anyio.fail_after(5):
         async with (
             mounted_app(_server(), on_request=on_request, on_response=on_response) as (http, _),
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version=MODERN_VERSION) as (
+                read,
+                write,
+            ),
             ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
         ):
             result = await session.call_tool("add", {"a": 2, "b": 3})

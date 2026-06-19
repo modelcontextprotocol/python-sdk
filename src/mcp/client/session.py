@@ -231,16 +231,18 @@ class ClientSession:
         if self._pinned_version is not None:
             params = data.setdefault("params", {})
             envelope_meta = params.setdefault("_meta", {})
-            envelope_meta.setdefault(PROTOCOL_VERSION_META_KEY, self._pinned_version)
-            envelope_meta.setdefault(
-                CLIENT_INFO_META_KEY,
-                self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True),
+            envelope_meta[PROTOCOL_VERSION_META_KEY] = self._pinned_version
+            envelope_meta[CLIENT_INFO_META_KEY] = self._client_info.model_dump(
+                by_alias=True, mode="json", exclude_none=True
             )
-            envelope_meta.setdefault(
-                CLIENT_CAPABILITIES_META_KEY,
-                self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True),
+            envelope_meta[CLIENT_CAPABILITIES_META_KEY] = self._build_capabilities().model_dump(
+                by_alias=True, mode="json", exclude_none=True
             )
         opts: CallOptions = {}
+        if self._pinned_version is not None:
+            # Stateless pinned mode: disconnect-as-cancel is the spec mechanism, so the
+            # dispatcher must not emit notifications/cancelled when the caller abandons.
+            opts["cancel_on_abandon"] = False
         timeout = (
             request_read_timeout_seconds
             if request_read_timeout_seconds is not None
