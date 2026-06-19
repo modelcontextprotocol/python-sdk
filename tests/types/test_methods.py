@@ -190,13 +190,12 @@ EXPECTED_METHODS: dict[str, dict[str, frozenset[str]]] = {
                 "tools/list",
             }
         ),
-        "CLIENT_NOTIFICATIONS": frozenset({"notifications/cancelled", "notifications/progress"}),
+        "CLIENT_NOTIFICATIONS": frozenset({"notifications/cancelled"}),
         # No standalone server-to-client request channel at this version.
         "SERVER_REQUESTS": frozenset(),
         "SERVER_NOTIFICATIONS": frozenset(
             {
                 "notifications/cancelled",
-                "notifications/elicitation/complete",
                 "notifications/message",
                 "notifications/progress",
                 "notifications/prompts/list_changed",
@@ -366,7 +365,6 @@ NOTIFICATION_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
     v2025.RootsListChangedNotification: None,
     v2025.ToolListChangedNotification: None,
     v2026.CancelledNotification: {"requestId": 1},
-    v2026.ElicitationCompleteNotification: {"elicitationId": "e1"},
     v2026.LoggingMessageNotification: {"level": "info", "data": "x"},
     v2026.ProgressNotification: {"progressToken": 1, "progress": 0.5},
     v2026.PromptListChangedNotification: None,

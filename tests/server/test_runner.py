@@ -320,16 +320,18 @@ async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiat
     async def dropped(ctx: Ctx, params: NotificationParams) -> None:
         raise NotImplementedError  # the version gate drops the notification first
 
-    async def on_progress(ctx: Ctx, params: ProgressNotificationParams) -> None:
+    async def on_barrier(ctx: Ctx, params: NotificationParams) -> None:
         barrier.set()
 
     server.add_notification_handler("notifications/roots/list_changed", NotificationParams, dropped)
-    server.add_notification_handler("notifications/progress", ProgressNotificationParams, on_progress)
+    # A custom (non-spec) method bypasses the version gate, so it reaches its
+    # handler regardless of which spec notifications exist at the pinned version.
+    server.add_notification_handler("custom/barrier", NotificationParams, on_barrier)
     with caplog.at_level("DEBUG", logger="mcp.server.runner"):
         async with connected_runner(server) as (client, runner):
             runner.connection.protocol_version = "2026-07-28"
             await client.notify("notifications/roots/list_changed", None)
-            await client.notify("notifications/progress", {"progressToken": 1, "progress": 0.5})
+            await client.notify("custom/barrier", None)
             await barrier.wait()
     assert "dropped 'notifications/roots/list_changed': not defined at 2026-07-28" in caplog.text
 

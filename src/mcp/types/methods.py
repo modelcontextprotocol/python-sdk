@@ -144,9 +144,8 @@ CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
         ("notifications/initialized", "2025-11-25"): v2025.InitializedNotification,
         ("notifications/progress", "2025-11-25"): v2025.ProgressNotification,
         ("notifications/roots/list_changed", "2025-11-25"): v2025.RootsListChangedNotification,
-        # 2026-07-28 (initialized and roots/list_changed removed)
+        # 2026-07-28 (initialized, progress and roots/list_changed removed)
         ("notifications/cancelled", "2026-07-28"): v2026.CancelledNotification,
-        ("notifications/progress", "2026-07-28"): v2026.ProgressNotification,
     }
 )
 
@@ -212,9 +211,8 @@ SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
         ("notifications/resources/list_changed", "2025-11-25"): v2025.ResourceListChangedNotification,
         ("notifications/resources/updated", "2025-11-25"): v2025.ResourceUpdatedNotification,
         ("notifications/tools/list_changed", "2025-11-25"): v2025.ToolListChangedNotification,
-        # 2026-07-28 (adds subscriptions/acknowledged)
+        # 2026-07-28 (adds subscriptions/acknowledged; elicitation/complete removed)
         ("notifications/cancelled", "2026-07-28"): v2026.CancelledNotification,
-        ("notifications/elicitation/complete", "2026-07-28"): v2026.ElicitationCompleteNotification,
         ("notifications/message", "2026-07-28"): v2026.LoggingMessageNotification,
         ("notifications/progress", "2026-07-28"): v2026.ProgressNotification,
         ("notifications/prompts/list_changed", "2026-07-28"): v2026.PromptListChangedNotification,

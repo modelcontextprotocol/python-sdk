@@ -41,19 +41,26 @@ class JSONRPCResponse(BaseModel):
     result: dict[str, Any]
 
 
-# MCP-specific error codes in the range [-32000, -32099]
+# MCP error codes occupy the JSON-RPC server-error range -32000..-32099.
+# Per the 2026-07-28 spec's allocation policy:
+#   -32000..-32019  implementation-defined
+#   -32020..-32099  reserved for spec-defined codes, allocated sequentially from -32020
+#   -32002, -32042  reserved-never-reused (retired by earlier protocol versions)
+
+HEADER_MISMATCH = -32020
+"""HTTP headers do not match the request body, or required headers are missing/malformed (protocol 2026-07-28)."""
+
+MISSING_REQUIRED_CLIENT_CAPABILITY = -32021
+"""The server requires a client capability the request did not declare (protocol 2026-07-28)."""
+
+UNSUPPORTED_PROTOCOL_VERSION = -32022
+"""The request's protocol version is not supported by the server (protocol 2026-07-28)."""
+
 URL_ELICITATION_REQUIRED = -32042
 """A URL-mode elicitation is required before the request can be processed (protocol 2025-11-25 only)."""
 
-MISSING_REQUIRED_CLIENT_CAPABILITY = -32003
-"""The server requires a client capability the request did not declare (protocol 2026-07-28)."""
-
-UNSUPPORTED_PROTOCOL_VERSION = -32004
-"""The request's protocol version is not supported by the server (protocol 2026-07-28)."""
-
-# SDK error codes: SDK-internal allocations in the JSON-RPC server-error range
-# [-32000, -32099]; not defined by the MCP schema. New values must avoid codes
-# the spec has allocated above.
+# SDK error codes: SDK-internal allocations in the implementation-defined band
+# -32000..-32019; not defined by the MCP schema.
 CONNECTION_CLOSED = -32000
 """SDK-only: the connection closed before a response arrived; never emitted on the wire."""
 

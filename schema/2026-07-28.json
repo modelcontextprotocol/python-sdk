@@ -126,7 +126,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -264,7 +264,7 @@
             "type": "object"
         },
         "CancelledNotification": {
-            "description": "This notification can be sent by either side to indicate that it is cancelling a previously-issued request.\n\nThe request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.\n\nThis notification indicates that the result will be unused, so any associated processing SHOULD cease.",
+            "description": "This notification is sent by the client to indicate that it is cancelling a request it previously issued.\n\nOn stdio, the server also sends this notification, solely to terminate a {@link SubscriptionsListenRequestsubscriptions/listen} stream: it references the ID of the `subscriptions/listen` request that opened the stream. Servers MUST NOT use this notification to cancel any other request.\n\nThe request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.\n\nThis notification indicates that the result will be unused, so any associated processing SHOULD cease.",
             "properties": {
                 "jsonrpc": {
                     "const": "2.0",
@@ -289,7 +289,7 @@
             "description": "Parameters for a `notifications/cancelled` notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 },
                 "reason": {
                     "description": "An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.",
@@ -297,9 +297,12 @@
                 },
                 "requestId": {
                     "$ref": "#/$defs/RequestId",
-                    "description": "The ID of the request to cancel.\n\nThis MUST correspond to the ID of a request previously issued in the same direction."
+                    "description": "The ID of the request to cancel.\n\nThis MUST correspond to the ID of a request the client previously issued."
                 }
             },
+            "required": [
+                "requestId"
+            ],
             "type": "object"
         },
         "ClientCapabilities": {
@@ -328,7 +331,7 @@
                     "additionalProperties": {
                         "$ref": "#/$defs/JSONObject"
                     },
-                    "description": "Optional MCP extensions that the client supports. Keys are extension identifiers\n(e.g., \"io.modelcontextprotocol/oauth-client-credentials\"), and values are\nper-extension settings objects. An empty object indicates support with no settings.",
+                    "description": "Optional MCP extensions that the client supports. Keys are extension identifiers\n(e.g., \"io.modelcontextprotocol/oauth-client-credentials\"), and values are\nper-extension settings objects. An empty object indicates support with no settings.\n\nKeys MUST follow the {@link MetaObject`_meta` key naming rules}, with a\nmandatory prefix.",
                     "type": "object"
                 },
                 "roots": {
@@ -354,14 +357,26 @@
             "type": "object"
         },
         "ClientNotification": {
-            "anyOf": [
-                {
-                    "$ref": "#/$defs/CancelledNotification"
+            "description": "This notification is sent by the client to indicate that it is cancelling a request it previously issued.\n\nOn stdio, the server also sends this notification, solely to terminate a {@link SubscriptionsListenRequestsubscriptions/listen} stream: it references the ID of the `subscriptions/listen` request that opened the stream. Servers MUST NOT use this notification to cancel any other request.\n\nThe request SHOULD still be in-flight, but due to communication latency, it is always possible that this notification MAY arrive after the request has already finished.\n\nThis notification indicates that the result will be unused, so any associated processing SHOULD cease.",
+            "properties": {
+                "jsonrpc": {
+                    "const": "2.0",
+                    "type": "string"
                 },
-                {
-                    "$ref": "#/$defs/ProgressNotification"
+                "method": {
+                    "const": "notifications/cancelled",
+                    "type": "string"
+                },
+                "params": {
+                    "$ref": "#/$defs/CancelledNotificationParams"
                 }
-            ]
+            },
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
+            "type": "object"
         },
         "ClientRequest": {
             "anyOf": [
@@ -728,7 +743,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -874,10 +889,6 @@
         "ElicitRequestURLParams": {
             "description": "The parameters for a request to elicit information from the user via a URL in the client.",
             "properties": {
-                "elicitationId": {
-                    "description": "The ID of the elicitation, which must be unique within the context of the server.\nThe client MUST treat this ID as an opaque value.",
-                    "type": "string"
-                },
                 "message": {
                     "description": "The message to present to the user explaining why the interaction is needed.",
                     "type": "string"
@@ -894,7 +905,6 @@
                 }
             },
             "required": [
-                "elicitationId",
                 "message",
                 "mode",
                 "url"
@@ -937,37 +947,6 @@
             },
             "required": [
                 "action"
-            ],
-            "type": "object"
-        },
-        "ElicitationCompleteNotification": {
-            "description": "An optional notification from the server to the client, informing it of a completion of a out-of-band elicitation request.",
-            "properties": {
-                "jsonrpc": {
-                    "const": "2.0",
-                    "type": "string"
-                },
-                "method": {
-                    "const": "notifications/elicitation/complete",
-                    "type": "string"
-                },
-                "params": {
-                    "properties": {
-                        "elicitationId": {
-                            "description": "The ID of the elicitation that completed.",
-                            "type": "string"
-                        }
-                    },
-                    "required": [
-                        "elicitationId"
-                    ],
-                    "type": "object"
-                }
-            },
-            "required": [
-                "jsonrpc",
-                "method",
-                "params"
             ],
             "type": "object"
         },
@@ -1153,6 +1132,42 @@
                 "id",
                 "jsonrpc",
                 "result"
+            ],
+            "type": "object"
+        },
+        "HeaderMismatchError": {
+            "description": "Returned when a server rejects a request because the values in the HTTP\nheaders do not match the corresponding values in the request body, or\nbecause required headers are missing or malformed. For HTTP, the response\nstatus code MUST be `400 Bad Request`.",
+            "properties": {
+                "error": {
+                    "allOf": [
+                        {
+                            "$ref": "#/$defs/Error"
+                        },
+                        {
+                            "properties": {
+                                "code": {
+                                    "const": -32020,
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "code"
+                            ],
+                            "type": "object"
+                        }
+                    ]
+                },
+                "id": {
+                    "$ref": "#/$defs/RequestId"
+                },
+                "jsonrpc": {
+                    "const": "2.0",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "error",
+                "jsonrpc"
             ],
             "type": "object"
         },
@@ -1632,7 +1647,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -1721,7 +1736,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -1810,7 +1825,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -1874,7 +1889,12 @@
                     "type": "string"
                 },
                 "params": {
-                    "$ref": "#/$defs/RequestParams"
+                    "properties": {
+                        "_meta": {
+                            "$ref": "#/$defs/MetaObject"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "required": [
@@ -1930,7 +1950,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -2026,7 +2046,7 @@
             "description": "Parameters for a `notifications/message` notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 },
                 "data": {
                     "description": "The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here."
@@ -2051,7 +2071,7 @@
             "type": "object"
         },
         "MethodNotFoundError": {
-            "description": "A JSON-RPC error indicating that the requested method does not exist or is not available.\n\nIn MCP, a server returns this error when a client invokes a method the server does not implement — either a genuinely unknown method, or one gated behind a server capability the server did not advertise (e.g., calling `prompts/list` when the `prompts` capability was not advertised).\n\nA request that requires a client capability the client did not declare is signalled instead by {@link MissingRequiredClientCapabilityError} (`-32003`).",
+            "description": "A JSON-RPC error indicating that the requested method does not exist or is not available.\n\nIn MCP, a server returns this error when a client invokes a method the server does not implement — either a genuinely unknown method, or one gated behind a server capability the server did not advertise (e.g., calling `prompts/list` when the `prompts` capability was not advertised).\n\nA request that requires a client capability the client did not declare is signalled instead by {@link MissingRequiredClientCapabilityError} (`-32021`).",
             "properties": {
                 "code": {
                     "const": -32601,
@@ -2083,7 +2103,7 @@
                         {
                             "properties": {
                                 "code": {
-                                    "const": -32003,
+                                    "const": -32021,
                                     "type": "integer"
                                 },
                                 "data": {
@@ -2187,11 +2207,21 @@
             ],
             "type": "object"
         },
+        "NotificationMetaObject": {
+            "description": "Extends {@link MetaObject} with additional notification-specific fields. All key naming rules from `MetaObject` apply.",
+            "properties": {
+                "io.modelcontextprotocol/subscriptionId": {
+                    "$ref": "#/$defs/RequestId",
+                    "description": "Identifies the subscription stream a notification was delivered on. The\nserver MUST include this key on every notification delivered via a\n{@link SubscriptionsListenRequestsubscriptions/listen} stream, so the\nclient can correlate the notification with the originating subscription.\nThe key is absent on notifications not delivered via a subscription\nstream (e.g. progress notifications for an in-flight request), which is\nwhy it is optional here.\n\nThe value is the JSON-RPC ID of the `subscriptions/listen` request that\nopened the stream."
+                }
+            },
+            "type": "object"
+        },
         "NotificationParams": {
             "description": "Common params for any notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 }
             },
             "type": "object"
@@ -2362,7 +2392,7 @@
             "description": "Parameters for a {@link ProgressNotificationnotifications/progress} notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 },
                 "message": {
                     "description": "An optional message describing the current progress.",
@@ -2458,7 +2488,7 @@
             "type": "object"
         },
         "PromptListChangedNotification": {
-            "description": "An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This may be issued by servers without any previous subscription from the client.",
+            "description": "An optional notification from the server to the client, informing it that the list of prompts it offers has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `promptsListChanged` filter field.",
             "properties": {
                 "jsonrpc": {
                     "const": "2.0",
@@ -2573,7 +2603,7 @@
                     "$ref": "#/$defs/MetaObject"
                 },
                 "cacheScope": {
-                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: Any client or intermediary (e.g., shared gateway, proxy)\n  MAY cache the response and serve it to any user.\n- `\"private\"`: Only the requesting user's client MAY cache the response.\n  Shared caches (e.g., multi-tenant gateways) MUST NOT serve a cached\n  copy to a different user.",
+                    "description": "Indicates the intended scope of the cached response, analogous to HTTP\n`Cache-Control: public` vs `Cache-Control: private`.\n\n- `\"public\"`: The response does not contain user-specific data. Any\n  client or intermediary (e.g., shared gateway, caching proxy) MAY cache\n  the response and serve it across authorization contexts.\n- `\"private\"`: The response MAY be cached and reused only within the\n  same authorization context. Caches MUST NOT be shared across\n  authorization contexts (e.g., a different access token requires a\n  different cache).",
                     "enum": [
                         "private",
                         "public"
@@ -2829,7 +2859,7 @@
             "type": "object"
         },
         "ResourceListChangedNotification": {
-            "description": "An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This may be issued by servers without any previous subscription from the client.",
+            "description": "An optional notification from the server to the client, informing it that the list of resources it can read from has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `resourcesListChanged` filter field.",
             "properties": {
                 "jsonrpc": {
                     "const": "2.0",
@@ -2957,7 +2987,7 @@
             "description": "Parameters for a `notifications/resources/updated` notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 },
                 "uri": {
                     "description": "The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.",
@@ -3098,7 +3128,7 @@
                     "additionalProperties": {
                         "$ref": "#/$defs/JSONObject"
                     },
-                    "description": "Optional MCP extensions that the server supports. Keys are extension identifiers\n(e.g., \"io.modelcontextprotocol/tasks\"), and values are per-extension settings\nobjects. An empty object indicates support with no settings.",
+                    "description": "Optional MCP extensions that the server supports. Keys are extension identifiers\n(e.g., \"io.modelcontextprotocol/tasks\"), and values are per-extension settings\nobjects. An empty object indicates support with no settings.\n\nKeys MUST follow the {@link MetaObject`_meta` key naming rules}, with a\nmandatory prefix.",
                     "type": "object"
                 },
                 "logging": {
@@ -3167,9 +3197,6 @@
                 },
                 {
                     "$ref": "#/$defs/LoggingMessageNotification"
-                },
-                {
-                    "$ref": "#/$defs/ElicitationCompleteNotification"
                 }
             ]
         },
@@ -3307,7 +3334,7 @@
             "description": "Parameters for a {@link SubscriptionsAcknowledgedNotificationnotifications/subscriptions/acknowledged} notification.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/MetaObject"
+                    "$ref": "#/$defs/NotificationMetaObject"
                 },
                 "notifications": {
                     "$ref": "#/$defs/SubscriptionFilter",
@@ -3549,7 +3576,7 @@
                 },
                 "inputSchema": {
                     "additionalProperties": {},
-                    "description": "A JSON Schema object defining the expected parameters for the tool.\n\nTool arguments are always JSON objects, so `type: \"object\"` is required at the root.\nBeyond that, any JSON Schema 2020-12 keyword may appear alongside `type` — including\ncomposition keywords (`oneOf`, `anyOf`, `allOf`, `not`), conditional keywords\n(`if`/`then`/`else`), reference keywords (`$ref`, `$defs`, `$anchor`), and any other\nstandard validation or annotation keywords.\n\nDefaults to JSON Schema 2020-12 when no explicit `$schema` is provided.",
+                    "description": "A JSON Schema object defining the expected parameters for the tool.\n\nTool arguments are always JSON objects, so `type: \"object\"` is required at the root.\nBeyond that, any JSON Schema 2020-12 keyword may appear alongside `type` — including\ncomposition keywords (`oneOf`, `anyOf`, `allOf`, `not`), conditional keywords\n(`if`/`then`/`else`), reference keywords (`$ref`, `$defs`, `$anchor`), and any other\nstandard validation or annotation keywords.\n\nProperty schemas may carry an `x-mcp-header` annotation to mirror the\nargument value into an HTTP header on the Streamable HTTP transport. See\nthe Streamable HTTP transport specification for the validity and\nextraction rules.\n\nDefaults to JSON Schema 2020-12 when no explicit `$schema` is provided.",
                     "properties": {
                         "$schema": {
                             "type": "string"
@@ -3631,7 +3658,7 @@
             "type": "object"
         },
         "ToolListChangedNotification": {
-            "description": "An optional notification from the server to the client, informing it that the list of tools it offers has changed. This may be issued by servers without any previous subscription from the client.",
+            "description": "An optional notification from the server to the client, informing it that the list of tools it offers has changed. This is only delivered on a {@link SubscriptionsListenRequestsubscriptions/listen} stream when the client requested it via the `toolsListChanged` filter field.",
             "properties": {
                 "jsonrpc": {
                     "const": "2.0",
@@ -3732,7 +3759,7 @@
                         {
                             "properties": {
                                 "code": {
-                                    "const": -32004,
+                                    "const": -32022,
                                     "type": "integer"
                                 },
                                 "data": {

@@ -397,7 +397,7 @@ class ClientCapabilities(MCPModel):
 
 
 class UnsupportedProtocolVersionErrorData(MCPModel):
-    """Error data for the -32004 unsupported-protocol-version error (2026-07-28)."""
+    """Error data for the -32022 unsupported-protocol-version error (2026-07-28)."""
 
     supported: list[str]
     """Protocol versions the server supports; the client should pick one and retry."""
@@ -406,7 +406,7 @@ class UnsupportedProtocolVersionErrorData(MCPModel):
 
 
 class MissingRequiredClientCapabilityErrorData(MCPModel):
-    """Error data for the -32003 missing-required-client-capability error (2026-07-28)."""
+    """Error data for the -32021 missing-required-client-capability error (2026-07-28)."""
 
     required_capabilities: ClientCapabilities
     """The capabilities the server requires from the client to process this request."""

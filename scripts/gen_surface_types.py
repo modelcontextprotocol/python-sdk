@@ -84,7 +84,9 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
 # reuses class names across versions for unrelated schemas (e.g. `Data`).
 OPEN_CLASSES: dict[str, frozenset[str]] = {
     "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
-    "2026-07-28": frozenset({"MetaObject", "RequestMetaObject", "InputSchema", "OutputSchema", "Result"}),
+    "2026-07-28": frozenset(
+        {"MetaObject", "NotificationMetaObject", "RequestMetaObject", "InputSchema", "OutputSchema", "Result"}
+    ),
 }
 
 # Hand-written union aliases the wire-method maps reference by value; the schema

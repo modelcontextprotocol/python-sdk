@@ -132,7 +132,7 @@ server:
   - input-required-result-capability-check
   # SEP-2549 (caching): no ttlMs/cacheScope support.
   - caching
-  # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
+  # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
   # case-insensitive/whitespace-trimmed header validation not implemented.
   - http-header-validation
   - http-custom-header-server-validation
