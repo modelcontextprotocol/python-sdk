@@ -48,8 +48,13 @@ on the active axis (SPEC_VERSIONS) until the 2026-07-28 implementation lands."""
 SPEC_VERSIONS: tuple[SpecVersion, ...] = ("2025-11-25",)
 """The active spec-version matrix axis, ordered oldest to newest. Every entry must be in KNOWN_PROTOCOL_VERSIONS."""
 
-SPEC_REVISION = SPEC_VERSIONS[-1]
-SPEC_BASE_URL = f"https://modelcontextprotocol.io/specification/{SPEC_REVISION}"
+SPEC_BASE_URL = "https://modelcontextprotocol.io/specification/2025-11-25"
+"""Deep-link base for entries citing the 2025-11-25 revision (the bulk of the manifest). Pinned --
+not derived from SPEC_VERSIONS -- so adding a newer revision to the active axis does not silently
+repoint existing source URLs."""
+
+SPEC_2026_BASE_URL = "https://modelcontextprotocol.io/specification/2026-07-28"
+"""Deep-link base for entries citing the 2026-07-28 revision."""
 
 Transport = Literal["in-memory", "stdio", "streamable-http", "streamable-http-stateless", "sse"]
 

@@ -137,8 +137,10 @@ it does not (the rewrite broke something that was correct — fix the rewrite).
 ### Spec versions and the era axis
 
 `SPEC_VERSIONS` in `_requirements.py` is the ordered tuple of protocol revisions the suite
-exercises; `SPEC_REVISION = SPEC_VERSIONS[-1]` is the newest. The `connect` fixture fans out over
-`CONNECTABLE_TRANSPORTS × SPEC_VERSIONS`, but the grid is filtered per test:
+exercises. `SPEC_BASE_URL` (and `SPEC_2026_BASE_URL`) are pinned literals — not derived from
+`SPEC_VERSIONS` — so growing the active axis never repoints existing `source` links. The
+`connect` fixture fans out over `CONNECTABLE_TRANSPORTS × SPEC_VERSIONS`, but the grid is
+filtered per test:
 `pytest_generate_tests` reads the test's stacked `@requirement` marks and calls `compute_cells()`,
 which intersects the admissible cells across every cited requirement — a cell survives only if
 **all** of the test's requirements admit it.

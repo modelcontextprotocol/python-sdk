@@ -20,6 +20,8 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 from tests.interaction._requirements import (
     CONNECTABLE_TRANSPORTS,
     REQUIREMENTS,
+    SPEC_2026_BASE_URL,
+    SPEC_BASE_URL,
     SPEC_VERSIONS,
     ArmExclusion,
     KnownFailure,
@@ -114,6 +116,12 @@ def test_spec_versions_are_known_and_include_latest() -> None:
     """Every active spec version is one the SDK knows about, and the SDK's latest is on the active axis."""
     assert set(SPEC_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
     assert LATEST_PROTOCOL_VERSION in SPEC_VERSIONS
+
+
+def test_spec_base_urls_are_pinned_to_their_revision() -> None:
+    """SPEC_BASE_URL constants are pinned literals, so growing SPEC_VERSIONS cannot repoint existing source links."""
+    assert SPEC_BASE_URL == "https://modelcontextprotocol.io/specification/2025-11-25"
+    assert SPEC_2026_BASE_URL == "https://modelcontextprotocol.io/specification/2026-07-28"
 
 
 def test_connectable_transports_match_connect_factories() -> None:
@@ -260,8 +268,8 @@ def _req(
 
 
 def test_compute_cells_with_no_requirements_yields_full_grid() -> None:
-    """An empty requirement list yields one cell per connectable transport at the single active spec version."""
-    cells = compute_cells([])
+    """With a single-version axis, an empty requirement list yields one cell per connectable transport."""
+    cells = compute_cells([], spec_versions=("2025-11-25",))
     assert [c.id for c in cells] == ["in-memory", "sse", "streamable-http", "streamable-http-stateless"]
     assert [c.values for c in cells] == [
         (("in-memory", "2025-11-25"),),
@@ -301,7 +309,10 @@ def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None
 
 def test_compute_cells_honours_arm_exclusion_from_any_stacked_requirement() -> None:
     """An arm exclusion on any stacked requirement drops the matching cell even when other requirements have none."""
-    cells = compute_cells([_req(), _req(arm_exclusions=(ArmExclusion(reason="requires-session", transport="sse"),))])
+    cells = compute_cells(
+        [_req(), _req(arm_exclusions=(ArmExclusion(reason="requires-session", transport="sse"),))],
+        spec_versions=("2025-11-25",),
+    )
     assert [c.id for c in cells] == ["in-memory", "streamable-http", "streamable-http-stateless"]
 
 
@@ -313,7 +324,10 @@ def test_compute_cells_wildcard_arm_exclusion_drops_every_cell() -> None:
 
 def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
     """A known failure attaches a strict xfail mark to exactly the matching cell and leaves others unmarked."""
-    cells = compute_cells([_req(known_failures=(KnownFailure(note="broken on sse", transport="sse"),))])
+    cells = compute_cells(
+        [_req(known_failures=(KnownFailure(note="broken on sse", transport="sse"),))],
+        spec_versions=("2025-11-25",),
+    )
     by_id = {c.id: c for c in cells}
     assert set(by_id) == {"in-memory", "sse", "streamable-http", "streamable-http-stateless"}
     assert by_id["sse"].marks[0].name == "xfail"
@@ -325,7 +339,7 @@ def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
 
 def test_compute_cells_wildcard_known_failure_marks_every_cell() -> None:
     """A known failure with both transport and spec_version unset marks every emitted cell as strict xfail."""
-    cells = compute_cells([_req(known_failures=(KnownFailure(note="all broken"),))])
+    cells = compute_cells([_req(known_failures=(KnownFailure(note="all broken"),))], spec_versions=("2025-11-25",))
     assert len(cells) == 4
     assert all(c.marks[0].name == "xfail" for c in cells)
     assert all(c.marks[0].kwargs == {"reason": "all broken", "strict": True} for c in cells)
@@ -333,13 +347,13 @@ def test_compute_cells_wildcard_known_failure_marks_every_cell() -> None:
 
 def test_compute_cells_ignores_transports_field() -> None:
     """Requirement.transports is descriptive metadata only and does not filter the cell grid."""
-    cells = compute_cells([_req(transports=("stdio",))])
+    cells = compute_cells([_req(transports=("stdio",))], spec_versions=("2025-11-25",))
     assert [c.id for c in cells] == list(CONNECTABLE_TRANSPORTS)
 
 
 def test_cell_id_omits_version_when_single_spec_version() -> None:
-    """With one active spec version the cell id is just the transport name, keeping today's node ids byte-identical."""
-    assert cell_id("sse", "2025-11-25") == "sse"
+    """With a single-version axis the cell id is just the transport name."""
+    assert cell_id("sse", "2025-11-25", spec_versions=("2025-11-25",)) == "sse"
 
 
 def test_cell_id_appends_version_when_multiple_spec_versions() -> None:
