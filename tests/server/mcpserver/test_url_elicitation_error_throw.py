@@ -105,4 +105,6 @@ async def test_normal_exceptions_still_return_error_result():
         assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
-        assert "Something went wrong" in result.content[0].text
+        assert "An unexpected error occurred executing tool failing_tool" in result.content[0].text
+        # Verify the original exception details are NOT leaked to the client
+        assert "Something went wrong" not in result.content[0].text
