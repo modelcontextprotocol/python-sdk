@@ -15,8 +15,9 @@ permissions:
 
 env:
   # Pinned conformance harness version. Bump deliberately and reconcile
-  # .github/actions/conformance/expected-failures.yml in the same change.
-  CONFORMANCE_VERSION: "0.2.0-alpha.3"
+  # both .github/actions/conformance/expected-failures*.yml files in the
+  # same change.
+  CONFORMANCE_VERSION: "0.2.0-alpha.4"
 
 jobs:
   server-conformance:
@@ -43,6 +44,12 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite draft
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run server conformance (2026-07-28 wire, all suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite all
+          --spec-version 2026-07-28
+          --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
 
   client-conformance:
     runs-on: ubuntu-latest
@@ -64,3 +71,10 @@ jobs:
           --command 'uv run --frozen python .github/actions/conformance/client.py'
           --suite all
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run client conformance (2026-07-28 wire, all suite)
+        run: >-
+          npx --yes @modelcontextprotocol/conformance@"$CONFORMANCE_VERSION" client
+          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          --suite all
+          --spec-version 2026-07-28
+          --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
