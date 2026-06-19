@@ -319,6 +319,34 @@ REQUIREMENTS: dict[str, Requirement] = {
             "support fails initialization with an error rather than proceeding with the session."
         ),
     ),
+    "lifecycle:stateless:request-envelope": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
+        behavior=(
+            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion, "
+            "/clientInfo, and /clientCapabilities in params._meta; no initialize handshake occurs."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:stateless:no-initialize": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
+        behavior="A ClientSession pinned to 2026-07-28 rejects initialize() before any frame is sent.",
+        added_in="2026-07-28",
+    ),
+    "lifecycle:stateless:caller-meta-preserved": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
+        behavior=(
+            "Caller-supplied _meta keys on a request survive the per-request envelope merge: the "
+            "io.modelcontextprotocol/* keys are added alongside, never overwriting the caller's keys."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:stateless:unpinned-legacy-wire": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "An unpinned session that negotiates an earlier protocol version emits no 2026-07-28 "
+            "vocabulary on any JSON-RPC frame in either direction."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2861,6 +2889,57 @@ REQUIREMENTS: dict[str, Requirement] = {
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); the standalone GET endpoint is replaced by subscriptions/listen.",
     ),
+    "hosting:http:protocol-version-rejection-literal": Requirement(
+        source="sdk",
+        behavior=(
+            "The legacy streamable-HTTP transport's version-rejection body contains the literal substring "
+            "'Unsupported protocol version', which other-SDK clients substring-match during negotiation."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: cross-SDK clients sniff this exact substring in the rejection body."
+        ),
+    ),
+    "hosting:http:legacy-no-modern-vocabulary": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "A 2025-era streamable-HTTP exchange carries none of the 2026-07-28 wire vocabulary "
+            "(resultType, ttlMs, cacheScope, io.modelcontextprotocol/* _meta keys, the 2026-07-28 "
+            "version string, or Mcp-Method/Mcp-Name/Mcp-Param-* headers)."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the assertion records HTTP headers and SSE frames "
+            "at the transport seam."
+        ),
+    ),
+    "hosting:http:modern:tools-call-stateless": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http",
+        behavior=(
+            "A 2026-07-28 tools/call POST is served without an initialize handshake and returns a "
+            "result body carrying resultType: complete."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the modern entry handles a 2026-07-28 POST without "
+            "an initialize handshake."
+        ),
+    ),
+    "hosting:http:modern:no-session-id": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http",
+        behavior="A 2026-07-28 response never carries an Mcp-Session-Id header.",
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: Mcp-Session-Id is a streamable-HTTP response header.",
+    ),
+    "hosting:http:modern:initialize-removed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/index",
+        behavior="A 2026-07-28 initialize request is answered with METHOD_NOT_FOUND.",
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=("Only observable over streamable HTTP: the modern entry's method registry omits initialize."),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3033,6 +3112,28 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
+    ),
+    "client-transport:http:body-derived-headers": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
+        behavior=(
+            "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method, and (for tools/call) "
+            "Mcp-Name headers on the outgoing HTTP request; a body without the envelope yields none."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
+    ),
+    "client-transport:http:mcp-name-encoding": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
+        behavior=(
+            "Mcp-Name header values that are not safe for an HTTP field are wrapped in the =?base64?...?= "
+            "sentinel; printable-ASCII values pass verbatim."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the Base64-sentinel encoding is the spec's HTTP header-safety rule."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth
