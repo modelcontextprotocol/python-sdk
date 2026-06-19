@@ -163,9 +163,13 @@ What admits or excludes a cell:
   closes, grep for the reason string to find every cell to re-admit.
 - **`known_failures`** keep a cell in the grid but mark it as a strict xfail — the test runs and
   must fail; an unexpected pass fails the suite.
+- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently only
+  `sse` is locked to `2025-11-25`). A `(transport, version)` cell is dropped if the version is not
+  in the transport's entry; transports absent from the map serve every spec version. This is the
+  mechanism for cutting an entire transport off from a new revision (or admitting it).
 - **`transports`** is descriptive metadata for the non-`connect` transport-specific suites under
-  `transports/` and does **not** drive cell generation. Only `arm_exclusions`, `added_in`, and
-  `removed_in` filter the grid.
+  `transports/` and does **not** drive cell generation. Only `arm_exclusions`, `added_in`,
+  `removed_in`, and `TRANSPORT_SPEC_VERSIONS` filter the grid.
 - **`supersedes` / `superseded_by`** link a retired entry to its replacement. `test_coverage.py`
   enforces that links are bidirectional and versioned: the retired entry carries `removed_in`, the
   replacement carries `added_in`.
@@ -183,6 +187,9 @@ When a new spec revision lands:
    Behaviour that survives unchanged needs nothing beyond a re-audit of its `source` URL.
 4. For requirements that cannot run on the new era's path, add an `arm_exclusions` entry with the
    appropriate `ArmExclusionReason`.
+5. Review `TRANSPORT_SPEC_VERSIONS`: any era-locked transport will not produce cells on the new
+   version unless its entry is extended (or removed); add an entry for any transport the new
+   revision retires.
 
 ## Writing a test
 
