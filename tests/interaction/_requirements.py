@@ -351,6 +351,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:cancel:handler-abort-propagates": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior="On the receiving side, a cancellation notification stops the running request handler.",
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:cancel:in-flight": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -535,6 +539,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A progress notification that arrives after its request has completed is not delivered to the "
             "original progress callback."
         ),
+        arm_exclusions=(
+            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
+            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        ),
     ),
     "protocol:progress:no-token": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -659,6 +667,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A tool handler that issues a sampling request receives the client's completion and can embed "
             "it in the tool call result."
+        ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "tools:call:structured-content": Requirement(
@@ -882,6 +894,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Context.elicit sends a form elicitation built from a typed schema and returns a typed "
             "accepted/declined/cancelled result."
         ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "mcpserver:context:read-resource": Requirement(
         source="sdk",
@@ -906,6 +922,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server with resource handlers advertises the resources capability, including the subscribe "
             "sub-flag when a subscribe handler is registered."
         ),
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "resources:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#list-changed-notification",
@@ -1062,6 +1079,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#capabilities",
         behavior="A server with a list_prompts handler advertises the prompts capability in its initialize result.",
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "prompts:get:content:audio": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#audio-content",
@@ -1164,6 +1182,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "completion:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
         behavior="A server with a completion handler advertises the completions capability in its initialize result.",
+        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
     ),
     "completion:complete:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
@@ -1308,6 +1327,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "capability; the server-side validator only checks tools/tool_choice."
             ),
         ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create:model-preferences": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#model-preferences",
@@ -1315,10 +1338,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The model preferences supplied by the server (hints and the cost, speed, and intelligence "
             "priorities) reach the client callback intact."
         ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create:system-prompt": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
         behavior="The system prompt supplied by the server reaches the client callback intact.",
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "sampling:create:tools": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tools-in-sampling",
@@ -1494,12 +1525,20 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "elicitation/create; the spec's MUST NOT is not enforced."
             ),
         ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
     ),
     "elicitation:form:action:accept": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior=(
             "A form-mode elicitation answered with action 'accept' returns the user's content to the "
             "requesting handler."
+        ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:form:action:cancel": Requirement(
@@ -1523,6 +1562,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A form-mode elicitation delivers the message and requested schema to the client callback "
             "exactly as the server sent them."
+        ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:form:defaults": Requirement(
@@ -1559,6 +1602,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Requested-schema enum fields (including titled and multi-select variants) reach the client "
             "callback as sent."
+        ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:form:schema:primitives": Requirement(
@@ -1614,6 +1661,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A URL-mode elicitation delivers the message, URL, and elicitationId to the client; an accept "
             "response carries no content (accept means the user agreed to visit the URL, not that the "
             "interaction completed)."
+        ),
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:url:basic": Requirement(

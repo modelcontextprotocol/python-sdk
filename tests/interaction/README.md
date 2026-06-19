@@ -56,10 +56,12 @@ test body — each directory pins its flavour's true output exactly.
 
 Transport-agnostic tests take the `connect` fixture instead of constructing `Client(server)`
 directly, and therefore run once per transport: over the in-memory transport, over the server's
-real streamable HTTP app driven in-process through the streaming bridge, and over the legacy SSE
-transport the same way. A test connects with `async with connect(server, ...) as client:` and
-asserts the same output on every leg, because the transport is not supposed to change observable
-behaviour. Tests that are tied to one transport do not use the fixture: the wire-recording tests
+real streamable HTTP app driven in-process through the streaming bridge (in both stateful and
+stateless configurations), and over the legacy SSE transport the same way. A test connects with
+`async with connect(server, ...) as client:` and asserts the same output on every leg, because the
+transport is not supposed to change observable behaviour. Requirements that need a server-to-client
+back-channel or persisted session state are carved out of the stateless arm via `arm_exclusions`.
+Tests that are tied to one transport do not use the fixture: the wire-recording tests
 (their seam is the in-memory stream pair), the bare-`ClientSession` lifecycle tests, the
 real-clock timeout tests (the timeout machinery is transport-independent and must not race
 transport latency), and everything under `transports/`, which pins behaviour only observable on
