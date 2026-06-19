@@ -9,6 +9,7 @@ server's real Starlette app through the in-process streaming bridge, so the full
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from functools import partial
 from typing import Any, Protocol
 
 import httpx
@@ -119,10 +120,11 @@ async def connect_over_streamable_http(
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
-    With the defaults this is the matrix leg (stateful sessions, SSE responses); the
-    transport-specific tests pass `stateless_http` or `json_response` to select the other
-    server modes, and the resumability tests pass an `event_store` (with `retry_interval=0` so
-    the client's reconnection wait is a no-op).
+    With the defaults this is the matrix leg (stateful sessions, SSE responses); the stateless
+    matrix arm binds `stateless_http=True` (see `connect_over_streamable_http_stateless`);
+    transport-specific tests pass `json_response` to select the other server mode, and the
+    resumability tests pass an `event_store` (with `retry_interval=0` so the client's
+    reconnection wait is a no-op).
     """
     app = server.streamable_http_app(
         stateless_http=stateless_http,
@@ -146,6 +148,12 @@ async def connect_over_streamable_http(
         ) as client,
     ):
         yield client
+
+
+connect_over_streamable_http_stateless: Connect = partial(connect_over_streamable_http, stateless_http=True)
+"""The streamable-http matrix arm with the server in stateless mode (fresh transport per request,
+no session id, no standalone GET stream). The same shared Server instance backs every request --
+stateless mode does not require a server factory."""
 
 
 @asynccontextmanager

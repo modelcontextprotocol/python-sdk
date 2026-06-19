@@ -240,11 +240,12 @@ def _req(
 def test_compute_cells_with_no_requirements_yields_full_grid() -> None:
     """An empty requirement list yields one cell per connectable transport at the single active spec version."""
     cells = compute_cells([])
-    assert [c.id for c in cells] == ["in-memory", "sse", "streamable-http"]
+    assert [c.id for c in cells] == ["in-memory", "sse", "streamable-http", "streamable-http-stateless"]
     assert [c.values for c in cells] == [
         (("in-memory", "2025-11-25"),),
         (("sse", "2025-11-25"),),
         (("streamable-http", "2025-11-25"),),
+        (("streamable-http-stateless", "2025-11-25"),),
     ]
 
 
@@ -254,7 +255,12 @@ def test_compute_cells_intersects_stacked_version_ranges() -> None:
         [_req(removed_in="2026-07-28"), _req(added_in="2025-11-25")],
         spec_versions=("2025-11-25", "2026-07-28"),
     )
-    assert [c.id for c in cells] == ["in-memory-2025-11-25", "sse-2025-11-25", "streamable-http-2025-11-25"]
+    assert [c.id for c in cells] == [
+        "in-memory-2025-11-25",
+        "sse-2025-11-25",
+        "streamable-http-2025-11-25",
+        "streamable-http-stateless-2025-11-25",
+    ]
 
 
 def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None:
@@ -264,15 +270,17 @@ def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None
         "in-memory-2025-11-25",
         "sse-2025-11-25",
         "streamable-http-2025-11-25",
+        "streamable-http-stateless-2025-11-25",
         "in-memory-2026-07-28",
         "streamable-http-2026-07-28",
+        "streamable-http-stateless-2026-07-28",
     ]
 
 
 def test_compute_cells_honours_arm_exclusion_from_any_stacked_requirement() -> None:
     """An arm exclusion on any stacked requirement drops the matching cell even when other requirements have none."""
     cells = compute_cells([_req(), _req(arm_exclusions=(ArmExclusion(reason="requires-session", transport="sse"),))])
-    assert [c.id for c in cells] == ["in-memory", "streamable-http"]
+    assert [c.id for c in cells] == ["in-memory", "streamable-http", "streamable-http-stateless"]
 
 
 def test_compute_cells_wildcard_arm_exclusion_drops_every_cell() -> None:
@@ -285,17 +293,18 @@ def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
     """A known failure attaches a strict xfail mark to exactly the matching cell and leaves others unmarked."""
     cells = compute_cells([_req(known_failures=(KnownFailure(note="broken on sse", transport="sse"),))])
     by_id = {c.id: c for c in cells}
-    assert set(by_id) == {"in-memory", "sse", "streamable-http"}
+    assert set(by_id) == {"in-memory", "sse", "streamable-http", "streamable-http-stateless"}
     assert by_id["sse"].marks[0].name == "xfail"
     assert by_id["sse"].marks[0].kwargs == {"reason": "broken on sse", "strict": True}
     assert by_id["in-memory"].marks == ()
     assert by_id["streamable-http"].marks == ()
+    assert by_id["streamable-http-stateless"].marks == ()
 
 
 def test_compute_cells_wildcard_known_failure_marks_every_cell() -> None:
     """A known failure with both transport and spec_version unset marks every emitted cell as strict xfail."""
     cells = compute_cells([_req(known_failures=(KnownFailure(note="all broken"),))])
-    assert len(cells) == 3
+    assert len(cells) == 4
     assert all(c.marks[0].name == "xfail" for c in cells)
     assert all(c.marks[0].kwargs == {"reason": "all broken", "strict": True} for c in cells)
 

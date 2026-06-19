@@ -143,6 +143,12 @@ exercises; `SPEC_REVISION = SPEC_VERSIONS[-1]` is the newest. The `connect` fixt
 which intersects the admissible cells across every cited requirement — a cell survives only if
 **all** of the test's requirements admit it.
 
+`streamable-http-stateless` is the fourth connectable transport: the 2025-era unofficial stateless
+mode where each request opens a fresh transport, no session id is issued, and there is no standalone
+GET stream. Requirements that need a server→client back-channel or persisted session state are
+excluded from that arm via `arm_exclusions` (reasons `server-initiated-request` and
+`requires-session`).
+
 What admits or excludes a cell:
 
 - **`added_in` / `removed_in`** gate which spec versions a requirement exists in, as a half-open
