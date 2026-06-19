@@ -389,9 +389,7 @@ class MCPServer(Generic[LifespanResultT]):
         if isinstance(result, CallToolResult):
             return result
         if isinstance(result, tuple) and len(result) == 2:  # type: ignore[arg-type]
-            unstructured_content, structured_content = cast(
-                tuple[Sequence[ContentBlock], dict[str, Any]], result
-            )
+            unstructured_content, structured_content = cast(tuple[Sequence[ContentBlock], dict[str, Any]], result)
             return CallToolResult(
                 content=list(unstructured_content),
                 structured_content=structured_content,
