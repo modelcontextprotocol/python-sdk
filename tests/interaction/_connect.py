@@ -166,6 +166,7 @@ async def mounted_app(
     retry_interval: int | None = None,
     transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
     on_request: Callable[[httpx.Request], Awaitable[None]] | None = None,
+    on_response: Callable[[httpx.Response], Awaitable[None]] | None = None,
     headers: dict[str, str] | None = None,
     auth: AuthSettings | None = None,
     token_verifier: TokenVerifier | None = None,
@@ -177,8 +178,9 @@ async def mounted_app(
     use this in two ways: for raw-httpx assertions (status codes, headers, SSE bytes) the test
     speaks HTTP through the yielded client directly; for client-driven assertions the test wraps
     that client in `client_via_http(http)`, which lets several `Client`s share the one mounted
-    session manager. `on_request` records every outgoing HTTP request before it leaves the
-    yielded client.
+    session manager. `on_request` observes every outgoing HTTP request before it leaves the
+    yielded client; `on_response` observes every HTTP response as its headers arrive (response
+    bodies of SSE streams are not yet read at that point).
 
     DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
     localhost auto-enable behaviour) to test the protection itself.
@@ -194,7 +196,11 @@ async def mounted_app(
         token_verifier=token_verifier,
         auth_server_provider=auth_server_provider,
     )
-    event_hooks = {"request": [on_request]} if on_request is not None else None
+    event_hooks: dict[str, list[Callable[..., Awaitable[None]]]] = {}
+    if on_request is not None:
+        event_hooks["request"] = [on_request]
+    if on_response is not None:
+        event_hooks["response"] = [on_response]
     async with (
         server.session_manager.run(),
         httpx.AsyncClient(

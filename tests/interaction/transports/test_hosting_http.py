@@ -179,6 +179,26 @@ async def test_protocol_version_header_is_validated() -> None:
     assert defaulted.status_code == 202
 
 
+@requirement("hosting:http:protocol-version-rejection-literal")
+async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_literal() -> None:
+    """The 400 body for an unsupported MCP-Protocol-Version contains the substring peer SDKs sniff.
+
+    SDK-defined: other SDKs detect this rejection by substring-matching ``Unsupported protocol
+    version`` in the response body, so the literal must survive any rewording of the surrounding
+    message. Asserted at the wire because the SDK client never surfaces the rejection body.
+    """
+    async with mounted_app(_server()) as (http, _):
+        session_id = await initialize_via_http(http)
+        response = await http.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "ping"},
+            headers=base_headers(session_id=session_id) | {"mcp-protocol-version": "1991-01-01"},
+        )
+
+    assert response.status_code == 400
+    assert "Unsupported protocol version" in response.text
+
+
 @requirement("hosting:http:json-response-mode")
 async def test_json_response_mode_answers_with_application_json_not_sse() -> None:
     """With JSON response mode enabled, request POSTs are answered with a single application/json body.
