@@ -2940,6 +2940,30 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note=("Only observable over streamable HTTP: the modern entry's method registry omits initialize."),
     ),
+    "hosting:http:modern:legacy-fallthrough": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "Non-2026-07-28 traffic on the same /mcp endpoint reaches the legacy transport "
+            "byte-unchanged: a 2025-era initialize handshake still completes, and an unrecognised "
+            "MCP-Protocol-Version header still produces the legacy 400 'Unsupported protocol version' literal."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: routing branches on the MCP-Protocol-Version "
+            "header at the same /mcp endpoint."
+        ),
+    ),
+    "hosting:http:modern:handler-exception-internal-error": Requirement(
+        source="sdk",
+        behavior=(
+            "An unhandled handler exception on the 2026-07-28 entry is returned as JSON-RPC error "
+            "-32603 with a generic message that does not echo str(exc)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the modern entry's exception-to-JSONRPCError boundary.",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3123,17 +3147,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
     ),
-    "client-transport:http:mcp-name-encoding": Requirement(
+    "client-transport:http:stateless-ignores-session-id": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
         behavior=(
-            "Mcp-Name header values that are not safe for an HTTP field are wrapped in the =?base64?...?= "
-            "sentinel; printable-ASCII values pass verbatim."
+            "A pinned client never echoes a server-issued Mcp-Session-Id and never opens the standalone "
+            "GET stream or the closing DELETE: the recorded wire is POST-only."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
-        note=(
-            "Only observable over streamable HTTP: the Base64-sentinel encoding is the spec's HTTP header-safety rule."
-        ),
+        note="Only observable over streamable HTTP: session-id, GET stream and DELETE are streamable-HTTP mechanics.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth
