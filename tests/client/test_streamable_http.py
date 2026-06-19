@@ -30,6 +30,10 @@ _ENVELOPE = {PROTOCOL_VERSION_META_KEY: "2026-07-28"}
             snapshot({"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list"}),
         ),
         (
+            JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/call", params={"_meta": _ENVELOPE}),
+            snapshot({"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call"}),
+        ),
+        (
             JSONRPCRequest(jsonrpc="2.0", id=3, method="tools/call", params={"name": "add", "arguments": {}}),
             snapshot({}),
         ),
