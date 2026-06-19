@@ -1408,9 +1408,10 @@ async def test_initialize_on_a_pinned_session_raises_before_any_frame_is_sent():
     envelope, so calling ``initialize()`` on a pinned session is a programmer error and raises
     immediately rather than reaching the wire.
     """
-    async with raw_client_session(protocol_version="2026-07-28") as (session, _send, _recv):
+    async with raw_client_session(protocol_version="2026-07-28") as (session, _send, from_client):
         with pytest.raises(RuntimeError, match="pinned to a stateless"):
             await session.initialize()
+        assert from_client.statistics().current_buffer_used == 0
 
 
 @pytest.mark.anyio

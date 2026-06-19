@@ -61,7 +61,7 @@ _HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
 
 
 def _encode_header_value(value: str) -> str:
-    if _HEADER_SAFE.fullmatch(value) and value == value.strip(" ") and not _B64_SENTINEL.fullmatch(value):
+    if _HEADER_SAFE.fullmatch(value) and value == value.strip() and not _B64_SENTINEL.fullmatch(value):
         return value
     return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 

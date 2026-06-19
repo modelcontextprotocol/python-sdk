@@ -341,6 +341,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "lifecycle:stateless:unpinned-legacy-wire": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "An unpinned session that negotiates an earlier protocol version emits no 2026-07-28 "
+            "vocabulary on any JSON-RPC frame in either direction."
+        ),
+        deferred=(
+            "bare-ClientSession seam; the high-level Client + HTTP-seam scan in "
+            "hosting:http:legacy-no-modern-vocabulary covers the same vocabulary set"
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3130,6 +3141,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
+    ),
+    "client-transport:http:body-derived-headers": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
+        behavior=(
+            "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method, and (for tools/call) "
+            "Mcp-Name headers on the outgoing HTTP request; a body without the envelope yields none."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
     ),
     "client-transport:http:stateless-ignores-session-id": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",

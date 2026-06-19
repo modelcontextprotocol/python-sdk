@@ -8,6 +8,8 @@ result-envelope shape, so every assertion here is necessarily wire-level.
 """
 
 import json
+from collections.abc import Callable
+from typing import Any
 
 import anyio
 import httpx
@@ -63,15 +65,19 @@ def _meta_envelope() -> dict[str, object]:
     }
 
 
-def _server() -> Server:
+def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
     """A low-level server with one ``add`` tool for the raw-httpx tests below."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        raise NotImplementedError
+        tool = Tool(name="add", input_schema={"type": "object"})
+        return ListToolsResult(tools=[tool], ttl_ms=0, cache_scope="public")
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "add"
         assert params.arguments is not None
+        if on_meta is not None:
+            assert ctx.meta is not None
+            on_meta(dict(ctx.meta))
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
     return Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -195,6 +201,7 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 @requirement("hosting:http:modern:tools-call-stateless")
 @requirement("lifecycle:stateless:request-envelope")
 @requirement("lifecycle:stateless:caller-meta-preserved")
+@requirement("client-transport:http:body-derived-headers")
 async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern_entry() -> None:
     """First end-to-end exercise of the 2026-07-28 stateless request style: SDK client to SDK server.
 
@@ -211,20 +218,8 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
     both of which must satisfy the stateless contract.
     """
-    observed_metas: list[dict[str, object]] = []
-
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        tool = Tool(name="add", input_schema={"type": "object"})
-        return ListToolsResult(tools=[tool], ttl_ms=0, cache_scope="public")
-
-    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        assert params.name == "add"
-        assert params.arguments is not None
-        assert ctx.meta is not None
-        observed_metas.append(dict(ctx.meta))
-        return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
-
-    server = Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
+    observed_metas: list[dict[str, Any]] = []
+    server = _server(on_meta=observed_metas.append)
 
     requests: list[httpx.Request] = []
     responses: list[httpx.Response] = []
@@ -268,6 +263,15 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     assert bodies[0]["params"]["_meta"] == snapshot(
         {
             "custom-key": "x",
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "e2e-client", "version": "1.0.0"},
+            "io.modelcontextprotocol/clientCapabilities": {},
+        }
+    )
+    # The implicit tools/list carries the envelope but no caller meta: proves the envelope is
+    # stamped on every request, not just on requests where the caller passed meta=.
+    assert bodies[1]["params"]["_meta"] == snapshot(
+        {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": {"name": "e2e-client", "version": "1.0.0"},
             "io.modelcontextprotocol/clientCapabilities": {},
