@@ -9,6 +9,7 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 
 from mcp.server.session import ServerSession
+from mcp.shared.session import ProgressFnT
 from mcp.types import RequestId
 
 # Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
@@ -87,6 +88,7 @@ async def elicit_with_validation(
     message: str,
     schema: type[ElicitSchemaModelT],
     related_request_id: RequestId | None = None,
+    progress_callback: ProgressFnT | None = None,
 ) -> ElicitationResult[ElicitSchemaModelT]:
     """Elicit information from the client/user with schema validation (form mode).
 
@@ -105,6 +107,7 @@ async def elicit_with_validation(
         message=message,
         requested_schema=json_schema,
         related_request_id=related_request_id,
+        progress_callback=progress_callback,
     )
 
     if result.action == "accept" and result.content is not None:
@@ -126,6 +129,7 @@ async def elicit_url(
     url: str,
     elicitation_id: str,
     related_request_id: RequestId | None = None,
+    progress_callback: ProgressFnT | None = None,
 ) -> UrlElicitationResult:
     """Elicit information from the user via out-of-band URL navigation (URL mode).
 
@@ -155,6 +159,7 @@ async def elicit_url(
         url=url,
         elicitation_id=elicitation_id,
         related_request_id=related_request_id,
+        progress_callback=progress_callback,
     )
 
     if result.action == "accept":
