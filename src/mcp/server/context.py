@@ -93,7 +93,7 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         """
         return self.transport.headers
 
-    @deprecated("`log` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
         """Send a request-scoped `notifications/message` log entry.
 

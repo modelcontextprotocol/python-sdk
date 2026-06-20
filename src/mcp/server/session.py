@@ -127,7 +127,7 @@ class ServerSession:
         """Check if the client supports a specific capability."""
         return self._connection.check_capability(capability)
 
-    @deprecated("`send_log_message` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_log_message(
         self,
         level: types.LoggingLevel,

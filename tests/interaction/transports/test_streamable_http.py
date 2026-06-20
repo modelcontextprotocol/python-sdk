@@ -55,7 +55,7 @@ def _smoke_server() -> MCPServer:
     @mcp.tool()
     async def announce(ctx: Context) -> str:
         """Send one notification related to this request and one that is not."""
-        await ctx.info("about to announce")  # pyright: ignore[reportDeprecated]
+        await ctx.info("about to announce")
         await ctx.session.send_resource_updated("file:///watched.txt")
         return "announced"
 

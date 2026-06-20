@@ -32,7 +32,7 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
     @mcp.tool()
     async def announce(label: str, ctx: Context) -> str:
         """Emit one info-level log carrying the caller's label, then return it."""
-        await ctx.info(label)  # pyright: ignore[reportDeprecated]
+        await ctx.info(label)
         return label
 
     received_a: list[object] = []

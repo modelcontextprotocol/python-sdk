@@ -1224,7 +1224,7 @@ The user-facing methods for these features now carry `typing_extensions.deprecat
 
 - Sampling: `ServerSession.create_message()`, `ClientPeer.sample()`
 - Roots: `ServerSession.list_roots()`, `ClientPeer.list_roots()`, `ClientSession.send_roots_list_changed()`, `Client.send_roots_list_changed()`
-- Logging: `ServerSession.send_log_message()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
+- Logging: `ServerSession.send_log_message()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, and `MCPServer` `Context.log()`. The `Context.debug()` / `info()` / `warning()` / `error()` helpers delegate to `log()`, so they warn through it rather than carrying their own marker.
 
 The runtime warning is emitted as `mcp.MCPDeprecationWarning`, which subclasses `UserWarning` (not `DeprecationWarning`) so it is visible by default. To silence it, filter that category:
 

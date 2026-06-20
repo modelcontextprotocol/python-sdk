@@ -198,7 +198,7 @@ class Client:
             message=message,
         )
 
-    @deprecated("`set_logging_level` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
         return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]

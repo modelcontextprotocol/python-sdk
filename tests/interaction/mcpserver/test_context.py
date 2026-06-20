@@ -41,10 +41,10 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
     @mcp.tool()
     async def narrate(ctx: Context) -> str:
-        await ctx.debug("d")  # pyright: ignore[reportDeprecated]
-        await ctx.info("i")  # pyright: ignore[reportDeprecated]
-        await ctx.warning("w")  # pyright: ignore[reportDeprecated]
-        await ctx.error("e")  # pyright: ignore[reportDeprecated]
+        await ctx.debug("d")
+        await ctx.info("i")
+        await ctx.warning("w")
+        await ctx.error("e")
         return "done"
 
     async def collect(params: LoggingMessageNotificationParams) -> None:
@@ -136,7 +136,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     @mcp.tool()
     async def mill(ctx: Context) -> str:
         await ctx.report_progress(1, 3)
-        await ctx.info("milling done")  # pyright: ignore[reportDeprecated]
+        await ctx.info("milling done")
         return "milled"
 
     async def collect(message: IncomingMessage) -> None:
@@ -250,8 +250,8 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
 
     @mcp.tool()
     async def chatter(ctx: Context) -> str:
-        await ctx.debug("noise")  # pyright: ignore[reportDeprecated]
-        await ctx.error("signal")  # pyright: ignore[reportDeprecated]
+        await ctx.debug("noise")
+        await ctx.error("signal")
         return "done"
 
     async def collect(params: LoggingMessageNotificationParams) -> None:

@@ -143,13 +143,13 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
 @mcp.tool()
 async def test_tool_with_logging(ctx: Context) -> str:
     """Tests tool that emits log messages during execution"""
-    await ctx.info("Tool execution started")  # pyright: ignore[reportDeprecated]
+    await ctx.info("Tool execution started")
     await asyncio.sleep(0.05)
 
-    await ctx.info("Tool processing data")  # pyright: ignore[reportDeprecated]
+    await ctx.info("Tool processing data")
     await asyncio.sleep(0.05)
 
-    await ctx.info("Tool execution completed")  # pyright: ignore[reportDeprecated]
+    await ctx.info("Tool execution completed")
     return "Tool with logging executed successfully"
 
 
@@ -314,13 +314,13 @@ def test_error_handling() -> str:
 @mcp.tool()
 async def test_reconnection(ctx: Context) -> str:
     """Tests SSE polling by closing stream mid-call (SEP-1699)"""
-    await ctx.info("Before disconnect")  # pyright: ignore[reportDeprecated]
+    await ctx.info("Before disconnect")
 
     await ctx.close_sse_stream()
 
     await asyncio.sleep(0.2)  # Wait for client to reconnect
 
-    await ctx.info("After reconnect")  # pyright: ignore[reportDeprecated]
+    await ctx.info("After reconnect")
     return "Reconnection test completed"
 
 

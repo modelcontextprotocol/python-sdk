@@ -386,7 +386,7 @@ class ClientSession:
             )
         )
 
-    @deprecated("`set_logging_level` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def set_logging_level(
         self,
         level: types.LoggingLevel,
