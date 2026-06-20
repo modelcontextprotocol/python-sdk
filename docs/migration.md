@@ -1220,6 +1220,16 @@ Tasks are expected to return as a separate MCP extension in a future release.
 
 ## Bug Fixes
 
+### OAuth metadata URLs no longer gain a trailing slash
+
+`OAuthMetadata`, `ProtectedResourceMetadata`, and `OAuthClientMetadata` now set
+`url_preserve_empty_path=True` (Pydantic 2.12+). A path-less URL parsed from the wire keeps its
+empty path instead of acquiring a trailing slash, so e.g. an `issuer` of `https://as.example.com`
+round-trips as `https://as.example.com` rather than `https://as.example.com/`. This matters for
+RFC 9207 / RFC 8414 issuer comparisons, which require simple string comparison (RFC 3986 §6.2.1).
+URLs constructed in Python from an already-built `AnyHttpUrl` object are unaffected (they were
+normalized at construction); only values parsed from strings/JSON change.
+
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
