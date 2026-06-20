@@ -26,18 +26,6 @@ client:
   # SEP-2352 (authorization server migration): client does not re-register when
   # PRM authorization_servers changes.
   - auth/authorization-server-migration
-  # SEP-837 (application_type during DCR): the check fires on every non-legacy
-  # spec version (the default LATEST is 2026-07-28). The client omits
-  # application_type during Dynamic Client Registration, so every scenario that
-  # reaches DCR fails it. SEP-2468 iss validation is implemented, so these now
-  # fail only on the application_type check, not on iss.
-  - auth/offline-access-not-supported
-  - auth/iss-supported
-  - auth/iss-not-advertised
-  - auth/iss-supported-missing
-  - auth/iss-wrong-issuer
-  - auth/iss-unexpected
-  - auth/iss-normalized
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /

@@ -1295,6 +1295,21 @@ If you relied on extra fields round-tripping through MCP types, move that data i
 
 ## New Features
 
+### OAuth Dynamic Client Registration sends `application_type` (SEP-837)
+
+`OAuthClientMetadata` now carries an `application_type` field that is sent during Dynamic Client Registration. It defaults to `"native"`, which suits MCP clients that use loopback redirect URIs (CLI and desktop apps); browser-based clients served from a non-local host should set it to `"web"`:
+
+```python
+from mcp.shared.auth import OAuthClientMetadata
+
+client_metadata = OAuthClientMetadata(
+    redirect_uris=["https://app.example.com/callback"],
+    application_type="web",
+)
+```
+
+Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
+
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 
 `mcp.types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.
