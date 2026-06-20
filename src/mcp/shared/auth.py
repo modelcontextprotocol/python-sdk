@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -40,6 +40,8 @@ class OAuthClientMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     for the full specification.
     """
+
+    model_config = ConfigDict(url_preserve_empty_path=True)
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
@@ -132,6 +134,8 @@ class OAuthMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
+    model_config = ConfigDict(url_preserve_empty_path=True)
+
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
     token_endpoint: AnyHttpUrl
@@ -161,6 +165,8 @@ class ProtectedResourceMetadata(BaseModel):
     RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
+
+    model_config = ConfigDict(url_preserve_empty_path=True)
 
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)
