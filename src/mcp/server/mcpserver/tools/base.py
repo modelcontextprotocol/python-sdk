@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, ToolResult, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -88,6 +88,17 @@ class Tool(BaseModel):
             meta=meta,
         )
 
+    @overload
+    async def run(
+        self, arguments: dict[str, Any], context: Context[LifespanContextT, RequestT], convert_result: Literal[True]
+    ) -> ToolResult: ...
+    @overload
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        context: Context[LifespanContextT, RequestT],
+        convert_result: Literal[False] = False,
+    ) -> Any: ...
     async def run(
         self,
         arguments: dict[str, Any],

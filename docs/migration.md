@@ -8,16 +8,16 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Breaking Changes
 
-### `MCPServer.call_tool()` return annotation corrected
+### `MCPServer.call_tool()` returns `CallToolResult`
 
-`MCPServer.call_tool()` no longer advertises a raw `dict[str, Any]`
-return. On v2 it returns exactly the shapes produced by the MCPServer
-tool conversion path: a direct `CallToolResult`, a sequence of
-`ContentBlock` values for unstructured tools, or a
-`(content, structured_content)` tuple for structured tools.
+`MCPServer.call_tool()` now always returns a `CallToolResult`. It previously
+advertised `Sequence[ContentBlock] | dict[str, Any]` and leaked the internal
+conversion shapes (a bare content sequence or a `(content, structured_content)`
+tuple), forcing callers to re-assemble a `CallToolResult` themselves.
 
-If you subclass `MCPServer` or annotate wrappers around `call_tool()`,
-update those annotations to match the corrected return shape.
+If you call `MCPServer.call_tool()` directly, read `.content` and
+`.structured_content` off the returned `CallToolResult` instead of branching on
+the result type.
 
 ### `streamablehttp_client` removed
 

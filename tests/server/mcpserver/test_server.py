@@ -305,12 +305,12 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
 
-    async def test_call_tool_returns_declared_result_shapes(self):
+    async def test_call_tool_always_returns_call_tool_result(self):
         mcp = MCPServer()
 
         @mcp.tool()
-        def direct_result() -> CallToolResult:
-            return CallToolResult(content=[TextContent(text="direct")])
+        def direct() -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text="direct")])
 
         @mcp.tool(structured_output=False)
         def unstructured() -> str:
@@ -320,14 +320,13 @@ class TestServerTools:
         def structured() -> int:
             return 3
 
-        direct = await mcp.call_tool("direct_result", {})
-        assert direct == CallToolResult(content=[TextContent(text="direct")])
-
-        bare_content = await mcp.call_tool("unstructured", {})
-        assert bare_content == [TextContent(text="plain")]
-
-        structured_result = await mcp.call_tool("structured", {})
-        assert structured_result == ([TextContent(text="3")], {"result": 3})
+        assert await mcp.call_tool("direct", {}) == CallToolResult(content=[TextContent(type="text", text="direct")])
+        assert await mcp.call_tool("unstructured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="plain")]
+        )
+        assert await mcp.call_tool("structured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="3")], structured_content={"result": 3}
+        )
 
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image

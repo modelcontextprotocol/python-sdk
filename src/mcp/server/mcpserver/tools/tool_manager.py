@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
+from mcp.server.mcpserver.utilities.func_metadata import ToolResult
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.types import Icon, ToolAnnotations
 
@@ -71,6 +72,22 @@ class ToolManager:
             raise ToolError(f"Unknown tool: {name}")
         del self._tools[name]
 
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: Context[LifespanContextT, RequestT],
+        convert_result: Literal[True],
+    ) -> ToolResult: ...
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: Context[LifespanContextT, RequestT],
+        convert_result: Literal[False] = False,
+    ) -> Any: ...
     async def call_tool(
         self,
         name: str,

@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, TypeAlias, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
@@ -27,6 +27,8 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+ToolResult: TypeAlias = CallToolResult | list[ContentBlock] | tuple[list[ContentBlock], dict[str, Any]]
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -88,7 +90,7 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> Any:
+    def convert_result(self, result: Any) -> ToolResult:
         """Convert a function call result to the format for the lowlevel tool call handler.
 
         - If output_model is None, return the unstructured content directly.
@@ -496,7 +498,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     return DictModel
 
 
-def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
+def _convert_to_content(result: Any) -> list[ContentBlock]:
     """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of MCPServer and is being
