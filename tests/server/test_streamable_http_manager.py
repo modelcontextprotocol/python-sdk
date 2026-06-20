@@ -229,9 +229,6 @@ async def test_stateless_requests_memory_cleanup():
 
     with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
         async with manager.run():
-            # Mock app.run to complete immediately
-            app.run = AsyncMock(return_value=None)
-
             # Send a simple request
             sent_messages: list[Message] = []
 

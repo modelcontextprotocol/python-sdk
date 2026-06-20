@@ -16,15 +16,20 @@ from starlette.types import Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
+from mcp.server.connection import Connection
+from mcp.server.runner import serve_connection
 from mcp.server.streamable_http import (
+    MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     EventStore,
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
-from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
+from mcp.types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
@@ -96,8 +101,9 @@ class StreamableHTTPSessionManager:
         # session must present the same credential.
         self._session_owners: dict[str, AuthorizationContext] = {}
 
-        # The task group will be set during lifespan
+        # The task group and lifespan state are set during run()
         self._task_group = None
+        self._lifespan_state: Any = None
         # Thread-safe tracking of run() calls
         self._run_lock = anyio.Lock()
         self._has_started = False
@@ -128,8 +134,11 @@ class StreamableHTTPSessionManager:
                 )
             self._has_started = True
 
-        async with anyio.create_task_group() as tg:
-            # Store the task group for later use
+        async with self.app.lifespan(self.app) as lifespan_state, anyio.create_task_group() as tg:
+            # Store for handle_request: lifespan is entered once for the
+            # manager's lifetime, not per request (per-connection cleanup
+            # belongs on `connection.exit_stack`).
+            self._lifespan_state = lifespan_state
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")
             try:
@@ -139,6 +148,7 @@ class StreamableHTTPSessionManager:
                 # Cancel task group to stop all spawned tasks
                 tg.cancel_scope.cancel()
                 self._task_group = None
+                self._lifespan_state = None
                 # Clear any remaining server instances
                 self._server_instances.clear()
                 self._session_owners.clear()
@@ -152,20 +162,23 @@ class StreamableHTTPSessionManager:
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
-        # TODO: header-only routing for now; body-primary classification
-        # (per SEP-2575) is a follow-up. 2025 paths below remain unchanged.
-        pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == b"mcp-protocol-version"), None)
+        # TODO(L08): header-only routing for now; body-primary classification
+        # is a follow-up. 2025 paths below remain unchanged.
+        header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
+        pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
         if pv in MODERN_PROTOCOL_VERSIONS:
-            await handle_modern_request(self.app, self.security_settings, pv, scope, receive, send)
+            await handle_modern_request(self.app, self.security_settings, self._lifespan_state, scope, receive, send)
             return
 
         # Dispatch to the appropriate handler
         if self.stateless:
-            await self._handle_stateless_request(scope, receive, send)
+            await self._handle_stateless_request(pv, scope, receive, send)
         else:
             await self._handle_stateful_request(scope, receive, send)
 
-    async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def _handle_stateless_request(
+        self, protocol_version_hint: str | None, scope: Scope, receive: Receive, send: Send
+    ) -> None:
         """Process request in stateless mode - creating a new transport for each request."""
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
@@ -181,12 +194,29 @@ class StreamableHTTPSessionManager:
             async with http_transport.connect() as streams:
                 read_stream, write_stream = streams
                 task_status.started()
+                dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+                    read_stream,
+                    write_stream,
+                    inline_methods=frozenset({"initialize"}),
+                    # No session ID means a server-to-client request can be
+                    # written to this POST's response stream, but the client's
+                    # reply has nowhere to land — `can_send_request=False`
+                    # makes the per-request channel raise `NoBackChannelError`
+                    # for requests while still allowing notifications.
+                    transport_builder=lambda _md: TransportContext(kind="streamable-http", can_send_request=False),
+                )
+                # Born-ready, no standalone channel: the legacy stateless path
+                # never opens a GET stream and need not see `initialize`. The
+                # header (or the spec's default-absent value) seeds
+                # `ctx.protocol_version`.
+                connection = Connection.from_envelope(
+                    protocol_version_hint if protocol_version_hint is not None else DEFAULT_NEGOTIATED_VERSION,
+                    None,
+                    None,
+                )
                 try:
-                    await self.app.run(
-                        read_stream,
-                        write_stream,
-                        self.app.create_initialization_options(),
-                        stateless=True,
+                    await serve_connection(
+                        self.app, dispatcher, connection=connection, lifespan_state=self._lifespan_state
                     )
                 except Exception:  # pragma: lax no cover
                     logger.exception("Stateless session crashed")
@@ -276,7 +306,6 @@ class StreamableHTTPSessionManager:
                                     read_stream,
                                     write_stream,
                                     self.app.create_initialization_options(),
-                                    stateless=False,
                                 )
 
                             if idle_scope.cancelled_caught:

@@ -1388,7 +1388,7 @@ async def test_streamablehttp_stateless_ctx_protocol_version_tracks_the_header(
     assert response.status_code == 200
     echoed = json.loads(first_sse_data(response)["result"]["content"][0]["text"])
     assert echoed["protocol_version"] == expected
-    assert echoed["session_protocol_version"] is None
+    assert echoed["session_protocol_version"] == expected
 
 
 @pytest.mark.anyio

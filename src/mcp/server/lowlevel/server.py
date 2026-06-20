@@ -56,9 +56,10 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.connection import Connection
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, otel_middleware
+from mcp.server.runner import serve_connection
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
@@ -438,12 +439,13 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
-        # When True, the server is stateless and
-        # clients can perform initialization with any node. The client must still follow
-        # the initialization lifecycle, but can do so with any available node
-        # rather than requiring initialization for each connection.
-        stateless: bool = False,
     ) -> None:
+        """Serve a single connection over the given streams until the read side closes.
+
+        Thin wrapper over `serve_connection` (L28): enters the server lifespan,
+        builds a `JSONRPCDispatcher` over the streams and a loop-mode
+        `Connection` on it, then drives the dispatcher to completion.
+        """
         async with self.lifespan(self) as lifespan_context:
             dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
                 read_stream,
@@ -454,20 +456,14 @@ class Server(Generic[LifespanResultT]):
                 # the initialized state instead of failing the init-gate.
                 inline_methods=frozenset({"initialize"}),
             )
-            runner = ServerRunner(
-                server=self,
-                dispatcher=dispatcher,
+            connection = Connection.for_loop(dispatcher)
+            await serve_connection(
+                self,
+                dispatcher,
+                connection=connection,
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
-                # Stateless HTTP has no standalone GET stream, so server-initiated
-                # requests on `runner.connection` must fail fast with
-                # `NoBackChannelError` rather than write to a channel that will
-                # never deliver a response.
-                has_standalone_channel=not stateless,
-                stateless=stateless,
-                dispatch_middleware=[otel_middleware],
             )
-            await runner.run()
 
     def streamable_http_app(
         self,

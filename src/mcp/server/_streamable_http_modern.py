@@ -12,33 +12,32 @@ no per-request task group, no `JSONRPCDispatcher`.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import anyio
-import anyio.abc
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.runner import (
-    _EXIT_STACK_CLOSE_TIMEOUT,  # type: ignore[reportPrivateUsage]
-    ServerRunner,
-    otel_middleware,
-)
+from mcp.server.connection import Connection
+from mcp.server.runner import serve_one
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
-from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.inbound import ERROR_CODE_HTTP_STATUS, InboundLadderRejection, classify_inbound_request
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
+    ClientCapabilities,
     ErrorData,
+    Implementation,
     JSONRPCError,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -49,6 +48,10 @@ if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+_OK_STATUS = 200
 
 
 @dataclass
@@ -75,91 +78,55 @@ class _SingleExchangeDispatchContext:
         raise NoBackChannelError(method)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        # TODO(D-005a): buffer and stream as SSE once the JSON-vs-SSE response mode lands.
         return None
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        # TODO: no progressToken plumbing yet.
+        # TODO(D-005a): no progressToken plumbing yet; ships with the SSE response mode.
         return None
 
 
-class SingleExchangeDispatcher:
-    """Dispatcher for exactly one inbound JSON-RPC request over a single HTTP POST.
+def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
+    """Validate the classifier's raw envelope value into a typed model.
 
-    The exception->wire boundary lives here (mirrors `JSONRPCDispatcher`'s
-    role). Implements the `Dispatcher` Protocol so `ServerRunner` /
-    `Connection` / `ServerSession` accept it; `run()` is never driven.
+    The classifier checks presence only; a value that fails shape validation
+    is treated as not supplied so the request still routes.
     """
-
-    def __init__(self, request: Request) -> None:
-        self._request = request
-        self._tctx = TransportContext(
-            kind="streamable-http",
-            can_send_request=False,
-            headers=request.headers,
-        )
-
-    async def send_raw_request(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        opts: CallOptions | None = None,
-        *,
-        _related_request_id: RequestId | None = None,
-    ) -> dict[str, Any]:
-        raise NoBackChannelError(method)
-
-    async def notify(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        *,
-        _related_request_id: RequestId | None = None,
-    ) -> None:
-        # TODO: buffer and stream as SSE once the response-mode design lands.
+    if raw is None:
+        return None
+    try:
+        return model.model_validate(raw, by_name=False)
+    except ValidationError:
         return None
 
-    async def run(
-        self,
-        on_request: OnRequest,
-        on_notify: OnNotify,
-        *,
-        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
-    ) -> None:
-        raise RuntimeError("SingleExchangeDispatcher.run() is never driven; use handle()")
 
-    async def handle(self, req: JSONRPCRequest, on_request: OnRequest) -> JSONRPCResponse | JSONRPCError:
-        """Dispatch one request and map any exception to a `JSONRPCError`."""
-        dctx = _SingleExchangeDispatchContext(
-            transport=self._tctx,
-            request_id=req.id,
-            message_metadata=ServerMessageMetadata(request_context=self._request),
-        )
-        try:
-            result = await on_request(dctx, req.method, req.params)
-            return JSONRPCResponse(jsonrpc="2.0", id=req.id, result=result)
-        except MCPError as e:
-            return JSONRPCError(jsonrpc="2.0", id=req.id, error=e.error)
-        except ValidationError:
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=req.id,
-                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
-            )
-        # TODO: consolidate the three exception->ErrorData copies once the
-        # code=0 compat pin in JSONRPCDispatcher is lifted.
-        except Exception:
-            logger.exception("handler for %r raised", req.method)
-            return JSONRPCError(
-                jsonrpc="2.0",
-                id=req.id,
-                error=ErrorData(code=INTERNAL_ERROR, message="Internal server error"),
-            )
+async def _write(
+    msg: JSONRPCResponse | JSONRPCError,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+    *,
+    extra_headers: Mapping[str, str] | None = None,
+) -> None:
+    """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
+    status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, _OK_STATUS) if isinstance(msg, JSONRPCError) else _OK_STATUS
+    body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if isinstance(msg, JSONRPCError) and msg.id is None:
+        # JSON-RPC requires `id: null` to appear on the wire when the request
+        # id couldn't be parsed; `exclude_none` would otherwise drop it.
+        body["id"] = None
+    await Response(
+        json.dumps(body, separators=(",", ":")),
+        status_code=status,
+        media_type="application/json",
+        headers=dict(extra_headers) if extra_headers else None,
+    )(scope, receive, send)
 
 
 async def handle_modern_request(
     app: Server[Any],
     security_settings: TransportSecuritySettings | None,
-    protocol_version: str,
+    lifespan_state: Any,
     scope: Scope,
     receive: Receive,
     send: Send,
@@ -167,8 +134,9 @@ async def handle_modern_request(
     """ASGI handler for a single stateless-era POST.
 
     Called from `StreamableHTTPSessionManager.handle_request` when the
-    `MCP-Protocol-Version` header is in `MODERN_PROTOCOL_VERSIONS`; the header
-    value is passed as `protocol_version`. Never sets `Mcp-Session-Id`.
+    `MCP-Protocol-Version` header names a modern revision; the manager enters
+    `app.lifespan` once at startup and passes the state in. Never sets
+    `Mcp-Session-Id`.
     """
     request = Request(scope, receive)
 
@@ -178,54 +146,42 @@ async def handle_modern_request(
         await err(scope, receive, send)
         return
 
-    # TODO: validate Accept header once the JSON-vs-SSE response-mode design is settled.
+    # TODO(D-005a): validate Accept once the JSON-vs-SSE response mode is settled.
 
     if request.method != "POST":
-        # TODO: GET/DELETE rejection (405 + -32601) lands with the validation ladder.
-        await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
+        rej = JSONRPCError(
+            jsonrpc="2.0",
+            id=None,
+            error=ErrorData(code=METHOD_NOT_FOUND, message=f"HTTP {request.method} not supported on this endpoint"),
+        )
+        await _write(rej, scope, receive, send, extra_headers={"Allow": "POST"})
         return
 
     body = await request.body()
     try:
         req = JSONRPCRequest.model_validate_json(body)
     except ValidationError:
-        msg = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
-        await Response(
-            msg.model_dump_json(by_alias=True),
-            status_code=400,
-            media_type="application/json",
-        )(scope, receive, send)
+        rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
+        await _write(rej, scope, receive, send)
         return
 
-    dispatcher = SingleExchangeDispatcher(request)
-    # TODO: per-request lifespan re-entry matches stateless_http=True today; revisit in #2893.
-    async with app.lifespan(app) as lifespan_state:
-        runner = ServerRunner(
-            server=app,
-            dispatcher=dispatcher,
-            lifespan_state=lifespan_state,
-            has_standalone_channel=False,
-            stateless=True,
-            dispatch_middleware=[otel_middleware],
+    verdict = classify_inbound_request({"method": req.method, "params": req.params}, headers=dict(request.headers))
+    if isinstance(verdict, InboundLadderRejection):
+        rej = JSONRPCError(
+            jsonrpc="2.0", id=req.id, error=ErrorData(code=verdict.code, message=verdict.message, data=verdict.data)
         )
-        runner.connection.protocol_version = protocol_version
-        try:
-            msg = await dispatcher.handle(req, runner._compose_on_request())  # type: ignore[reportPrivateUsage]
-        finally:
-            with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True) as cancel_scope:
-                try:
-                    await runner.connection.exit_stack.aclose()
-                except Exception:
-                    logger.exception("connection exit_stack cleanup raised")
-            if cancel_scope.cancelled_caught:
-                logger.warning(
-                    "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
-                    _EXIT_STACK_CLOSE_TIMEOUT,
-                )
+        await _write(rej, scope, receive, send)
+        return
 
-        # TODO: error.code -> HTTP status mapping is a follow-up; 200 for all JSONRPCError bodies for now.
-        await Response(
-            msg.model_dump_json(by_alias=True, exclude_none=True),
-            status_code=200,
-            media_type="application/json",
-        )(scope, receive, send)
+    connection = Connection.from_envelope(
+        verdict.protocol_version,
+        _typed(Implementation, verdict.client_info),
+        _typed(ClientCapabilities, verdict.client_capabilities),
+    )
+    dctx = _SingleExchangeDispatchContext(
+        transport=TransportContext(kind="streamable-http", can_send_request=False, headers=request.headers),
+        request_id=req.id,
+        message_metadata=ServerMessageMetadata(request_context=request),
+    )
+    msg = await serve_one(app, req, connection=connection, dctx=dctx, lifespan_state=lifespan_state)
+    await _write(msg, scope, receive, send)

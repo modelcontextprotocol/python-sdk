@@ -98,7 +98,7 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
 
     assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
-    # The exact message is the StatelessModeNotSupported exception text wrapped by the tool-error
+    # The exact message is the NoBackChannelError exception text wrapped by the tool-error
     # path; pin the stable prefix rather than the full exception prose.
     assert result.content[0].text.startswith("Error executing tool ask:")
 
