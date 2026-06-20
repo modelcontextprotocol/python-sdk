@@ -20,9 +20,10 @@ from typing import Any, TypeVar, overload
 
 import anyio
 from pydantic import BaseModel
+from typing_extensions import deprecated
 
 from mcp.shared.dispatcher import CallOptions, Outbound
-from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
 from mcp.types import (
     ClientCapabilities,
@@ -209,6 +210,7 @@ class Connection:
         """
         await self.send_raw_request("ping", dump_params(None, meta), opts)
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
         """Send a `notifications/message` log entry on the standalone stream. Best-effort."""
         params: dict[str, Any] = {"level": level, "data": data}

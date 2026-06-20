@@ -268,18 +268,22 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
         await self.log("debug", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
         await self.log("info", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message."""
         await self.log("warning", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
         await self.log("error", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]

@@ -206,7 +206,7 @@ async def test_connection_ping_sends_ping_on_standalone():
 async def test_connection_log_sends_logging_message_notification():
     out = StubOutbound()
     conn = Connection(out, has_standalone_channel=True)
-    await conn.log("info", {"k": "v"}, logger="my.logger")
+    await conn.log("info", {"k": "v"}, logger="my.logger")  # pyright: ignore[reportDeprecated]
     method, params = out.notifications[0]
     assert method == "notifications/message"
     assert params is not None
@@ -219,7 +219,7 @@ async def test_connection_log_sends_logging_message_notification():
 async def test_connection_log_with_meta_includes_meta_in_params():
     out = StubOutbound()
     conn = Connection(out, has_standalone_channel=True)
-    await conn.log("info", "x", meta={"traceId": "abc"})
+    await conn.log("info", "x", meta={"traceId": "abc"})  # pyright: ignore[reportDeprecated]
     _, params = out.notifications[0]
     assert params is not None
     assert params["_meta"] == {"traceId": "abc"}
