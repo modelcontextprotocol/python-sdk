@@ -1038,9 +1038,8 @@ def test_structured_output_aliases():
 
     # Check that the actual output uses aliases too
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
-    converted = meta.convert_result(result)
-    assert isinstance(converted, tuple)
-    _, structured_content = converted
+    structured_content = meta.convert_result(result).structured_content
+    assert structured_content is not None
 
     # The structured content should use aliases to match the schema
     assert "first" in structured_content
@@ -1052,9 +1051,8 @@ def test_structured_output_aliases():
 
     # Also test the case where we have a model with defaults to ensure aliases work in all cases
     result_with_defaults = ModelWithAliases()  # Uses default None values
-    converted_defaults = meta.convert_result(result_with_defaults)
-    assert isinstance(converted_defaults, tuple)
-    _, structured_content_defaults = converted_defaults
+    structured_content_defaults = meta.convert_result(result_with_defaults).structured_content
+    assert structured_content_defaults is not None
 
     # Even with defaults, should use aliases in output
     assert "first" in structured_content_defaults

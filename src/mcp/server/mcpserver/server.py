@@ -384,13 +384,7 @@ class MCPServer(Generic[LifespanResultT]):
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
-        result = await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
-        if isinstance(result, CallToolResult):
-            return result
-        if isinstance(result, tuple):
-            content, structured_content = result
-            return CallToolResult(content=list(content), structured_content=structured_content)
-        return CallToolResult(content=list(result))
+        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
