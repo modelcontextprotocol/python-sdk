@@ -139,7 +139,10 @@ class FileResource(Resource):
         if is_binary:
             return True
         mime_type = info.data.get("mime_type", "text/plain")
-        return not mime_type.startswith("text/")
+        # Media types are case-insensitive (RFC 9110, section 8.3.1), so normalize
+        # before the prefix check — otherwise e.g. "Text/Markdown" is misclassified
+        # as binary and read as bytes instead of text.
+        return not mime_type.lower().startswith("text/")
 
     async def read(self) -> str | bytes:
         """Read the file content."""
