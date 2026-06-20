@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.server.mcpserver.utilities._schema_generator import StrictJsonSchema
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, StrictJsonSchema, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name

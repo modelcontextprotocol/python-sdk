@@ -11,6 +11,8 @@ import anyio.to_thread
 import pydantic_core
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue, JsonSchemaWarningKind
+from pydantic_core import CoreSchema
 from typing_extensions import is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
@@ -21,12 +23,56 @@ from typing_inspection.introspection import (
 )
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities._schema_generator import ExternalSchemaRefError, StrictJsonSchema
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+
+class ExternalSchemaRefError(ValueError):
+    """A tool schema contains a `$ref` that is not a same-document reference."""
+
+
+class StrictJsonSchema(GenerateJsonSchema):
+    """Render tool schemas, raising on pydantic warnings and external `$ref`s.
+
+    Warnings (e.g. a non-serializable type) become errors so they surface at tool
+    registration instead of silently producing a degenerate schema. External
+    `$ref`s -- which pydantic never emits itself, but a user can inject via
+    `Field(json_schema_extra=...)` -- are an SSRF / fetch-DoS vector and are
+    rejected for the same reason (SEP-2106).
+
+    See: https://modelcontextprotocol.io/seps/2106-json-schema-2020-12#security-implications
+    """
+
+    def emit_warning(self, kind: JsonSchemaWarningKind, detail: str) -> None:
+        raise ValueError(f"JSON schema warning: {kind} - {detail}")
+
+    def generate(self, schema: CoreSchema, mode: Any = "validation") -> JsonSchemaValue:
+        json_schema = super().generate(schema, mode)
+        external = sorted(_find_external_refs(json_schema))
+        if external:
+            raise ExternalSchemaRefError(
+                f"Tool schema contains external $ref(s) that MUST NOT be dereferenced (SEP-2106): "
+                f"{', '.join(external)}. Only same-document references (e.g. '#/$defs/Foo') are allowed."
+            )
+        return json_schema
+
+
+def _find_external_refs(node: Any) -> set[str]:
+    external: set[str] = set()
+    if isinstance(node, dict):
+        mapping = cast("dict[str, Any]", node)
+        ref = mapping.get("$ref")
+        if isinstance(ref, str) and not ref.startswith("#"):
+            external.add(ref)
+        for value in mapping.values():
+            external |= _find_external_refs(value)
+    elif isinstance(node, list):
+        for item in cast("list[Any]", node):
+            external |= _find_external_refs(item)
+    return external
 
 
 class ArgModelBase(BaseModel):
