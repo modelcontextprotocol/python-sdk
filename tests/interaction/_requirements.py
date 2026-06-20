@@ -45,7 +45,7 @@ SpecVersion = Literal["2025-11-25", "2026-07-28"]
 """A protocol version the suite parametrizes over. Both values are typed even though only one is
 on the active axis (SPEC_VERSIONS) until the 2026-07-28 implementation lands."""
 
-SPEC_VERSIONS: tuple[SpecVersion, ...] = ("2025-11-25",)
+SPEC_VERSIONS: tuple[SpecVersion, ...] = ("2025-11-25", "2026-07-28")
 """The active spec-version matrix axis, ordered oldest to newest. Every entry must be in KNOWN_PROTOCOL_VERSIONS."""
 
 SPEC_BASE_URL = "https://modelcontextprotocol.io/specification/2025-11-25"
@@ -94,6 +94,12 @@ _TASKS_DEFERRAL = (
     "Tasks have been removed from the draft spec and from this SDK; they are expected to return "
     "as a separate MCP extension. These 2025-11-25 requirements are tracked but intentionally "
     "unimplemented."
+)
+
+_MODERN_NOTIFY_DROP = (
+    "SingleExchangeDispatcher.notify() no-ops on the modern streamable-http driver; handler-emitted "
+    "logging/progress notifications never reach the per-request SSE response. Passes once SSE "
+    "response mode lands."
 )
 
 
@@ -212,14 +218,20 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Connecting sends initialize with the protocol version, client capabilities, and client "
             "info; the server responds with its own and the connection is established."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:initialize:server-info": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="The initialize result identifies the server: name and version, plus title when declared.",
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:initialize:instructions": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="A server may include an instructions string in the initialize result; the client exposes it.",
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:initialize:capabilities:from-handlers": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
@@ -227,14 +239,20 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server advertises a capability for each feature area it has a registered handler for, "
             "and omits the capability for areas it does not."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:initialize:capabilities:minimal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
         behavior="A server with no feature handlers advertises no feature capabilities.",
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:initialize:client-info": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="The client's name, version, and title are visible to server handlers after initialization.",
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
     "lifecycle:initialize:client-capabilities": Requirement(
@@ -243,6 +261,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The client capabilities visible to the server reflect which client callbacks are configured "
             "(sampling, elicitation, roots)."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
     "lifecycle:initialized-notification": Requirement(
@@ -251,6 +271,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "After successful initialization, the client sends exactly one initialized notification, "
             "before any non-ping request."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:ping": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/ping#behavior-requirements",
@@ -276,6 +298,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A request other than ping sent before the initialization handshake completes is rejected with an error."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
     ),
     "lifecycle:pre-initialization-ordering": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
@@ -304,6 +328,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the server returns an older supported protocol version, the client downgrades to it "
             "and the connection succeeds at that version."
         ),
+        removed_in="2026-07-28",
+        note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:version:match": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#version-negotiation",
@@ -311,6 +337,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the server supports the requested protocol version it echoes that version in the "
             "initialize result, and the connection proceeds at that version."
         ),
+        removed_in="2026-07-28",
+        note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:version:server-fallback-latest": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#version-negotiation",
@@ -318,6 +346,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An initialize request carrying a protocol version the server does not support is answered "
             "with another version the server supports — the latest one — rather than an error."
         ),
+        removed_in="2026-07-28",
+        note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:version:reject-unsupported": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#version-negotiation",
@@ -325,6 +355,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A client that receives an initialize response carrying a protocol version it does not "
             "support fails initialization with an error rather than proceeding with the session."
         ),
+        removed_in="2026-07-28",
+        note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:stateless:request-envelope": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
@@ -482,6 +514,17 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "leaks str(exc) as the error message."
             ),
         ),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="modern-error-surface",
+                spec_version="2026-07-28",
+                note=(
+                    "The modern entry maps Exception->INTERNAL_ERROR (-32603) with an opaque message, so the "
+                    "2026 arm SATISFIES this requirement; the test pins the legacy code-0 divergence and "
+                    "needs an era-aware assertion before re-admission."
+                ),
+            ),
+        ),
     ),
     "protocol:error:invalid-params": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
@@ -537,6 +580,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Progress notifications emitted by a handler during a request are delivered to the caller's "
             "progress callback, in order, with their progress, total, and message."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "protocol:progress:token-injected": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -549,6 +593,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:progress:token-unique": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior=("Concurrent in-flight requests that each supply a progress callback carry distinct progress tokens."),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "protocol:progress:monotonic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -561,6 +606,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "handler that emits non-increasing values has them forwarded to the callback unchanged."
             ),
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "protocol:progress:stops-after-completion": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#behavior-requirements",
@@ -594,6 +640,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:progress:client-to-server": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior="A progress notification sent by the client is delivered to the server's progress handler.",
+        arm_exclusions=(ArmExclusion(reason="requires-session", spec_version="2026-07-28"),),
     ),
     "protocol:timeout:basic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
@@ -697,6 +744,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Log notifications emitted by a tool handler during execution reach the client's logging "
             "callback before the tool result returns."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "tools:call:progress": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -704,6 +752,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Progress notifications emitted by a tool handler reach the caller's progress callback before "
             "the tool result returns."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "tools:call:sampling-roundtrip": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
@@ -924,12 +973,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
             "corresponding severity."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "mcpserver:context:progress": Requirement(
         source="sdk",
         behavior=(
             "Context.report_progress sends a progress notification against the requesting client's progress token."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "mcpserver:context:elicit": Requirement(
         source="sdk",
@@ -1091,6 +1142,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
         behavior="A resource function that raises is surfaced to the caller as a JSON-RPC error response.",
+        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "mcpserver:resource:static": Requirement(
         source="sdk",
@@ -1115,6 +1167,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "the low-level server converts to error code 0."
             ),
         ),
+        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Prompts
@@ -1145,6 +1198,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "which the low-level server converts to error code 0 with the exception text as the message."
             ),
         ),
+        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1187,6 +1241,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
+        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -1218,6 +1273,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "ValueError, which the low-level server converts to error code 0."
             ),
         ),
+        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
@@ -1284,6 +1340,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
@@ -1291,6 +1348,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
         ),
+        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
     ),
     "logging:message:filtered": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
@@ -1908,6 +1966,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "MCPServer never sends list_changed notifications on registration changes, so a connected "
                 "client cannot learn that the set changed without polling."
+            ),
+        ),
+        known_failures=(
+            KnownFailure(
+                spec_version="2026-07-28",
+                note=(
+                    "List-mutation assertions hold; only the sentinel ctx.info() never reaches the client. "
+                    + _MODERN_NOTIFY_DROP
+                ),
+                issue=None,
             ),
         ),
     ),
