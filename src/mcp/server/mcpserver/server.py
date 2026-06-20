@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -53,7 +52,6 @@ from mcp.types import (
     CompleteRequestParams,
     CompleteResult,
     Completion,
-    ContentBlock,
     GetPromptRequestParams,
     GetPromptResult,
     Icon,
@@ -311,28 +309,11 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        if isinstance(result, CallToolResult):
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
-            )
-        return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -406,7 +387,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+    ) -> CallToolResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)

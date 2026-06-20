@@ -23,6 +23,7 @@ from mcp.types import (
     INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
+    CallToolResult,
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -305,6 +306,29 @@ class TestServerTools:
             # Check structured content - int return type should have structured output
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
+
+    async def test_call_tool_always_returns_call_tool_result(self):
+        mcp = MCPServer()
+
+        @mcp.tool()
+        def direct() -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text="direct")])
+
+        @mcp.tool(structured_output=False)
+        def unstructured() -> str:
+            return "plain"
+
+        @mcp.tool()
+        def structured() -> int:
+            return 3
+
+        assert await mcp.call_tool("direct", {}) == CallToolResult(content=[TextContent(type="text", text="direct")])
+        assert await mcp.call_tool("unstructured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="plain")]
+        )
+        assert await mcp.call_tool("structured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="3")], structured_content={"result": 3}
+        )
 
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image
