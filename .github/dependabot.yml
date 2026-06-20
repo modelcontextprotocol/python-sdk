@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: monthly
     cooldown:
-      default-days: 7
+      default-days: 14
     groups:
       python-packages:
         patterns:
@@ -15,7 +15,7 @@ updates:
     schedule:
       interval: monthly
     cooldown:
-      default-days: 7
+      default-days: 14
     groups:
       github-actions:
         patterns:
