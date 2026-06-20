@@ -17,5 +17,9 @@ class ToolError(MCPServerError):
     """Error in tool operations."""
 
 
+class PromptError(MCPServerError):
+    """Error in prompt operations."""
+
+
 class InvalidSignature(Exception):
     """Invalid signature for use with MCPServer."""
