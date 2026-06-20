@@ -30,8 +30,13 @@ from mcp.types import CallToolResult, ContentBlock, TextContent
 logger = get_logger(__name__)
 
 
-class ExternalSchemaRefError(ValueError):
-    """A tool schema contains a `$ref` that is not a same-document reference."""
+class ExternalSchemaRefError(Exception):
+    """A tool schema contains a `$ref` that is not a same-document reference.
+
+    Deliberately not a `ValueError`: schema generation treats a `ValueError` as
+    an unserializable type and degrades gracefully, but an external `$ref` is a
+    hard error that must surface at tool registration.
+    """
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -39,8 +44,8 @@ class StrictJsonSchema(GenerateJsonSchema):
 
     Warnings (e.g. a non-serializable type) become errors so they surface at tool
     registration instead of silently producing a degenerate schema. External
-    `$ref`s -- which pydantic never emits itself, but a user can inject via
-    `Field(json_schema_extra=...)` -- are an SSRF / fetch-DoS vector and are
+    `$ref`s, which pydantic never emits itself but a user can inject via
+    `Field(json_schema_extra=...)`, are an SSRF / fetch-DoS vector and are
     rejected for the same reason (SEP-2106).
 
     See: https://modelcontextprotocol.io/seps/2106-json-schema-2020-12#security-implications
@@ -433,9 +438,6 @@ def _try_create_model_and_schema(
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
             schema = model.model_json_schema(schema_generator=StrictJsonSchema)
-        except ExternalSchemaRefError:
-            # SEP-2106: an external $ref is a hard error, not an unserializable type.
-            raise
         except (
             PydanticUserError,
             TypeError,
