@@ -182,6 +182,46 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
     )
 
 
+@requirement("hosting:resume:priming")
+async def test_a_pre_2025_11_25_reconnect_replays_without_minting_a_priming_event() -> None:
+    """A pre-2025-11-25 client reconnecting via Last-Event-ID gets the replay with no priming row.
+
+    The store-length assertion is the load-bearing proof that no priming cursor was minted.
+    """
+    release = anyio.Event()
+    store = SequencedEventStore()
+    mcp = MCPServer("resumable")
+
+    @mcp.tool()
+    async def count(ctx: Context) -> str:
+        await ctx.info("tick 1")  # pyright: ignore[reportDeprecated]
+        await release.wait()
+        await ctx.info("tick 2")  # pyright: ignore[reportDeprecated]
+        return "counted"
+
+    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(
+                "POST", "/mcp", content=_tools_call(1, "count", {}), headers=base_headers(session_id=session_id)
+            ) as response:
+                _, first = await _read_events(response, 2)
+            release.set()
+            await store.wait_until_stored(6)
+            old_client_headers = base_headers(session_id=session_id) | {
+                "mcp-protocol-version": "2025-06-18",
+                "last-event-id": first.id,
+            }
+            async with http.stream("GET", "/mcp", headers=old_client_headers) as replay:  # pragma: no branch
+                assert replay.status_code == 200
+                missed = await _read_events(replay, 2)
+
+    assert [(event.id, bool(event.data)) for event in missed] == snapshot([("5", True), ("6", True)])
+    # No priming cursor was minted on reconnect: the store still holds only the six rows
+    # written before the GET (init priming+response, POST priming, tick 1, tick 2, result).
+    assert len(store._events) == 6
+
+
 @requirement("hosting:resume:bad-event-id")
 async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
     """A Last-Event-ID the event store cannot map produces an empty SSE stream rather than an error.

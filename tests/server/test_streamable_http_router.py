@@ -2,6 +2,7 @@
 
 import anyio
 import pytest
+from starlette.types import Message, Scope
 
 from mcp.server.streamable_http import (
     REQUEST_STREAM_BUFFER_SIZE,
@@ -23,6 +24,14 @@ class _OrderTrackingStore(EventStore):
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
         self.stored.append((stream_id, message))
         return str(len(self.stored))
+
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        raise NotImplementedError
+
+
+class _PrimingFailingStore(EventStore):
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        raise RuntimeError("backend unavailable")
 
     async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
         raise NotImplementedError
@@ -99,3 +108,51 @@ async def test_priming_event_is_stored_before_any_routed_message() -> None:
     assert store.stored[0] == ("A", None)
     assert [sid for sid, _ in store.stored] == ["A"] * 6
     assert all(msg is not None for _, msg in store.stored[1:])
+
+
+@pytest.mark.anyio
+async def test_priming_store_failure_leaves_no_per_request_state() -> None:
+    """`EventStore.store_event` raising on the priming row must not leak per-request entries."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+        event_store=_PrimingFailingStore(),
+    )
+
+    body = b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}'
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+    body_sent = False
+
+    async def receive() -> Message:
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        raise NotImplementedError
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+
+    async with transport.connect() as (read_stream, _write_stream):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(transport.handle_request, scope, receive, asgi_send)
+            with anyio.fail_after(5):
+                forwarded = await read_stream.receive()
+            assert isinstance(forwarded, Exception)
+
+    assert transport._request_streams == {}
+    assert transport._sse_stream_writers == {}
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 500

@@ -546,15 +546,13 @@ class StreamableHTTPServerTransport:
                 else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
             )
 
-            # Extract the request ID outside the try block for proper scope
             request_id = str(message.id)
-            # Register this stream for the request ID
-            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
-                REQUEST_STREAM_BUFFER_SIZE
-            )
-            request_stream_reader = self._request_streams[request_id][1]
 
             if self.is_json_response_enabled:
+                self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
+                    REQUEST_STREAM_BUFFER_SIZE
+                )
+                request_stream_reader = self._request_streams[request_id][1]
                 # Process the message
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
@@ -598,16 +596,18 @@ class StreamableHTTPServerTransport:
                 finally:
                     await self._clean_up_memory_streams(request_id)
             else:
-                # Create SSE stream
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
-
-                # Store writer reference so close_sse_stream() can close it
-                self._sse_stream_writers[request_id] = sse_stream_writer
-
-                # Store the priming event before the request is dispatched so its
-                # event-store position precedes anything message_router can store
-                # for this id (storage order == wire order by construction).
+                # Mint the priming event before any per-request state exists:
+                # `EventStore.store_event` is user code and may raise, in which
+                # case the outer handler returns a 500 with nothing to clean up.
+                # Still strictly precedes dispatch, so storage order == wire order.
                 priming_event = await self._mint_priming_event(request_id, protocol_version)
+
+                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+                self._sse_stream_writers[request_id] = sse_stream_writer
+                self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
+                    REQUEST_STREAM_BUFFER_SIZE
+                )
+                request_stream_reader = self._request_streams[request_id][1]
 
                 headers = {
                     "Cache-Control": "no-cache, no-transform",
@@ -638,10 +638,7 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: lax no cover
-            # Reached only when something raises during POST handling outside
-            # the per-SSE-stream guard above; whether tests reach this depends
-            # on client teardown timing.
+        except Exception as err:
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -649,9 +646,8 @@ class StreamableHTTPServerTransport:
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            if writer:
-                await writer.send(Exception(err))
-            return  # pragma: no cover
+            await writer.send(Exception(err))
+            return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
         """Handle GET request to establish SSE.
@@ -900,7 +896,7 @@ class StreamableHTTPServerTransport:
                             # is re-registered. The replay→live-tail ordering window here
                             # is pre-existing and tracked separately.
                             priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
-                            if priming_event is not None:  # pragma: no branch
+                            if priming_event is not None:
                                 await sse_stream_writer.send(priming_event)
 
                             # Create new request streams for this connection
