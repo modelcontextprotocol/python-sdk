@@ -1259,6 +1259,14 @@ RFC 9207 / RFC 8414 issuer comparisons, which require simple string comparison (
 URLs constructed in Python from an already-built `AnyHttpUrl` object are unaffected (they were
 normalized at construction); only values parsed from strings/JSON change.
 
+This also changes the wire form of `OAuthClientMetadata.redirect_uris`: a path-less redirect URI
+passed as a string (e.g. `redirect_uris=['http://localhost:8080']`) now serializes as
+`http://localhost:8080` instead of `http://localhost:8080/`, and the client sends it verbatim in
+the `/authorize` and token-exchange requests. RFC 6749 §3.1.2.3 requires authorization servers to
+match redirect URIs by exact string comparison, so if you registered such a URI with a previous SDK
+release (with the trailing slash) and the registration is persisted in `TokenStorage`, re-register
+the client so the stored value matches what the SDK now transmits.
+
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
