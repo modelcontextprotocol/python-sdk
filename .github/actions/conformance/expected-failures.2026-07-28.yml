@@ -82,20 +82,11 @@ client:
   # neither run nor evaluated on this leg.
 
 server:
-  # --- No stateless server path on main yet (carried-forward 2025-era scenarios) ---
-  # mcp-everything-server only runs in 2025 stateful mode. With
-  # --spec-version 2026-07-28 the harness sends stateless requests
-  # (MCP-Protocol-Version: 2026-07-28, _meta envelope, no initialize), which
-  # the server rejects before the handler runs. These scenarios all pass on
-  # the 2025 legs; they unblock once mcp-everything-server routes 2026
-  # requests through a stateless path.
-  - tools-list
+  # --- Carried-forward 2025-era scenarios still failing on the 2026 wire ---
+  # The stateless 2026 path now reaches handlers for plain request/response
+  # scenarios; tools-call-with-progress still fails because the stateless
+  # server has no channel for server→client progress notifications.
   - tools-call-with-progress
-  - resources-list
-  - resources-read-text
-  - resources-read-binary
-  - resources-templates-read
-  - prompts-list
   # SEP-2106 (JSON Schema 2020-12 in tool inputSchema): the fixture tool's
   # schema has none of the 2020-12 keywords the scenario checks. The scenario
   # is in `--suite all` but not `--suite active`, so this is the only leg that
@@ -118,12 +109,9 @@ server:
   - input-required-result-tampered-state
   - input-required-result-capability-check
   - input-required-result-validate-input
-  # SEP-2549 (caching): no ttlMs/cacheScope support.
-  - caching
   # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
   # case-insensitive/whitespace-trimmed header validation not implemented.
   - http-header-validation
-  - http-custom-header-server-validation
 
   # --- WARNING-only entries ---
   # These scenarios emit no FAILURE checks, only SHOULD-level WARNINGs, but

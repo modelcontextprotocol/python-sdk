@@ -65,13 +65,9 @@ server:
   - input-required-result-result-type
   - input-required-result-tampered-state
   - input-required-result-capability-check
-  # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
-  # stateful-mode "Missing session ID" error.
-  - caching
   # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
   # case-insensitive/whitespace-trimmed header validation not implemented.
   - http-header-validation
-  - http-custom-header-server-validation
   # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
   # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
   # SEP-2164: server returns -32600 (not -32602) and omits error.data.uri.
