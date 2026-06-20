@@ -1,12 +1,9 @@
 """`ServerSession`: server-to-client requests and notifications.
 
-A thin proxy over `JSONRPCDispatcher` and `Connection`. One instance per
-client connection (built by `ServerRunner`). Handlers reach it as
-`ctx.session` and use the typed helpers (`create_message`, `elicit_form`,
+A per-request proxy built by the kernel for each inbound request. Exposes the
+request-scoped outbound channel and the connection's standalone channel.
+Handlers reach it as `ctx.session` and use the typed helpers (`elicit_form`,
 `send_log_message`, ...) to call back to the client.
-
-The receive-loop, initialize handling, and per-request task isolation that
-used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 """
 
 from typing import Any, TypeVar, overload
@@ -39,15 +36,8 @@ class ServerSession:
     never crosses the `Outbound` Protocol.
     """
 
-    def __init__(
-        self,
-        request_outbound: Outbound,
-        connection: Connection,
-        *,
-        standalone_outbound: Outbound | None = None,
-    ) -> None:
+    def __init__(self, request_outbound: Outbound, connection: Connection) -> None:
         self._request_outbound = request_outbound
-        self._standalone_outbound = standalone_outbound if standalone_outbound is not None else request_outbound
         self._connection = connection
 
     @property
@@ -81,7 +71,7 @@ class ServerSession:
             pydantic.ValidationError: The peer's result does not match `result_type`.
         """
         related = metadata.related_request_id if metadata is not None else None
-        channel = self._request_outbound if related is not None else self._standalone_outbound
+        channel = self._request_outbound if related is not None else self._connection.outbound
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
         if request_read_timeout_seconds is not None:
@@ -101,7 +91,7 @@ class ServerSession:
         related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a typed server-to-client notification."""
-        channel = self._request_outbound if related_request_id is not None else self._standalone_outbound
+        channel = self._request_outbound if related_request_id is not None else self._connection.outbound
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         await channel.notify(data["method"], data.get("params"))
 

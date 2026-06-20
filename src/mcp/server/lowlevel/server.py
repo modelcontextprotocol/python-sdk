@@ -226,7 +226,7 @@ class Server(Generic[LifespanResultT]):
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
         # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
-        # TODO(maxisbey): provisional - signature and semantics change with the
+        # TODO(L54): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.
         self.middleware: list[ServerMiddleware[LifespanResultT]] = []
@@ -439,7 +439,7 @@ class Server(Generic[LifespanResultT]):
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
-        Thin wrapper over `serve_loop` (L28): enters the server lifespan,
+        Thin wrapper over `serve_loop`: enters the server lifespan,
         then drives the loop. Transports with their own lifespan owner
         (the streamable-HTTP manager) call `serve_loop` directly instead.
         """

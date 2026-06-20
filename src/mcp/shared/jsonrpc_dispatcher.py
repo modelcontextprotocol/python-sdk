@@ -684,7 +684,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # anyio absorbs the scope's own cancel at __exit__, and
                 # `cancelled_caught` (unlike `cancel_called`) guarantees the
                 # result write above did not happen - no double response.
-                # TODO(maxisbey): spec says SHOULD NOT respond after cancel;
+                # TODO(L38): spec says SHOULD NOT respond after cancel;
                 # the existing server always has, so match that for now.
                 answer_write_started = True
                 await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
@@ -707,7 +707,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, error)
             else:
                 logger.exception("handler for %r raised", req.method)
-                # TODO(L19): code=0 pins existing-server compat; JSON-RPC says
+                # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
                 # INTERNAL_ERROR. Revisit per the suite's divergence entry.
                 await self._write_error(req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:

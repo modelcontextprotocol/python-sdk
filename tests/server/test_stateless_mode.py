@@ -47,7 +47,7 @@ def _no_channel_session(request_ch: StubOutbound | None = None) -> tuple[ServerS
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     assert conn.has_standalone_channel is False
     request = request_ch if request_ch is not None else StubOutbound()
-    return ServerSession(request, conn, standalone_outbound=conn.outbound), request
+    return ServerSession(request, conn), request
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ async def test_loop_connection_outbound_does_not_raise_no_back_channel():
     standalone = StubOutbound(result={"roots": []})
     conn = Connection.for_loop(standalone)
     assert conn.has_standalone_channel is True
-    session = ServerSession(StubOutbound(), conn, standalone_outbound=conn.outbound)
+    session = ServerSession(StubOutbound(), conn)
     result = await session.list_roots()  # pyright: ignore[reportDeprecated]
     assert isinstance(result, types.ListRootsResult)
     assert standalone.requests[0][0] == "roots/list"

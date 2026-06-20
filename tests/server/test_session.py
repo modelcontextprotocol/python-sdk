@@ -57,13 +57,13 @@ def _make_session(
     """Single-channel session: the stub is both request and standalone outbound."""
     client_info = Implementation(name="c", version="0") if capabilities is not None else None
     conn = Connection.from_envelope(protocol_version, client_info, capabilities, outbound=outbound)
-    return ServerSession(outbound, conn, standalone_outbound=outbound)
+    return ServerSession(outbound, conn)
 
 
 def _two_channel_session(request_ch: Outbound, standalone_ch: Outbound) -> ServerSession:
     """Distinct request/standalone outbounds so routing assertions can tell the channels apart."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None, outbound=standalone_ch)
-    return ServerSession(request_ch, conn, standalone_outbound=standalone_ch)
+    return ServerSession(request_ch, conn)
 
 
 @pytest.mark.anyio
@@ -146,23 +146,6 @@ async def test_send_notification_routes_by_related_request_id():
 
 
 @pytest.mark.anyio
-async def test_standalone_outbound_defaults_to_request_outbound():
-    """SDK-defined: omitting `standalone_outbound` collapses both channels onto the
-    request one — the duplex case (stdio) where a single stream serves both.
-
-    `conn.outbound` is the no-channel sentinel here, so traffic landing on `only`
-    proves the default is the request outbound (the alternate impl — defaulting to
-    `conn.outbound` — would raise `NoBackChannelError`)."""
-    only = StubOutbound(result={"roots": []})
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
-    session = ServerSession(only, conn)
-    await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
-    await session.send_notification(types.ToolListChangedNotification())
-    assert only.requests[0][0] == "roots/list"
-    assert only.notifications[0][0] == "notifications/tools/list_changed"
-
-
-@pytest.mark.anyio
 async def test_send_request_validates_the_client_result_against_the_surface_schema():
     """A spec-method result that fails the per-version surface schema raises
     `ValidationError` even when the caller's `result_type` would accept it."""
@@ -228,6 +211,6 @@ def test_protocol_version_proxies_connection():
     """SDK-defined: `session.protocol_version` reads through to the held `Connection`."""
     _ARBITRARY_VERSION = "sentinel-version"  # identity-only: any string the connection holds
     conn = Connection.from_envelope(_ARBITRARY_VERSION, None, None)
-    session = ServerSession(StubOutbound(), conn, standalone_outbound=conn.outbound)
+    session = ServerSession(StubOutbound(), conn)
     assert session.protocol_version == _ARBITRARY_VERSION
     assert session.client_params is None

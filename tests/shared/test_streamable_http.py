@@ -51,6 +51,7 @@ from mcp.shared.session import RequestResponder
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -1046,8 +1047,10 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="[Ss]ession.*terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio
@@ -1107,8 +1110,10 @@ async def test_streamable_http_client_session_termination_204(
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="[Ss]ession.*terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio

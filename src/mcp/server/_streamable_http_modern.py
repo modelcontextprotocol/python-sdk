@@ -67,7 +67,7 @@ class _SingleExchangeDispatchContext:
     request_id: RequestId
     message_metadata: MessageMetadata
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
-    can_send_request: bool = False
+    can_send_request: bool = field(default=False, init=False)
 
     async def send_raw_request(
         self,
@@ -104,8 +104,6 @@ async def _write(
     scope: Scope,
     receive: Receive,
     send: Send,
-    *,
-    extra_headers: Mapping[str, str] | None = None,
 ) -> None:
     """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
     status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, _OK_STATUS) if isinstance(msg, JSONRPCError) else _OK_STATUS
@@ -118,7 +116,6 @@ async def _write(
         json.dumps(body, separators=(",", ":")),
         status_code=status,
         media_type="application/json",
-        headers=dict(extra_headers) if extra_headers else None,
     )(scope, receive, send)
 
 
@@ -163,10 +160,13 @@ async def handle_modern_request(
     try:
         req = JSONRPCRequest.model_validate(decoded)
     except ValidationError:
-        # Well-formed JSON that isn't a single request object (a notification,
-        # a response, a batch). TODO(L57): the 2026 HTTP path carries no
-        # client→server notifications (cancellation is via SSE close), so a
-        # plain rejection is currently sufficient.
+        # Well-formed JSON that isn't a single request object. The transport
+        # spec permits notification POSTs and gives the server two responses
+        # (202 accept / 4xx cannot-accept; streamable-http §Sending Messages
+        # item 5). The core protocol defines no client→server notifications
+        # over HTTP at 2026-07-28 (cancellation is SSE-stream close), so this
+        # entry takes the cannot-accept branch. TODO(L57): S4 owns the
+        # strict-vs-lenient choice.
         rej = JSONRPCError(
             jsonrpc="2.0",
             id=None,

@@ -5,8 +5,8 @@ dicts) and the user's handler layer (typed `Context`, typed params). It is a
 pure kernel: it holds a pre-populated `Connection` and reads
 `connection.protocol_version` / `connection.outbound` as facts. Driving a
 dispatcher loop and tearing down the connection live in the free-function
-drivers (`serve_connection`, `serve_one`); the entry constructs the
-`Connection`, the driver tears it down.
+drivers (`serve_connection`, `serve_loop`, `serve_one`); the entry constructs
+the `Connection`, the driver tears it down.
 
 `ServerRunner` holds a `Server` directly - `Server` is the registry.
 """
@@ -65,6 +65,7 @@ __all__ = [
     "aclose_shielded",
     "otel_middleware",
     "serve_connection",
+    "serve_loop",
     "serve_one",
     "to_jsonrpc_response",
 ]
@@ -362,7 +363,7 @@ class ServerRunner(Generic[LifespanT]):
     def _make_context(
         self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None, protocol_version: str
     ) -> ServerRequestContext[LifespanT, Any]:
-        # TODO(maxisbey): remove for Context rework. Reads the SHTTP per-request
+        # TODO(L54): remove for Context rework. Reads the SHTTP per-request
         # data off the raw `dctx.message_metadata` carrier; replace with the
         # per-transport context once that lands.
         md = dctx.message_metadata
@@ -373,9 +374,9 @@ class ServerRunner(Generic[LifespanT]):
         else:
             request = close_sse_stream = close_standalone_sse_stream = None
         # Per-request session: `dctx` is the request-scoped channel (auto-threads
-        # its own request_id on streamable HTTP); `connection.outbound` is the
-        # standalone channel. `related_request_id` on the public API selects.
-        session = ServerSession(dctx, self.connection, standalone_outbound=self.connection.outbound)
+        # its own request_id on streamable HTTP); the standalone channel is read
+        # off `connection.outbound`. `related_request_id` on the public API selects.
+        session = ServerSession(dctx, self.connection)
         return ServerRequestContext(
             session=session,
             lifespan_context=self.lifespan_state,
@@ -450,8 +451,8 @@ async def serve_loop(
     """Drive ``server`` in loop mode over a stream pair until the channel closes.
 
     Builds the loop-mode `JSONRPCDispatcher` + `Connection` and hands them to
-    `serve_connection`, so the dispatcher-construction recipe (notably the
-    `inline_methods={"initialize"}` rule) lives in one place. Callers that own
+    `serve_connection`, so loop-mode callers share one dispatcher-construction
+    recipe (notably the `inline_methods={"initialize"}` rule). Callers that own
     a lifespan (the streamable-HTTP manager) pass it in; callers that don't
     (`Server.run` for stdio/memory) enter the lifespan and then call this.
     """

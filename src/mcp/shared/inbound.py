@@ -18,6 +18,7 @@ from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
+    UnsupportedProtocolVersionErrorData,
 )
 from mcp.types.jsonrpc import (
     HEADER_MISMATCH,
@@ -40,6 +41,8 @@ __all__ = [
 MCP_PROTOCOL_VERSION_HEADER: Final = "mcp-protocol-version"
 """Canonical lowercase name of the HTTP header carrying the MCP protocol version."""
 
+# INTERNAL_ERROR is deliberately unmapped (→ HTTP 200): the spec assigns no status to
+# -32603, and whether handler-origin errors get 5xx is an open S4 question — see TODO(L66).
 ERROR_CODE_HTTP_STATUS: Final[Mapping[int, int]] = MappingProxyType(
     {
         PARSE_ERROR: 400,
@@ -127,6 +130,7 @@ def classify_inbound_request(
             "client-capabilities envelope keys",
         )
 
+    # TODO(L59): also validate Mcp-Method / Mcp-Name per SEP-2243 §Server Validation
     if headers is not None and headers.get(MCP_PROTOCOL_VERSION_HEADER) != protocol_version:
         return InboundLadderRejection(
             code=HEADER_MISMATCH,
@@ -137,7 +141,9 @@ def classify_inbound_request(
         return InboundLadderRejection(
             code=UNSUPPORTED_PROTOCOL_VERSION,
             message="Unsupported protocol version",
-            data={"supported": list(supported_modern_versions), "requested": protocol_version},
+            data=UnsupportedProtocolVersionErrorData(
+                supported=list(supported_modern_versions), requested=protocol_version
+            ).model_dump(mode="json"),
         )
 
     return InboundModernRoute(

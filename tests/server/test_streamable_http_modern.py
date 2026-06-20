@@ -129,7 +129,7 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
     seen: list[object] = []
 
     async def greet(ctx: ServerRequestContext, params: PaginatedRequestParams) -> dict[str, Any]:
-        seen.append(ctx.session._connection.client_params)
+        seen.append(ctx.session.client_params)
         return {"ok": True}
 
     server: Server[Any] = Server("test")
