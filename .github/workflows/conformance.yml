@@ -20,10 +20,10 @@ env:
   # .github/actions/conformance/expected-failures*.yml files in the same change.
   #
   # TODO: replace with @modelcontextprotocol/conformance@0.2.0-alpha.5 once
-  # https://github.com/modelcontextprotocol/conformance/pull/357 publishes.
-  # The pkg.pr.new URL below is the preview build of that PR pinned at commit
-  # 65fcd39 (immutable). Do not merge this branch to main with a pkg.pr.new pin.
+  # https://github.com/modelcontextprotocol/conformance/pull/357 publishes, and
+  # drop CONFORMANCE_PKG_SHA256 plus the fetch-and-verify step below.
   CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@65fcd39"
+  CONFORMANCE_PKG_SHA256: "9a381d7083f8be2fe7ae44efeca54530f18c61425805ddaf9cd88915efcc1574"
 
 jobs:
   server-conformance:
@@ -39,6 +39,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp-everything-server
       - name: Run server conformance (active suite)
         run: >-
@@ -70,6 +83,15 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp
       - name: Run client conformance (all suite)
         run: >-
