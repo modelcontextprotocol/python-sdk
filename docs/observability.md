@@ -132,4 +132,3 @@ async def observed_call_tool(client, name: str, arguments: dict):
 If you propagate trace context between client and server, put it in the MCP
 request metadata rather than assuming transport headers will be available for
 each logical request.
-
