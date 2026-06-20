@@ -12,6 +12,7 @@ used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 from typing import Any, TypeVar, cast, overload
 
 from pydantic import AnyUrl, BaseModel
+from typing_extensions import deprecated
 
 from mcp import types
 from mcp.server.connection import Connection
@@ -126,6 +127,7 @@ class ServerSession:
         """Check if the client supports a specific capability."""
         return self._connection.check_capability(capability)
 
+    @deprecated("`send_log_message` is deprecated as of 2026-07-28 (SEP-2577).")
     async def send_log_message(
         self,
         level: types.LoggingLevel,
@@ -154,6 +156,7 @@ class ServerSession:
         )
 
     @overload
+    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).")
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -173,6 +176,7 @@ class ServerSession:
         ...
 
     @overload
+    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).")
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -191,6 +195,7 @@ class ServerSession:
         """Overload: With tools, returns array-capable content."""
         ...
 
+    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).")
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -267,6 +272,7 @@ class ServerSession:
             metadata=metadata_obj,
         )
 
+    @deprecated("`list_roots` is deprecated as of 2026-07-28 (SEP-2577).")
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         if self._stateless:

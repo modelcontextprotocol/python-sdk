@@ -7,6 +7,7 @@ test-only-functions convention.
 """
 
 import sys
+import warnings
 
 import anyio
 import coverage
@@ -40,7 +41,9 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     assert params.name == "echo"
     assert params.arguments is not None
     text = params.arguments["text"]
-    await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")  # pyright: ignore[reportDeprecated]
     return CallToolResult(content=[TextContent(text=text)])
 
 

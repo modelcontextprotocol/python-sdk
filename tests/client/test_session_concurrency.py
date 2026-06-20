@@ -95,7 +95,7 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
         echoes: dict[str, str] = {}
 
         async def sample(tag: str) -> None:
-            result = await ctx.session.create_message(
+            result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[SamplingMessage(role="user", content=TextContent(text=tag))],
                 max_tokens=10,
             )

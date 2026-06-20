@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any, cast, overload
 
 from pydantic import BaseModel
+from typing_extensions import deprecated
 
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.types import (
@@ -83,6 +84,7 @@ class ClientPeer:
         await self._outbound.notify(method, params)
 
     @overload
+    @deprecated("`sample` is deprecated as of 2026-07-28 (SEP-2577).")
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -100,6 +102,7 @@ class ClientPeer:
         opts: CallOptions | None = None,
     ) -> CreateMessageResult: ...
     @overload
+    @deprecated("`sample` is deprecated as of 2026-07-28 (SEP-2577).")
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -116,6 +119,7 @@ class ClientPeer:
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
+    @deprecated("`sample` is deprecated as of 2026-07-28 (SEP-2577).")
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -195,6 +199,7 @@ class ClientPeer:
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result, by_name=False)
 
+    @deprecated("`list_roots` is deprecated as of 2026-07-28 (SEP-2577).")
     async def list_roots(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> ListRootsResult:
         """Send a `roots/list` request.
 

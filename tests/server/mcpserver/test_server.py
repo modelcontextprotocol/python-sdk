@@ -1110,10 +1110,10 @@ class TestContextInjection:
         mcp = MCPServer()
 
         async def logging_tool(msg: str, ctx: Context) -> str:
-            await ctx.debug("Debug message")
-            await ctx.info("Info message")
-            await ctx.warning("Warning message")
-            await ctx.error("Error message")
+            await ctx.debug("Debug message")  # pyright: ignore[reportDeprecated]
+            await ctx.info("Info message")  # pyright: ignore[reportDeprecated]
+            await ctx.warning("Warning message")  # pyright: ignore[reportDeprecated]
+            await ctx.error("Error message")  # pyright: ignore[reportDeprecated]
             return f"Logged messages for {msg}"
 
         mcp.add_tool(logging_tool)

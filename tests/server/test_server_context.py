@@ -61,7 +61,7 @@ async def test_context_log_sends_request_scoped_message_notification():
         ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
-        await ctx.log("debug", "hello")
+        await ctx.log("debug", "hello")  # pyright: ignore[reportDeprecated]
         return {}
 
     async with running_pair(direct_pair, server_on_request=server_on_request, client_on_notify=c_notify) as (
@@ -85,7 +85,7 @@ async def test_context_log_includes_logger_and_meta_when_supplied():
         ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
-        await ctx.log("info", "x", logger="my.log", meta={"traceId": "t"})
+        await ctx.log("info", "x", logger="my.log", meta={"traceId": "t"})  # pyright: ignore[reportDeprecated]
         return {}
 
     async with running_pair(direct_pair, server_on_request=server_on_request, client_on_notify=c_notify) as (

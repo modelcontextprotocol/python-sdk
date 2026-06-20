@@ -414,7 +414,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     async def grow(ctx: Context) -> str:
         mcp.add_tool(extra, name="extra")
         mcp.remove_tool("doomed")
-        await ctx.info("tool set changed")
+        await ctx.info("tool set changed")  # pyright: ignore[reportDeprecated]
         return "mutated"
 
     async def collect(message: IncomingMessage) -> None:

@@ -195,7 +195,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
             both_started.set()
         # Blocks on send_request waiting for a client response that never comes.
         # _receive_loop's finally will wake this with CONNECTION_CLOSED.
-        await ctx.session.list_roots()
+        await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         raise AssertionError  # pragma: no cover
 
     server = Server("test", on_call_tool=handle_call_tool)

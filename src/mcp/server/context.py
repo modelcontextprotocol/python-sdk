@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, Protocol
 
 from pydantic import BaseModel
-from typing_extensions import TypeVar
+from typing_extensions import TypeVar, deprecated
 
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
@@ -92,6 +92,7 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         """
         return self.transport.headers
 
+    @deprecated("`log` is deprecated as of 2026-07-28 (SEP-2577).")
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
         """Send a request-scoped `notifications/message` log entry.
 

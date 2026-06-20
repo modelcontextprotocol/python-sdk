@@ -259,7 +259,7 @@ async def test_client_unsubscribe_resource(simple_server: Server):
 async def test_client_set_logging_level(simple_server: Server):
     """Test setting logging level."""
     async with Client(simple_server) as client:
-        result = await client.set_logging_level("debug")
+        result = await client.set_logging_level("debug")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 

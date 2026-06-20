@@ -46,7 +46,7 @@ async def test_peer_sample_sends_create_message_and_returns_typed_result():
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            result = await peer.sample(
+            result = await peer.sample(  # pyright: ignore[reportDeprecated]
                 [SamplingMessage(role="user", content=TextContent(type="text", text="hello"))],
                 max_tokens=10,
             )
@@ -66,7 +66,7 @@ async def test_peer_sample_validates_result_alias_only():
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            result = await peer.sample(
+            result = await peer.sample(  # pyright: ignore[reportDeprecated]
                 [SamplingMessage(role="user", content=TextContent(type="text", text="q"))], max_tokens=1
             )
         assert isinstance(result, CreateMessageResult)
@@ -79,7 +79,7 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            result = await peer.sample(
+            result = await peer.sample(  # pyright: ignore[reportDeprecated]
                 [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],
                 max_tokens=5,
                 tools=[Tool(name="t", input_schema={"type": "object"})],
@@ -124,7 +124,7 @@ async def test_peer_list_roots_sends_roots_list_and_returns_typed_result():
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            result = await peer.list_roots()
+            result = await peer.list_roots()  # pyright: ignore[reportDeprecated]
         method, _ = rec.seen[0]
         assert method == "roots/list"
         assert isinstance(result, ListRootsResult)
@@ -138,10 +138,20 @@ async def test_peer_list_roots_with_meta_sends_meta_in_params():
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            await peer.list_roots(meta={"traceId": "t1"})
+            await peer.list_roots(meta={"traceId": "t1"})  # pyright: ignore[reportDeprecated]
         method, params = rec.seen[0]
         assert method == "roots/list"
         assert params == {"_meta": {"traceId": "t1"}}
+
+
+@pytest.mark.anyio
+async def test_peer_list_roots_is_deprecated_sep_2577():
+    rec = _Recorder({"roots": []})
+    async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
+        peer = ClientPeer(client)
+        with pytest.warns(DeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
+            with anyio.fail_after(5):
+                await peer.list_roots()  # pyright: ignore[reportDeprecated]
 
 
 def test_dump_params_merges_meta_over_model_meta():

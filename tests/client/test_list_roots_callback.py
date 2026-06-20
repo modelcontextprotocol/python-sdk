@@ -25,7 +25,7 @@ async def test_list_roots_callback():
 
     @server.tool("test_list_roots")
     async def test_list_roots(context: Context, message: str):
-        roots = await context.session.list_roots()
+        roots = await context.session.list_roots()  # pyright: ignore[reportDeprecated]
         assert roots == callback_return
         return True
 

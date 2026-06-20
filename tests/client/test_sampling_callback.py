@@ -32,7 +32,7 @@ async def test_sampling_callback():
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str, ctx: Context) -> bool:
-        value = await ctx.session.create_message(
+        value = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )
@@ -78,7 +78,7 @@ async def test_create_message_backwards_compat_single_content():
     @server.tool("test_backwards_compat")
     async def test_tool(message: str, ctx: Context) -> bool:
         # Call create_message WITHOUT tools
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

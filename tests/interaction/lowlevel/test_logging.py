@@ -39,7 +39,7 @@ async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
     server = Server("logger", on_set_logging_level=set_logging_level)
 
     async with connect(server) as client:
-        result = await client.set_logging_level("warning")
+        result = await client.set_logging_level("warning")  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 
@@ -64,10 +64,10 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "chatty"
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info", data="starting up", logger="app.lifecycle", related_request_id=ctx.request_id
         )
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="error", data={"code": 502, "retryable": True}, related_request_id=ctx.request_id
         )
         return CallToolResult(content=[TextContent(text="done")])
@@ -106,7 +106,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
         for level in ALL_LEVELS:
-            await ctx.session.send_log_message(
+            await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level=level, data=f"a {level} message", related_request_id=ctx.request_id
             )
         return CallToolResult(content=[TextContent(text="logged")])

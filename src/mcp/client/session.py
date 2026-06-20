@@ -10,7 +10,7 @@ import anyio
 import anyio.abc
 import anyio.lowlevel
 from pydantic import BaseModel, TypeAdapter, ValidationError
-from typing_extensions import Self, TypeVar
+from typing_extensions import Self, TypeVar, deprecated
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
@@ -386,6 +386,7 @@ class ClientSession:
             )
         )
 
+    @deprecated("`set_logging_level` is deprecated as of 2026-07-28 (SEP-2577).")
     async def set_logging_level(
         self,
         level: types.LoggingLevel,
@@ -550,6 +551,7 @@ class ClientSession:
 
         return result
 
+    @deprecated("`send_roots_list_changed` is deprecated as of 2026-07-28 (SEP-2577).")
     async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())

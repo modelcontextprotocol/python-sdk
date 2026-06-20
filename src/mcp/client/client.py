@@ -6,6 +6,8 @@ from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
+from typing_extensions import deprecated
+
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -195,9 +197,10 @@ class Client:
             message=message,
         )
 
+    @deprecated("`set_logging_level` is deprecated as of 2026-07-28 (SEP-2577).")
     async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level=level, meta=meta)
+        return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]
 
     async def list_resources(
         self,
@@ -312,7 +315,8 @@ class Client:
         """List available tools from the server."""
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
+    @deprecated("`send_roots_list_changed` is deprecated as of 2026-07-28 (SEP-2577).")
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
         # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
-        await self.session.send_roots_list_changed()
+        await self.session.send_roots_list_changed()  # pyright: ignore[reportDeprecated]

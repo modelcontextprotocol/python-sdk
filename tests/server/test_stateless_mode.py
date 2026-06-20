@@ -42,14 +42,14 @@ def stateless_session() -> ServerSession:
 async def test_list_roots_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that list_roots raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="list_roots"):
-        await stateless_session.list_roots()
+        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio
 async def test_create_message_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that create_message raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="sampling"):
-        await stateless_session.create_message(
+        await stateless_session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[
                 types.SamplingMessage(
                     role="user",
@@ -95,7 +95,7 @@ async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: Serv
 async def test_stateless_error_message_is_actionable(stateless_session: ServerSession):
     """Test that the error message provides actionable guidance."""
     with pytest.raises(StatelessModeNotSupported) as exc_info:
-        await stateless_session.list_roots()
+        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
 
     error_message = str(exc_info.value)
     # Should mention it's stateless mode
@@ -110,7 +110,7 @@ async def test_stateless_error_message_is_actionable(stateless_session: ServerSe
 async def test_exception_has_method_attribute(stateless_session: ServerSession):
     """Test that the exception has a method attribute for programmatic access."""
     with pytest.raises(StatelessModeNotSupported) as exc_info:
-        await stateless_session.list_roots()
+        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
 
     assert exc_info.value.method == "list_roots"
 
@@ -139,7 +139,7 @@ async def test_stateful_mode_does_not_raise_stateless_error(
     monkeypatch.setattr(stateful_session, "send_request", mock_send_request)
 
     # This should NOT raise StatelessModeNotSupported
-    result = await stateful_session.list_roots()
+    result = await stateful_session.list_roots()  # pyright: ignore[reportDeprecated]
 
     assert send_request_called
     assert isinstance(result, types.ListRootsResult)

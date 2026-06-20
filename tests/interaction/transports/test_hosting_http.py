@@ -52,7 +52,7 @@ def _server() -> Server:
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "narrate"
-        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)
+        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="done")])
 
