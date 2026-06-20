@@ -21,8 +21,6 @@ client:
   # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
-  - json-schema-ref-no-deref
   # SEP-2352 (authorization server migration): client does not re-register when
   # PRM authorization_servers changes.
   - auth/authorization-server-migration

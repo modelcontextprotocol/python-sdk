@@ -177,6 +177,18 @@ async def run_initialize(server_url: str) -> None:
             logger.debug("Listed tools successfully")
 
 
+@register("json-schema-ref-no-deref")
+async def run_json_schema_ref_no_deref(server_url: str) -> None:
+    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
+
+    ClientSession never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
+    """
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            await session.list_tools()
+
+
 @register("tools_call")
 async def run_tools_call(server_url: str) -> None:
     """Connect, initialize, list tools, call add_numbers(a=5, b=3), close."""
