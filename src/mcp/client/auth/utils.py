@@ -325,6 +325,22 @@ def is_valid_client_metadata_url(url: str | None) -> bool:
         return False
 
 
+def credentials_match_issuer(client_info: OAuthClientInformationFull, issuer: str) -> bool:
+    """Whether stored client credentials may be reused against `issuer` (SEP-2352).
+
+    URL-based client IDs (CIMD) are portable across authorization servers — the same self-hosted
+    document is resolved by whichever server is in use — so they always match. Credentials with a
+    recorded issuer match only when it equals `issuer` (simple string comparison). Credentials
+    with no recorded issuer (pre-registered, or stored before issuer binding existed) carry no
+    binding to enforce and are left as-is.
+    """
+    if is_valid_client_metadata_url(client_info.client_id):
+        return True
+    if client_info.issuer is None:
+        return True
+    return client_info.issuer == issuer
+
+
 def should_use_client_metadata_url(
     oauth_metadata: OAuthMetadata | None,
     client_metadata_url: str | None,

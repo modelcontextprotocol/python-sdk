@@ -19,6 +19,7 @@ from mcp.client.auth.utils import (
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
@@ -2793,3 +2794,30 @@ def test_validate_metadata_issuer_rejects_mismatch():
 def test_union_scopes(previous: str | None, new: str | None, expected: str | None):
     """SEP-2350: union merges previous and new scopes, dedups, and preserves order."""
     assert union_scopes(previous, new) == expected
+
+
+def test_credentials_match_issuer_same_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://as") is True
+
+
+def test_credentials_match_issuer_different_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://other") is False
+
+
+def test_credentials_match_issuer_no_recorded_issuer_is_left_alone():
+    """Credentials with no bound issuer (pre-registered / legacy) carry no binding to enforce."""
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")])
+    assert credentials_match_issuer(info, "https://as") is True
+
+
+def test_credentials_match_issuer_cimd_is_portable():
+    """A URL-based client_id (CIMD) is portable across authorization servers."""
+    info = OAuthClientInformationFull(
+        client_id="https://client.example/metadata.json",
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        token_endpoint_auth_method="none",
+        issuer="https://as",
+    )
+    assert credentials_match_issuer(info, "https://other") is True

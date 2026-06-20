@@ -207,6 +207,40 @@ async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenge
     assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
 
 
+@requirement("client-auth:as-binding")
+async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_client_re_registers() -> None:
+    """Credentials bound to a stale issuer are dropped and re-registered against the current AS.
+
+    The stored client is bound (SEP-2352) to a different issuer than the one the server's PRM
+    advertises, simulating an authorization-server migration. The client must discard it, perform
+    Dynamic Client Registration with the current AS, and never present the stale `client_id` at the
+    authorize or token endpoints.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    stale = seeded_client(provider, client_id="stale-as-client", issuer="https://old-as.example.com")
+    storage = InMemoryTokenStorage(client_info=stale)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (
+            client,
+            _,
+        ):
+            await client.list_tools()
+
+    # The client re-registered with the current AS...
+    assert path_counts(recorded)[("POST", "/register")] == 1
+    # ...and the stale client_id never reached the authorize or token endpoints.
+    authorize_and_token = find(recorded, "GET", "/authorize") + find(recorded, "POST", "/token")
+    assert all("stale-as-client" not in r.url.query.decode() for r in authorize_and_token)
+    assert all("stale-as-client" not in r.content.decode() for r in find(recorded, "POST", "/token"))
+    # The persisted client is now bound to the current AS.
+    assert storage.client_info is not None
+    assert storage.client_info.client_id != "stale-as-client"
+    assert storage.client_info.issuer == f"{BASE_URL}/"
+
+
 @requirement("client-auth:401-after-auth-throws")
 async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_looping() -> None:
     """A 401 on the post-auth retry surfaces as an error rather than re-entering discovery.
