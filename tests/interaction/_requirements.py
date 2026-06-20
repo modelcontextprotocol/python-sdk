@@ -379,7 +379,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
         behavior=(
             "Caller-supplied _meta keys on a request survive the per-request envelope merge: the "
-            "io.modelcontextprotocol/* keys are added alongside, never overwriting the caller's keys."
+            "three io.modelcontextprotocol/* envelope keys overwrite any caller-supplied values for "
+            "those keys; non-colliding caller keys are preserved."
         ),
         added_in="2026-07-28",
     ),

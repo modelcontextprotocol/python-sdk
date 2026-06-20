@@ -1432,8 +1432,10 @@ async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
             assert isinstance(out.message, JSONRPCRequest)
             assert out.message.params is not None
             assert out.message.params["protocolVersion"] == "2025-06-18"
+            assert session.protocol_version == "2025-06-18"
+            # Server negotiates a different (older) supported version than the pin requested.
             result = InitializeResult(
-                protocol_version="2025-06-18",
+                protocol_version="2025-03-26",
                 capabilities=ServerCapabilities(),
                 server_info=Implementation(name="mock-server", version="0.1.0"),
             )
@@ -1450,6 +1452,8 @@ async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
         # measures only what the second initialize() emits.
         notif = await from_client.receive()
         assert isinstance(notif.message, JSONRPCNotification)
+        # The property reports the negotiated version, not the pin, once the handshake is done.
+        assert session.protocol_version == "2025-03-26"
         # A second call returns the cached result without a second handshake frame.
         again = await session.initialize()
         assert again is first[0]

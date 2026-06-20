@@ -351,10 +351,14 @@ class ClientSession:
 
     @property
     def protocol_version(self) -> str | None:
-        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction."""
-        if self._pinned_version is not None:
-            return self._pinned_version
-        return self._initialize_result.protocol_version if self._initialize_result else None
+        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction.
+
+        Once `initialize()` has completed, this is the version the server actually
+        negotiated (which can differ from a stateful pin); before that, the pin.
+        """
+        if self._initialize_result is not None:
+            return self._initialize_result.protocol_version
+        return self._pinned_version
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""

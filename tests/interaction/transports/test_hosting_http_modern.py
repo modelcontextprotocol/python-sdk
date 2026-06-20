@@ -240,7 +240,11 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
             ),
             ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
         ):
-            result = await session.call_tool("add", {"a": 2, "b": 3}, meta={"custom-key": "x"})
+            result = await session.call_tool(
+                "add",
+                {"a": 2, "b": 3},
+                meta={"custom-key": "x", "io.modelcontextprotocol/protocolVersion": "evil"},
+            )
 
     assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
         {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
@@ -254,8 +258,8 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     )
     assert all("initialize" not in body["method"] for body in bodies)
 
-    # The tools/call POST carries the body-derived headers, and its _meta envelope merges the
-    # caller's key alongside the three io.modelcontextprotocol/* keys.
+    # The tools/call POST carries the body-derived headers, and its _meta envelope overwrites the
+    # caller's colliding io.modelcontextprotocol/* key while preserving the non-colliding caller key.
     call = requests[0]
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-")} == snapshot(
         {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "add"}
