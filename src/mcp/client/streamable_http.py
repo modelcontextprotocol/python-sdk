@@ -93,13 +93,14 @@ class StreamableHTTPTransport:
 
         Args:
             url: The endpoint URL.
-            protocol_version: Pin the MCP-Protocol-Version header from the first request
-                instead of waiting to snoop it from an InitializeResult. Required for
-                stateless 2026-07-28 sessions that never send initialize.
+            protocol_version: Pin the MCP-Protocol-Version header from the first request.
+                Only honoured for stateless 2026-07-28+ sessions that never send
+                initialize; for earlier (stateful) versions the header is populated
+                from the negotiated InitializeResult, so a pre-2026 value is ignored.
         """
         self.url = url
         self.session_id: str | None = None
-        self.protocol_version: str | None = protocol_version
+        self.protocol_version: str | None = protocol_version if protocol_version in MODERN_PROTOCOL_VERSIONS else None
 
     def _per_message_headers(self, message: JSONRPCMessage) -> dict[str, str]:
         """Per-POST routing headers (Mcp-Method, Mcp-Name) for 2026-07-28+ pinned transports.
@@ -158,7 +159,8 @@ class StreamableHTTPTransport:
     def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
         if self.protocol_version is not None:
-            # Constructor pin wins over snooping the InitializeResult.
+            # Only a modern constructor pin reaches here (pre-2026 values are dropped
+            # in __init__), and a modern pin never sends initialize.
             return
         if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
             try:

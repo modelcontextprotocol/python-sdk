@@ -71,8 +71,6 @@ server:
   - http-header-validation
   # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
   # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
-  # SEP-2164: server returns -32600 (not -32602) and omits error.data.uri.
-  - sep-2164-resource-not-found
   # SEP-2322 SHOULD-level behaviour (re-request missing inputResponses).
   - input-required-result-missing-input-response
   # SEP-2322 negative-case scenarios: input-required-result-validate-input is

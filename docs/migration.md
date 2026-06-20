@@ -8,6 +8,17 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Breaking Changes
 
+### `MCPServer.call_tool()` returns `CallToolResult`
+
+`MCPServer.call_tool()` now always returns a `CallToolResult`. It previously
+advertised `Sequence[ContentBlock] | dict[str, Any]` and leaked the internal
+conversion shapes (a bare content sequence or a `(content, structured_content)`
+tuple), forcing callers to re-assemble a `CallToolResult` themselves.
+
+If you call `MCPServer.call_tool()` directly, read `.content` and
+`.structured_content` off the returned `CallToolResult` instead of branching on
+the result type.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
@@ -508,6 +519,12 @@ async def my_tool(x: int, ctx: Context) -> str:
 `MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
+
+### Resource not found returns `-32602` and resource lookups raise typed exceptions (SEP-2164)
+
+Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a template handler that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
+
+The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
 ### Registering lowlevel handlers from `MCPServer`
 
@@ -1231,6 +1248,16 @@ Tasks are expected to return as a separate MCP extension in a future release.
 <!-- Add deprecations below -->
 
 ## Bug Fixes
+
+### OAuth metadata URLs no longer gain a trailing slash
+
+`OAuthMetadata`, `ProtectedResourceMetadata`, and `OAuthClientMetadata` now set
+`url_preserve_empty_path=True` (Pydantic 2.12+). A path-less URL parsed from the wire keeps its
+empty path instead of acquiring a trailing slash, so e.g. an `issuer` of `https://as.example.com`
+round-trips as `https://as.example.com` rather than `https://as.example.com/`. This matters for
+RFC 9207 / RFC 8414 issuer comparisons, which require simple string comparison (RFC 3986 §6.2.1).
+URLs constructed in Python from an already-built `AnyHttpUrl` object are unaffected (they were
+normalized at construction); only values parsed from strings/JSON change.
 
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 

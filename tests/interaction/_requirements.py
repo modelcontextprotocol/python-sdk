@@ -1142,8 +1142,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
-        behavior="A resource function that raises is surfaced to the caller as a JSON-RPC error response.",
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
+        behavior=(
+            "A resource function that raises is surfaced to the caller as a JSON-RPC error response "
+            "(-32603 Internal error), with the original exception text withheld."
+        ),
     ),
     "mcpserver:resource:static": Requirement(
         source="sdk",
@@ -1161,14 +1163,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "mcpserver:resource:unknown-uri": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#error-handling",
-        behavior="resources/read for a URI matching no registered resource returns JSON-RPC error -32002.",
-        divergence=Divergence(
-            note=(
-                "The spec reserves -32002 for resource-not-found; MCPServer raises ResourceError, which "
-                "the low-level server converts to error code 0."
-            ),
+        behavior=(
+            "resources/read for a URI matching no registered resource returns JSON-RPC error -32602 "
+            "(invalid params) with the requested URI in error.data, per SEP-2164."
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Prompts

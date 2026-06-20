@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -31,7 +30,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -44,6 +43,8 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -51,7 +52,6 @@ from mcp.types import (
     CompleteRequestParams,
     CompleteResult,
     Completion,
-    ContentBlock,
     GetPromptRequestParams,
     GetPromptResult,
     Icon,
@@ -309,28 +309,11 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        if isinstance(result, CallToolResult):
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
-            )
-        return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -341,7 +324,12 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
         context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        try:
+            results = await self.read_resource(params.uri, context)
+        except ResourceNotFoundError as err:
+            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
+        except ResourceError as err:
+            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -399,7 +387,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+    ) -> CallToolResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
@@ -442,13 +430,15 @@ class MCPServer(Generic[LifespanResultT]):
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
     ) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI."""
+        """Read a resource by URI.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
+        """
         if context is None:
             context = Context(mcp_server=self)
-        try:
-            resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError as exc:
-            raise ResourceError(f"Unknown resource: {uri}") from exc
+        resource = await self._resource_manager.get_resource(uri, context)
 
         try:
             content = await resource.read()

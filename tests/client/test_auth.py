@@ -521,10 +521,10 @@ class TestOAuthFallback:
         }"""
         response = httpx.Response(200, content=content)
 
-        # Should set metadata
+        # Should set metadata; the empty path is preserved (no trailing slash added)
         await oauth_provider._handle_oauth_metadata_response(response)
         assert oauth_provider.context.oauth_metadata is not None
-        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com"
 
     @pytest.mark.anyio
     async def test_prioritize_www_auth_scope_over_prm(
