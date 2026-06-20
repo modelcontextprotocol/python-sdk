@@ -43,7 +43,7 @@ from mcp.client.auth.extensions.client_credentials import (
 )
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -119,6 +119,7 @@ class ConformanceOAuthCallbackHandler:
     def __init__(self) -> None:
         self._auth_code: str | None = None
         self._state: str | None = None
+        self._iss: str | None = None
 
     async def handle_redirect(self, authorization_url: str) -> None:
         """Fetch the authorization URL and extract the auth code from the redirect."""
@@ -140,6 +141,8 @@ class ConformanceOAuthCallbackHandler:
                         self._auth_code = query_params["code"][0]
                         state_values = query_params.get("state")
                         self._state = state_values[0] if state_values else None
+                        iss_values = query_params.get("iss")
+                        self._iss = iss_values[0] if iss_values else None
                         logger.debug(f"Got auth code from redirect: {self._auth_code[:10]}...")
                         return
                     else:
@@ -149,15 +152,15 @@ class ConformanceOAuthCallbackHandler:
             else:
                 raise RuntimeError(f"Expected redirect response, got {response.status_code} from {authorization_url}")
 
-    async def handle_callback(self) -> tuple[str, str | None]:
-        """Return the captured auth code and state."""
+    async def handle_callback(self) -> AuthorizationCodeResult:
+        """Return the captured auth code, state, and iss."""
         if self._auth_code is None:
             raise RuntimeError("No authorization code available - was handle_redirect called?")
-        auth_code = self._auth_code
-        state = self._state
+        result = AuthorizationCodeResult(code=self._auth_code, state=self._state, iss=self._iss)
         self._auth_code = None
         self._state = None
-        return auth_code, state
+        self._iss = None
+        return result
 
 
 # --- Scenario Handlers ---

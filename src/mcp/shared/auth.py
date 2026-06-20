@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -22,6 +22,18 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+class AuthorizationCodeResult(BaseModel):
+    """Authorization-code-grant redirect parameters returned by a callback handler.
+
+    `iss` carries the RFC 9207 authorization-response issuer when the authorization server
+    includes it in the redirect; the client validates it against the expected issuer.
+    """
+
+    code: str
+    state: str | None = None
+    iss: str | None = None
+
+
 class InvalidScopeError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -36,6 +48,8 @@ class OAuthClientMetadata(BaseModel):
     """RFC 7591 OAuth 2.0 Dynamic Client Registration Metadata.
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     """
+
+    model_config = ConfigDict(url_preserve_empty_path=True)
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
@@ -123,6 +137,8 @@ class OAuthMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
+    model_config = ConfigDict(url_preserve_empty_path=True)
+
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
     token_endpoint: AnyHttpUrl
@@ -145,12 +161,15 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
+    authorization_response_iss_parameter_supported: bool | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
+
+    model_config = ConfigDict(url_preserve_empty_path=True)
 
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)

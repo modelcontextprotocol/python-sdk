@@ -3279,16 +3279,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
         behavior=(
             "The client rejects authorization-server metadata whose issuer does not match the URL the "
-            "metadata was retrieved from (RFC 8414 section 3.3)."
+            "metadata was retrieved from (RFC 8414 section 3.3 / SEP-2468)."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
-        divergence=Divergence(
-            note=(
-                "The SDK parses authorization-server metadata without comparing issuer to the discovery "
-                "URL; a mismatched issuer is accepted and the flow proceeds."
-            ),
-        ),
     ),
     "client-auth:authorize:error-surfaces": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-flow-steps",
@@ -3488,6 +3482,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A state parameter is included in the authorization URL, and authorization results with a "
             "missing or mismatched state are discarded."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:authorization-response:iss-verify": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
+        behavior=(
+            "The client validates the RFC 9207 iss authorization-response parameter against the "
+            "authorization server issuer (simple string comparison) and rejects a mismatch, or a "
+            "missing iss when the server advertises support (SEP-2468)."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

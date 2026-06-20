@@ -236,7 +236,10 @@ async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
     unrecognized field to prove the client's parser ignores unknown members (RFC 8414 §3.2).
     """
     recorded, on_request = record_requests()
-    provider = InMemoryAuthorizationServerProvider()
+    asm = real_asm()
+    asm.issuer = AnyHttpUrl(authorization_server)
+    # The redirect iss must equal the issuer the client records from this metadata.
+    provider = InMemoryAuthorizationServerProvider(issuer=str(asm.issuer))
     server = Server("guarded", on_list_tools=list_tools)
 
     prm = ProtectedResourceMetadata(
@@ -246,7 +249,7 @@ async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
         not_found=not_found,
         serve={
             PRM_PATH_SUFFIXED: metadata_body(prm),
-            serve_at: metadata_body(real_asm(), x_unknown_extension="ignored"),
+            serve_at: metadata_body(asm, x_unknown_extension="ignored"),
         },
     )
 
@@ -311,23 +314,26 @@ async def test_as_metadata_advertises_authorize_token_registration_and_s256() ->
 
 
 @requirement("client-auth:as-metadata-discovery:issuer-validation")
-async def test_as_metadata_with_a_mismatched_issuer_is_accepted_and_the_flow_proceeds() -> None:
-    """Authorization-server metadata whose `issuer` does not match the discovery URL is accepted.
+async def test_as_metadata_with_a_mismatched_issuer_aborts_the_flow() -> None:
+    """Authorization-server metadata whose `issuer` does not match the discovery URL is rejected.
 
-    RFC 8414 §3.3 requires the client to reject the document; the SDK parses and uses it
-    without comparing `issuer` to the URL it was fetched from. See the divergence on the
-    requirement. The served body carries an unrecognized field as a fold-in proof of
-    unknown-field tolerance.
+    RFC 8414 §3.3 / SEP-2468 require the client to reject the document; the SDK compares `issuer`
+    to the URL the metadata was fetched from and raises `OAuthFlowError` before any authorize or
+    token request is made.
     """
+    recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
 
     metadata = real_asm()
     metadata.issuer = AnyHttpUrl(f"{BASE_URL}/wrong-issuer")
-    app_shim = shim(serve={ASM_ROOT: metadata_body(metadata, x_unknown_extension="ignored")})
+    app_shim = shim(serve={ASM_ROOT: metadata_body(metadata)})
 
     with anyio.fail_after(5):
-        async with connect_with_oauth(server, provider=provider, app_shim=app_shim) as (client, _):
-            result = await client.list_tools()
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(OAuthFlowError, match="^Authorization server metadata issuer mismatch"),
+            flatten_subgroups=True,
+        ):
+            await connect_with_oauth(server, provider=provider, app_shim=app_shim, on_request=on_request).__aenter__()
 
-    assert result.tools[0].name == "probe"
+    assert [r.path for r in recorded if r.path in ("/authorize", "/token")] == []

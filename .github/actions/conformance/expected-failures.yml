@@ -1,11 +1,10 @@
 # Conformance scenarios not yet passing against the Python SDK on main.
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
-# Baseline established against @modelcontextprotocol/conformance pinned in
-# .github/workflows/conformance.yml (CONFORMANCE_VERSION = 0.2.0-alpha.4).
-# New conformance releases are adopted by deliberately bumping that pin and
-# reconciling both this file and expected-failures.2026-07-28.yml in the same
-# change.
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.2026-07-28.yml in the same change.
 #
 # Entries are grouped by SEP. As each SEP lands in the SDK the corresponding
 # scenarios start passing and MUST be removed from this list (the runner fails
@@ -22,25 +21,23 @@ client:
   # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2468 (authorization response iss parameter): not implemented in the client.
+  # SEP-2352 (authorization server migration): client does not re-register when
+  # PRM authorization_servers changes.
+  - auth/authorization-server-migration
+  # SEP-837 (application_type during DCR): the check fires on every non-legacy
+  # spec version (the default LATEST is 2026-07-28). The client omits
+  # application_type during Dynamic Client Registration, so every scenario that
+  # reaches DCR fails it. SEP-2468 iss validation is implemented, so these now
+  # fail only on the application_type check, not on iss.
+  - auth/offline-access-not-supported
   - auth/iss-supported
   - auth/iss-not-advertised
   - auth/iss-supported-missing
   - auth/iss-wrong-issuer
   - auth/iss-unexpected
   - auth/iss-normalized
-  - auth/metadata-issuer-mismatch
-  # SEP-2352 (authorization server migration): client does not re-register when
-  # PRM authorization_servers changes.
-  - auth/authorization-server-migration
-  # SEP-837 (application_type during DCR): the check only fires on draft-version
-  # runs; this draft scenario is the one place the client still hits it.
-  - auth/offline-access-not-supported
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-  # SEP-2350 (scope step-up): WARNING-only; the expected-failures evaluator
-  # counts WARNINGs as failures.
-  - auth/scope-step-up
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /
   # client support for the token-exchange + JWT bearer flow.
   - auth/enterprise-managed-authorization

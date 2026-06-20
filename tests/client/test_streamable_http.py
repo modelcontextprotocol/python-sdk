@@ -15,7 +15,12 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp.client import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, _encode_header_value, streamable_http_client
+from mcp.client.streamable_http import (
+    MCP_PROTOCOL_VERSION,
+    StreamableHTTPTransport,
+    _encode_header_value,
+    streamable_http_client,
+)
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
@@ -135,8 +140,8 @@ async def test_pinned_transport_ignores_returned_session_id_and_never_opens_get_
     assert all("mcp-session-id" not in r.headers for r in recorded)
 
 
-def test_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:
-    """A protocol_version passed at construction wins over the InitializeResult snoop."""
+def test_modern_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:
+    """A 2026-07-28+ pin wins over the InitializeResult snoop (no initialize is ever sent)."""
     transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2026-07-28")
     init = JSONRPCResponse(
         jsonrpc="2.0",
@@ -149,3 +154,22 @@ def test_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:
     )
     transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
     assert transport.protocol_version == "2026-07-28"
+
+
+def test_stateful_constructor_pin_is_ignored_and_the_negotiated_version_wins() -> None:
+    """A pre-2026 pin is a session-layer concern; the transport must not stamp it on the
+    initialize request and must adopt the server's negotiated version for later headers."""
+    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2025-06-18")
+    assert MCP_PROTOCOL_VERSION not in transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
+    init = JSONRPCResponse(
+        jsonrpc="2.0",
+        id=1,
+        result={
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "serverInfo": {"name": "s", "version": "0"},
+        },
+    )
+    transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
+    assert transport.protocol_version == "2025-03-26"
+    assert transport._prepare_headers()[MCP_PROTOCOL_VERSION] == "2025-03-26"  # pyright: ignore[reportPrivateUsage]

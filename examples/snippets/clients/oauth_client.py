@@ -13,7 +13,7 @@ import httpx
 from pydantic import AnyUrl
 
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
@@ -46,10 +46,14 @@ async def handle_redirect(auth_url: str) -> None:
     print(f"Visit: {auth_url}")
 
 
-async def handle_callback() -> tuple[str, str | None]:
+async def handle_callback() -> AuthorizationCodeResult:
     callback_url = input("Paste callback URL: ")
     params = parse_qs(urlparse(callback_url).query)
-    return params["code"][0], params.get("state", [None])[0]
+    return AuthorizationCodeResult(
+        code=params["code"][0],
+        state=params.get("state", [None])[0],
+        iss=params.get("iss", [None])[0],
+    )
 
 
 async def main():

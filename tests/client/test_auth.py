@@ -25,10 +25,13 @@ from mcp.client.auth.utils import (
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
+    validate_authorization_response_iss,
+    validate_metadata_issuer,
 )
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
+    AuthorizationCodeResult,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
@@ -89,9 +92,9 @@ def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockToken
         """Mock redirect handler."""
         pass  # pragma: no cover
 
-    async def callback_handler() -> tuple[str, str | None]:
+    async def callback_handler() -> AuthorizationCodeResult:
         """Mock callback handler."""
-        return "test_auth_code", "test_state"  # pragma: no cover
+        return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
     return OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
@@ -272,8 +275,8 @@ class TestOAuthFlow:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
@@ -517,10 +520,10 @@ class TestOAuthFallback:
         }"""
         response = httpx.Response(200, content=content)
 
-        # Should set metadata
+        # Should set metadata; the empty path is preserved (no trailing slash added)
         await oauth_provider._handle_oauth_metadata_response(response)
         assert oauth_provider.context.oauth_metadata is not None
-        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com"
 
     @pytest.mark.anyio
     async def test_prioritize_www_auth_scope_over_prm(
@@ -1380,8 +1383,8 @@ class TestAuthFlow:
         oauth_provider.context.redirect_handler = capture_redirect
 
         # Mock callback
-        async def mock_callback() -> tuple[str, str | None]:
-            return "auth_code", captured_state
+        async def mock_callback() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="auth_code", state=captured_state)
 
         oauth_provider.context.callback_handler = mock_callback
 
@@ -1517,8 +1520,8 @@ class TestLegacyServerFallback:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         # Simulate a legacy server like Linear
         provider = OAuthClientProvider(
@@ -1616,8 +1619,8 @@ class TestLegacyServerFallback:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1721,8 +1724,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1756,8 +1759,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1857,8 +1860,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2071,8 +2074,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2092,8 +2095,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         with pytest.raises(ValueError) as exc_info:
             OAuthClientProvider(
@@ -2115,8 +2118,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2206,8 +2209,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2439,8 +2442,8 @@ class TestSEP2207OfflineAccessScope:
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", captured_state
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2548,8 +2551,8 @@ class TestSEP2207OfflineAccessScope:
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", captured_state
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2636,3 +2639,65 @@ class TestSEP2207OfflineAccessScope:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+_ISSUER = "https://as.example.com"
+
+
+def _issuer_metadata(*, issuer: str = _ISSUER, iss_supported: bool | None = None) -> OAuthMetadata:
+    # Validate from string inputs so url_preserve_empty_path keeps the issuer as transmitted,
+    # matching the wire path (model_validate_json) rather than normalizing a bare authority.
+    return OAuthMetadata.model_validate(
+        {
+            "issuer": issuer,
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+            "authorization_response_iss_parameter_supported": iss_supported,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("issuer", "iss", "iss_supported"),
+    [
+        pytest.param(_ISSUER, _ISSUER, True, id="advertised-and-correct"),
+        pytest.param(_ISSUER, None, None, id="not-advertised-and-omitted"),
+        pytest.param(_ISSUER, _ISSUER, None, id="not-advertised-but-correct"),
+        # An issuer that genuinely ends in a slash (e.g. Auth0) must match its own iss.
+        pytest.param("https://as.example.com/", "https://as.example.com/", True, id="trailing-slash-issuer"),
+    ],
+)
+def test_validate_authorization_response_iss_accepts(issuer: str, iss: str | None, iss_supported: bool | None):
+    """RFC 9207: a matching or legitimately absent iss is accepted."""
+    validate_authorization_response_iss(iss, _issuer_metadata(issuer=issuer, iss_supported=iss_supported))
+
+
+@pytest.mark.parametrize(
+    ("iss", "iss_supported", "match"),
+    [
+        pytest.param(None, True, "missing iss", id="advertised-but-omitted"),
+        pytest.param("https://evil.example.com", True, "iss mismatch", id="wrong-issuer"),
+        pytest.param("https://evil.example.com", None, "iss mismatch", id="unexpected-when-not-advertised"),
+        pytest.param(f"{_ISSUER}/", True, "iss mismatch", id="trailing-slash-not-normalized"),
+    ],
+)
+def test_validate_authorization_response_iss_rejects(iss: str | None, iss_supported: bool | None, match: str):
+    """RFC 9207: a mismatched iss, or one missing when advertised, is rejected via simple string compare."""
+    with pytest.raises(OAuthFlowError, match=match):
+        validate_authorization_response_iss(iss, _issuer_metadata(iss_supported=iss_supported))
+
+
+def test_validate_authorization_response_iss_without_metadata():
+    """With no AS metadata, a present iss is rejected and an absent one is accepted."""
+    validate_authorization_response_iss(None, None)
+    with pytest.raises(OAuthFlowError, match="iss mismatch"):
+        validate_authorization_response_iss(_ISSUER, None)
+
+
+def test_validate_metadata_issuer_accepts_match():
+    validate_metadata_issuer(_issuer_metadata(issuer=_ISSUER), _ISSUER)
+
+
+def test_validate_metadata_issuer_rejects_mismatch():
+    with pytest.raises(OAuthFlowError, match="metadata issuer mismatch"):
+        validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), _ISSUER)

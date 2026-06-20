@@ -4,7 +4,7 @@ from urllib.parse import urljoin, urlparse
 from httpx import Request, Response
 from pydantic import AnyUrl, ValidationError
 
-from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -209,6 +209,45 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     elif response.status_code < 400 or response.status_code >= 500:
         return False, None  # Non-4XX error, stop trying
     return True, None
+
+
+def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMetadata | None) -> None:
+    """Validate the RFC 9207 `iss` authorization-response parameter.
+
+    Per RFC 9207 section 2.4, the client compares `iss` against the issuer of the
+    authorization server the request was sent to, using simple string comparison
+    (RFC 3986 section 6.2.1, i.e. without URL normalization), and rejects on mismatch.
+    A response that omits `iss` is rejected only when the server advertised support via
+    `authorization_response_iss_parameter_supported`.
+
+    Raises:
+        OAuthFlowError: If `iss` is present and does not match, or is absent when the
+            authorization server advertised support.
+    """
+    expected = str(oauth_metadata.issuer) if oauth_metadata else None
+
+    if iss is not None:
+        if iss != expected:
+            raise OAuthFlowError(f"Authorization response iss mismatch: {iss} != {expected}")
+        return
+
+    if oauth_metadata is not None and oauth_metadata.authorization_response_iss_parameter_supported:
+        raise OAuthFlowError("Authorization response missing iss parameter advertised by the authorization server")
+
+
+def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str) -> None:
+    """Validate that authorization server metadata `issuer` matches the discovery issuer.
+
+    Per RFC 8414 section 3.3 / SEP-2468, the `issuer` in the metadata must match the issuer
+    used to construct the well-known URL, compared as a simple string (RFC 3986 section 6.2.1).
+
+    Raises:
+        OAuthFlowError: If the metadata issuer does not match `expected_issuer`.
+    """
+    if str(oauth_metadata.issuer) != expected_issuer:
+        raise OAuthFlowError(
+            f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
+        )
 
 
 def create_oauth_metadata_request(url: str) -> Request:

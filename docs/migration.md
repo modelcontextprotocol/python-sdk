@@ -62,6 +62,35 @@ async with http_client:
 
 v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
 
+### OAuth `callback_handler` returns `AuthorizationCodeResult`
+
+The `callback_handler` passed to `OAuthClientProvider` now returns an `AuthorizationCodeResult` instead of a `tuple[str, str | None]` of `(code, state)`. The new object adds an `iss` field so the client can validate the RFC 9207 authorization-response issuer (SEP-2468): when the redirect carries an `iss` query parameter it must match the authorization server's issuer, and a missing `iss` is rejected when the server advertised `authorization_response_iss_parameter_supported`.
+
+**Before (v1):**
+
+```python
+async def callback_handler() -> tuple[str, str | None]:
+    params = parse_qs(urlparse(await wait_for_redirect()).query)
+    return params["code"][0], params.get("state", [None])[0]
+```
+
+**After (v2):**
+
+```python
+from mcp.client.auth import AuthorizationCodeResult
+
+
+async def callback_handler() -> AuthorizationCodeResult:
+    params = parse_qs(urlparse(await wait_for_redirect()).query)
+    return AuthorizationCodeResult(
+        code=params["code"][0],
+        state=params.get("state", [None])[0],
+        iss=params.get("iss", [None])[0],
+    )
+```
+
+Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
 ### `get_session_id` callback removed from `streamable_http_client`
 
 The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.
@@ -1219,6 +1248,16 @@ Tasks are expected to return as a separate MCP extension in a future release.
 <!-- Add deprecations below -->
 
 ## Bug Fixes
+
+### OAuth metadata URLs no longer gain a trailing slash
+
+`OAuthMetadata`, `ProtectedResourceMetadata`, and `OAuthClientMetadata` now set
+`url_preserve_empty_path=True` (Pydantic 2.12+). A path-less URL parsed from the wire keeps its
+empty path instead of acquiring a trailing slash, so e.g. an `issuer` of `https://as.example.com`
+round-trips as `https://as.example.com` rather than `https://as.example.com/`. This matters for
+RFC 9207 / RFC 8414 issuer comparisons, which require simple string comparison (RFC 3986 §6.2.1).
+URLs constructed in Python from an already-built `AnyHttpUrl` object are unaffected (they were
+normalized at construction); only values parsed from strings/JSON change.
 
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
