@@ -19,6 +19,20 @@ If you call `MCPServer.call_tool()` directly, read `.content` and
 `.structured_content` off the returned `CallToolResult` instead of branching on
 the result type.
 
+### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
+
+Raising `MCPError` (or a subclass such as `UrlElicitationRequiredError`) inside
+an `@mcp.tool()` handler now produces a top-level JSON-RPC error response with
+the raised `code`, `message`, and `data` intact. Previously the tool wrapper
+caught it like any other exception and returned `CallToolResult(isError=True)`,
+which discarded the error code and structured `data`.
+
+`MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
+when the request itself should be rejected (missing client capability,
+elicitation required, invalid parameters). For tool *execution* failures the
+calling LLM should see and react to, raise any other exception or return
+`CallToolResult(is_error=True, ...)` directly; that path is unchanged.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
