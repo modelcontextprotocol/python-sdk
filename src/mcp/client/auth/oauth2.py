@@ -35,6 +35,7 @@ from mcp.client.auth.utils import (
     handle_token_response_scopes,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
+    union_scopes,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
@@ -623,20 +624,25 @@ class OAuthClientProvider(httpx.Auth):
                 error = extract_field_from_www_auth(response, "error")
 
                 # Step 2: Check if we need to step-up authorization
-                if error == "insufficient_scope":  # pragma: no branch
+                if error == "insufficient_scope":
                     try:
-                        # Step 2a: Update the required scopes
-                        self.context.client_metadata.scope = get_client_metadata_scopes(
+                        # Step 2a: Union previously requested scopes with the
+                        # step-up challenge so prior grants survive (SEP-2350).
+                        challenge_scopes = get_client_metadata_scopes(
                             extract_scope_from_www_auth(response),
                             self.context.protected_resource_metadata,
                             self.context.oauth_metadata,
                             self.context.client_metadata.grant_types,
                         )
+                        self.context.client_metadata.scope = union_scopes(
+                            self.context.client_metadata.scope,
+                            challenge_scopes,
+                        )
 
                         # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()
                         await self._handle_token_response(token_response)
-                    except Exception:  # pragma: no cover
+                    except Exception:
                         logger.exception("OAuth flow error")
                         raise
 
