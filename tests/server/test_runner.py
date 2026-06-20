@@ -1304,10 +1304,7 @@ class _StubDispatchContext:
     transport: TransportContext = field(default_factory=lambda: TransportContext(kind="direct", can_send_request=False))
     message_metadata: MessageMetadata = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
-
-    @property
-    def can_send_request(self) -> bool:
-        return self.transport.can_send_request
+    can_send_request: bool = False
 
     async def send_raw_request(
         self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None

@@ -98,12 +98,12 @@ async def test_capabilities_derived_from_registered_handlers() -> None:
     async def list_tools(
         ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[])
+        raise NotImplementedError
 
     async def list_prompts(
         ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
     ) -> types.ListPromptsResult:
-        return types.ListPromptsResult(prompts=[])
+        raise NotImplementedError
 
     server = Server("cap-server", on_list_tools=list_tools)
 

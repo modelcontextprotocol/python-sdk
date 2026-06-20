@@ -157,14 +157,12 @@ async def test_modern_initialize_is_method_not_found() -> None:
 
 
 @requirement("hosting:http:modern:legacy-fallthrough")
-async def test_non_modern_version_header_falls_through_to_legacy_transport_unchanged() -> None:
-    """The 2026-07-28 routing branch fires only on its exact header; everything else reaches legacy.
-
-    SDK-defined under the draft versioning rules: the modern entry must not change any 2025-era
-    byte. A 2025-era initialize on the same endpoint still completes (legacy serves it), and an
-    unrecognised ``MCP-Protocol-Version`` still falls through to the legacy gate and produces the
-    ``Unsupported protocol version`` literal that peer SDKs substring-sniff. Asserted at the wire
-    because the literal is only observable in the raw response body.
+async def test_legacy_version_header_falls_through_and_unrecognised_header_routes_to_modern() -> None:
+    """SDK-defined under the draft versioning rules: only the known initialize-handshake protocol
+    versions reach the legacy transport, so a 2025-era ``initialize`` on the same endpoint still
+    completes unchanged. Any other ``MCP-Protocol-Version`` value routes to the modern entry,
+    where the validation ladder rejects it (a request without the per-request envelope fails the
+    first rung). The modern entry is therefore the single owner of unknown-version rejection.
     """
     async with mounted_app(_server()) as (http, _):
         # 2025-era initialize through the same endpoint: the modern branch must not intercept it.
@@ -176,7 +174,7 @@ async def test_non_modern_version_header_falls_through_to_legacy_transport_uncha
         )
 
     assert unrecognised.status_code == 400
-    assert "Unsupported protocol version" in unrecognised.text
+    assert JSONRPCError.model_validate_json(unrecognised.text).error.code == INVALID_PARAMS
 
 
 @requirement("hosting:http:modern:handler-exception-internal-error")

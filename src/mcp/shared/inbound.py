@@ -93,12 +93,14 @@ def classify_inbound_request(
     1. ``params._meta`` is a mapping carrying every reserved envelope key
        (protocol version, client info, client capabilities) → else
        :data:`~mcp.types.jsonrpc.INVALID_PARAMS`.
-    2. The envelope's protocol version is in ``supported_modern_versions`` →
+    2. When ``headers`` is given, its ``MCP-Protocol-Version`` entry equals
+       the envelope's protocol version → else
+       :data:`~mcp.types.jsonrpc.HEADER_MISMATCH`. Runs before the
+       supported-version rung so a client that disagrees with itself is told
+       so, rather than told the body's version is unsupported.
+    3. The envelope's protocol version is in ``supported_modern_versions`` →
        else :data:`~mcp.types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
        ``data = {"supported": [...], "requested": <value>}``.
-    3. When ``headers`` is given, its ``MCP-Protocol-Version`` entry equals
-       the envelope's protocol version → else
-       :data:`~mcp.types.jsonrpc.HEADER_MISMATCH`.
 
     Method existence is *not* a rung: kernel dispatch owns that decision so
     custom-registered methods route and the answer lives in one place.
@@ -123,17 +125,17 @@ def classify_inbound_request(
             "client-capabilities envelope keys",
         )
 
+    if headers is not None and headers.get(MCP_PROTOCOL_VERSION_HEADER) != protocol_version:
+        return InboundLadderRejection(
+            code=HEADER_MISMATCH,
+            message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
+        )
+
     if protocol_version not in supported_modern_versions:
         return InboundLadderRejection(
             code=UNSUPPORTED_PROTOCOL_VERSION,
             message="Unsupported protocol version",
             data={"supported": list(supported_modern_versions), "requested": protocol_version},
-        )
-
-    if headers is not None and headers.get(MCP_PROTOCOL_VERSION_HEADER) != protocol_version:
-        return InboundLadderRejection(
-            code=HEADER_MISMATCH,
-            message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
         )
 
     return InboundModernRoute(

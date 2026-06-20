@@ -172,10 +172,12 @@ def test_classifier_passes_unknown_method_through_to_route(method: str) -> None:
 
 
 def test_ladder_first_failure_wins() -> None:
-    """Spec-mandated: rungs evaluate in order — version and header would both fail; the version rung fires."""
+    """Spec-mandated: rungs evaluate in order — header-mismatch and version-unsupported
+    would both fail; the header rung fires first so an inconsistent client is told it
+    disagrees with itself rather than that its body version is unsupported."""
     body = envelope(version=LATEST_PROTOCOL_VERSION)
     result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
-    assert_rejected(result, UNSUPPORTED_PROTOCOL_VERSION)
+    assert_rejected(result, HEADER_MISMATCH)
 
 
 # --- ERROR_CODE_HTTP_STATUS ----------------------------------------------------

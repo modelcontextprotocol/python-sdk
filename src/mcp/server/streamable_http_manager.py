@@ -28,7 +28,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -162,11 +162,14 @@ class StreamableHTTPSessionManager:
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
-        # TODO(L08): header-only routing for now; body-primary classification
-        # is a follow-up. 2025 paths below remain unchanged.
+        # TODO(L49): header-only era-routing for now; body-primary classification
+        # is a follow-up. The legacy paths below own only the known
+        # initialize-handshake versions; anything else (including unknown
+        # values) goes to the modern entry so the classifier can validate it
+        # and return a structured rejection. 2025 paths below remain unchanged.
         header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
-        if pv in MODERN_PROTOCOL_VERSIONS:
+        if pv is not None and pv not in SUPPORTED_PROTOCOL_VERSIONS:
             await handle_modern_request(self.app, self.security_settings, self._lifespan_state, scope, receive, send)
             return
 
