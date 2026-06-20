@@ -16,7 +16,7 @@ typed params). One instance per client connection. It:
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
 from typing import TYPE_CHECKING, Any, Generic, cast
@@ -33,6 +33,7 @@ from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -46,6 +47,9 @@ from mcp.types import (
     Implementation,
     InitializeRequestParams,
     InitializeResult,
+    JSONRPCError,
+    JSONRPCResponse,
+    RequestId,
     RequestParams,
     RequestParamsMeta,
 )
@@ -54,7 +58,7 @@ from mcp.types import methods as _methods
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
-__all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "otel_middleware"]
+__all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "aclose_shielded", "otel_middleware", "to_jsonrpc_response"]
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +68,8 @@ LifespanT = TypeVar("LifespanT", default=Any)
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
 
 _EXIT_STACK_CLOSE_TIMEOUT: float = 5
-"""Bound for the shielded exit-stack unwind in `run()`; a hung cleanup
-callback must not wedge shutdown."""
+"""Bound for `aclose_shielded`'s exit-stack unwind; a hung cleanup callback
+must not wedge shutdown."""
 
 
 def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
@@ -169,6 +173,47 @@ def _dump_result(result: Any) -> dict[str, Any]:
     raise TypeError(f"handler returned {type(result).__name__}; expected BaseModel, dict, or None")
 
 
+async def aclose_shielded(connection: Connection) -> None:
+    """Unwind ``connection.exit_stack`` under a shielded, bounded scope.
+
+    Called from a driver's ``finally``: the shield lets per-connection cleanup
+    callbacks run even when the driver itself is being cancelled, the
+    `_EXIT_STACK_CLOSE_TIMEOUT` bound stops a hung callback wedging shutdown,
+    and a raising callback is logged-and-swallowed so it never masks the
+    driver's own exception.
+    """
+    with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True) as scope:
+        try:
+            await connection.exit_stack.aclose()
+        except Exception:
+            logger.exception("connection exit_stack cleanup raised")
+    if scope.cancelled_caught:
+        logger.warning(
+            "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
+            _EXIT_STACK_CLOSE_TIMEOUT,
+        )
+
+
+async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, Any]]) -> JSONRPCResponse | JSONRPCError:
+    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
+
+    The exception-to-wire boundary for the request-per-call drivers
+    (`serve_one`, the modern HTTP entry). `MCPError` and `ValidationError`
+    map via the shared `handler_exception_to_error_data` ladder; any other
+    exception is logged and surfaced as `INTERNAL_ERROR` so handler internals
+    never reach the wire.
+    """
+    try:
+        result = await coro
+    except Exception as exc:
+        error = handler_exception_to_error_data(exc)
+        if error is None:
+            logger.exception("request handler raised")
+            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
+        return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
+    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
+
+
 @dataclass
 class ServerRunner(Generic[LifespanT]):
     """Per-connection orchestrator. One instance per client connection."""
@@ -205,26 +250,14 @@ class ServerRunner(Generic[LifespanT]):
         to `dispatcher.run()`. `task_status.started()` is forwarded so callers
         can `await tg.start(runner.run)` and resume once the dispatcher is
         ready to accept requests. Once the dispatcher exits,
-        `connection.exit_stack` is unwound (shielded from outer cancellation,
-        bounded by `_EXIT_STACK_CLOSE_TIMEOUT`) so any per-connection cleanup
-        registered by handlers or middleware gets a chance to run without a
-        misbehaving callback hanging shutdown indefinitely.
+        `connection.exit_stack` is unwound via `aclose_shielded` so any
+        per-connection cleanup registered by handlers or middleware gets a
+        chance to run.
         """
         try:
             await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
         finally:
-            with anyio.move_on_after(_EXIT_STACK_CLOSE_TIMEOUT, shield=True) as scope:
-                try:
-                    await self.connection.exit_stack.aclose()
-                except Exception:
-                    # Raising here would mask dispatcher.run()'s exception and
-                    # crash stdio servers on normal disconnect.
-                    logger.exception("connection exit_stack cleanup raised")
-            if scope.cancelled_caught:
-                logger.warning(
-                    "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
-                    _EXIT_STACK_CLOSE_TIMEOUT,
-                )
+            await aclose_shielded(self.connection)
 
     def _compose_on_request(self) -> OnRequest:
         """Wrap `_on_request` in `dispatch_middleware`, outermost-first.

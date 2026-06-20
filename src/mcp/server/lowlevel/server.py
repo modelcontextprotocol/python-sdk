@@ -66,6 +66,7 @@ from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
 from mcp.shared.transport_context import TransportContext
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,15 @@ async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
 
 async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
     return types.EmptyResult()
+
+
+def _package_version(package: str) -> str:
+    try:
+        return importlib_version(package)
+    except Exception:  # pragma: no cover
+        pass
+
+    return "unknown"  # pragma: no cover
 
 
 class Server(Generic[LifespanResultT]):
@@ -226,6 +236,7 @@ class Server(Generic[LifespanResultT]):
 
         _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
             ("ping", types.RequestParams, on_ping),
+            ("server/discover", types.RequestParams, self._handle_discover),
             ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
             ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
             ("resources/list", types.PaginatedRequestParams, on_list_resources),
@@ -309,18 +320,9 @@ class Server(Generic[LifespanResultT]):
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
-
-        def pkg_version(package: str) -> str:
-            try:
-                return importlib_version(package)
-            except Exception:  # pragma: no cover
-                pass
-
-            return "unknown"  # pragma: no cover
-
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else pkg_version("mcp"),
+            server_version=self.version if self.version else _package_version("mcp"),
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -334,10 +336,11 @@ class Server(Generic[LifespanResultT]):
 
     def get_capabilities(
         self,
-        notification_options: NotificationOptions,
-        experimental_capabilities: dict[str, dict[str, Any]],
+        notification_options: NotificationOptions | None = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object."""
+        notification_options = notification_options or NotificationOptions()
         prompts_capability = None
         resources_capability = None
         tools_capability = None
@@ -376,6 +379,40 @@ class Server(Generic[LifespanResultT]):
             completions=completions_capability,
         )
         return capabilities
+
+    @property
+    def server_info(self) -> types.Implementation:
+        """The `serverInfo` block describing this implementation.
+
+        Derived from the constructor's identity fields. `version` falls back to
+        the installed `mcp` package version when not supplied explicitly.
+        """
+        return types.Implementation(
+            name=self.name,
+            version=self.version if self.version else _package_version("mcp"),
+            title=self.title,
+            description=self.description,
+            website_url=self.website_url,
+            icons=self.icons,
+        )
+
+    async def _handle_discover(
+        self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
+    ) -> types.DiscoverResult:
+        """Default `server/discover` handler.
+
+        Auto-derived from server state at call time, so capabilities reflect
+        whatever has been registered (constructor `on_*` kwargs and later
+        `add_request_handler` calls). Operators can replace it wholesale via
+        `add_request_handler("server/discover", ...)`. Reachability for legacy
+        peers is decided at the boundary (`types.methods`), not here.
+        """
+        return types.DiscoverResult(
+            supported_versions=list(MODERN_PROTOCOL_VERSIONS),
+            capabilities=self.get_capabilities(),
+            server_info=self.server_info,
+            instructions=self.instructions,
+        )
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:

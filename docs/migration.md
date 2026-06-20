@@ -487,6 +487,18 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
 
+### `stateless_http=True`: lifespan now entered once at startup
+
+When serving streamable HTTP with `stateless_http=True`, the server's `lifespan` context manager is now entered once when `StreamableHTTPSessionManager.run()` starts, and the resulting state is shared across all requests. Previously each incoming request entered (and exited) `lifespan` independently.
+
+Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of on every request. If your lifespan was acquiring per-connection resources, move that into the handler and register cleanup on the per-connection `exit_stack`:
+
+```python
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    db = await ctx.connection.exit_stack.enter_async_context(open_db())
+    ...
+```
+
 ### `MCPServer.get_context()` removed
 
 `MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.

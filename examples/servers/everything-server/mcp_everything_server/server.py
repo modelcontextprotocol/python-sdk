@@ -14,6 +14,7 @@ from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     Completion,
@@ -32,6 +33,7 @@ from mcp.types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
+from mcp.types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -309,6 +311,26 @@ async def test_elicitation_sep1330_enums(ctx: Context) -> str:
 def test_error_handling() -> str:
     """Tests error response handling"""
     raise RuntimeError("This tool intentionally returns an error for testing")
+
+
+@mcp.tool()
+async def test_missing_capability(ctx: Context) -> str:
+    """Tests that a handler-raised MISSING_REQUIRED_CLIENT_CAPABILITY surfaces as a top-level JSON-RPC error.
+
+    Requires the client to declare the ``sampling`` capability. When absent, raises
+    `MCPError` (which the tool dispatch re-raises rather than wrapping in
+    ``CallToolResult.isError``) so the conformance harness observes a protocol-level
+    error response with ``data.requiredCapabilities``.
+    """
+    client_params = ctx.session.client_params
+    sampling_declared = client_params is not None and client_params.capabilities.sampling is not None
+    if not sampling_declared:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="This tool requires the client 'sampling' capability",
+            data={"requiredCapabilities": ["sampling"]},
+        )
+    return "Client declared sampling capability; proceeding."
 
 
 @mcp.tool()
