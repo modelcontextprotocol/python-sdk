@@ -63,6 +63,13 @@ CONNECTABLE_TRANSPORTS: tuple[Transport, ...] = ("in-memory", "sse", "streamable
 
 TRANSPORT_SPEC_VERSIONS: dict[Transport, tuple[SpecVersion, ...]] = {
     "sse": ("2025-11-25",),
+    # Temporary lock: the in-memory transport has no modern entry point yet, so it cannot
+    # negotiate the newer revision. Remove once an in-memory factory for the modern path lands.
+    "in-memory": ("2025-11-25",),
+    # At the newer revision the protocol-version header check runs before the stateless branch is
+    # taken, so a stateless connection at that revision behaves identically to the stateful one.
+    # Locked to avoid a redundant matrix column; revisit if the header/stateless ordering changes.
+    "streamable-http-stateless": ("2025-11-25",),
 }
 """Transports that only serve a subset of SPEC_VERSIONS. Absent => serves all. Consulted by compute_cells()."""
 

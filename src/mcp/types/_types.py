@@ -185,15 +185,17 @@ class PaginatedResult(Result):
 class CacheableResult(Result):
     """Base class for results that carry client-side caching directives (2026-07-28).
 
-    Both fields are required on the 2026-07-28 wire; the SDK declares no
-    default, so a handler answering at 2026-07-28 must set them explicitly.
+    Both fields are required on the 2026-07-28 wire. The SDK defaults to
+    `ttl_ms=0` (immediately stale) and `cache_scope="private"` so a handler
+    that doesn't set them still produces a valid 2026-07-28 result without
+    accidentally enabling shared caching.
     """
 
-    ttl_ms: Annotated[int, Field(ge=0)] | None = None
+    ttl_ms: Annotated[int, Field(ge=0)] = 0
     """How long (ms) the client MAY cache this response, analogous to HTTP
     `Cache-Control: max-age`. 0 means immediately stale."""
 
-    cache_scope: Literal["public", "private"] | None = None
+    cache_scope: Literal["public", "private"] = "private"
     """Analogous to HTTP `Cache-Control: public` vs `private`: "public" allows
     shared caches to serve the response to any user; "private" forbids that."""
 

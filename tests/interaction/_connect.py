@@ -97,6 +97,7 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
+        protocol_version=protocol_version,
     ) as client:
         yield client
 
@@ -137,7 +138,7 @@ async def connect_over_streamable_http(
         server.session_manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
         Client(
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client, protocol_version=protocol_version),
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=sampling_callback,
             list_roots_callback=list_roots_callback,
@@ -145,6 +146,7 @@ async def connect_over_streamable_http(
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
+            protocol_version=protocol_version,
         ) as client,
     ):
         yield client
