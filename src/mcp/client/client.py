@@ -316,7 +316,7 @@ class Client:
         """List available tools from the server."""
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    @deprecated("`send_roots_list_changed` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
         # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.

@@ -156,7 +156,7 @@ class ServerSession:
         )
 
     @overload
-    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -176,7 +176,7 @@ class ServerSession:
         ...
 
     @overload
-    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -195,7 +195,7 @@ class ServerSession:
         """Overload: With tools, returns array-capable content."""
         ...
 
-    @deprecated("`create_message` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -272,7 +272,7 @@ class ServerSession:
             metadata=metadata_obj,
         )
 
-    @deprecated("`list_roots` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         if self._stateless:

@@ -152,7 +152,7 @@ async def test_peer_list_roots_is_deprecated_sep_2577():
         peer = ClientPeer(client)
         with anyio.fail_after(5):
             with pytest.warns(
-                MCPDeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."
+                MCPDeprecationWarning, match=r"The roots capability is deprecated as of 2026-07-28 \(SEP-2577\)\."
             ):
                 await peer.list_roots()  # pyright: ignore[reportDeprecated]
         assert rec.seen[0][0] == "roots/list"
