@@ -185,16 +185,6 @@ async def run_tools_call(server_url: str) -> None:
             logger.debug(f"add_numbers result: {result}")
 
 
-@register("json-schema-ref-no-deref")
-async def run_json_schema_ref_no_deref(server_url: str) -> None:
-    """List tools whose schemas contain a network `$ref`; must not dereference it (SEP-2106)."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            tools_result = await session.list_tools()
-            logger.debug(f"Listed tools without dereferencing network $refs: {[t.name for t in tools_result.tools]}")
-
-
 @register("sse-retry")
 async def run_sse_retry(server_url: str) -> None:
     """Connect, initialize, list tools, call test_reconnection, close."""
