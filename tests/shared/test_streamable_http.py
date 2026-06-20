@@ -50,6 +50,7 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
+    INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -1503,7 +1504,8 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
 
-        # Test request with invalid protocol version (should fail)
+        # An unrecognised header value routes to the modern entry, where the
+        # validation ladder rejects an envelope-less body at rung 1.
         response = await client.post(
             "/mcp",
             headers={
@@ -1515,21 +1517,7 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
             json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
         )
         assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
-
-        # Test request with unsupported protocol version (should fail)
-        response = await client.post(
-            "/mcp",
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,
-                MCP_PROTOCOL_VERSION_HEADER: "1999-01-01",  # Very old unsupported version
-            },
-            json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
-        )
-        assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
+        assert response.json()["error"]["code"] == INVALID_PARAMS
 
         # Test request with valid protocol version (should succeed)
         negotiated_version = extract_protocol_version_from_sse(init_response)
