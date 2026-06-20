@@ -164,10 +164,6 @@ class ConformanceOAuthCallbackHandler:
 
 
 @register("initialize")
-# SEP-2106: json-schema-ref-no-deref only requires the client to call tools/list against a
-# server advertising a tool with a network $ref. ClientSession never walks inputSchema or
-# resolves $refs, so plain initialize + list_tools satisfies it; no dedicated handler needed.
-@register("json-schema-ref-no-deref")
 async def run_initialize(server_url: str) -> None:
     """Connect, initialize, list tools, close."""
     async with streamable_http_client(url=server_url) as (read_stream, write_stream):
@@ -176,6 +172,18 @@ async def run_initialize(server_url: str) -> None:
             logger.debug("Initialized successfully")
             await session.list_tools()
             logger.debug("Listed tools successfully")
+
+
+@register("json-schema-ref-no-deref")
+async def run_json_schema_ref_no_deref(server_url: str) -> None:
+    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
+
+    ClientSession never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
+    """
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            await session.list_tools()
 
 
 @register("tools_call")
