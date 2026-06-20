@@ -924,6 +924,33 @@ async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not
 
 
 @pytest.mark.anyio
+async def test_on_request_rejects_initialize_at_modern_version_with_method_not_found(server: SrvT):
+    """Spec-mandated: `initialize` has no `CLIENT_REQUESTS` row at the modern
+    version; kernel dispatch (not the inbound classifier) rejects it."""
+    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
+        assert runner.connection.protocol_version == MODERN_PROTOCOL_VERSIONS[0]
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", _initialize_params())
+    assert exc.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_on_request_dispatches_custom_method_registered_via_add_request_handler(server: SrvT):
+    """SDK-defined: a method outside `SPEC_CLIENT_METHODS` skips the version
+    gate and reaches its registered handler at any negotiated version."""
+
+    async def echo(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True}
+
+    server.add_request_handler("myorg/echo", RequestParams, echo)
+    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {"echoed": True}
+
+
+@pytest.mark.anyio
 async def test_runner_middleware_short_circuit_on_a_wrong_version_spec_method_skips_the_sieve(server: SrvT):
     """A server-tier middleware that returns without calling `call_next` for a
     spec method absent at the negotiated version owns the result shape; the

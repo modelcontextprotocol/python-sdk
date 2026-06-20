@@ -27,7 +27,6 @@ from mcp.types.jsonrpc import (
     PARSE_ERROR,
     UNSUPPORTED_PROTOCOL_VERSION,
 )
-from mcp.types.methods import CLIENT_REQUESTS
 
 __all__ = [
     "ERROR_CODE_HTTP_STATUS",
@@ -60,13 +59,13 @@ codes fall back to the caller's default (typically 200).
 
 @dataclass(frozen=True)
 class InboundModernRoute:
-    """A modern-protocol request that passed every ladder rung.
+    """A modern-protocol request whose envelope passed every ladder rung.
 
     ``client_info`` and ``client_capabilities`` are the raw envelope values;
-    the classifier checks presence only, not shape.
+    the classifier checks presence only, not shape. Method existence is not a
+    ladder rung — kernel dispatch is the single source of truth for that.
     """
 
-    method: str
     protocol_version: str
     client_info: Any
     client_capabilities: Any
@@ -100,10 +99,9 @@ def classify_inbound_request(
     3. When ``headers`` is given, its ``MCP-Protocol-Version`` entry equals
        the envelope's protocol version → else
        :data:`~mcp.types.jsonrpc.HEADER_MISMATCH`.
-    4. ``(method, protocol_version)`` is a key of
-       :data:`mcp.types.methods.CLIENT_REQUESTS` → else
-       :data:`~mcp.types.jsonrpc.METHOD_NOT_FOUND`. Absence *is* the gate: a
-       method removed at a given version simply has no row.
+
+    Method existence is *not* a rung: kernel dispatch owns that decision so
+    custom-registered methods route and the answer lives in one place.
 
     Args:
         body: The decoded JSON-RPC request mapping. Envelope shape
@@ -138,15 +136,7 @@ def classify_inbound_request(
             message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
         )
 
-    method: Any = body.get("method")
-    if (method, protocol_version) not in CLIENT_REQUESTS:
-        return InboundLadderRejection(
-            code=METHOD_NOT_FOUND,
-            message=f"Method not found: {method!r} at protocol version {protocol_version}",
-        )
-
     return InboundModernRoute(
-        method=method,
         protocol_version=protocol_version,
         client_info=client_info,
         client_capabilities=client_capabilities,

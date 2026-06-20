@@ -152,54 +152,28 @@ def test_header_rung_rejects_on_disagreement(headers: dict[str, str]) -> None:
     assert_rejected(classify_inbound_request(envelope(), headers=headers), HEADER_MISMATCH)
 
 
-# --- rung 4: method-exists-at-version ------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "method",
-    [
-        "initialize",
-        "ping",
-        "logging/setLevel",
-        "resources/subscribe",
-        "resources/unsubscribe",
-    ],
-)
-def test_method_rung_rejects_methods_removed_at_modern_version(method: str) -> None:
-    """Spec-mandated: absence from ``CLIENT_REQUESTS`` at the modern version *is* the gate — removed methods reject."""
-    rejection = assert_rejected(classify_inbound_request(envelope(method)), METHOD_NOT_FOUND)
-    assert method in rejection.message
-
-
-def test_method_rung_rejects_unknown_method() -> None:
-    """Spec-mandated: a method name not in the version's request table rejects METHOD_NOT_FOUND."""
-    assert_rejected(classify_inbound_request(envelope("does/not/exist")), METHOD_NOT_FOUND)
-
-
-def test_method_rung_rejects_absent_method_key() -> None:
-    """Spec-mandated: a body with no ``method`` key cannot route and rejects METHOD_NOT_FOUND."""
-    body = envelope()
-    del body["method"]
-    assert_rejected(classify_inbound_request(body), METHOD_NOT_FOUND)
-
-
 # --- all rungs pass ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("method", ["tools/list", "tools/call", "server/discover"])
-def test_all_rungs_pass_yields_route(method: str) -> None:
+def test_all_rungs_pass_yields_route() -> None:
     """Spec-mandated: a complete envelope at a supported version with agreeing header routes, surfacing the envelope."""
-    result = classify_inbound_request(envelope(method), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert isinstance(result, InboundModernRoute)
-    assert result.method == method
     assert result.protocol_version == MODERN
     assert result.client_info == CLIENT_INFO
     assert result.client_capabilities == CLIENT_CAPS
 
 
+@pytest.mark.parametrize("method", ["initialize", "myorg/custom", "does/not/exist"])
+def test_classifier_passes_unknown_method_through_to_route(method: str) -> None:
+    """SDK-defined: the classifier does not gate on method — kernel dispatch is the single owner of that decision."""
+    result = classify_inbound_request(envelope(method), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    assert isinstance(result, InboundModernRoute)
+
+
 def test_ladder_first_failure_wins() -> None:
-    """Spec-mandated: rungs evaluate in order — version, header and method would all fail; the version rung fires."""
-    body = envelope("initialize", version=LATEST_PROTOCOL_VERSION)
+    """Spec-mandated: rungs evaluate in order — version and header would both fail; the version rung fires."""
+    body = envelope(version=LATEST_PROTOCOL_VERSION)
     result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert_rejected(result, UNSUPPORTED_PROTOCOL_VERSION)
 
@@ -224,7 +198,7 @@ def test_error_code_http_status_table(code: int, status: int) -> None:
 
 def test_error_code_http_status_covers_every_ladder_code() -> None:
     """SDK-defined: every code the ladder can emit has an HTTP-status entry, so the transport never has to default."""
-    ladder_codes = {INVALID_PARAMS, UNSUPPORTED_PROTOCOL_VERSION, HEADER_MISMATCH, METHOD_NOT_FOUND}
+    ladder_codes = {INVALID_PARAMS, UNSUPPORTED_PROTOCOL_VERSION, HEADER_MISMATCH}
     assert ladder_codes <= ERROR_CODE_HTTP_STATUS.keys()
 
 

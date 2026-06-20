@@ -89,11 +89,10 @@ class _SingleExchangeDispatchContext:
 def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
     """Validate the classifier's raw envelope value into a typed model.
 
-    The classifier checks presence only; a value that fails shape validation
-    is treated as not supplied so the request still routes.
+    Rung 1 guarantees the envelope key was present; a ``null`` or mis-shaped
+    value falls through to ``ValidationError`` and is treated as not supplied
+    so the request still routes.
     """
-    if raw is None:
-        return None
     try:
         return model.model_validate(raw, by_name=False)
     except ValidationError:
