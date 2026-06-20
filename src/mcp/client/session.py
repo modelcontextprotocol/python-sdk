@@ -485,9 +485,9 @@ class ClientSession:
             try:
                 validate(result.structured_content, output_schema)
             except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}") from e
             except SchemaError as e:  # pragma: no cover
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
