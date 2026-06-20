@@ -310,7 +310,7 @@ class Server(Generic[LifespanResultT]):
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
-    # TODO: Rethink capabilities API. Currently capabilities are derived from registered
+    # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
     # entirely from server state (e.g. constructor params for list_changed) instead of

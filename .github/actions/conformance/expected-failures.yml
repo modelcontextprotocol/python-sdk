@@ -34,12 +34,7 @@ client:
 
 server:
   # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
-  # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
-  # _meta-derived capabilities, error-code mappings, or server/discover yet.
-  - server-stateless
-  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
-  # most scenarios currently fail early with "Missing session ID" because
-  # mcp-everything-server only runs in stateful mode.
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
   - input-required-result-basic-elicitation
   - input-required-result-basic-sampling
   - input-required-result-basic-list-roots
@@ -50,17 +45,12 @@ server:
   - input-required-result-result-type
   - input-required-result-tampered-state
   - input-required-result-capability-check
-  # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
-  # case-insensitive/whitespace-trimmed header validation not implemented.
+  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
+  # against the request body is not implemented.
   - http-header-validation
-  # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
-  # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
-  # SEP-2322 SHOULD-level behaviour (re-request missing inputResponses).
+  # WARNING-only entries: these scenarios emit no FAILURE checks but the
+  # expected-failures evaluator counts WARNINGs as failures (the summary line
+  # only shows passed/failed, not warnings, so a local re-probe can mis-read
+  # these as stale).
   - input-required-result-missing-input-response
-  # SEP-2322 negative-case scenarios: input-required-result-validate-input is
-  # now baselined (added when the stateless path landed — the stateless server
-  # reaches the handler, so the previous accidental pass via -32600 "Missing
-  # session ID" no longer applies). input-required-result-unsupported-methods
-  # is intentionally NOT baselined: it still passes for now; add it once it
-  # starts failing for real.
   - input-required-result-validate-input

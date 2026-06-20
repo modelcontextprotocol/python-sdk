@@ -320,7 +320,7 @@ class Connection:
 
         Returns `False` when no client info has been recorded.
         """
-        # TODO(L29): redesign - mirrors v1 ServerSession.check_client_capability
+        # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability
         # verbatim for parity.
         if self.client_params is None:
             return False

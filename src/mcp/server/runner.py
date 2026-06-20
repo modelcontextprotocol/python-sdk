@@ -245,7 +245,7 @@ class ServerRunner(Generic[LifespanT]):
                     _methods.validate_client_request(method, version, params)
                 except KeyError:
                     raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
-            # TODO(maxisbey): the 2026-07-28 spec drops the handshake; this branch and
+            # TODO(L29): the 2026-07-28 spec drops the handshake; this branch and
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
@@ -272,7 +272,7 @@ class ServerRunner(Generic[LifespanT]):
 
         call = self._compose_server_middleware(ctx, method, params, _inner)
         result = _dump_result(await call())
-        # TODO: reject resultType values outside {"complete", "input_required"} unless the
+        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
         # corresponding extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
         if is_spec_method:

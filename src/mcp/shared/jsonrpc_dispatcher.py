@@ -707,7 +707,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, error)
             else:
                 logger.exception("handler for %r raised", req.method)
-                # TODO(maxisbey): code=0 pins existing-server compat; JSON-RPC says
+                # TODO(L19): code=0 pins existing-server compat; JSON-RPC says
                 # INTERNAL_ERROR. Revisit per the suite's divergence entry.
                 await self._write_error(req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:

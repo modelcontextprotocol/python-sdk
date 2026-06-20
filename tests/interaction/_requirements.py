@@ -97,9 +97,9 @@ _TASKS_DEFERRAL = (
 )
 
 _MODERN_NOTIFY_DROP = (
-    "SingleExchangeDispatcher.notify() no-ops on the modern streamable-http driver; handler-emitted "
-    "logging/progress notifications never reach the per-request SSE response. Passes once SSE "
-    "response mode lands."
+    "The modern single-exchange dispatch context no-ops notify() on the streamable-http driver; "
+    "handler-emitted logging/progress notifications never reach the per-request SSE response. "
+    "Passes once SSE response mode lands."
 )
 
 
