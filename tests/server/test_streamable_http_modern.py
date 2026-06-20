@@ -109,6 +109,30 @@ def _list_tools_body() -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta}}
 
 
+async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info() -> None:
+    """SDK-defined: a mis-shaped ``clientInfo`` envelope value is treated as not supplied —
+    the request still routes (200 + result) and the handler observes ``client_params is None``
+    rather than the request being rejected at the validation ladder. A non-spec method is
+    used so the kernel's per-method params validation does not re-reject the envelope."""
+    seen: list[object] = []
+
+    async def greet(ctx: ServerRequestContext, params: PaginatedRequestParams) -> dict[str, Any]:
+        seen.append(ctx.session._connection.client_params)
+        return {"ok": True}
+
+    server: Server[Any] = Server("test")
+    server.add_request_handler("custom/greet", PaginatedRequestParams, greet)
+
+    body = _list_tools_body()
+    body["method"] = "custom/greet"
+    body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=body, headers={"content-type": "application/json"})
+    assert response.status_code == 200
+    assert response.json()["result"] == {"ok": True}
+    assert seen == [None]
+
+
 async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_raises(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

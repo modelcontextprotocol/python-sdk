@@ -129,6 +129,17 @@ async def test_elicit_form_with_related_id_rides_the_request_channel():
 
 
 @pytest.mark.anyio
+async def test_send_log_message_with_related_id_rides_the_request_channel():
+    """SDK-defined: the deprecated ``send_log_message`` notification with a related id
+    rides the per-request channel, so it is delivered even with no standalone back-channel."""
+    session, request_ch = _no_channel_session()
+    await session.send_log_message(  # pyright: ignore[reportDeprecated]
+        level="info", data="hello", logger="test", related_request_id=3
+    )
+    assert request_ch.notifications == [("notifications/message", {"level": "info", "data": "hello", "logger": "test"})]
+
+
+@pytest.mark.anyio
 async def test_unrelated_notification_is_dropped_silently():
     """SDK-defined: notifications on the no-channel standalone are best-effort — dropped, never raised."""
     session, request_ch = _no_channel_session()

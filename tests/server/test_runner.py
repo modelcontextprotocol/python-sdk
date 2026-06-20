@@ -796,6 +796,22 @@ async def test_runner_middleware_returning_error_data_produces_jsonrpc_error(ser
 
 
 @pytest.mark.anyio
+async def test_runner_middleware_returning_non_model_surfaces_as_error(server: SrvT):
+    """SDK-defined: a middleware that short-circuits with a non-BaseModel/non-dict
+    value is rejected by ``_dump_result`` and surfaces as a JSON-RPC error rather
+    than leaking the raw return onto the wire."""
+
+    async def short_circuit(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        return 42
+
+    server.middleware.append(short_circuit)
+    async with connected_runner(server, initialized=False) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+    assert "int" in exc.value.error.message
+
+
+@pytest.mark.anyio
 async def test_runner_handler_returning_unsupported_type_surfaces_as_error(server: SrvT):
     async def bad_return(ctx: Ctx, params: PaginatedRequestParams | None) -> int:
         return 42

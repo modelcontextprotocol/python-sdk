@@ -356,6 +356,11 @@ def test_connection_check_capability_false_when_no_client_params_recorded():
             ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability())),
             True,
         ),
+        (
+            ClientCapabilities(sampling=SamplingCapability(context=SamplingContextCapability())),
+            ClientCapabilities(sampling=SamplingCapability(context=SamplingContextCapability())),
+            True,
+        ),
         (ClientCapabilities(experimental=None), ClientCapabilities(experimental={"a": {}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
         (ClientCapabilities(experimental={"a": {"x": 1}}), ClientCapabilities(experimental={"a": {"x": 2}}), False),

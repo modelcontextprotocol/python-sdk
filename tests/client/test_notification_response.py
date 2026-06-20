@@ -201,3 +201,62 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
 
                 with pytest.raises(MCPError, match="Failed to parse JSON response"):  # pragma: no branch
                     await session.list_tools()
+
+
+def _create_non_2xx_json_body_app(status: int, body: bytes) -> Starlette:
+    """Server that returns a fixed non-2xx status + ``application/json`` body for non-init requests."""
+
+    async def handle_mcp_request(request: Request) -> Response:
+        data = json.loads(await request.body())
+        if data.get("method") == "initialize":
+            return _init_json_response(data)
+        if "id" not in data:
+            return Response(status_code=202)
+        return Response(content=body, status_code=status, media_type="application/json")
+
+    return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+
+
+async def test_client_surfaces_jsonrpc_error_from_non_2xx_body_with_correlated_id() -> None:
+    """SDK-defined: a JSON-RPC error in a non-2xx body is surfaced verbatim even when the
+    server set ``id: null`` — the client rewraps it under the pending request's id, so
+    the awaiting call resolves with the server's error code instead of the generic fallback."""
+    body = json.dumps(
+        {"jsonrpc": "2.0", "id": None, "error": {"code": types.METHOD_NOT_FOUND, "message": "nope"}}
+    ).encode()
+    app = _create_non_2xx_json_body_app(400, body)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+                with pytest.raises(MCPError) as exc:
+                    await session.list_tools()
+                assert exc.value.error.code == types.METHOD_NOT_FOUND
+
+
+async def test_client_falls_back_to_generic_error_when_non_2xx_body_is_a_jsonrpc_result() -> None:
+    """SDK-defined: a non-2xx response whose JSON body parses as a JSON-RPC *result* (not an
+    error) falls through to the generic ``INTERNAL_ERROR`` fallback rather than being
+    treated as the request's reply."""
+    app = _create_non_2xx_json_body_app(400, b'{"jsonrpc":"2.0","id":1,"result":{}}')
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+                with pytest.raises(MCPError) as exc:
+                    await session.list_tools()
+                assert exc.value.error.code == types.INTERNAL_ERROR
+
+
+async def test_client_falls_back_to_session_terminated_when_404_body_is_malformed_json() -> None:
+    """SDK-defined: an unparseable ``application/json`` body on a 404 response is swallowed
+    and the status-derived ``INVALID_REQUEST`` (session-terminated) fallback resolves the
+    pending request — the parse failure never propagates."""
+    app = _create_non_2xx_json_body_app(404, b"not valid json{{{")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+                with pytest.raises(MCPError) as exc:
+                    await session.list_tools()
+                assert exc.value.error.code == types.INVALID_REQUEST
