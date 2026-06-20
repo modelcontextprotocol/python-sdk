@@ -62,6 +62,35 @@ async with http_client:
 
 v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
 
+### OAuth `callback_handler` returns `AuthorizationCodeResult`
+
+The `callback_handler` passed to `OAuthClientProvider` now returns an `AuthorizationCodeResult` instead of a `tuple[str, str | None]` of `(code, state)`. The new object adds an `iss` field so the client can validate the RFC 9207 authorization-response issuer (SEP-2468): when the redirect carries an `iss` query parameter it must match the authorization server's issuer, and a missing `iss` is rejected when the server advertised `authorization_response_iss_parameter_supported`.
+
+**Before (v1):**
+
+```python
+async def callback_handler() -> tuple[str, str | None]:
+    params = parse_qs(urlparse(await wait_for_redirect()).query)
+    return params["code"][0], params.get("state", [None])[0]
+```
+
+**After (v2):**
+
+```python
+from mcp.client.auth import AuthorizationCodeResult
+
+
+async def callback_handler() -> AuthorizationCodeResult:
+    params = parse_qs(urlparse(await wait_for_redirect()).query)
+    return AuthorizationCodeResult(
+        code=params["code"][0],
+        state=params.get("state", [None])[0],
+        iss=params.get("iss", [None])[0],
+    )
+```
+
+Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
 ### `get_session_id` callback removed from `streamable_http_client`
 
 The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.

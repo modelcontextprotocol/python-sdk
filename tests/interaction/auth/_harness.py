@@ -26,7 +26,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.auth.provider import AccessToken, ProviderTokenVerifier
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION
 from tests.interaction.auth._provider import InMemoryAuthorizationServerProvider
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -136,16 +136,21 @@ class HeadlessOAuth:
 
     `state_override`: when set, `callback_handler` returns this value as the state instead of
     the one parsed from the redirect, so tests can drive the state-mismatch path.
+
+    `iss_override`: when set, `callback_handler` returns this value as the RFC 9207 issuer
+    instead of the one parsed from the redirect, so tests can drive the iss-mismatch path.
     """
 
-    def __init__(self, *, state_override: str | None = None) -> None:
+    def __init__(self, *, state_override: str | None = None, iss_override: str | None = None) -> None:
         self.authorize_url: str | None = None
         self.authorize_urls: list[str] = []
         self.error: str | None = None
         self._state_override = state_override
+        self._iss_override = iss_override
         self._http: httpx.AsyncClient | None = None
         self._code: str = ""
         self._state: str | None = None
+        self._iss: str | None = None
 
     def bind(self, http_client: httpx.AsyncClient) -> None:
         self._http = http_client
@@ -161,10 +166,15 @@ class HeadlessOAuth:
         params = parse_qs(urlsplit(response.headers["location"]).query)
         self._code = params.get("code", [""])[0]
         self._state = params.get("state", [None])[0]
+        self._iss = params.get("iss", [None])[0]
         self.error = params.get("error", [None])[0]
 
-    async def callback_handler(self) -> tuple[str, str | None]:
-        return self._code, self._state_override if self._state_override is not None else self._state
+    async def callback_handler(self) -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(
+            code=self._code,
+            state=self._state_override if self._state_override is not None else self._state,
+            iss=self._iss_override if self._iss_override is not None else self._iss,
+        )
 
 
 def auth_settings(
