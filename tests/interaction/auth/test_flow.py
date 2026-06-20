@@ -203,6 +203,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "scope": "mcp",
+            "application_type": "native",
             "client_name": "interaction-suite",
             "software_id": "interaction-test-suite",
         }

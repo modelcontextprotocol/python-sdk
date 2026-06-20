@@ -1,6 +1,7 @@
 """Tests for refactored OAuth client authentication implementation."""
 
 import base64
+import json
 import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -1047,6 +1048,21 @@ class TestCreateClientRegistrationRequest:
 
         assert str(request.url) == "https://auth.example.com/register"
         assert request.method == "POST"
+
+
+def test_registration_request_sends_application_type():
+    """SEP-837: the DCR body carries application_type, defaulting to native and overridable."""
+    redirect_uris: list[AnyUrl] = [AnyUrl("http://localhost:3000/callback")]
+
+    default_request = create_client_registration_request(
+        None, OAuthClientMetadata(redirect_uris=redirect_uris), "https://auth.example.com"
+    )
+    assert json.loads(default_request.content)["application_type"] == "native"
+
+    web_request = create_client_registration_request(
+        None, OAuthClientMetadata(redirect_uris=redirect_uris, application_type="web"), "https://auth.example.com"
+    )
+    assert json.loads(web_request.content)["application_type"] == "web"
 
 
 class TestAuthFlow:

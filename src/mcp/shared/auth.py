@@ -67,6 +67,9 @@ class OAuthClientMetadata(BaseModel):
     # servers may also return additional types they support
     response_types: list[str] = ["code"]
     scope: str | None = None
+    # SEP-837: OIDC application_type. Defaults to "native" since MCP clients typically use
+    # loopback redirect URIs; set "web" for remote browser-based clients on a non-local host.
+    application_type: Literal["web", "native"] = "native"
 
     # these fields are currently unused, but we support & store them for potential
     # future use
