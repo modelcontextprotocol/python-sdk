@@ -11,6 +11,7 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.shared.json_schema_ref import reject_external_refs
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
@@ -53,7 +54,12 @@ class Tool(BaseModel):
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
-        """Create a Tool from a function."""
+        """Create a Tool from a function.
+
+        Raises:
+            ExternalSchemaRefError: If the generated input or output schema contains a
+                `$ref` that is not a same-document reference (SEP-2106).
+        """
         func_name = name or fn.__name__
 
         validate_and_warn_tool_name(func_name)
@@ -73,6 +79,10 @@ class Tool(BaseModel):
             structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+
+        reject_external_refs(parameters, context=f"Input schema for tool {func_name!r}")
+        if func_arg_metadata.output_schema is not None:
+            reject_external_refs(func_arg_metadata.output_schema, context=f"Output schema for tool {func_name!r}")
 
         return cls(
             fn=fn,

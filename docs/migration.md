@@ -240,6 +240,17 @@ Results returned from server handlers are now validated against the negotiated p
 
 `ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
 
+### External JSON Schema `$ref`s are rejected (SEP-2106)
+
+SEP-2106 permits the full JSON Schema 2020-12 vocabulary in tool schemas, including `$ref`. A `$ref` that resolves to a network URI is an SSRF / fetch-DoS vector, so per the spec implementations MUST NOT automatically dereference any `$ref` that is not a same-document reference (a JSON Pointer such as `#/$defs/Foo` or an `$anchor` such as `#Foo`).
+
+The SDK never dereferences such refs and now rejects them outright with `ExternalSchemaRefError` (a `ValueError` subclass, importable from `mcp.shared.json_schema_ref`):
+
+- **Server:** registering a tool whose generated input or output schema contains an external `$ref` raises at registration time. Schemas Pydantic generates from your type hints only ever use same-document refs, so this affects you only if you smuggle an external `$ref` into a schema (e.g. via `Field(json_schema_extra=...)`).
+- **Client:** validating a tool result whose output schema contains an external `$ref` raises instead of attempting to resolve it.
+
+To migrate, inline the referenced schema or replace the external `$ref` with a same-document reference into `$defs`.
+
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
 The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
