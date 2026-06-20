@@ -1245,7 +1245,26 @@ Tasks are expected to return as a separate MCP extension in a future release.
 
 ## Deprecations
 
-<!-- Add deprecations below -->
+### Roots, Sampling, and Logging methods deprecated (SEP-2577)
+
+[SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) deprecates the Roots, Sampling, and Logging features as of the 2026-07-28 spec. The deprecation is advisory only: there are no wire-level changes, capability negotiation is unchanged, and every method keeps working for sessions negotiating 2025-11-25 and earlier.
+
+The user-facing methods for these features now carry `typing_extensions.deprecated`, so type checkers, IDEs, and the runtime surface a deprecation warning where they are called:
+
+- Sampling: `ServerSession.create_message()`, `ClientPeer.sample()`
+- Roots: `ServerSession.list_roots()`, `ClientPeer.list_roots()`, `ClientSession.send_roots_list_changed()`, `Client.send_roots_list_changed()`
+- Logging: `ServerSession.send_log_message()`, `Connection.log()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, `mcp.server.context.Context.log()` (the lowlevel `Context`), and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
+
+The runtime warning is emitted as `mcp.MCPDeprecationWarning`, which subclasses `UserWarning` (not `DeprecationWarning`) so it is visible by default. To silence it, filter that category:
+
+```python
+import warnings
+from mcp import MCPDeprecationWarning
+
+warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
+```
+
+No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
 
 ## Bug Fixes
 

@@ -55,7 +55,7 @@ def _counting_server() -> MCPServer:
     async def count(ctx: Context, n: int) -> str:
         """Emit n log notifications related to this call, plus one unrelated resource update."""
         for i in range(1, n + 1):
-            await ctx.info(f"tick {i}")
+            await ctx.info(f"tick {i}")  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///elsewhere.txt")
         return f"counted to {n}"
 
@@ -138,10 +138,10 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
     @mcp.tool()
     async def count(ctx: Context) -> str:
         """Emit one related notification, wait for the test, then emit two more plus an unrelated one."""
-        await ctx.info("tick 1")
+        await ctx.info("tick 1")  # pyright: ignore[reportDeprecated]
         await release.wait()
-        await ctx.info("tick 2")
-        await ctx.info("tick 3")
+        await ctx.info("tick 2")  # pyright: ignore[reportDeprecated]
+        await ctx.info("tick 3")  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///elsewhere.txt")
         return "counted"
 
@@ -219,7 +219,7 @@ async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler()
         """Signal start, wait for the test, signal completion."""
         started.set()
         await release.wait()
-        await ctx.info("released")
+        await ctx.info("released")  # pyright: ignore[reportDeprecated]
         finished.set()
         return "held"
 
@@ -263,10 +263,10 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
     @mcp.tool()
     async def interrupt(ctx: Context) -> str:
         """Emit, close this call's SSE stream, then emit again after the test releases the gate."""
-        await ctx.info("before close")
+        await ctx.info("before close")  # pyright: ignore[reportDeprecated]
         await ctx.close_sse_stream()
         await gate.wait()
-        await ctx.info("after close")
+        await ctx.info("after close")  # pyright: ignore[reportDeprecated]
         done.set()
         return "resumed"
 
@@ -321,9 +321,9 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
     @mcp.tool()
     async def hold(ctx: Context) -> str:
         """Emit one notification, wait for the test, emit another, return."""
-        await ctx.info("first")
+        await ctx.info("first")  # pyright: ignore[reportDeprecated]
         await release.wait()
-        await ctx.info("second")
+        await ctx.info("second")  # pyright: ignore[reportDeprecated]
         return "done"
 
     async def on_token(token: str) -> None:

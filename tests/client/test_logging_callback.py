@@ -36,7 +36,7 @@ async def test_logging_callback():
         message: str, level: Literal["debug", "info", "warning", "error"], logger: str, ctx: Context
     ) -> bool:
         """Send a log notification to the client."""
-        await ctx.log(level=level, data=message, logger_name=logger)
+        await ctx.log(level=level, data=message, logger_name=logger)  # pyright: ignore[reportDeprecated]
         return True
 
     @server.tool("test_tool_with_log_dict")
@@ -46,7 +46,7 @@ async def test_logging_callback():
         ctx: Context,
     ) -> bool:
         """Send a log notification with a dict payload."""
-        await ctx.log(
+        await ctx.log(  # pyright: ignore[reportDeprecated]
             level=level,
             data={"message": "Test log message", "extra_string": "example", "extra_dict": {"a": 1, "b": 2, "c": 3}},
             logger_name=logger,

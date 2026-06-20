@@ -212,7 +212,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
 
     elif name == "test_sampling_tool":
-        sampling_result = await ctx.session.create_message(
+        sampling_result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[
                 types.SamplingMessage(
                     role="user",
@@ -234,7 +234,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         )
 
     elif name == "wait_for_lock_with_notification":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="First notification before lock",
             logger="lock_tool",
@@ -243,7 +243,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
 
         await ctx.lifespan_context.lock.wait()
 
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="Second notification after lock",
             logger="lock_tool",
@@ -257,7 +257,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text="Lock released")])
 
     elif name == "tool_with_stream_close":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="Before close",
             logger="stream_close_tool",
@@ -266,7 +266,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         assert ctx.close_sse_stream is not None
         await ctx.close_sse_stream()
         await anyio.sleep(0.1)
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="After close",
             logger="stream_close_tool",
@@ -275,7 +275,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text="Done")])
 
     elif name == "tool_with_multiple_notifications_and_close":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification1",
             logger="multi_notif_tool",
@@ -284,13 +284,13 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         assert ctx.close_sse_stream is not None
         await ctx.close_sse_stream()
         await anyio.sleep(0.1)
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification2",
             logger="multi_notif_tool",
             related_request_id=ctx.request_id,
         )
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification3",
             logger="multi_notif_tool",
@@ -2085,7 +2085,7 @@ async def test_streamable_http_multiple_reconnections() -> None:
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "multi_close_tool"
         for i, milestone in enumerate(milestones.values()):
-            await ctx.session.send_log_message(
+            await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level="info",
                 data=f"checkpoint_{i}",
                 logger="multi_close_tool",

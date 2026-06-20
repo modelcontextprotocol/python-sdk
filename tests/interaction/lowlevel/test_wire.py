@@ -96,7 +96,7 @@ async def test_notifications_are_never_answered() -> None:
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
     async with Client(recording, list_roots_callback=list_roots) as client:
-        await client.send_roots_list_changed()
+        await client.send_roots_list_changed()  # pyright: ignore[reportDeprecated]
         await client.send_ping()
 
     sent = [message.message for message in recording.sent]

@@ -6,6 +6,8 @@ from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
+from typing_extensions import deprecated
+
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -13,6 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.dispatcher import ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import (
     CallToolResult,
     CompleteResult,
@@ -197,9 +200,10 @@ class Client:
             message=message,
         )
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level=level, meta=meta)
+        return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]
 
     async def list_resources(
         self,
@@ -314,7 +318,8 @@ class Client:
         """List available tools from the server."""
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
         # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
-        await self.session.send_roots_list_changed()
+        await self.session.send_roots_list_changed()  # pyright: ignore[reportDeprecated]

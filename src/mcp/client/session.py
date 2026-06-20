@@ -10,13 +10,13 @@ import anyio
 import anyio.abc
 import anyio.lowlevel
 from pydantic import BaseModel, TypeAdapter, ValidationError
-from typing_extensions import Self, TypeVar
+from typing_extensions import Self, TypeVar, deprecated
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -386,6 +386,7 @@ class ClientSession:
             )
         )
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def set_logging_level(
         self,
         level: types.LoggingLevel,
@@ -550,6 +551,7 @@ class ClientSession:
 
         return result
 
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())

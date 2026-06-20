@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
+from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
@@ -14,6 +15,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
@@ -189,6 +191,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(
         self,
         level: LoggingLevel,
@@ -205,7 +208,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
                 (string, dict, list, number, bool, etc.) per the MCP specification.
             logger_name: Optional logger name
         """
-        await self.request_context.session.send_log_message(
+        await self.request_context.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level=level,
             data=data,
             logger=logger_name,
@@ -265,18 +268,22 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", data, logger_name=logger_name)
+        await self.log("debug", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", data, logger_name=logger_name)
+        await self.log("info", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message."""
-        await self.log("warning", data, logger_name=logger_name)
+        await self.log("warning", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", data, logger_name=logger_name)
+        await self.log("error", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]

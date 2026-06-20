@@ -175,7 +175,7 @@ async def test_create_message_with_tools_returns_with_tools_result():
     session = _make_session(
         dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
     )
-    result = await session.create_message(
+    result = await session.create_message(  # pyright: ignore[reportDeprecated]
         messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
         max_tokens=10,
         tools=[types.Tool(name="t", input_schema={"type": "object"})],

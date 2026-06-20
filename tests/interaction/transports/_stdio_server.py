@@ -7,12 +7,14 @@ test-only-functions convention.
 """
 
 import sys
+import warnings
 
 import anyio
 import coverage
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -40,7 +42,9 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     assert params.name == "echo"
     assert params.arguments is not None
     text = params.arguments["text"]
-    await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
+        await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")  # pyright: ignore[reportDeprecated]
     return CallToolResult(content=[TextContent(text=text)])
 
 

@@ -12,12 +12,13 @@ used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 from typing import Any, TypeVar, cast, overload
 
 from pydantic import AnyUrl, BaseModel
+from typing_extensions import deprecated
 
 from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.dispatcher import CallOptions, Dispatcher, ProgressFnT
-from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
+from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError, StatelessModeNotSupported
 from mcp.shared.message import ServerMessageMetadata
 from mcp.types import methods as _methods
 
@@ -126,6 +127,7 @@ class ServerSession:
         """Check if the client supports a specific capability."""
         return self._connection.check_capability(capability)
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_log_message(
         self,
         level: types.LoggingLevel,
@@ -154,6 +156,7 @@ class ServerSession:
         )
 
     @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -173,6 +176,7 @@ class ServerSession:
         ...
 
     @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -191,6 +195,7 @@ class ServerSession:
         """Overload: With tools, returns array-capable content."""
         ...
 
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -267,6 +272,7 @@ class ServerSession:
             metadata=metadata_obj,
         )
 
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
         if self._stateless:
