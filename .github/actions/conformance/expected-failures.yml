@@ -21,8 +21,10 @@ client:
   # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2352 (authorization server migration): client does not re-register when
-  # PRM authorization_servers changes.
+  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
+  # AS credentials, but this 2026-introduced scenario runs at 2026-07-28, where client.py's 2025
+  # stateful lifecycle is rejected (400 on initialize) before the migration 401 fires, so the
+  # re-register check is never reached. Unblocks with the 2026 stateless client lifecycle.
   - auth/authorization-server-migration
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---

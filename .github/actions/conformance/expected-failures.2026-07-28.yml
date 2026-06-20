@@ -46,8 +46,10 @@ client:
   # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2352 (authorization server migration): client does not re-register when
-  # PRM authorization_servers changes.
+  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
+  # AS credentials, but the 2026-mode mock rejects the MCP POST before the migration 401 fires
+  # (client.py drives the 2025 stateful lifecycle), so the re-register check is never reached.
+  # Unblocks with the 2026 stateless client lifecycle.
   - auth/authorization-server-migration
   # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
   # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28

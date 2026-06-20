@@ -3360,6 +3360,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:as-binding": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-binding",
+        behavior=(
+            "Stored client credentials are bound to the issuer that registered them; when the authorization "
+            "server changes, the client discards them and re-registers rather than reusing them (SEP-2352)."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
     "client-auth:invalid-client-clears-all": Requirement(
         source="sdk",
         behavior=(

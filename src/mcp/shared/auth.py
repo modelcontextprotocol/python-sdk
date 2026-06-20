@@ -133,6 +133,9 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
+    # SEP-2352: the issuer these credentials were registered with, recorded by the SDK (not an
+    # RFC 7591 field) to detect authorization-server migration and avoid cross-AS credential reuse.
+    issuer: str | None = None
 
 
 class OAuthMetadata(BaseModel):

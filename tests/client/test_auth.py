@@ -19,6 +19,7 @@ from mcp.client.auth.utils import (
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
@@ -2794,3 +2795,41 @@ def test_validate_metadata_issuer_rejects_mismatch():
 def test_union_scopes(previous: str | None, new: str | None, expected: str | None):
     """SEP-2350: union merges previous and new scopes, dedups, and preserves order."""
     assert union_scopes(previous, new) == expected
+
+
+def test_credentials_match_issuer_same_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://as", None) is True
+
+
+def test_credentials_match_issuer_different_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://other", None) is False
+
+
+def test_credentials_match_issuer_no_recorded_issuer_is_left_alone():
+    """Credentials with no bound issuer (pre-registered / legacy) carry no binding to enforce."""
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")])
+    assert credentials_match_issuer(info, "https://as", None) is True
+
+
+def test_credentials_match_issuer_cimd_is_portable():
+    """A client_id equal to the configured client_metadata_url (CIMD) is portable across servers."""
+    cimd_url = "https://client.example/metadata.json"
+    info = OAuthClientInformationFull(
+        client_id=cimd_url,
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        token_endpoint_auth_method="none",
+        issuer="https://as",
+    )
+    assert credentials_match_issuer(info, "https://other", cimd_url) is True
+
+
+def test_credentials_match_issuer_url_shaped_dcr_id_is_not_portable():
+    """A URL-shaped client_id from DCR (not the configured CIMD URL) stays bound to its issuer."""
+    info = OAuthClientInformationFull(
+        client_id="https://as.example.com/clients/123",
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        issuer="https://as.example.com",
+    )
+    assert credentials_match_issuer(info, "https://other", "https://client.example/metadata.json") is False

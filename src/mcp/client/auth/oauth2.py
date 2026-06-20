@@ -25,6 +25,7 @@ from mcp.client.auth.utils import (
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
@@ -564,6 +565,20 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"Protected resource metadata discovery failed: {url}")
 
+                    # SEP-2352: stored credentials are bound to the issuer that registered them.
+                    # If the authorization server changed, drop them (and the old tokens) so the
+                    # flow re-registers instead of presenting another server's credentials.
+                    if (
+                        self.context.client_info is not None
+                        and self.context.auth_server_url is not None
+                        and not credentials_match_issuer(
+                            self.context.client_info, self.context.auth_server_url, self.context.client_metadata_url
+                        )
+                    ):
+                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+                        self.context.client_info = None
+                        self.context.clear_tokens()
+
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                         self.context.auth_server_url, self.context.server_url
                     )
@@ -595,6 +610,13 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
+                        # SEP-2352: bind the credentials to the issuing AS. Prefer the PRM-advertised
+                        # authorization server; on the legacy no-PRM path fall back to the issuer from
+                        # the discovered metadata so the binding is still recorded.
+                        bound_issuer = self.context.auth_server_url
+                        if bound_issuer is None and self.context.oauth_metadata is not None:
+                            bound_issuer = str(self.context.oauth_metadata.issuer)
+
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
@@ -604,6 +626,7 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
                                 redirect_uris=self.context.client_metadata.redirect_uris,
                             )
+                            client_information.issuer = bound_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
                         else:
@@ -615,6 +638,7 @@ class OAuthClientProvider(httpx.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
+                            client_information.issuer = bound_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
