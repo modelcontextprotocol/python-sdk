@@ -47,5 +47,5 @@ done
 
 echo "Server ready at $SERVER_URL"
 
-npx --yes @modelcontextprotocol/conformance@"${CONFORMANCE_VERSION:?set CONFORMANCE_VERSION (pinned in .github/workflows/conformance.yml)}" \
+npx --yes "${CONFORMANCE_PKG:?set CONFORMANCE_PKG (pinned in .github/workflows/conformance.yml)}" \
     server --url "$SERVER_URL" "$@"

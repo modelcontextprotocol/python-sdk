@@ -14,10 +14,16 @@ permissions:
   contents: read
 
 env:
-  # Pinned conformance harness version. Bump deliberately and reconcile
-  # both .github/actions/conformance/expected-failures*.yml files in the
-  # same change.
-  CONFORMANCE_VERSION: "0.2.0-alpha.4"
+  # Pinned conformance harness package spec (passed verbatim to `npx --yes`).
+  # Use a published version, e.g. @modelcontextprotocol/conformance@0.2.0-alpha.5.
+  # Bump deliberately and reconcile both
+  # .github/actions/conformance/expected-failures*.yml files in the same change.
+  #
+  # TODO: replace with @modelcontextprotocol/conformance@0.2.0-alpha.5 once
+  # https://github.com/modelcontextprotocol/conformance/pull/357 publishes.
+  # The pkg.pr.new URL below is the preview build of that PR pinned at commit
+  # 65fcd39 (immutable). Do not merge this branch to main with a pkg.pr.new pin.
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@65fcd39"
 
 jobs:
   server-conformance:
@@ -67,13 +73,13 @@ jobs:
       - run: uv sync --frozen --all-extras --package mcp
       - name: Run client conformance (all suite)
         run: >-
-          npx --yes @modelcontextprotocol/conformance@"$CONFORMANCE_VERSION" client
+          npx --yes "$CONFORMANCE_PKG" client
           --command 'uv run --frozen python .github/actions/conformance/client.py'
           --suite all
           --expected-failures ./.github/actions/conformance/expected-failures.yml
       - name: Run client conformance (2026-07-28 wire, all suite)
         run: >-
-          npx --yes @modelcontextprotocol/conformance@"$CONFORMANCE_VERSION" client
+          npx --yes "$CONFORMANCE_PKG" client
           --command 'uv run --frozen python .github/actions/conformance/client.py'
           --suite all
           --spec-version 2026-07-28

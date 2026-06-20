@@ -1,11 +1,10 @@
 # Conformance scenarios not yet passing against the Python SDK on main.
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
-# Baseline established against @modelcontextprotocol/conformance pinned in
-# .github/workflows/conformance.yml (CONFORMANCE_VERSION = 0.2.0-alpha.4).
-# New conformance releases are adopted by deliberately bumping that pin and
-# reconciling both this file and expected-failures.2026-07-28.yml in the same
-# change.
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.2026-07-28.yml in the same change.
 #
 # Entries are grouped by SEP. As each SEP lands in the SDK the corresponding
 # scenarios start passing and MUST be removed from this list (the runner fails
@@ -40,9 +39,6 @@ client:
   - auth/offline-access-not-supported
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-  # SEP-2350 (scope step-up): WARNING-only; the expected-failures evaluator
-  # counts WARNINGs as failures.
-  - auth/scope-step-up
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /
   # client support for the token-exchange + JWT bearer flow.
   - auth/enterprise-managed-authorization
