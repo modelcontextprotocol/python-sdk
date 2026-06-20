@@ -20,7 +20,6 @@ from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     INTERNAL_ERROR,
@@ -224,7 +223,7 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
 
     assert response.status_code == 200
     result = JSONRPCResponse.model_validate(response.json()).result
-    assert result["supportedVersions"] == list(MODERN_PROTOCOL_VERSIONS)
+    assert result["supportedVersions"] == snapshot(["2026-07-28"])
     assert result["serverInfo"]["name"] == "modern"
     assert "capabilities" in result
 

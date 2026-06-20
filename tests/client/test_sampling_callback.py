@@ -3,7 +3,9 @@ import pytest
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_REQUEST,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -47,13 +49,13 @@ async def test_sampling_callback():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
-    # Test without sampling callback
+    # Without a sampling callback the client responds with an MCPError, which the
+    # tool body doesn't catch — the wrapper re-raises it as a top-level JSON-RPC
+    # error rather than wrapping it as an isError result.
     async with Client(server) as client:
-        # Make a request to trigger sampling callback
-        result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
-        assert result.is_error is True
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("test_sampling", {"message": "Test message for sampling"})
+    assert exc_info.value.error.code == INVALID_REQUEST
 
 
 @pytest.mark.anyio
