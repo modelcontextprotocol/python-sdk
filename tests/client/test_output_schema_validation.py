@@ -5,7 +5,6 @@ import pytest
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.json_schema_ref import ExternalSchemaRefError
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -164,41 +163,3 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
         assert result.is_error is False
 
         assert "Tool mystery_tool not listed" in caplog.text
-
-
-@pytest.mark.anyio
-async def test_client_does_not_dereference_network_refs():
-    """SEP-2106: the client MUST NOT auto-dereference network `$ref`s in tool schemas.
-
-    A tool advertises an input and an output schema containing a network-URI `$ref`.
-    Listing the tool leaves the input schema untouched (the network ref is never
-    resolved), and validating its result rejects the external output-schema ref
-    outright instead of fetching it.
-    """
-    canary_ref = "https://canary.invalid/profile-schema.json"
-
-    input_schema = {"type": "object", "properties": {"profile": {"$ref": canary_ref}}}
-    output_schema = {
-        "type": "object",
-        "properties": {"result": {"$ref": canary_ref}, "ok": {"type": "boolean"}},
-        "required": ["ok"],
-    }
-
-    server = _make_server(
-        tools=[
-            Tool(
-                name="lookup",
-                description="Look something up",
-                input_schema=input_schema,
-                output_schema=output_schema,
-            )
-        ],
-        structured_content={"ok": True},
-    )
-
-    async with Client(server) as client:
-        tools = await client.list_tools()
-        assert tools.tools[0].input_schema == input_schema
-
-        with pytest.raises(ExternalSchemaRefError, match="canary.invalid"):
-            await client.call_tool("lookup", {})

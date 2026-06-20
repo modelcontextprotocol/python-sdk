@@ -11,7 +11,6 @@ import anyio.to_thread
 import pydantic_core
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
-from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
@@ -22,22 +21,12 @@ from typing_inspection.introspection import (
 )
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.utilities._schema_generator import ExternalSchemaRefError, StrictJsonSchema
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
-
-
-class StrictJsonSchema(GenerateJsonSchema):
-    """A JSON schema generator that raises exceptions instead of emitting warnings.
-
-    This is used to detect non-serializable types during schema generation.
-    """
-
-    def emit_warning(self, kind: JsonSchemaWarningKind, detail: str) -> None:
-        # Raise an exception instead of emitting a warning
-        raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
 class ArgModelBase(BaseModel):
@@ -398,6 +387,9 @@ def _try_create_model_and_schema(
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
             schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+        except ExternalSchemaRefError:
+            # SEP-2106: an external $ref is a hard error, not an unserializable type.
+            raise
         except (
             PydanticUserError,
             TypeError,

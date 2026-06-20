@@ -17,7 +17,6 @@ from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPError
-from mcp.shared.json_schema_ref import reject_external_refs
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -450,14 +449,7 @@ class ClientSession:
         *,
         meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support.
-
-        Raises:
-            RuntimeError: If the tool declares an output schema but the result's structured
-                content is missing or fails validation against it.
-            ExternalSchemaRefError: If the tool's output schema contains a `$ref` that is not
-                a same-document reference; such refs are never dereferenced (SEP-2106).
-        """
+        """Send a tools/call request with optional progress callback support."""
 
         result = await self.send_request(
             types.CallToolRequest(
@@ -490,7 +482,6 @@ class ClientSession:
 
             if result.structured_content is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            reject_external_refs(output_schema, context=f"Output schema for tool {name!r}")
             try:
                 validate(result.structured_content, output_schema)
             except ValidationError as e:

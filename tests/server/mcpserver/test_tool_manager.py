@@ -10,8 +10,8 @@ from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
+from mcp.server.mcpserver.utilities._schema_generator import ExternalSchemaRefError
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
-from mcp.shared.json_schema_ref import ExternalSchemaRefError
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 
@@ -916,7 +916,7 @@ def test_add_tool_rejects_external_input_ref():
         ...
 
     manager = ToolManager()
-    with pytest.raises(ExternalSchemaRefError, match="Input schema for tool 'lookup'"):
+    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/s.json"):
         manager.add_tool(lookup)
     assert manager.get_tool("lookup") is None
 
@@ -931,7 +931,7 @@ def test_add_tool_rejects_external_output_ref():
         ...
 
     manager = ToolManager()
-    with pytest.raises(ExternalSchemaRefError, match="Output schema for tool 'lookup'"):
+    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/out.json"):
         manager.add_tool(lookup)
     assert manager.get_tool("lookup") is None
 
