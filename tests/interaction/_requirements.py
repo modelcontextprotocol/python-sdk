@@ -3046,6 +3046,50 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: the modern entry's exception-to-JSONRPCError boundary.",
     ),
+    "hosting:http:modern:discover-response-shape": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/index",
+        behavior=(
+            "A 2026-07-28 server/discover response carries supportedVersions, capabilities, and "
+            "serverInfo, with supportedVersions naming the modern protocol revisions the server accepts."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the raw result body is asserted at the wire.",
+    ),
+    "hosting:http:modern:removed-method-status-404": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/index",
+        behavior=(
+            "A method that exists at earlier protocol revisions but is removed at 2026-07-28 is "
+            "answered METHOD_NOT_FOUND, and the modern entry maps that error code to HTTP 404."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the HTTP status is the assertion. Kernel-origin "
+            "METHOD_NOT_FOUND travels through the same status table as classifier-origin errors."
+        ),
+    ),
+    "hosting:http:modern:envelope-missing-key-status-400": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http",
+        behavior=(
+            "A 2026-07-28 request whose params._meta envelope omits a required reserved key is "
+            "rejected as INVALID_PARAMS at HTTP 400 before kernel dispatch."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the HTTP status is the assertion.",
+    ),
+    "hosting:http:modern:handler-error-status-via-table": Requirement(
+        source="sdk",
+        behavior=(
+            "A handler-raised MCPError on the 2026-07-28 entry reaches the wire as a top-level "
+            "JSON-RPC error with its data preserved, and the HTTP status is the error-code table "
+            "entry for that code (handler-origin and classifier-origin errors share one table)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the modern entry's JSONRPCError-to-HTTP-status mapping.",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════

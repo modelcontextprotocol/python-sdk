@@ -16,23 +16,30 @@ import httpx
 import pytest
 from inline_snapshot import snapshot
 
+from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
     INTERNAL_ERROR,
+    INVALID_PARAMS,
     METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolRequestParams,
     CallToolResult,
+    EmptyResult,
     Implementation,
     JSONRPCError,
     JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
+    RequestParams,
     TextContent,
     Tool,
 )
-from tests.interaction._connect import BASE_URL, base_headers, initialize_body, initialize_via_http, mounted_app
+from tests.interaction._connect import BASE_URL, base_headers, initialize_via_http, mounted_app
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -133,16 +140,20 @@ async def test_modern_response_carries_no_session_id_header() -> None:
 
 @requirement("hosting:http:modern:initialize-removed")
 async def test_modern_initialize_is_method_not_found() -> None:
-    """A 2026-07-28 initialize request is answered with METHOD_NOT_FOUND.
+    """A 2026-07-28 initialize request that carries a valid envelope is answered METHOD_NOT_FOUND at HTTP 404.
 
-    Spec-mandated under the draft: initialize is not a defined method at 2026-07-28, so the
-    method/version gate rejects it before any handler runs. Asserted at the wire because the SDK
-    client at 2026-07-28 never sends initialize, so only a raw POST can drive the negative.
+    Spec-mandated under the draft: initialize is not a defined method at 2026-07-28, so the kernel's
+    method/version gate rejects it before any handler runs. The body must carry the per-request
+    ``_meta`` envelope so the classifier ladder admits it as far as kernel dispatch -- without the
+    envelope the request is INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND. Asserted at the wire
+    because the SDK client at 2026-07-28 never sends initialize, so only a raw POST can drive the
+    negative.
     """
+    body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
-        response = await http.post("/mcp", json=initialize_body(), headers=_modern_headers(method="initialize"))
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="initialize"))
 
-    assert response.status_code == 200
+    assert response.status_code == 404
     assert JSONRPCError.model_validate(response.json()).error.code == METHOD_NOT_FOUND
 
 
@@ -196,6 +207,92 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
     error = JSONRPCError.model_validate(response.json()).error
     assert error.code == INTERNAL_ERROR
     assert "kaboom" not in error.message
+
+
+@requirement("hosting:http:modern:discover-response-shape")
+async def test_modern_server_discover_returns_capabilities_and_supported_versions() -> None:
+    """A 2026-07-28 server/discover POST returns capabilities, serverInfo, and supportedVersions.
+
+    Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
+    the initialize-response payload, and ``supportedVersions`` is the field a client picks its
+    per-request envelope version from. Asserted at the wire because the SDK client never exposes
+    the raw result body.
+    """
+    body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
+    async with mounted_app(_server()) as (http, _):
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="server/discover"))
+
+    assert response.status_code == 200
+    result = JSONRPCResponse.model_validate(response.json()).result
+    assert result["supportedVersions"] == list(MODERN_PROTOCOL_VERSIONS)
+    assert result["serverInfo"]["name"] == "modern"
+    assert "capabilities" in result
+
+
+@requirement("hosting:http:modern:removed-method-status-404")
+async def test_modern_removed_method_is_method_not_found_at_http_404() -> None:
+    """A 2026-07-28 ping (removed at 2026) is answered METHOD_NOT_FOUND and the HTTP status is 404.
+
+    Spec-mandated for the error code: ping is not a defined method at 2026-07-28 so the kernel's
+    method/version gate rejects it. SDK-defined for the HTTP status: kernel-origin METHOD_NOT_FOUND
+    travels through the same error-code-to-status table as classifier-origin errors. Asserted at the
+    wire because the HTTP status is the assertion.
+    """
+    body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"_meta": _meta_envelope()}}
+    async with mounted_app(_server()) as (http, _):
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="ping"))
+
+    assert response.status_code == 404
+    assert JSONRPCError.model_validate(response.json()).error.code == METHOD_NOT_FOUND
+
+
+@requirement("hosting:http:modern:envelope-missing-key-status-400")
+async def test_modern_envelope_missing_required_meta_key_is_invalid_params_at_http_400() -> None:
+    """A 2026-07-28 request whose ``_meta`` envelope omits a required key is INVALID_PARAMS at HTTP 400.
+
+    Spec-mandated under the draft transport: the per-request envelope must carry every reserved key,
+    so a missing ``clientCapabilities`` fails the classifier's first rung before any kernel dispatch.
+    Asserted at the wire because the HTTP status is the assertion.
+    """
+    incomplete = _meta_envelope()
+    del incomplete[CLIENT_CAPABILITIES_META_KEY]
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": incomplete}}
+    async with mounted_app(_server()) as (http, _):
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="tools/list"))
+
+    assert response.status_code == 400
+    assert JSONRPCError.model_validate(response.json()).error.code == INVALID_PARAMS
+
+
+@requirement("hosting:http:modern:handler-error-status-via-table")
+async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_table() -> None:
+    """A handler-raised ``MCPError`` reaches the wire as a top-level JSON-RPC error at the table-mapped HTTP status.
+
+    SDK-defined for the HTTP status: the modern entry maps every JSON-RPC ``error.code`` -- whether
+    classifier-origin or handler-origin -- through one error-code-to-status table, so a handler
+    raising ``MISSING_REQUIRED_CLIENT_CAPABILITY`` produces HTTP 400 with ``error.data`` preserved.
+    Spec-mandated for the error code: the named code and its ``requiredCapabilities`` data shape are
+    the spec's capability-gating contract. Registered via the low-level ``add_request_handler`` so
+    the high-level tool wrapper's error-swallowing is not on the path.
+    """
+
+    async def cap_check(ctx: ServerRequestContext, params: RequestParams) -> EmptyResult:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="sampling required",
+            data={"requiredCapabilities": ["sampling"]},
+        )
+
+    server = _server()
+    server.add_request_handler("test/cap-check", RequestParams, cap_check)
+    body = {"jsonrpc": "2.0", "id": 1, "method": "test/cap-check", "params": {"_meta": _meta_envelope()}}
+    async with mounted_app(server) as (http, _):
+        response = await http.post("/mcp", json=body, headers=_modern_headers(method="test/cap-check"))
+
+    assert response.status_code == 400
+    error = JSONRPCError.model_validate(response.json()).error
+    assert error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert error.data == {"requiredCapabilities": ["sampling"]}
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
