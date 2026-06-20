@@ -1,14 +1,12 @@
-"""`ServerRunner` - per-connection orchestrator over a `Dispatcher`.
+"""`ServerRunner` - the per-connection handler kernel.
 
-`ServerRunner` is the bridge between the dispatcher layer (`on_request` /
-`on_notify`, untyped dicts) and the user's handler layer (typed `Context`,
-typed params). One instance per client connection. It:
-
-* handles the `initialize` handshake and populates `Connection`
-* gates requests until initialized (`ping` exempt)
-* looks up the handler in the server's registry, validates params, builds
-  `Context`, runs the middleware chain, returns the result dict
-* drives `dispatcher.run()` and the per-connection lifespan
+`ServerRunner` bridges the dispatch layer (`on_request` / `on_notify`, untyped
+dicts) and the user's handler layer (typed `Context`, typed params). It is a
+pure kernel: it holds a pre-populated `Connection` and reads
+`connection.protocol_version` / `connection.outbound` as facts. Driving a
+dispatcher loop and tearing down the connection live in the free-function
+drivers (`serve_connection`, `serve_one`); the entry constructs the
+`Connection`, the driver tears it down.
 
 `ServerRunner` holds a `Server` directly - `Server` is the registry.
 """
@@ -16,11 +14,12 @@ typed params). One instance per client connection. It:
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass, field
-from functools import partial, reduce
+from collections.abc import Awaitable, Mapping, Sequence
+from dataclasses import KW_ONLY, dataclass
+from functools import cached_property, partial, reduce
 from typing import TYPE_CHECKING, Any, Generic, cast
 
+import anyio
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import BaseModel, ValidationError
@@ -31,10 +30,10 @@ from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata
+from mcp.shared.message import ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -42,12 +41,12 @@ from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
     JSONRPCError,
+    JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
     RequestParams,
@@ -58,7 +57,16 @@ from mcp.types import methods as _methods
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
-__all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "aclose_shielded", "otel_middleware", "to_jsonrpc_response"]
+__all__ = [
+    "CallNext",
+    "ServerMiddleware",
+    "ServerRunner",
+    "aclose_shielded",
+    "otel_middleware",
+    "serve_connection",
+    "serve_one",
+    "to_jsonrpc_response",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -81,30 +89,6 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return RequestParams.model_validate(params, by_name=False).meta
     except ValidationError:
         return None
-
-
-def _resolve_protocol_version(
-    negotiated: str | None,
-    meta: RequestParamsMeta | None,
-    md: MessageMetadata,
-) -> str:
-    """Resolve the protocol version for this inbound message.
-
-    Handshake-committed value wins; else per-request `_meta`, else the
-    transport hint. Unsupported values fall through so surface validation
-    never sees them.
-    """
-    if negotiated is not None:
-        return negotiated
-    if meta is not None:
-        v = meta.get(PROTOCOL_VERSION_META_KEY)
-        if isinstance(v, str) and v in SUPPORTED_PROTOCOL_VERSIONS:
-            return v
-    if isinstance(md, ServerMessageMetadata):
-        hint = md.protocol_version
-        if hint is not None and hint in SUPPORTED_PROTOCOL_VERSIONS:
-            return hint
-    return "2025-11-25"
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -216,58 +200,29 @@ async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, A
 
 @dataclass
 class ServerRunner(Generic[LifespanT]):
-    """Per-connection orchestrator. One instance per client connection."""
+    """Per-connection handler kernel. One instance per client connection."""
 
     server: Server[LifespanT]
-    dispatcher: Dispatcher[Any]
+    connection: Connection
     lifespan_state: LifespanT
-    has_standalone_channel: bool
+    _: KW_ONLY
     init_options: InitializationOptions | None = None
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
-    session_id: str | None = None
-    stateless: bool = False
-    dispatch_middleware: list[DispatchMiddleware] = field(default_factory=list[DispatchMiddleware])
+    dispatch_middleware: Sequence[DispatchMiddleware] = (otel_middleware,)
 
-    connection: Connection = field(init=False)
-    session: ServerSession = field(init=False)
-    """Connection-scoped: the same instance reaches every request as `ctx.session`."""
+    @cached_property
+    def on_request(self) -> OnRequest:
+        """`_on_request` wrapped in `dispatch_middleware`, outermost-first.
 
-    def __post_init__(self) -> None:
-        if self.init_options is None:
-            self.init_options = self.server.create_initialization_options()
-        self.connection = Connection(
-            self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
-        )
-        if self.stateless:
-            # No handshake ever arrives on a stateless connection; born ready.
-            self.connection.initialized.set()
-        self.session = ServerSession(self.dispatcher, self.connection, stateless=self.stateless)
-
-    async def run(self, *, task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
-        """Drive the dispatcher until the underlying channel closes.
-
-        Composes `dispatch_middleware` over `_on_request` and hands the result
-        to `dispatcher.run()`. `task_status.started()` is forwarded so callers
-        can `await tg.start(runner.run)` and resume once the dispatcher is
-        ready to accept requests. Once the dispatcher exits,
-        `connection.exit_stack` is unwound via `aclose_shielded` so any
-        per-connection cleanup registered by handlers or middleware gets a
-        chance to run.
-        """
-        try:
-            await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
-        finally:
-            await aclose_shielded(self.connection)
-
-    def _compose_on_request(self) -> OnRequest:
-        """Wrap `_on_request` in `dispatch_middleware`, outermost-first.
-
-        Dispatch-tier middleware sees raw `(dctx, method, params) -> dict`
-        and wraps everything - initialize, METHOD_NOT_FOUND, validation
-        failures included. `run()` calls this once and hands the result to
-        `dispatcher.run()`.
+        Dispatch-tier middleware sees raw `(dctx, method, params) -> dict` and
+        wraps everything - initialize, METHOD_NOT_FOUND, validation failures
+        included.
         """
         return reduce(lambda h, mw: mw(h), reversed(self.dispatch_middleware), self._on_request)
+
+    @cached_property
+    def on_notify(self) -> OnNotify:
+        return self._on_notify
 
     async def _on_request(
         self,
@@ -276,7 +231,7 @@ class ServerRunner(Generic[LifespanT]):
         params: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
         meta = _extract_meta(params)
-        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        version = self.connection.protocol_version
         ctx = self._make_context(dctx, meta, version)
         is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
@@ -345,7 +300,7 @@ class ServerRunner(Generic[LifespanT]):
         params: Mapping[str, Any] | None,
     ) -> None:
         meta = _extract_meta(params)
-        version = _resolve_protocol_version(self.connection.protocol_version, meta, dctx.message_metadata)
+        version = self.connection.protocol_version
         ctx = self._make_context(dctx, meta, version)
 
         async def _inner() -> None:
@@ -416,8 +371,12 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream = md.close_standalone_sse_stream
         else:
             request = close_sse_stream = close_standalone_sse_stream = None
+        # Per-request session: `dctx` is the request-scoped channel (auto-threads
+        # its own request_id on streamable HTTP); `connection.outbound` is the
+        # standalone channel. `related_request_id` on the public API selects.
+        session = ServerSession(dctx, self.connection, standalone_outbound=self.connection.outbound)
         return ServerRequestContext(
-            session=self.session,
+            session=session,
             lifespan_context=self.lifespan_state,
             request_id=dctx.request_id,
             meta=meta,
@@ -438,8 +397,7 @@ class ServerRunner(Generic[LifespanT]):
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
         """Build the `initialize` result; state commits later in `_on_request`."""
         _, negotiated = self._negotiate_initialize(params)
-        assert self.init_options is not None
-        opts = self.init_options
+        opts = self.init_options if self.init_options is not None else self.server.create_initialization_options()
         return InitializeResult(
             protocol_version=negotiated,
             capabilities=opts.capabilities,
@@ -453,3 +411,49 @@ class ServerRunner(Generic[LifespanT]):
             ),
             instructions=opts.instructions,
         )
+
+
+async def serve_connection(
+    server: Server[LifespanT],
+    dispatcher: Dispatcher[Any],
+    *,
+    connection: Connection,
+    lifespan_state: LifespanT,
+    init_options: InitializationOptions | None = None,
+    task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+) -> None:
+    """Drive ``dispatcher`` until the underlying channel closes.
+
+    The loop-mode driver: builds the kernel, hands `on_request`/`on_notify`
+    to `dispatcher.run()`, and tears down `connection.exit_stack` (shielded)
+    on the way out. The entry constructs the `Connection`; this only consumes
+    it.
+    """
+    runner = ServerRunner(server, connection, lifespan_state, init_options=init_options)
+    try:
+        await dispatcher.run(runner.on_request, runner.on_notify, task_status=task_status)
+    finally:
+        await aclose_shielded(connection)
+
+
+async def serve_one(
+    server: Server[LifespanT],
+    request: JSONRPCRequest,
+    *,
+    connection: Connection,
+    dctx: DispatchContext[TransportContext],
+    lifespan_state: LifespanT,
+) -> JSONRPCResponse | JSONRPCError:
+    """Handle a single ``request`` and return its JSON-RPC reply.
+
+    The single-exchange driver: builds the kernel, runs `on_request` once for
+    `request` under `dctx`, maps the outcome to a `JSONRPCResponse` /
+    `JSONRPCError` via `to_jsonrpc_response`, and tears down
+    `connection.exit_stack` (shielded) on the way out. The entry constructs
+    the (born-ready) `Connection` and the `dctx`; this only consumes them.
+    """
+    runner = ServerRunner(server, connection, lifespan_state)
+    try:
+        return await to_jsonrpc_response(request.id, runner.on_request(dctx, request.method, request.params))
+    finally:
+        await aclose_shielded(connection)

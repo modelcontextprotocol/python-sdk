@@ -248,12 +248,11 @@ class StreamableHTTPServerTransport:
 
             metadata = ServerMessageMetadata(
                 request_context=request,
-                protocol_version=protocol_version,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
+            metadata = ServerMessageMetadata(request_context=request)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -507,10 +506,7 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                metadata = ServerMessageMetadata(
-                    request_context=request,
-                    protocol_version=request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION),
-                )
+                metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
 
@@ -533,7 +529,7 @@ class StreamableHTTPServerTransport:
 
             if self.is_json_response_enabled:
                 # Process the message
-                metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
+                metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:

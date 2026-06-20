@@ -71,23 +71,6 @@ class NoBackChannelError(MCPError):
         self.method = method
 
 
-class StatelessModeNotSupported(RuntimeError):
-    """Raised when attempting to use a method that is not supported in stateless mode.
-
-    Server-to-client requests (sampling, elicitation, list_roots) are not
-    supported in stateless HTTP mode because there is no persistent connection
-    for bidirectional communication.
-    """
-
-    def __init__(self, method: str):
-        super().__init__(
-            f"Cannot use {method} in stateless HTTP mode. "
-            "Stateless mode does not support server-to-client requests. "
-            "Use stateful mode (stateless_http=False) to enable this feature."
-        )
-        self.method = method
-
-
 class UrlElicitationRequiredError(MCPError):
     """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
 
