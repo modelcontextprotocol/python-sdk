@@ -13,7 +13,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Final
 
 import anyio
 import pydantic_core
@@ -58,6 +58,11 @@ CONTENT_TYPE_SSE = "text/event-stream"
 
 # Special key for the standalone GET stream
 GET_STREAM_KEY = "_GET_stream"
+
+# Buffer for the per-request `_request_streams` so the serial `message_router`
+# can deposit a response and move on instead of head-of-line blocking the
+# whole session on a lazily-started `sse_writer`. See #1764.
+REQUEST_STREAM_BUFFER_SIZE: Final = 16
 
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
@@ -524,7 +529,9 @@ class StreamableHTTPServerTransport:
             # Extract the request ID outside the try block for proper scope
             request_id = str(message.id)
             # Register this stream for the request ID
-            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)
+            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
+                REQUEST_STREAM_BUFFER_SIZE
+            )
             request_stream_reader = self._request_streams[request_id][1]
 
             if self.is_json_response_enabled:
@@ -703,7 +710,9 @@ class StreamableHTTPServerTransport:
             try:
                 # Create a standalone message stream for server-initiated messages
 
-                self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](0)
+                self._request_streams[GET_STREAM_KEY] = anyio.create_memory_object_stream[EventMessage](
+                    REQUEST_STREAM_BUFFER_SIZE
+                )
                 standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
 
                 async with sse_stream_writer, standalone_stream_reader:
@@ -893,7 +902,9 @@ class StreamableHTTPServerTransport:
                             await self._maybe_send_priming_event(stream_id, sse_stream_writer, replay_protocol_version)
 
                             # Create new request streams for this connection
-                            self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](0)
+                            self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](
+                                REQUEST_STREAM_BUFFER_SIZE
+                            )
                             msg_reader = self._request_streams[stream_id][1]
 
                             # Forward messages to SSE
