@@ -1,4 +1,5 @@
 import logging
+import socket
 from typing import Any
 
 import pytest
@@ -166,13 +167,20 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
 
 
 @pytest.mark.anyio
-async def test_client_does_not_dereference_network_ref():
+async def test_client_does_not_dereference_network_ref(monkeypatch: pytest.MonkeyPatch):
     """SEP-2106: validating a result must not fetch a network `$ref` in the output schema.
 
     The output schema references a network URI under a property the structured content
-    never sets, so a compliant client validates without resolving (and therefore without
-    fetching) the ref.
+    never sets. A socket guard fails the test if the client opens any connection while
+    validating, proving the ref is never dereferenced.
     """
+
+    def no_network(*args: object, **kwargs: object) -> None:
+        raise AssertionError("client attempted a network connection while validating a tool result")  # pragma: no cover
+
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    monkeypatch.setattr(socket, "create_connection", no_network)
+
     output_schema = {
         "type": "object",
         "properties": {
