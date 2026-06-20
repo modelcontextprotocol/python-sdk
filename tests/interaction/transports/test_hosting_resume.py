@@ -398,7 +398,7 @@ async def test_a_call_whose_stream_closes_and_cannot_be_resumed_fails_instead_of
 
     @mcp.tool()
     async def interrupt(ctx: Context) -> str:
-        await ctx.info("before close")
+        await ctx.info("before close")  # pyright: ignore[reportDeprecated]
         await ctx.close_sse_stream()
         await allow_exit.wait()
         return "unreachable"
