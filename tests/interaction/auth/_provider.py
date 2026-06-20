@@ -57,10 +57,11 @@ class InMemoryAuthorizationServerProvider(
         issuer: str | None = None,
     ) -> None:
         self._default_scopes = list(default_scopes) if default_scopes is not None else ["mcp"]
-        # The authorization-response iss must match the AS issuer the client recorded (RFC 9207
-        # simple string comparison); the client strips the trailing slash AnyHttpUrl adds to a
-        # path-less issuer, so the redirect carries the bare origin. Path-issuer tests pass it.
-        self._issuer = issuer if issuer is not None else BASE_URL
+        # The authorization-response iss must equal the AS metadata issuer the client recorded
+        # (RFC 9207 simple string comparison). `real_asm` builds the issuer from an AnyHttpUrl
+        # object, so it carries the trailing slash; the redirect iss matches it. Path-issuer
+        # tests pass the recorded issuer explicitly.
+        self._issuer = issuer if issuer is not None else f"{BASE_URL}/"
         self._deny_authorize = deny_authorize
         self._issue_expired_first = issue_expired_first
         self._fail_next_refresh = fail_next_refresh

@@ -211,23 +211,6 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     return True, None
 
 
-def _strip_authority_trailing_slash(url: str) -> str:
-    """Drop the lone trailing slash `AnyHttpUrl` appends to a path-less authority.
-
-    RFC 9207 / SEP-2468 mandate simple string comparison (RFC 3986 section 6.2.1), so issuers
-    must be compared as sent. `AnyHttpUrl` rewrites `https://as` to `https://as/`, which would
-    defeat the comparison; undo only that, leaving issuers with a real path untouched.
-    """
-    if url.endswith("/") and urlparse(url).path == "/":
-        return url[:-1]
-    return url
-
-
-def raw_issuer(oauth_metadata: OAuthMetadata) -> str:
-    """Return the issuer as the authorization server transmitted it, before URL normalization."""
-    return _strip_authority_trailing_slash(str(oauth_metadata.issuer))
-
-
 def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMetadata | None) -> None:
     """Validate the RFC 9207 `iss` authorization-response parameter.
 
@@ -241,7 +224,7 @@ def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMe
         OAuthFlowError: If `iss` is present and does not match, or is absent when the
             authorization server advertised support.
     """
-    expected = raw_issuer(oauth_metadata) if oauth_metadata else None
+    expected = str(oauth_metadata.issuer) if oauth_metadata else None
 
     if iss is not None:
         if iss != expected:
@@ -261,10 +244,9 @@ def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str
     Raises:
         OAuthFlowError: If the metadata issuer does not match `expected_issuer`.
     """
-    expected = _strip_authority_trailing_slash(expected_issuer)
-    if raw_issuer(oauth_metadata) != expected:
+    if str(oauth_metadata.issuer) != expected_issuer:
         raise OAuthFlowError(
-            f"Authorization server metadata issuer mismatch: {raw_issuer(oauth_metadata)} != {expected}"
+            f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
         )
 
 

@@ -19,7 +19,6 @@ from pydantic import AnyHttpUrl
 
 from mcp import types
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
-from mcp.client.auth.utils import raw_issuer
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 from mcp.types import ListToolsResult, Tool
@@ -240,7 +239,7 @@ async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
     asm = real_asm()
     asm.issuer = AnyHttpUrl(authorization_server)
     # The redirect iss must equal the issuer the client records from this metadata.
-    provider = InMemoryAuthorizationServerProvider(issuer=raw_issuer(asm))
+    provider = InMemoryAuthorizationServerProvider(issuer=str(asm.issuer))
     server = Server("guarded", on_list_tools=list_tools)
 
     prm = ProtectedResourceMetadata(

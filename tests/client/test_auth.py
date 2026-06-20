@@ -24,7 +24,6 @@ from mcp.client.auth.utils import (
     get_client_metadata_scopes,
     handle_registration_response,
     is_valid_client_metadata_url,
-    raw_issuer,
     should_use_client_metadata_url,
     validate_authorization_response_iss,
     validate_metadata_issuer,
@@ -2642,31 +2641,35 @@ class TestSEP2207OfflineAccessScope:
             pass
 
 
-# A path-bearing issuer so a trailing slash is a genuine difference under simple string comparison
-# (AnyHttpUrl normalizes a bare host to a trailing slash, which would hide the distinction).
-_ISSUER = "https://as.example.com/tenant"
+_ISSUER = "https://as.example.com"
 
 
 def _issuer_metadata(*, issuer: str = _ISSUER, iss_supported: bool | None = None) -> OAuthMetadata:
-    return OAuthMetadata(
-        issuer=AnyHttpUrl(issuer),
-        authorization_endpoint=AnyHttpUrl(f"{issuer}/authorize"),
-        token_endpoint=AnyHttpUrl(f"{issuer}/token"),
-        authorization_response_iss_parameter_supported=iss_supported,
+    # Validate from string inputs so url_preserve_empty_path keeps the issuer as transmitted,
+    # matching the wire path (model_validate_json) rather than normalizing a bare authority.
+    return OAuthMetadata.model_validate(
+        {
+            "issuer": issuer,
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+            "authorization_response_iss_parameter_supported": iss_supported,
+        }
     )
 
 
 @pytest.mark.parametrize(
-    ("iss", "iss_supported"),
+    ("issuer", "iss", "iss_supported"),
     [
-        pytest.param(_ISSUER, True, id="advertised-and-correct"),
-        pytest.param(None, None, id="not-advertised-and-omitted"),
-        pytest.param(_ISSUER, None, id="not-advertised-but-correct"),
+        pytest.param(_ISSUER, _ISSUER, True, id="advertised-and-correct"),
+        pytest.param(_ISSUER, None, None, id="not-advertised-and-omitted"),
+        pytest.param(_ISSUER, _ISSUER, None, id="not-advertised-but-correct"),
+        # An issuer that genuinely ends in a slash (e.g. Auth0) must match its own iss.
+        pytest.param("https://as.example.com/", "https://as.example.com/", True, id="trailing-slash-issuer"),
     ],
 )
-def test_validate_authorization_response_iss_accepts(iss: str | None, iss_supported: bool | None):
+def test_validate_authorization_response_iss_accepts(issuer: str, iss: str | None, iss_supported: bool | None):
     """RFC 9207: a matching or legitimately absent iss is accepted."""
-    validate_authorization_response_iss(iss, _issuer_metadata(iss_supported=iss_supported))
+    validate_authorization_response_iss(iss, _issuer_metadata(issuer=issuer, iss_supported=iss_supported))
 
 
 @pytest.mark.parametrize(
@@ -2692,20 +2695,9 @@ def test_validate_authorization_response_iss_without_metadata():
 
 
 def test_validate_metadata_issuer_accepts_match():
-    validate_metadata_issuer(_issuer_metadata(issuer=_ISSUER), str(AnyHttpUrl(_ISSUER)))
+    validate_metadata_issuer(_issuer_metadata(issuer=_ISSUER), _ISSUER)
 
 
 def test_validate_metadata_issuer_rejects_mismatch():
     with pytest.raises(OAuthFlowError, match="metadata issuer mismatch"):
-        validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), str(AnyHttpUrl(_ISSUER)))
-
-
-def test_raw_issuer_strips_only_authority_trailing_slash():
-    """The slash AnyHttpUrl adds to a bare authority is dropped; a real path keeps its slash."""
-    assert raw_issuer(_issuer_metadata(issuer="https://as.example.com")) == "https://as.example.com"
-    assert raw_issuer(_issuer_metadata(issuer="https://as.example.com/tenant")) == "https://as.example.com/tenant"
-
-
-def test_validate_metadata_issuer_ignores_authority_trailing_slash():
-    """A bare-authority issuer matches whether or not the discovery URL carries the slash."""
-    validate_metadata_issuer(_issuer_metadata(issuer="https://as.example.com"), "https://as.example.com")
+        validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), _ISSUER)
