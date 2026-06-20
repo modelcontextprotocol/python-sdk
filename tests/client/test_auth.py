@@ -2798,26 +2798,37 @@ def test_union_scopes(previous: str | None, new: str | None, expected: str | Non
 
 def test_credentials_match_issuer_same_issuer():
     info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
-    assert credentials_match_issuer(info, "https://as") is True
+    assert credentials_match_issuer(info, "https://as", None) is True
 
 
 def test_credentials_match_issuer_different_issuer():
     info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
-    assert credentials_match_issuer(info, "https://other") is False
+    assert credentials_match_issuer(info, "https://other", None) is False
 
 
 def test_credentials_match_issuer_no_recorded_issuer_is_left_alone():
     """Credentials with no bound issuer (pre-registered / legacy) carry no binding to enforce."""
     info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")])
-    assert credentials_match_issuer(info, "https://as") is True
+    assert credentials_match_issuer(info, "https://as", None) is True
 
 
 def test_credentials_match_issuer_cimd_is_portable():
-    """A URL-based client_id (CIMD) is portable across authorization servers."""
+    """A client_id equal to the configured client_metadata_url (CIMD) is portable across servers."""
+    cimd_url = "https://client.example/metadata.json"
     info = OAuthClientInformationFull(
-        client_id="https://client.example/metadata.json",
+        client_id=cimd_url,
         redirect_uris=[AnyUrl("http://localhost/cb")],
         token_endpoint_auth_method="none",
         issuer="https://as",
     )
-    assert credentials_match_issuer(info, "https://other") is True
+    assert credentials_match_issuer(info, "https://other", cimd_url) is True
+
+
+def test_credentials_match_issuer_url_shaped_dcr_id_is_not_portable():
+    """A URL-shaped client_id from DCR (not the configured CIMD URL) stays bound to its issuer."""
+    info = OAuthClientInformationFull(
+        client_id="https://as.example.com/clients/123",
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        issuer="https://as.example.com",
+    )
+    assert credentials_match_issuer(info, "https://other", "https://client.example/metadata.json") is False

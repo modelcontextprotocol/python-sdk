@@ -571,7 +571,9 @@ class OAuthClientProvider(httpx.Auth):
                     if (
                         self.context.client_info is not None
                         and self.context.auth_server_url is not None
-                        and not credentials_match_issuer(self.context.client_info, self.context.auth_server_url)
+                        and not credentials_match_issuer(
+                            self.context.client_info, self.context.auth_server_url, self.context.client_metadata_url
+                        )
                     ):
                         logger.debug("Authorization server changed; discarding bound credentials and re-registering")
                         self.context.client_info = None
@@ -608,6 +610,13 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
+                        # SEP-2352: bind the credentials to the issuing AS. Prefer the PRM-advertised
+                        # authorization server; on the legacy no-PRM path fall back to the issuer from
+                        # the discovered metadata so the binding is still recorded.
+                        bound_issuer = self.context.auth_server_url
+                        if bound_issuer is None and self.context.oauth_metadata is not None:
+                            bound_issuer = str(self.context.oauth_metadata.issuer)
+
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
@@ -617,8 +626,7 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
                                 redirect_uris=self.context.client_metadata.redirect_uris,
                             )
-                            # SEP-2352: bind the credentials to the issuing authorization server
-                            client_information.issuer = self.context.auth_server_url
+                            client_information.issuer = bound_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
                         else:
@@ -630,8 +638,7 @@ class OAuthClientProvider(httpx.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
-                            # SEP-2352: bind the credentials to the issuing authorization server
-                            client_information.issuer = self.context.auth_server_url
+                            client_information.issuer = bound_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
