@@ -78,7 +78,7 @@ async def callback_handler() -> AuthorizationCodeResult:
     )
 ```
 
-Forward the `iss` query parameter from the redirect so the validation can run; omitting it disables the issuer check for servers that send `iss`.
+Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 

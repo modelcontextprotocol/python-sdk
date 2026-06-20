@@ -157,12 +157,14 @@ class CallbackServer:
             time.sleep(0.1)
         raise Exception("Timeout waiting for OAuth callback")
 
-    def get_state(self):
-        """Get the received state parameter."""
+    @property
+    def state(self):
+        """The received state parameter."""
         return self.callback_data["state"]
 
-    def get_iss(self):
-        """Get the received iss parameter."""
+    @property
+    def iss(self):
+        """The received iss parameter."""
         return self.callback_data["iss"]
 
 
@@ -193,9 +195,7 @@ class SimpleAuthClient:
                 print("⏳ Waiting for authorization callback...")
                 try:
                     auth_code = callback_server.wait_for_callback(timeout=300)
-                    return AuthorizationCodeResult(
-                        code=auth_code, state=callback_server.get_state(), iss=callback_server.get_iss()
-                    )
+                    return AuthorizationCodeResult(code=auth_code, state=callback_server.state, iss=callback_server.iss)
                 finally:
                     callback_server.stop()
 
