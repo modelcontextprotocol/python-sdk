@@ -301,9 +301,7 @@ def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None
         "sse-2025-11-25",
         "streamable-http-2025-11-25",
         "streamable-http-stateless-2025-11-25",
-        "in-memory-2026-07-28",
         "streamable-http-2026-07-28",
-        "streamable-http-stateless-2026-07-28",
     ]
 
 

@@ -401,9 +401,10 @@ def test_concrete_wire_results_always_dump_result_type_complete():
         assert _wire_dump(result)["resultType"] == "complete", type(result).__name__
 
 
-def test_cacheable_results_omit_unset_caching_directives():
-    """`ttl_ms`/`cache_scope` default to None: the SDK declares no caching policy
-    so a 2026-07-28 handler must set them explicitly."""
+def test_cacheable_results_default_to_immediately_stale_private():
+    """`ttl_ms`/`cache_scope` default to 0/"private" so list-results validate at
+    2026-07-28 without the handler setting them, and never accidentally enable
+    shared caching."""
     cacheable: list[Result] = [
         ReadResourceResult(contents=[]),
         ListPromptsResult(prompts=[]),
@@ -418,8 +419,8 @@ def test_cacheable_results_omit_unset_caching_directives():
     ]
     for result in cacheable:
         dumped = _wire_dump(result)
-        assert "ttlMs" not in dumped, type(result).__name__
-        assert "cacheScope" not in dumped, type(result).__name__
+        assert dumped["ttlMs"] == 0, type(result).__name__
+        assert dumped["cacheScope"] == "private", type(result).__name__
     explicit = _wire_dump(ListToolsResult(tools=[], ttl_ms=5, cache_scope="public"))
     assert explicit["ttlMs"] == 5
     assert explicit["cacheScope"] == "public"
