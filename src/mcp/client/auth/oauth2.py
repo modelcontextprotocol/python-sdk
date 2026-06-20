@@ -636,16 +636,18 @@ class OAuthClientProvider(httpx.Auth):
                 if error == "insufficient_scope":  # pragma: no branch
                     try:
                         # Step 2a: Union previously requested scopes with the newly challenged
-                        # scopes (SEP-2350) so escalating one operation keeps the others' grants
+                        # scopes (SEP-2350) so escalating one operation keeps the others' grants.
+                        # Fold in the stored token's scope too: on a restart the token is reloaded
+                        # but client_metadata.scope is not, so it would otherwise be the only basis.
                         challenged_scope = get_client_metadata_scopes(
                             extract_scope_from_www_auth(response),
                             self.context.protected_resource_metadata,
                             self.context.oauth_metadata,
                             self.context.client_metadata.grant_types,
                         )
-                        self.context.client_metadata.scope = union_scopes(
-                            self.context.client_metadata.scope, challenged_scope
-                        )
+                        granted_scope = self.context.current_tokens.scope if self.context.current_tokens else None
+                        prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
+                        self.context.client_metadata.scope = union_scopes(prior_scope, challenged_scope)
 
                         # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()
