@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 from mcp.client._transport import ReadStream, WriteStream
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
@@ -69,6 +69,7 @@ class CallbackHandler(BaseHTTPRequestHandler):
         if "code" in query_params:
             self.callback_data["authorization_code"] = query_params["code"][0]
             self.callback_data["state"] = query_params.get("state", [None])[0]
+            self.callback_data["iss"] = query_params.get("iss", [None])[0]
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -112,7 +113,7 @@ class CallbackServer:
         self.port = port
         self.server = None
         self.thread = None
-        self.callback_data = {"authorization_code": None, "state": None, "error": None}
+        self.callback_data = {"authorization_code": None, "state": None, "iss": None, "error": None}
 
     def _create_handler_with_data(self):
         """Create a handler class with access to callback data."""
@@ -160,6 +161,10 @@ class CallbackServer:
         """Get the received state parameter."""
         return self.callback_data["state"]
 
+    def get_iss(self):
+        """Get the received iss parameter."""
+        return self.callback_data["iss"]
+
 
 class SimpleAuthClient:
     """Simple MCP client with auth support."""
@@ -183,12 +188,14 @@ class SimpleAuthClient:
             callback_server = CallbackServer(port=3030)
             callback_server.start()
 
-            async def callback_handler() -> tuple[str, str | None]:
-                """Wait for OAuth callback and return auth code and state."""
+            async def callback_handler() -> AuthorizationCodeResult:
+                """Wait for OAuth callback and return auth code, state, and iss."""
                 print("⏳ Waiting for authorization callback...")
                 try:
                     auth_code = callback_server.wait_for_callback(timeout=300)
-                    return auth_code, callback_server.get_state()
+                    return AuthorizationCodeResult(
+                        code=auth_code, state=callback_server.get_state(), iss=callback_server.get_iss()
+                    )
                 finally:
                     callback_server.stop()
 

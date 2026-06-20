@@ -44,6 +44,15 @@ client:
   - auth/token-endpoint-auth-post
   - auth/token-endpoint-auth-none
   - auth/offline-access-not-supported
+  # SEP-2468 (authorization response iss parameter) is implemented, but these
+  # 2026-introduced scenarios reach DCR and so still fail the application_type
+  # check above; they unblock with SEP-837, not SEP-2468.
+  - auth/iss-supported
+  - auth/iss-not-advertised
+  - auth/iss-supported-missing
+  - auth/iss-wrong-issuer
+  - auth/iss-unexpected
+  - auth/iss-normalized
 
   # --- Auth scenarios cut short by the 2026 connection lifecycle ---
   # The auth fixture flow drives the 2025 stateful lifecycle; the 2026-mode
@@ -65,14 +74,6 @@ client:
   - http-invalid-tool-headers
   # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
   - json-schema-ref-no-deref
-  # SEP-2468 (authorization response iss parameter): not implemented in the client.
-  - auth/iss-supported
-  - auth/iss-not-advertised
-  - auth/iss-supported-missing
-  - auth/iss-wrong-issuer
-  - auth/iss-unexpected
-  - auth/iss-normalized
-  - auth/metadata-issuer-mismatch
   # SEP-2352 (authorization server migration): client does not re-register when
   # PRM authorization_servers changes.
   - auth/authorization-server-migration

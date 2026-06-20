@@ -22,6 +22,18 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+class AuthorizationCodeResult(BaseModel):
+    """Authorization-code-grant redirect parameters returned by a callback handler.
+
+    `iss` carries the RFC 9207 authorization-response issuer when the authorization server
+    includes it in the redirect; the client validates it against the expected issuer.
+    """
+
+    code: str
+    state: str | None = None
+    iss: str | None = None
+
+
 class InvalidScopeError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -145,6 +157,7 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
+    authorization_response_iss_parameter_supported: bool | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):

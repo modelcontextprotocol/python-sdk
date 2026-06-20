@@ -35,9 +35,12 @@ from mcp.client.auth.utils import (
     handle_token_response_scopes,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
+    validate_authorization_response_iss,
+    validate_metadata_issuer,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
+    AuthorizationCodeResult,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
@@ -97,7 +100,7 @@ class OAuthContext:
     client_metadata: OAuthClientMetadata
     storage: TokenStorage
     redirect_handler: Callable[[str], Awaitable[None]] | None
-    callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
+    callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None
     timeout: float = 300.0
     client_metadata_url: str | None = None
 
@@ -227,7 +230,7 @@ class OAuthClientProvider(httpx.Auth):
         client_metadata: OAuthClientMetadata,
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
-        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
+        callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
@@ -356,16 +359,19 @@ class OAuthClientProvider(httpx.Auth):
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
-        auth_code, returned_state = await self.context.callback_handler()
+        result = await self.context.callback_handler()
 
-        if returned_state is None or not secrets.compare_digest(returned_state, state):
-            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")
+        if result.state is None or not secrets.compare_digest(result.state, state):
+            raise OAuthFlowError(f"State parameter mismatch: {result.state} != {state}")
 
-        if not auth_code:
+        # RFC 9207: validate the authorization-response issuer
+        validate_authorization_response_iss(result.iss, self.context.oauth_metadata)
+
+        if not result.code:
             raise OAuthFlowError("No authorization code received")
 
         # Return auth code and code verifier for token exchange
-        return auth_code, pkce_params.code_verifier
+        return result.code, pkce_params.code_verifier
 
     def _get_token_endpoint(self) -> str:
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
@@ -570,6 +576,9 @@ class OAuthClientProvider(httpx.Auth):
                         if not ok:
                             break
                         if ok and asm:
+                            # SEP-2468: metadata issuer must match the discovery issuer
+                            if self.context.auth_server_url is not None:
+                                validate_metadata_issuer(asm, self.context.auth_server_url)
                             self.context.oauth_metadata = asm
                             break
                         else:

@@ -24,20 +24,21 @@ client:
   - http-invalid-tool-headers
   # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
   - json-schema-ref-no-deref
-  # SEP-2468 (authorization response iss parameter): not implemented in the client.
+  # SEP-2352 (authorization server migration): client does not re-register when
+  # PRM authorization_servers changes.
+  - auth/authorization-server-migration
+  # SEP-837 (application_type during DCR): the check fires on every non-legacy
+  # spec version (the default LATEST is 2026-07-28). The client omits
+  # application_type during Dynamic Client Registration, so every scenario that
+  # reaches DCR fails it. SEP-2468 iss validation is implemented, so these now
+  # fail only on the application_type check, not on iss.
+  - auth/offline-access-not-supported
   - auth/iss-supported
   - auth/iss-not-advertised
   - auth/iss-supported-missing
   - auth/iss-wrong-issuer
   - auth/iss-unexpected
   - auth/iss-normalized
-  - auth/metadata-issuer-mismatch
-  # SEP-2352 (authorization server migration): client does not re-register when
-  # PRM authorization_servers changes.
-  - auth/authorization-server-migration
-  # SEP-837 (application_type during DCR): the check only fires on draft-version
-  # runs; this draft scenario is the one place the client still hits it.
-  - auth/offline-access-not-supported
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
   # SEP-2350 (scope step-up): WARNING-only; the expected-failures evaluator
