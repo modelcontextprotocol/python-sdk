@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
@@ -21,6 +22,8 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -139,6 +142,7 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
                 self._session_owners.clear()
+        await resync_tracer()
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
@@ -147,6 +151,13 @@ class StreamableHTTPSessionManager:
         """
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
+
+        # TODO: header-only routing for now; body-primary classification
+        # (per SEP-2575) is a follow-up. 2025 paths below remain unchanged.
+        pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == b"mcp-protocol-version"), None)
+        if pv in MODERN_PROTOCOL_VERSIONS:
+            await handle_modern_request(self.app, self.security_settings, pv, scope, receive, send)
+            return
 
         # Dispatch to the appropriate handler
         if self.stateless:

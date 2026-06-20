@@ -6,6 +6,9 @@ It handles all conformance test scenarios via environment variables and CLI argu
 Contract:
     - MCP_CONFORMANCE_SCENARIO env var -> scenario name
     - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
+    - MCP_CONFORMANCE_PROTOCOL_VERSION env var -> spec version the harness mock
+      server is speaking (e.g. "2025-11-25", "2026-07-28"). Always set; defaults
+      to the harness's LATEST_SPEC_VERSION when --spec-version is omitted.
     - Server URL as last CLI argument (sys.argv[1])
     - Must exit 0 within 30 seconds
 
@@ -49,6 +52,13 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 logger = logging.getLogger(__name__)
+
+#: Spec version the harness is running this scenario at (e.g. "2025-11-25",
+#: "2026-07-28"). The harness always sets this (it falls back to its own
+#: LATEST_SPEC_VERSION when --spec-version is omitted), so None means we were
+#: invoked outside the harness. Handlers that need to take the stateless 2026
+#: path will branch on this once the SDK has one; today it is logged only.
+PROTOCOL_VERSION: str | None = os.environ.get("MCP_CONFORMANCE_PROTOCOL_VERSION")
 
 # Type for async scenario handler functions
 ScenarioHandler = Callable[[str], Coroutine[Any, None, None]]
@@ -347,6 +357,7 @@ def main() -> None:
 
     server_url = sys.argv[1]
     scenario = os.environ.get("MCP_CONFORMANCE_SCENARIO")
+    logger.debug(f"Conformance protocol version: {PROTOCOL_VERSION!r}")
 
     if scenario:
         logger.debug(f"Running explicit scenario '{scenario}' against {server_url}")

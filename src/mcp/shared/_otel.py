@@ -20,9 +20,18 @@ def otel_span(
     kind: SpanKind,
     attributes: dict[str, Any] | None = None,
     context: Context | None = None,
+    record_exception: bool = True,
+    set_status_on_exception: bool = True,
 ) -> Iterator[Any]:
     """Create an OTel span."""
-    with _tracer.start_as_current_span(name, kind=kind, attributes=attributes, context=context) as span:
+    with _tracer.start_as_current_span(
+        name,
+        kind=kind,
+        attributes=attributes,
+        context=context,
+        record_exception=record_exception,
+        set_status_on_exception=set_status_on_exception,
+    ) as span:
         yield span
 
 
@@ -31,6 +40,13 @@ def inject_trace_context(meta: dict[str, Any]) -> None:
     inject(meta)
 
 
-def extract_trace_context(meta: dict[str, Any]) -> Context:
-    """Extract W3C trace context from a `_meta` dict."""
-    return extract(meta)
+def extract_trace_context(meta: dict[str, Any]) -> Context | None:
+    """Extract W3C trace context from a `_meta` dict.
+
+    Returns `None` when the carrier is malformed; telemetry parsing must
+    never fail the request it annotates.
+    """
+    try:
+        return extract(meta)
+    except (TypeError, ValueError):
+        return None

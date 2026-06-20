@@ -1,28 +1,58 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any, Protocol, cast
 
+import anyio
+import anyio.abc
 import anyio.lowlevel
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from typing_extensions import Self, TypeVar
 
 from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
-from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
-from mcp.types._types import RequestParamsMeta
+from mcp.shared._compat import resync_tracer
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
+from mcp.shared.exceptions import MCPError
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.session import RequestResponder
+from mcp.shared.transport_context import TransportContext
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
+from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
+    RequestId,
+    RequestParamsMeta,
+)
+from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
 
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+
+
+@dataclass(kw_only=True)
+class ClientRequestContext:
+    """Context for a server-initiated request, passed to the sampling/elicitation/list-roots callbacks."""
+
+    session: ClientSession
+    request_id: RequestId
+    meta: RequestParamsMeta | None = None
+
 
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
@@ -30,14 +60,14 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext[ClientSession]
+        self, context: ClientRequestContext
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
@@ -59,7 +89,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
@@ -69,7 +99,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(
@@ -79,7 +109,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -96,19 +126,21 @@ async def _default_logging_callback(
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
-class ClientSession(
-    BaseSession[
-        types.ClientRequest,
-        types.ClientNotification,
-        types.ClientResult,
-        types.ServerRequest,
-        types.ServerNotification,
-    ]
-):
+class ClientSession:
+    """Client half of an MCP connection, running on a `Dispatcher`.
+
+    Construct it over a transport's stream pair (or pass a pre-built
+    `dispatcher=`), enter as an async context manager, then call
+    `initialize()`. The dispatcher owns the receive loop and request
+    correlation; this class owns the typed MCP layer and the constructor
+    callbacks. Transport `Exception` items reach `message_handler` only when
+    the session builds its own dispatcher from a stream pair.
+    """
+
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception] | None = None,
+        write_stream: WriteStream[SessionMessage] | None = None,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -117,10 +149,14 @@ class ClientSession(
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        protocol_version: str | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
+        dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
+        self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
+        self._pinned_version = protocol_version
+        self._stateless_pinned = protocol_version in MODERN_PROTOCOL_VERSIONS
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -128,17 +164,133 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._initialize_result: types.InitializeResult | None = None
+        self._initialize_result: types.InitializeResult | None
+        if self._stateless_pinned:
+            assert protocol_version is not None
+            # A stateless-pinned session is born initialized: there is no handshake
+            # at 2026-07-28+, so we synthesize the result locally. `server_info` is a
+            # placeholder until `server/discover` is implemented to populate it.
+            self._initialize_result = types.InitializeResult(
+                protocol_version=protocol_version,
+                capabilities=types.ServerCapabilities(),
+                server_info=types.Implementation(name="", version=""),
+            )
+        else:
+            self._initialize_result = None
+        self._task_group: anyio.abc.TaskGroup | None = None
+        if dispatcher is not None:
+            if read_stream is not None or write_stream is not None:
+                raise ValueError("pass read_stream/write_stream or dispatcher, not both")
+            self._dispatcher: Dispatcher[Any] = dispatcher
+        else:
+            if read_stream is None or write_stream is None:
+                raise ValueError("read_stream and write_stream are required when no dispatcher is given")
+            # Built eagerly so notifications can be sent before entering the context manager.
+            self._dispatcher = JSONRPCDispatcher(
+                read_stream, write_stream, on_stream_exception=self._on_stream_exception
+            )
 
-    @property
-    def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
-        return types.server_request_adapter
+    async def __aenter__(self) -> Self:
+        self._task_group = anyio.create_task_group()
+        await self._task_group.__aenter__()
+        try:
+            await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+        except BaseException:
+            # Unwind the entered task group before propagating: a cancellation
+            # landing here (e.g. `move_on_after` around connect) would abandon
+            # it and anyio would later raise "exited non-innermost cancel scope".
+            task_group = self._task_group
+            self._task_group = None
+            task_group.cancel_scope.cancel()
+            # Shield the group's own scope (a new one would break LIFO exit)
+            # so a pending outer cancellation cannot re-fire inside __aexit__.
+            task_group.cancel_scope.shield = True
+            await task_group.__aexit__(None, None, None)
+            raise
+        return self
 
-    @property
-    def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
-        return types.server_notification_adapter
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        # Exit must not block: cancel the dispatcher and in-flight callbacks.
+        assert self._task_group is not None
+        self._task_group.cancel_scope.cancel()
+        result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        await resync_tracer()
+        return result
 
-    async def initialize(self) -> types.InitializeResult:
+    async def send_request(
+        self,
+        request: types.ClientRequest,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: ClientMessageMetadata | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT:
+        """Send a request and wait for its typed result.
+
+        Args:
+            metadata: Streamable HTTP resumption hints.
+
+        Raises:
+            MCPError: Error response, read timeout, or connection closed.
+            RuntimeError: Called before entering the context manager.
+        """
+        data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        method: str = data["method"]
+        opts: CallOptions = {}
+        if self._stateless_pinned:
+            params = data.setdefault("params", {})
+            envelope_meta = params.setdefault("_meta", {})
+            envelope_meta[PROTOCOL_VERSION_META_KEY] = self._pinned_version
+            envelope_meta[CLIENT_INFO_META_KEY] = self._client_info.model_dump(
+                by_alias=True, mode="json", exclude_none=True
+            )
+            envelope_meta[CLIENT_CAPABILITIES_META_KEY] = self._build_capabilities().model_dump(
+                by_alias=True, mode="json", exclude_none=True
+            )
+            # Stateless pinned mode: disconnect-as-cancel is the spec mechanism, so the
+            # dispatcher must not emit notifications/cancelled when the caller abandons.
+            opts["cancel_on_abandon"] = False
+        timeout = (
+            request_read_timeout_seconds
+            if request_read_timeout_seconds is not None
+            else self._session_read_timeout_seconds
+        )
+        if timeout is not None:
+            opts["timeout"] = timeout
+        if progress_callback is not None:
+            opts["on_progress"] = progress_callback
+        if metadata is not None:
+            if metadata.resumption_token is not None:
+                opts["resumption_token"] = metadata.resumption_token
+            if metadata.on_resumption_token_update is not None:
+                opts["on_resumption_token"] = metadata.on_resumption_token_update
+        if method == "initialize":
+            # The spec forbids cancelling initialize.
+            opts["cancel_on_abandon"] = False
+        raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        # Literal fallback covers pre-handshake and stateless; matches runner.py.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            _methods.validate_server_result(method, version, raw)
+        except KeyError:
+            pass
+        return result_type.model_validate(raw, by_name=False)
+
+    async def send_notification(self, notification: types.ClientNotification) -> None:
+        """Send a one-way notification. Usable before entering the context manager.
+
+        Fire-and-forget: after the connection has closed, the notification is
+        dropped with a debug log instead of raising.
+        """
+        data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+        await self._dispatcher.notify(data["method"], data.get("params"))
+
+    def _build_capabilities(self) -> types.ClientCapabilities:
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
             if self._sampling_callback is not _default_sampling_callback
@@ -157,17 +309,19 @@ class ClientSession(
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
+        return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
 
+    async def initialize(self) -> types.InitializeResult:
+        if self._initialize_result is not None:
+            return self._initialize_result
+        capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=types.LATEST_PROTOCOL_VERSION,
-                    capabilities=types.ClientCapabilities(
-                        sampling=sampling,
-                        elicitation=elicitation,
-                        experimental=None,
-                        roots=roots,
-                    ),
+                    protocol_version=self._pinned_version
+                    if self._pinned_version is not None
+                    else types.LATEST_PROTOCOL_VERSION,
+                    capabilities=capabilities,
                     client_info=self._client_info,
                 ),
             ),
@@ -187,9 +341,24 @@ class ClientSession(
     def initialize_result(self) -> types.InitializeResult | None:
         """The server's InitializeResult. None until initialize() has been called.
 
-        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
+        A stateless-pinned session (protocol_version >= 2026-07-28) is born
+        initialized: this property is populated at construction with a
+        synthesized result and `initialize()` returns it without touching the
+        wire. Contains server_info, capabilities, instructions, and the
+        negotiated protocol_version.
         """
         return self._initialize_result
+
+    @property
+    def protocol_version(self) -> str | None:
+        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction.
+
+        Once `initialize()` has completed, this is the version the server actually
+        negotiated (which can differ from a stateful pin); before that, the pin.
+        """
+        if self._initialize_result is not None:
+            return self._initialize_result.protocol_version
+        return self._pinned_version
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
@@ -385,49 +554,85 @@ class ClientSession(
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())
 
-    async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
-        ctx = RequestContext[ClientSession](request_id=responder.request_id, meta=responder.request_meta, session=self)
+    async def _on_request(
+        self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        """Answer a server-initiated request via the registered callbacks."""
+        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
+        # handshake (which only exists at <=2025) and stateless until the header
+        # is plumbed; its meaning is fixed regardless of LATEST bumps.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            request = cast(types.ServerRequest, _methods.parse_server_request(method, version, params))
+        except KeyError:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
 
-        match responder.request:
-            case types.CreateMessageRequest(params=params):
-                with responder:
-                    response = await self._sampling_callback(ctx, params)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
-
-            case types.ElicitRequest(params=params):
-                with responder:
-                    response = await self._elicitation_callback(ctx, params)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
-
-            case types.ListRootsRequest():
-                with responder:
+        response: types.ClientResult | types.ErrorData
+        if isinstance(request, types.PingRequest):
+            # Answered without a context: ping has no callback that would need one.
+            response = types.EmptyResult()
+        else:
+            assert dctx.request_id is not None  # the callback-driving dispatchers always assign ids
+            ctx = ClientRequestContext(
+                session=self, request_id=dctx.request_id, meta=request.params.meta if request.params else None
+            )
+            match request:
+                case types.CreateMessageRequest(params=sampling_params):
+                    response = await self._sampling_callback(ctx, sampling_params)
+                case types.ElicitRequest(params=elicit_params):
+                    response = await self._elicitation_callback(ctx, elicit_params)
+                case types.ListRootsRequest():  # pragma: no branch
                     response = await self._list_roots_callback(ctx)
-                    client_response = ClientResponse.validate_python(response)
-                    await responder.respond(client_response)
+        client_response = ClientResponse.validate_python(response)
+        if isinstance(client_response, types.ErrorData):
+            raise MCPError.from_error_data(client_response)
+        dumped = client_response.model_dump(by_alias=True, mode="json", exclude_none=True)
+        try:
+            _methods.validate_client_result(method, version, dumped)
+        except ValidationError:
+            logger.exception("client callback for %r returned an invalid result", method)
+            raise MCPError(code=INTERNAL_ERROR, message="Client callback returned an invalid result") from None
+        return dumped
 
-            case types.PingRequest():  # pragma: no branch
-                with responder:
-                    await responder.respond(types.EmptyResult())
-
-    async def _handle_incoming(
-        self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    async def _on_notify(
+        self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
-        """Handle incoming messages by forwarding to the message handler."""
-        await self._message_handler(req)
+        """Route a server notification: validate, run the typed callback, tee to message_handler."""
+        # Same fallback as `_on_request`: covers pre-handshake and stateless.
+        version = self.protocol_version or "2025-11-25"
+        try:
+            notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
+        except KeyError:
+            logger.debug("dropped %r: not defined at %s", method, version)
+            return
+        except ValidationError:
+            logger.warning("Failed to validate notification: %s", method, exc_info=True)
+            return
+        if isinstance(notification, types.CancelledNotification):
+            # The dispatcher already applied the cancellation; not surfaced to message_handler.
+            return
+        try:
+            if isinstance(notification, types.LoggingMessageNotification):
+                await self._logging_callback(notification.params)
+            await self._message_handler(notification)
+        except Exception:
+            # Contain here, not in the dispatcher: DirectDispatcher awaits this
+            # handler inline in the peer's notify() call, so a raising callback
+            # would otherwise fail the peer's send. A raising logging_callback
+            # skips the message_handler tee for that notification (v1 parity).
+            logger.exception("notification callback for %r raised", method)
 
-    async def _received_notification(self, notification: types.ServerNotification) -> None:
-        """Handle notifications from the server."""
-        # Process specific notification types
-        match notification:
-            case types.LoggingMessageNotification(params=params):
-                await self._logging_callback(params)
-            case types.ElicitCompleteNotification(params=params):
-                # Handle elicitation completion notification
-                # Clients MAY use this to retry requests or update UI
-                # The notification contains the elicitationId of the completed elicitation
-                pass
-            case _:
-                pass
+    async def _on_stream_exception(self, exc: Exception) -> None:
+        """Deliver a transport-level fault to message_handler via a spawned task.
+
+        Running the handler inline would park the dispatcher's read loop and
+        deadlock handlers that await session I/O.
+        """
+        assert self._task_group is not None
+        self._task_group.start_soon(self._deliver_stream_exception, exc)
+
+    async def _deliver_stream_exception(self, exc: Exception) -> None:
+        try:
+            await self._message_handler(exc)
+        except Exception:
+            logger.exception("message_handler raised on transport exception")

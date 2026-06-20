@@ -12,7 +12,7 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
-from mcp.shared.session import ProgressFnT
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.types import (
     CallToolResult,
     CompleteResult,
@@ -92,6 +92,15 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
+    protocol_version: str | None = None
+    """Pin the protocol version instead of negotiating it.
+
+    Pinning to ``2026-07-28`` or later selects the stateless transport era: no initialize
+    handshake is sent on the wire (the session synthesizes its `InitializeResult` locally),
+    and for HTTP the ``MCP-Protocol-Version`` header is set from the first request.
+    Leave as ``None`` to negotiate the version via the initialize handshake.
+    """
+
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
@@ -103,7 +112,7 @@ class Client:
         if isinstance(self.server, Server | MCPServer):
             self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
         elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
+            self._transport = streamable_http_client(self.server, protocol_version=self.protocol_version)
         else:
             self._transport = self.server
 
@@ -126,6 +135,7 @@ class Client:
                     message_handler=self.message_handler,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
+                    protocol_version=self.protocol_version,
                 )
             )
 

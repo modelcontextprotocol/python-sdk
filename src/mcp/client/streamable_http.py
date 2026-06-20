@@ -2,8 +2,10 @@
 
 from __future__ import annotations as _annotations
 
+import base64
 import contextlib
 import logging
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -15,9 +17,11 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
@@ -43,11 +47,23 @@ StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
+MCP_METHOD = "mcp-method"
+MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
+
+_B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
+# RFC 7230 token chars minus DEL; visible ASCII 0x20-0x7E is the practical bound for a header value.
+_HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
+
+
+def _encode_header_value(value: str) -> str:
+    if _HEADER_SAFE.fullmatch(value) and value == value.strip() and not _B64_SENTINEL.fullmatch(value):
+        return value
+    return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
 
 class StreamableHTTPError(Exception):
@@ -72,15 +88,40 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, protocol_version: str | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            protocol_version: Pin the MCP-Protocol-Version header from the first request
+                instead of waiting to snoop it from an InitializeResult. Required for
+                stateless 2026-07-28 sessions that never send initialize.
         """
         self.url = url
         self.session_id: str | None = None
-        self.protocol_version: str | None = None
+        self.protocol_version: str | None = protocol_version
+
+    def _per_message_headers(self, message: JSONRPCMessage) -> dict[str, str]:
+        """Per-POST routing headers (Mcp-Method, Mcp-Name) for 2026-07-28+ pinned transports.
+
+        MCP-Protocol-Version is not emitted here — `_prepare_headers()` already adds it
+        from `self.protocol_version` for every request.
+        """
+        if self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
+            return {}
+        if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
+            return {}
+        headers: dict[str, str] = {MCP_METHOD: message.method}
+        # TODO: Mcp-Name is also REQUIRED for prompts/get (params.name) and resources/read
+        # (params.uri); a method->param-key map replaces this gate when those land.
+        if (
+            isinstance(message, JSONRPCRequest)
+            and message.method == "tools/call"
+            and message.params
+            and isinstance(name := message.params.get("name"), str)
+        ):
+            headers[MCP_NAME] = _encode_header_value(name)
+        return headers
 
     def _prepare_headers(self) -> dict[str, str]:
         """Build MCP-specific request headers.
@@ -116,6 +157,9 @@ class StreamableHTTPTransport:
 
     def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
+        if self.protocol_version is not None:
+            # Constructor pin wins over snooping the InitializeResult.
+            return
         if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
@@ -255,6 +299,7 @@ class StreamableHTTPTransport:
         """Handle a POST request with response processing."""
         headers = self._prepare_headers()
         message = ctx.session_message.message
+        headers.update(self._per_message_headers(message))
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(
@@ -521,6 +566,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    protocol_version: str | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -530,6 +576,8 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        protocol_version: Pin the MCP-Protocol-Version header for stateless 2026-07-28 sessions.
+            Tracer-bullet duplication — also pass to `ClientSession(protocol_version=...)`.
 
     Yields:
         Tuple containing:
@@ -547,7 +595,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, protocol_version=protocol_version)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
@@ -586,3 +634,4 @@ async def streamable_http_client(
                 if transport.session_id and terminate_on_close:
                     await transport.terminate_session(client)
                 tg.cancel_scope.cancel()
+        await resync_tracer()

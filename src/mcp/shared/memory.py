@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared.message import SessionMessage
 
@@ -28,3 +29,5 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
 
     async with server_to_client_receive, client_to_server_send, client_to_server_receive, server_to_client_send:
         yield client_streams, server_streams
+    # Heals caller-driven cancels; closing memory streams never suspends.
+    await resync_tracer()

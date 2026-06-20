@@ -2,9 +2,8 @@ import pytest
 from pydantic import FileUrl
 
 from mcp import Client
-from mcp.client.session import ClientSession
+from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared._context import RequestContext
 from mcp.types import ListRootsResult, Root, TextContent
 
 
@@ -20,7 +19,7 @@ async def test_list_roots_callback():
     )
 
     async def list_roots_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
     ) -> ListRootsResult:
         return callback_return
 

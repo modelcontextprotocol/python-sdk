@@ -49,6 +49,7 @@ from mcp.shared.auth_utils import (
     check_resource_allowed,
     resource_url_from_server_url,
 )
+from mcp.shared.version import is_version_at_least
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +173,7 @@ class OAuthContext:
         if not protocol_version:
             return False
 
-        # Check if protocol version is 2025-06-18 or later
-        # Version format is YYYY-MM-DD, so string comparison works
-        return protocol_version >= "2025-06-18"
+        return is_version_at_least(protocol_version, "2025-06-18")
 
     def prepare_token_auth(
         self, data: dict[str, str], headers: dict[str, str] | None = None

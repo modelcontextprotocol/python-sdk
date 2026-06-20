@@ -121,6 +121,7 @@ async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Con
     assert request_id
 
 
+@requirement("mcpserver:context:logging")
 @requirement("protocol:progress:no-token")
 async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect) -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
@@ -262,7 +263,9 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
 
         await client.call_tool("chatter", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="logging/setLevel")
+    )
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="debug", data="noise"),
