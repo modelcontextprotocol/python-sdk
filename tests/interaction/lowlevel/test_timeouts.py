@@ -83,14 +83,14 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "impatient"
-        request = types.CreateMessageRequest(
-            params=types.CreateMessageRequestParams(
-                messages=[types.SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+        request = types.CreateMessageRequest(  # pyright: ignore[reportDeprecated]
+            params=types.CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
+                messages=[types.SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=8,
             )
         )
         with pytest.raises(MCPError) as exc_info:
-            await ctx.session.send_request(request, types.CreateMessageResult, request_read_timeout_seconds=0.000001)
+            await ctx.session.send_request(request, types.CreateMessageResult, request_read_timeout_seconds=0.000001)  # pyright: ignore[reportDeprecated]
         errors.append(exc_info.value.error)
         release.set()
         return CallToolResult(content=[TextContent(text="gave up")])
@@ -99,12 +99,13 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
     recording = RecordingTransport(InMemoryTransport(server))
 
     async def sampling_callback(
-        context: ClientRequestContext, params: types.CreateMessageRequestParams
-    ) -> types.CreateMessageResult:
+        context: ClientRequestContext,
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
         callback_started.set()
         with anyio.fail_after(5):
             await release.wait()
-        return types.CreateMessageResult(role="assistant", content=TextContent(text="too late"), model="test-model")
+        return types.CreateMessageResult(role="assistant", content=TextContent(text="too late"), model="test-model")  # pyright: ignore[reportDeprecated]
 
     async with Client(recording, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("impatient", {})

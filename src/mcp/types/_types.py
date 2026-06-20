@@ -18,7 +18,7 @@ from pydantic import (
     TypeAdapter,
 )
 from pydantic.alias_generators import to_camel
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, TypedDict, deprecated
 
 from mcp.types.jsonrpc import RequestId
 
@@ -361,7 +361,10 @@ class TasksElicitationCapability(MCPModel):
 class ClientTasksRequestsCapability(MCPModel):
     """Specifies which request types the client can augment with tasks (2025-11-25 only)."""
 
-    sampling: TasksSamplingCapability | None = None
+    sampling: Annotated[
+        TasksSamplingCapability | None,
+        deprecated("`tasks.requests.sampling` is deprecated as of 2026-07-28 (SEP-2577)."),
+    ] = None
     elicitation: TasksElicitationCapability | None = None
 
 
@@ -382,15 +385,18 @@ class ClientCapabilities(MCPModel):
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
-    sampling: SamplingCapability | None = None
+    sampling: Annotated[
+        SamplingCapability | None, deprecated("`sampling` is deprecated as of 2026-07-28 (SEP-2577).")
+    ] = None
     """
     Present if the client supports sampling from an LLM.
     Can contain fine-grained capabilities like context and tools support.
+    Deprecated in 2026-07-28 (SEP-2577).
     """
     elicitation: ElicitationCapability | None = None
     """Present if the client supports elicitation from the user."""
-    roots: RootsCapability | None = None
-    """Present if the client supports listing roots."""
+    roots: Annotated[RootsCapability | None, deprecated("`roots` is deprecated as of 2026-07-28 (SEP-2577).")] = None
+    """Present if the client supports listing roots. Deprecated in 2026-07-28 (SEP-2577)."""
     extensions: dict[str, dict[str, Any]] | None = None
     """MCP extensions the client supports (2026-07-28). Keys are extension
     identifiers; values are per-extension settings (empty object = no settings)."""
@@ -475,7 +481,9 @@ class ServerCapabilities(MCPModel):
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""
 
-    logging: LoggingCapability | None = None
+    logging: Annotated[LoggingCapability | None, deprecated("`logging` is deprecated as of 2026-07-28 (SEP-2577).")] = (
+        None
+    )
     """Present if the server supports sending log messages to the client.
     Deprecated in 2026-07-28 (SEP-2577)."""
 
@@ -1173,6 +1181,7 @@ class AudioContent(MCPModel):
     """
 
 
+@deprecated("`ToolUseContent` is deprecated as of 2026-07-28 (SEP-2577).")
 class ToolUseContent(MCPModel):
     """An assistant's request to invoke a tool during sampling (2025-11-25+).
 
@@ -1198,6 +1207,7 @@ class ToolUseContent(MCPModel):
     requests to enable caching optimizations."""
 
 
+@deprecated("`ToolResultContent` is deprecated as of 2026-07-28 (SEP-2577).")
 class ToolResultContent(MCPModel):
     """The result of a tool use, provided by the user back to the assistant (2025-11-25+).
 
@@ -1226,7 +1236,7 @@ class ToolResultContent(MCPModel):
     requests to enable caching optimizations."""
 
 
-SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent  # pyright: ignore[reportDeprecated]
 """Content block types allowed in sampling messages.
 
 This is the widest (2025-11-25+) membership; older sessions allow only a subset
@@ -1241,8 +1251,9 @@ Used for backwards-compatible CreateMessageResult when tools are not used.
 """
 
 
+@deprecated("`SamplingMessage` is deprecated as of 2026-07-28 (SEP-2577).")
 class SamplingMessage(MCPModel):
-    """Describes a message issued to or received from an LLM API."""
+    """Describes a message issued to or received from an LLM API. Deprecated in 2026-07-28 (SEP-2577)."""
 
     role: Role
     content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
@@ -1478,6 +1489,7 @@ in 2026-07-28 (SEP-2577); the level scale is unchanged across versions.
 """
 
 
+@deprecated("`SetLevelRequestParams` is deprecated as of 2026-07-28 (SEP-2577).")
 class SetLevelRequestParams(RequestParams):
     """Parameters for setting the logging level.
 
@@ -1489,7 +1501,8 @@ class SetLevelRequestParams(RequestParams):
     The server should send all logs at this level and higher (more severe)."""
 
 
-class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]]):
+@deprecated("`SetLevelRequest` is deprecated as of 2026-07-28 (SEP-2577).")
+class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]]):  # pyright: ignore[reportDeprecated]
     """A request from the client to the server, to enable or adjust logging.
 
     Removed in protocol 2026-07-28; sent/received on sessions negotiating <= 2025-11-25.
@@ -1497,9 +1510,10 @@ class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]
     """
 
     method: Literal["logging/setLevel"] = "logging/setLevel"
-    params: SetLevelRequestParams
+    params: SetLevelRequestParams  # pyright: ignore[reportDeprecated]
 
 
+@deprecated("`LoggingMessageNotificationParams` is deprecated as of 2026-07-28 (SEP-2577).")
 class LoggingMessageNotificationParams(NotificationParams):
     level: LoggingLevel
     """The severity of this log message."""
@@ -1512,7 +1526,8 @@ class LoggingMessageNotificationParams(NotificationParams):
     """
 
 
-class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):
+@deprecated("`LoggingMessageNotification` is deprecated as of 2026-07-28 (SEP-2577).")
+class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, Literal["notifications/message"]]):  # pyright: ignore[reportDeprecated]
     """Notification of a log message passed from server to client.
 
     Through 2025-11-25 the client subscribes via `logging/setLevel`. On
@@ -1521,7 +1536,7 @@ class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, 
     """
 
     method: Literal["notifications/message"] = "notifications/message"
-    params: LoggingMessageNotificationParams
+    params: LoggingMessageNotificationParams  # pyright: ignore[reportDeprecated]
 
 
 IncludeContext = Literal["none", "thisServer", "allServers"]
@@ -1531,6 +1546,7 @@ IncludeContext = Literal["none", "thisServer", "allServers"]
 """
 
 
+@deprecated("`ModelHint` is deprecated as of 2026-07-28 (SEP-2577).")
 class ModelHint(MCPModel):
     """Hints to use for model selection.
 
@@ -1547,6 +1563,7 @@ class ModelHint(MCPModel):
     """
 
 
+@deprecated("`ModelPreferences` is deprecated as of 2026-07-28 (SEP-2577).")
 class ModelPreferences(MCPModel):
     """The server's preferences for model selection, requested of the client during
     sampling.
@@ -1564,7 +1581,7 @@ class ModelPreferences(MCPModel):
     Deprecated in 2026-07-28 (SEP-2577) with the rest of sampling.
     """
 
-    hints: list[ModelHint] | None = None
+    hints: list[ModelHint] | None = None  # pyright: ignore[reportDeprecated]
     """
     Optional hints to use for model selection.
 
@@ -1597,6 +1614,7 @@ class ModelPreferences(MCPModel):
     """
 
 
+@deprecated("`ToolChoice` is deprecated as of 2026-07-28 (SEP-2577).")
 class ToolChoice(MCPModel):
     """Controls tool selection behavior for sampling requests (2025-11-25+).
 
@@ -1613,10 +1631,11 @@ class ToolChoice(MCPModel):
     """
 
 
+@deprecated("`CreateMessageRequestParams` is deprecated as of 2026-07-28 (SEP-2577).")
 class CreateMessageRequestParams(RequestParams):
-    messages: list[SamplingMessage]
+    messages: list[SamplingMessage]  # pyright: ignore[reportDeprecated]
     """The conversation to sample from."""
-    model_preferences: ModelPreferences | None = None
+    model_preferences: ModelPreferences | None = None  # pyright: ignore[reportDeprecated]
     """
     The server's preferences for which model to select. The client MAY ignore
     these preferences.
@@ -1638,14 +1657,15 @@ class CreateMessageRequestParams(RequestParams):
     tools: list[Tool] | None = None
     """Tools the model may use during generation (2025-11-25+). Requires the
     `sampling.tools` client capability."""
-    tool_choice: ToolChoice | None = None
+    tool_choice: ToolChoice | None = None  # pyright: ignore[reportDeprecated]
     """Controls how the model uses tools (2025-11-25+). Requires the
     `sampling.tools` client capability."""
     task: TaskMetadata | None = None
     """If specified, the caller requests task-augmented execution (2025-11-25 only)."""
 
 
-class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):
+@deprecated("`CreateMessageRequest` is deprecated as of 2026-07-28 (SEP-2577).")
+class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling/createMessage"]]):  # pyright: ignore[reportDeprecated]
     """A request from the server to sample an LLM via the client.
 
     The client has full discretion over which model to select and should inform
@@ -1655,7 +1675,7 @@ class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling
     """
 
     method: Literal["sampling/createMessage"] = "sampling/createMessage"
-    params: CreateMessageRequestParams
+    params: CreateMessageRequestParams  # pyright: ignore[reportDeprecated]
 
 
 StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
@@ -1665,6 +1685,7 @@ An open union to allow provider-specific stop reasons. "toolUse" is 2025-11-25+.
 """
 
 
+@deprecated("`CreateMessageResult` is deprecated as of 2026-07-28 (SEP-2577).")
 class CreateMessageResult(Result):
     """The client's response to a sampling/createMessage request from the server.
 
@@ -1790,6 +1811,7 @@ class CompleteResult(Result):
     """See `ResultType`. Always serialized; older peers ignore it."""
 
 
+@deprecated("`ListRootsRequest` is deprecated as of 2026-07-28 (SEP-2577).")
 class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
     """Sent from the server to request a list of root URIs from the client. Roots allow
     servers to ask for specific directories or files to operate on. A common example
@@ -1809,6 +1831,7 @@ class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
     to server-to-client payloads)."""
 
 
+@deprecated("`Root` is deprecated as of 2026-07-28 (SEP-2577).")
 class Root(MCPModel):
     """Represents a root directory or file that the server can operate on.
 
@@ -1834,6 +1857,7 @@ class Root(MCPModel):
     """
 
 
+@deprecated("`ListRootsResult` is deprecated as of 2026-07-28 (SEP-2577).")
 class ListRootsResult(Result):
     """The client's response to a roots/list request from the server.
 
@@ -1844,9 +1868,10 @@ class ListRootsResult(Result):
     result. Deprecated in 2026-07-28 (SEP-2577).
     """
 
-    roots: list[Root]
+    roots: list[Root]  # pyright: ignore[reportDeprecated]
 
 
+@deprecated("`RootsListChangedNotification` is deprecated as of 2026-07-28 (SEP-2577).")
 class RootsListChangedNotification(
     Notification[NotificationParams | None, Literal["notifications/roots/list_changed"]]
 ):
@@ -2016,7 +2041,7 @@ class ElicitationRequiredErrorData(MCPModel):
     """List of URL mode elicitations that must be completed."""
 
 
-InputRequest: TypeAlias = CreateMessageRequest | ListRootsRequest | ElicitRequest
+InputRequest: TypeAlias = CreateMessageRequest | ListRootsRequest | ElicitRequest  # pyright: ignore[reportDeprecated]
 """A single server-initiated input request embedded in `InputRequiredResult` (2026-07-28).
 
 Discriminated by `method`. On 2026-07-28 these embedded payloads take the place
@@ -2030,7 +2055,7 @@ Keys are server-assigned identifiers. Carried by `InputRequiredResult.input_requ
 and by the tasks extension.
 """
 
-InputResponse: TypeAlias = CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
+InputResponse: TypeAlias = CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult  # pyright: ignore[reportDeprecated]
 """A client response to a single server-initiated input request (2026-07-28).
 
 `CreateMessageResultWithTools` is this SDK's array-content split of the schema's
@@ -2078,7 +2103,7 @@ ClientRequest = (
     PingRequest
     | InitializeRequest
     | CompleteRequest
-    | SetLevelRequest
+    | SetLevelRequest  # pyright: ignore[reportDeprecated]
     | GetPromptRequest
     | ListPromptsRequest
     | ListResourcesRequest
@@ -2100,7 +2125,7 @@ client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
 
 
 ClientNotification = (
-    CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification
+    CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification  # pyright: ignore[reportDeprecated]
 )
 """Notifications sent from the client to the server.
 
@@ -2110,11 +2135,11 @@ ClientNotification = (
 client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
 
 
-ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
+ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult  # pyright: ignore[reportDeprecated]
 client_result_adapter = TypeAdapter[ClientResult](ClientResult)
 
 
-ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest
+ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest  # pyright: ignore[reportDeprecated]
 """Union of standalone JSON-RPC requests a server can send to a client.
 
 Live through 2025-11-25 only: 2026-07-28 has no server-to-client JSON-RPC
@@ -2127,7 +2152,7 @@ server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
 ServerNotification = (
     CancelledNotification
     | ProgressNotification
-    | LoggingMessageNotification
+    | LoggingMessageNotification  # pyright: ignore[reportDeprecated]
     | ResourceUpdatedNotification
     | ResourceListChangedNotification
     | ToolListChangedNotification

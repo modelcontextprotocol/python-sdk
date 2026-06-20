@@ -11,13 +11,13 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     ClientCapabilities,
     SamplingCapability,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     SamplingToolsCapability,
     TextContent,
     Tool,
-    ToolChoice,
-    ToolResultContent,
-    ToolUseContent,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
+    ToolResultContent,  # pyright: ignore[reportDeprecated]
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
 )
 
 # Tests for check_sampling_tools_capability function
@@ -65,7 +65,7 @@ def test_validate_sampling_tools_raises_when_tools_provided_but_no_capability() 
 def test_validate_sampling_tools_raises_when_tool_choice_provided_but_no_capability() -> None:
     """Raises MCPError when tool_choice provided but client doesn't support."""
     with pytest.raises(MCPError) as exc_info:
-        validate_sampling_tools(None, None, ToolChoice(mode="auto"))
+        validate_sampling_tools(None, None, ToolChoice(mode="auto"))  # pyright: ignore[reportDeprecated]
     assert "sampling tools capability" in str(exc_info.value)
 
 
@@ -73,7 +73,11 @@ def test_validate_sampling_tools_no_error_when_capability_present() -> None:
     """No error when client has sampling.tools capability."""
     caps = ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
     tool = Tool(name="test", input_schema={"type": "object"})
-    validate_sampling_tools(caps, [tool], ToolChoice(mode="auto"))  # Should not raise
+    validate_sampling_tools(
+        caps,
+        [tool],
+        ToolChoice(mode="auto"),  # Should not raise  # pyright: ignore[reportDeprecated]
+    )
 
 
 # Tests for validate_tool_use_result_messages function
@@ -87,8 +91,8 @@ def test_validate_tool_use_result_messages_no_error_for_empty_messages() -> None
 def test_validate_tool_use_result_messages_no_error_for_simple_text_messages() -> None:
     """No error for simple text messages."""
     messages = [
-        SamplingMessage(role="user", content=TextContent(type="text", text="Hello")),
-        SamplingMessage(role="assistant", content=TextContent(type="text", text="Hi")),
+        SamplingMessage(role="user", content=TextContent(type="text", text="Hello")),  # pyright: ignore[reportDeprecated]
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="Hi")),  # pyright: ignore[reportDeprecated]
     ]
     validate_tool_use_result_messages(messages)  # Should not raise
 
@@ -96,10 +100,10 @@ def test_validate_tool_use_result_messages_no_error_for_simple_text_messages() -
 def test_validate_tool_use_result_messages_raises_when_tool_result_mixed_with_other_content() -> None:
     """Raises when tool_result is mixed with other content types."""
     messages = [
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="user",
             content=[
-                ToolResultContent(type="tool_result", tool_use_id="123"),
+                ToolResultContent(type="tool_result", tool_use_id="123"),  # pyright: ignore[reportDeprecated]
                 TextContent(type="text", text="also this"),
             ],
         ),
@@ -111,9 +115,9 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_mixed_with_ot
 def test_validate_tool_use_result_messages_raises_when_tool_result_without_previous_tool_use() -> None:
     """Raises when tool_result appears without preceding tool_use."""
     messages = [
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="user",
-            content=ToolResultContent(type="tool_result", tool_use_id="123"),
+            content=ToolResultContent(type="tool_result", tool_use_id="123"),  # pyright: ignore[reportDeprecated]
         ),
     ]
     with pytest.raises(ValueError, match="previous message containing tool_use"):
@@ -123,8 +127,8 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_without_previ
 def test_validate_tool_use_result_messages_raises_when_previous_message_has_no_tool_use() -> None:
     """Raises when tool_result follows a message that has content but no tool_use."""
     messages = [
-        SamplingMessage(role="assistant", content=TextContent(type="text", text="just text")),
-        SamplingMessage(role="user", content=ToolResultContent(type="tool_result", tool_use_id="tool-1")),
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="just text")),  # pyright: ignore[reportDeprecated]
+        SamplingMessage(role="user", content=ToolResultContent(type="tool_result", tool_use_id="tool-1")),  # pyright: ignore[reportDeprecated]
     ]
     with pytest.raises(ValueError, match="do not match any tool_use in the previous message"):
         validate_tool_use_result_messages(messages)
@@ -133,13 +137,13 @@ def test_validate_tool_use_result_messages_raises_when_previous_message_has_no_t
 def test_validate_tool_use_result_messages_raises_when_tool_result_ids_dont_match_tool_use() -> None:
     """Raises when tool_result IDs don't match tool_use IDs."""
     messages = [
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="assistant",
-            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),  # pyright: ignore[reportDeprecated]
         ),
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="user",
-            content=ToolResultContent(type="tool_result", tool_use_id="tool-2"),
+            content=ToolResultContent(type="tool_result", tool_use_id="tool-2"),  # pyright: ignore[reportDeprecated]
         ),
     ]
     with pytest.raises(ValueError, match="do not match"):
@@ -149,13 +153,13 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_ids_dont_matc
 def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_tool_use() -> None:
     """No error when tool_result IDs match tool_use IDs."""
     messages = [
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="assistant",
-            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),  # pyright: ignore[reportDeprecated]
         ),
-        SamplingMessage(
+        SamplingMessage(  # pyright: ignore[reportDeprecated]
             role="user",
-            content=ToolResultContent(type="tool_result", tool_use_id="tool-1"),
+            content=ToolResultContent(type="tool_result", tool_use_id="tool-1"),  # pyright: ignore[reportDeprecated]
         ),
     ]
     validate_tool_use_result_messages(messages)  # Should not raise

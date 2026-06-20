@@ -22,7 +22,6 @@ from examples.snippets.servers import (
     elicitation,
     mcpserver_quickstart,
     notifications,
-    sampling,
     structured_output,
     tool_progress,
 )
@@ -30,13 +29,11 @@ from mcp.client import Client, ClientRequestContext
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
-    CreateMessageRequestParams,
-    CreateMessageResult,
     ElicitRequestParams,
     ElicitResult,
     GetPromptResult,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     NotificationParams,
     ProgressNotification,
     ProgressNotificationParams,
@@ -59,7 +56,7 @@ class NotificationCollector:
 
     def __init__(self):
         self.progress_notifications: list[ProgressNotificationParams] = []
-        self.log_messages: list[LoggingMessageNotificationParams] = []
+        self.log_messages: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
         self.resource_notifications: list[NotificationParams | None] = []
         self.tool_notifications: list[NotificationParams | None] = []
 
@@ -70,24 +67,12 @@ class NotificationCollector:
         if isinstance(message, ServerNotification):  # pragma: no branch
             if isinstance(message, ProgressNotification):
                 self.progress_notifications.append(message.params)
-            elif isinstance(message, LoggingMessageNotification):
+            elif isinstance(message, LoggingMessageNotification):  # pyright: ignore[reportDeprecated]
                 self.log_messages.append(message.params)
             elif isinstance(message, ResourceListChangedNotification):
                 self.resource_notifications.append(message.params)
             elif isinstance(message, ToolListChangedNotification):  # pragma: no cover
                 self.tool_notifications.append(message.params)
-
-
-async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
-    """Sampling callback for tests."""
-    return CreateMessageResult(
-        role="assistant",
-        content=TextContent(
-            type="text",
-            text="This is a simulated LLM response for testing",
-        ),
-        model="test-model",
-    )
 
 
 async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
@@ -211,18 +196,6 @@ async def test_tool_progress() -> None:
 
         # Verify log messages
         assert len(collector.log_messages) > 0
-
-
-async def test_sampling() -> None:
-    """Test sampling (LLM interaction) functionality."""
-    async with Client(sampling.mcp, sampling_callback=sampling_callback) as client:
-        assert client.initialize_result.capabilities.tools is not None
-
-        # Test sampling tool
-        sampling_result = await client.call_tool("generate_poem", {"topic": "nature"})
-        assert len(sampling_result.content) == 1
-        assert isinstance(sampling_result.content[0], TextContent)
-        assert "This is a simulated LLM response" in sampling_result.content[0].text
 
 
 async def test_elicitation() -> None:

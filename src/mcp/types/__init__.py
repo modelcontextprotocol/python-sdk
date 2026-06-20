@@ -39,9 +39,9 @@ from mcp.types._types import (
     CompletionContext,
     CompletionsCapability,
     ContentBlock,
-    CreateMessageRequest,
-    CreateMessageRequestParams,
-    CreateMessageResult,
+    CreateMessageRequest,  # pyright: ignore[reportDeprecated]
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     CreateTaskResult,
     DiscoverRequest,
@@ -89,19 +89,19 @@ from mcp.types._types import (
     ListResourcesResult,
     ListResourceTemplatesRequest,
     ListResourceTemplatesResult,
-    ListRootsRequest,
-    ListRootsResult,
+    ListRootsRequest,  # pyright: ignore[reportDeprecated]
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
     ListTasksRequest,
     ListTasksResult,
     ListToolsRequest,
     ListToolsResult,
     LoggingCapability,
     LoggingLevel,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     MissingRequiredClientCapabilityErrorData,
-    ModelHint,
-    ModelPreferences,
+    ModelHint,  # pyright: ignore[reportDeprecated]
+    ModelPreferences,  # pyright: ignore[reportDeprecated]
     Notification,
     NotificationParams,
     PaginatedRequest,
@@ -136,13 +136,13 @@ from mcp.types._types import (
     Result,
     ResultType,
     Role,
-    Root,
+    Root,  # pyright: ignore[reportDeprecated]
     RootsCapability,
-    RootsListChangedNotification,
+    RootsListChangedNotification,  # pyright: ignore[reportDeprecated]
     SamplingCapability,
     SamplingContent,
     SamplingContextCapability,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     SamplingMessageContentBlock,
     SamplingToolsCapability,
     ServerCapabilities,
@@ -151,8 +151,8 @@ from mcp.types._types import (
     ServerResult,
     ServerTasksCapability,
     ServerTasksRequestsCapability,
-    SetLevelRequest,
-    SetLevelRequestParams,
+    SetLevelRequest,  # pyright: ignore[reportDeprecated]
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
     StopReason,
     SubscribeRequest,
     SubscribeRequestParams,
@@ -178,12 +178,12 @@ from mcp.types._types import (
     TextResourceContents,
     Tool,
     ToolAnnotations,
-    ToolChoice,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
     ToolExecution,
     ToolListChangedNotification,
-    ToolResultContent,
+    ToolResultContent,  # pyright: ignore[reportDeprecated]
     ToolsCapability,
-    ToolUseContent,
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
     UnsubscribeRequest,
     UnsubscribeRequestParams,
     UnsupportedProtocolVersionErrorData,

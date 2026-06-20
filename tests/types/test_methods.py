@@ -591,7 +591,7 @@ def test_non_file_root_uri_passes_the_surface_step_and_rejects_at_the_monolith_s
         methods.parse_client_request("tools/call", "2026-07-28", retry_params)
 
     file_roots = {"roots": [{"uri": "file:///workspace"}]}
-    assert isinstance(methods.parse_client_result("roots/list", "2025-11-25", file_roots), types.ListRootsResult)
+    assert isinstance(methods.parse_client_result("roots/list", "2025-11-25", file_roots), types.ListRootsResult)  # pyright: ignore[reportDeprecated]
     retried = methods.parse_client_request(
         "tools/call", "2026-07-28", {"_meta": META_TRIPLE, "name": "echo", "inputResponses": {"r1": file_roots}}
     )
@@ -715,7 +715,7 @@ def test_snake_case_spellings_of_required_aliased_fields_reject_as_missing():
         methods.parse_server_request("sampling/createMessage", "2025-11-25", snake_params)
     assert [error["loc"] for error in excinfo.value.errors() if error["type"] == "missing"] == [("params", "maxTokens")]
     with pytest.raises(pydantic.ValidationError):
-        types.CreateMessageRequest.model_validate(
+        types.CreateMessageRequest.model_validate(  # pyright: ignore[reportDeprecated]
             {"method": "sampling/createMessage", "params": snake_params}, by_name=False
         )
 
@@ -772,13 +772,13 @@ def test_input_required_unions_discriminate_identically_in_both_arm_orders():
 def test_sampling_union_keeps_the_complete_arm_first_because_order_is_load_bearing():
     """A single-block body satisfies both arms; smart-union ties resolve leftmost."""
     assert get_args(methods.MONOLITH_RESULTS["sampling/createMessage"]) == (
-        types.CreateMessageResult,
+        types.CreateMessageResult,  # pyright: ignore[reportDeprecated]
         types.CreateMessageResultWithTools,
     )
     single_block: dict[str, Any] = {"role": "assistant", "content": {"type": "text", "text": "hi"}, "model": "m"}
     through_row = methods.parse_client_result("sampling/createMessage", "2025-11-25", single_block)
-    assert type(through_row) is types.CreateMessageResult
-    reversed_union = pydantic.TypeAdapter[Any](types.CreateMessageResultWithTools | types.CreateMessageResult)
+    assert type(through_row) is types.CreateMessageResult  # pyright: ignore[reportDeprecated]
+    reversed_union = pydantic.TypeAdapter[Any](types.CreateMessageResultWithTools | types.CreateMessageResult)  # pyright: ignore[reportDeprecated]
     assert type(reversed_union.validate_python(single_block)) is types.CreateMessageResultWithTools
 
     array_body: dict[str, Any] = {"role": "assistant", "content": [{"type": "text", "text": "hi"}], "model": "m"}

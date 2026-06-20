@@ -16,21 +16,21 @@ from pydantic import BaseModel
 
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.types import (
-    CreateMessageRequestParams,
-    CreateMessageResult,
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     ElicitRequestedSchema,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     IncludeContext,
-    ListRootsResult,
-    ModelPreferences,
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
+    ModelPreferences,  # pyright: ignore[reportDeprecated]
     RequestParams,
     RequestParamsMeta,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     Tool,
-    ToolChoice,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
 )
 
 __all__ = ["ClientPeer", "Meta"]
@@ -85,7 +85,7 @@ class ClientPeer:
     @overload
     async def sample(
         self,
-        messages: list[SamplingMessage],
+        messages: list[SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -93,16 +93,16 @@ class ClientPeer:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: ModelPreferences | None = None,
+        model_preferences: ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: None = None,
-        tool_choice: ToolChoice | None = None,
+        tool_choice: ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         meta: Meta | None = None,
         opts: CallOptions | None = None,
-    ) -> CreateMessageResult: ...
+    ) -> CreateMessageResult: ...  # pyright: ignore[reportDeprecated]
     @overload
     async def sample(
         self,
-        messages: list[SamplingMessage],
+        messages: list[SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -110,15 +110,15 @@ class ClientPeer:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: ModelPreferences | None = None,
+        model_preferences: ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: list[Tool],
-        tool_choice: ToolChoice | None = None,
+        tool_choice: ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
     async def sample(
         self,
-        messages: list[SamplingMessage],
+        messages: list[SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -126,12 +126,12 @@ class ClientPeer:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: ModelPreferences | None = None,
+        model_preferences: ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: list[Tool] | None = None,
-        tool_choice: ToolChoice | None = None,
+        tool_choice: ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         meta: Meta | None = None,
         opts: CallOptions | None = None,
-    ) -> CreateMessageResult | CreateMessageResultWithTools:
+    ) -> CreateMessageResult | CreateMessageResultWithTools:  # pyright: ignore[reportDeprecated]
         """Send a `sampling/createMessage` request to the peer.
 
         Raises:
@@ -139,7 +139,7 @@ class ClientPeer:
             NoBackChannelError: No back-channel for server-initiated requests.
             pydantic.ValidationError: The peer's result does not match the expected result type.
         """
-        params = CreateMessageRequestParams(
+        params = CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
             messages=messages,
             system_prompt=system_prompt,
             include_context=include_context,
@@ -154,7 +154,7 @@ class ClientPeer:
         result = await self.send_raw_request("sampling/createMessage", dump_params(params, meta), opts)
         if tools is not None:
             return CreateMessageResultWithTools.model_validate(result, by_name=False)
-        return CreateMessageResult.model_validate(result, by_name=False)
+        return CreateMessageResult.model_validate(result, by_name=False)  # pyright: ignore[reportDeprecated]
 
     async def elicit_form(
         self,
@@ -195,7 +195,7 @@ class ClientPeer:
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result, by_name=False)
 
-    async def list_roots(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> ListRootsResult:
+    async def list_roots(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
         """Send a `roots/list` request.
 
         Raises:
@@ -204,7 +204,7 @@ class ClientPeer:
             pydantic.ValidationError: The peer's result does not match the expected result type.
         """
         result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
-        return ListRootsResult.model_validate(result, by_name=False)
+        return ListRootsResult.model_validate(result, by_name=False)  # pyright: ignore[reportDeprecated]
 
     async def ping(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
         """Send a `ping` request and ignore the result.

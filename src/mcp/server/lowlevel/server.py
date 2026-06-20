@@ -184,7 +184,7 @@ class Server(Generic[LifespanResultT]):
         ]
         | None = None,
         on_set_logging_level: Callable[
-            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],
+            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],  # pyright: ignore[reportDeprecated]
             Awaitable[types.EmptyResult],
         ]
         | None = None,
@@ -235,7 +235,7 @@ class Server(Generic[LifespanResultT]):
             ("resources/unsubscribe", types.UnsubscribeRequestParams, on_unsubscribe_resource),
             ("tools/list", types.PaginatedRequestParams, on_list_tools),
             ("tools/call", types.CallToolRequestParams, on_call_tool),
-            ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),
+            ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),  # pyright: ignore[reportDeprecated]
             ("completion/complete", types.CompleteRequestParams, on_completion),
         ]
         self._request_handlers.update({m: HandlerEntry(pt, h) for m, pt, h in _spec_requests if h is not None})

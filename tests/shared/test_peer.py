@@ -15,11 +15,11 @@ from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.peer import ClientPeer, dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
-    CreateMessageResult,
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     ElicitResult,
-    ListRootsResult,
-    SamplingMessage,
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     TextContent,
     Tool,
 )
@@ -47,13 +47,13 @@ async def test_peer_sample_sends_create_message_and_returns_typed_result():
         peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
-                [SamplingMessage(role="user", content=TextContent(type="text", text="hello"))],
+                [SamplingMessage(role="user", content=TextContent(type="text", text="hello"))],  # pyright: ignore[reportDeprecated]
                 max_tokens=10,
             )
         method, params = rec.seen[0]
         assert method == "sampling/createMessage"
         assert params is not None and params["maxTokens"] == 10
-        assert isinstance(result, CreateMessageResult)
+        assert isinstance(result, CreateMessageResult)  # pyright: ignore[reportDeprecated]
         assert result.model == "m"
 
 
@@ -67,9 +67,10 @@ async def test_peer_sample_validates_result_alias_only():
         peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
-                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))], max_tokens=1
+                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],  # pyright: ignore[reportDeprecated]
+                max_tokens=1,
             )
-        assert isinstance(result, CreateMessageResult)
+        assert isinstance(result, CreateMessageResult)  # pyright: ignore[reportDeprecated]
         assert result.stop_reason is None
 
 
@@ -80,7 +81,7 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
         peer = ClientPeer(client)
         with anyio.fail_after(5):
             result = await peer.sample(
-                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],
+                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],  # pyright: ignore[reportDeprecated]
                 max_tokens=5,
                 tools=[Tool(name="t", input_schema={"type": "object"})],
             )
@@ -127,7 +128,7 @@ async def test_peer_list_roots_sends_roots_list_and_returns_typed_result():
             result = await peer.list_roots()
         method, _ = rec.seen[0]
         assert method == "roots/list"
-        assert isinstance(result, ListRootsResult)
+        assert isinstance(result, ListRootsResult)  # pyright: ignore[reportDeprecated]
         assert len(result.roots) == 1
         assert str(result.roots[0].uri) == "file:///workspace"
 

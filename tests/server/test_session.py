@@ -82,13 +82,13 @@ async def test_send_request_forwards_timeout_and_progress_callback_as_call_optio
         raise NotImplementedError
 
     result = await session.send_request(
-        types.ListRootsRequest(),
-        types.ListRootsResult,
+        types.ListRootsRequest(),  # pyright: ignore[reportDeprecated]
+        types.ListRootsResult,  # pyright: ignore[reportDeprecated]
         request_read_timeout_seconds=2.5,
         metadata=ServerMessageMetadata(related_request_id=7),
         progress_callback=on_progress,
     )
-    assert isinstance(result, types.ListRootsResult)
+    assert isinstance(result, types.ListRootsResult)  # pyright: ignore[reportDeprecated]
     method, _params, opts, related = dispatcher.requests[0]
     assert method == "roots/list"
     assert opts == {"timeout": 2.5, "on_progress": on_progress}
@@ -99,7 +99,7 @@ async def test_send_request_forwards_timeout_and_progress_callback_as_call_optio
 async def test_send_request_omits_call_options_when_none_given():
     dispatcher = StubDispatcher(result={"roots": []})
     session = _make_session(dispatcher)
-    await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
+    await session.send_request(types.ListRootsRequest(), types.ListRootsResult)  # pyright: ignore[reportDeprecated]
     _method, _params, opts, related = dispatcher.requests[0]
     assert opts is None
     assert related is None
@@ -137,15 +137,15 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
     `ValidationError` even when the caller's `result_type` would accept it."""
     session = _make_session(StubDispatcher(result={"roots": "nope"}))
     with pytest.raises(ValidationError):
-        await session.send_request(types.ListRootsRequest(), types.EmptyResult)
+        await session.send_request(types.ListRootsRequest(), types.EmptyResult)  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio
 async def test_send_request_passes_a_spec_valid_client_result():
     """A spec-valid client result passes the surface gate and parses to the typed model."""
     session = _make_session(StubDispatcher(result={"roots": [{"uri": "file:///ws"}]}))
-    result = await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
-    assert isinstance(result, types.ListRootsResult)
+    result = await session.send_request(types.ListRootsRequest(), types.ListRootsResult)  # pyright: ignore[reportDeprecated]
+    assert isinstance(result, types.ListRootsResult)  # pyright: ignore[reportDeprecated]
     assert str(result.roots[0].uri) == "file:///ws"
 
 
@@ -164,8 +164,8 @@ async def test_send_request_validates_result_alias_only():
     ignored as extra, not populated by Python field name."""
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     session = _make_session(StubDispatcher(result=snake))
-    request = types.CreateMessageRequest(params=types.CreateMessageRequestParams(messages=[], max_tokens=1))
-    result = await session.send_request(request, types.CreateMessageResult)
+    request = types.CreateMessageRequest(params=types.CreateMessageRequestParams(messages=[], max_tokens=1))  # pyright: ignore[reportDeprecated]
+    result = await session.send_request(request, types.CreateMessageResult)  # pyright: ignore[reportDeprecated]
     assert result.stop_reason is None
 
 
@@ -176,7 +176,7 @@ async def test_create_message_with_tools_returns_with_tools_result():
         dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
     )
     result = await session.create_message(
-        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],  # pyright: ignore[reportDeprecated]
         max_tokens=10,
         tools=[types.Tool(name="t", input_schema={"type": "object"})],
     )

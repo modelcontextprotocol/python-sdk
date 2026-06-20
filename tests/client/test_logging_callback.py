@@ -6,16 +6,16 @@ from mcp import Client, types
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.session import RequestResponder
 from mcp.types import (
-    LoggingMessageNotificationParams,
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 
 
 class LoggingCollector:
     def __init__(self):
-        self.log_messages: list[LoggingMessageNotificationParams] = []
+        self.log_messages: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
 
-    async def __call__(self, params: LoggingMessageNotificationParams) -> None:
+    async def __call__(self, params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         self.log_messages.append(params)
 
 

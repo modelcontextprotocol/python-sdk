@@ -19,7 +19,7 @@ from mcp.types import (
     EmptyResult,
     ListToolsResult,
     PaginatedRequestParams,
-    SetLevelRequestParams,
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
     TextContent,
     Tool,
 )
@@ -44,7 +44,7 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     return CallToolResult(content=[TextContent(text=text)])
 
 
-async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
     """Registered so the logging capability is advertised; the client never sets a level."""
     raise NotImplementedError
 

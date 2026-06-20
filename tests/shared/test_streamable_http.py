@@ -214,7 +214,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
     elif name == "test_sampling_tool":
         sampling_result = await ctx.session.create_message(
             messages=[
-                types.SamplingMessage(
+                types.SamplingMessage(  # pyright: ignore[reportDeprecated]
                     role="user",
                     content=types.TextContent(type="text", text="Server needs client sampling"),
                 )
@@ -1127,7 +1127,10 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
             # Look for our first notification
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            if isinstance(
+                message,
+                types.LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+            ):  # pragma: no branch
                 if message.params.data == "First notification before lock":
                     first_notification_received.set()
 
@@ -1188,7 +1191,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
                     # after appending to captured_notifications. The server tool is
                     # blocked on its lock, so nothing else can arrive before we cancel.
                     assert len(captured_notifications) == 1
-                    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+                    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pyright: ignore[reportDeprecated]
                     assert captured_notifications[0].params.data == "First notification before lock"
                     # Reset for phase 2 before cancelling
                     captured_notifications.clear()
@@ -1227,7 +1230,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
 
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
-                assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+                assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pyright: ignore[reportDeprecated]
                 assert captured_notifications[0].params.data == "Second notification after lock"
 
 
@@ -1241,15 +1244,15 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
     # Define sampling callback that returns a mock response
     async def sampling_callback(
         context: ClientRequestContext,
-        params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult:
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
         nonlocal sampling_callback_invoked, captured_message_params
         sampling_callback_invoked = True
         captured_message_params = params
         msg_content = params.messages[0].content_as_list[0]
         message_received = msg_content.text if msg_content.type == "text" else None
 
-        return types.CreateMessageResult(
+        return types.CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=types.TextContent(
                 type="text",
@@ -1912,7 +1915,10 @@ async def test_streamable_http_client_auto_reconnects(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            if isinstance(
+                message,
+                types.LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+            ):  # pragma: no branch
                 captured_notifications.append(str(message.params.data))
 
     async with (
@@ -1980,7 +1986,10 @@ async def test_streamable_http_sse_polling_full_cycle(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            if isinstance(
+                message,
+                types.LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+            ):  # pragma: no branch
                 all_notifications.append(str(message.params.data))
 
     async with (
@@ -2023,7 +2032,10 @@ async def test_streamable_http_events_replayed_after_disconnect(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            if isinstance(
+                message,
+                types.LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+            ):  # pragma: no branch
                 notification_data.append(str(message.params.data))
 
     async with (

@@ -25,8 +25,8 @@ from mcp.types import (
     JSONRPCMessage,
     PromptReference,
     ResourceTemplateReference,
-    SamplingMessage,
-    SetLevelRequestParams,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
     SubscribeRequestParams,
     TextContent,
     TextResourceContents,
@@ -177,7 +177,7 @@ async def test_sampling(prompt: str, ctx: Context) -> str:
     try:
         # Request sampling from client
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
 
@@ -397,7 +397,7 @@ def test_prompt_with_image() -> list[UserMessage]:
 # Custom request handlers
 # TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
 # and set_logging_level to avoid accessing protected _lowlevel_server attribute.
-async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
     """Handle logging level changes"""
     logger.info(f"Log level set to: {params.level}")
     return EmptyResult()
@@ -418,7 +418,9 @@ async def handle_unsubscribe(ctx: ServerRequestContext, params: UnsubscribeReque
 
 
 mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
-    "logging/setLevel", SetLevelRequestParams, handle_set_logging_level
+    "logging/setLevel",
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
+    handle_set_logging_level,
 )
 mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
     "resources/subscribe", SubscribeRequestParams, handle_subscribe

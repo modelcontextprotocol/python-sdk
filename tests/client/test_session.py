@@ -430,9 +430,9 @@ async def test_client_capabilities_with_custom_callbacks():
 
     async def custom_sampling_callback(  # pragma: no cover
         context: ClientRequestContext,
-        params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData:
-        return types.CreateMessageResult(
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult | types.ErrorData:  # pyright: ignore[reportDeprecated]
+        return types.CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=types.TextContent(type="text", text="test"),
             model="test-model",
@@ -440,8 +440,8 @@ async def test_client_capabilities_with_custom_callbacks():
 
     async def custom_list_roots_callback(  # pragma: no cover
         context: ClientRequestContext,
-    ) -> types.ListRootsResult | types.ErrorData:
-        return types.ListRootsResult(roots=[])
+    ) -> types.ListRootsResult | types.ErrorData:  # pyright: ignore[reportDeprecated]
+        return types.ListRootsResult(roots=[])  # pyright: ignore[reportDeprecated]
 
     async def mock_server():
         nonlocal received_capabilities
@@ -514,9 +514,9 @@ async def test_client_capabilities_with_sampling_tools():
 
     async def custom_sampling_callback(  # pragma: no cover
         context: ClientRequestContext,
-        params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData:
-        return types.CreateMessageResult(
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult | types.ErrorData:  # pyright: ignore[reportDeprecated]
+        return types.CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=types.TextContent(type="text", text="test"),
             model="test-model",
@@ -811,12 +811,13 @@ async def test_on_request_validates_the_callback_result_against_the_surface_sche
     """A surface-valid callback result reaches the wire as the dump dict unchanged."""
 
     async def sampling(
-        ctx: ClientRequestContext, params: types.CreateMessageRequestParams
-    ) -> types.CreateMessageResult:
-        return types.CreateMessageResult(role="assistant", content=types.TextContent(type="text", text="hi"), model="m")
+        ctx: ClientRequestContext,
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
+        return types.CreateMessageResult(role="assistant", content=types.TextContent(type="text", text="hi"), model="m")  # pyright: ignore[reportDeprecated]
 
-    request_params = types.CreateMessageRequestParams(
-        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="q"))],
+    request_params = types.CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="q"))],  # pyright: ignore[reportDeprecated]
         max_tokens=10,
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
     async with raw_client_session(sampling_callback=sampling) as (_session, to_client, from_client):
@@ -836,8 +837,8 @@ async def test_on_request_callback_returning_a_surface_invalid_result_is_interna
     `EmptyResult` is a `ClientResult` arm so the union accepts it, but `roots/list`
     requires a `roots` array."""
 
-    async def list_roots(ctx: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:
-        return cast("types.ListRootsResult", types.EmptyResult())
+    async def list_roots(ctx: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:  # pyright: ignore[reportDeprecated]
+        return cast("types.ListRootsResult", types.EmptyResult())  # pyright: ignore[reportDeprecated]
 
     async with raw_client_session(list_roots_callback=list_roots) as (_session, to_client, from_client):
         await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=3, method="roots/list")))
@@ -949,11 +950,11 @@ async def test_raising_sampling_callback_answers_with_code_zero():
     """A raising sampling callback is answered with code 0 and `str(exc)` (SDK-defined).
     Raw streams because the assertion is the outbound `JSONRPCError` envelope itself."""
 
-    async def boom(ctx: object, params: object) -> types.CreateMessageResult:
+    async def boom(ctx: object, params: object) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
         raise RuntimeError("sampling boom")
 
-    params = types.CreateMessageRequestParams(
-        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
+    params = types.CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],  # pyright: ignore[reportDeprecated]
         max_tokens=10,
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
     async with raw_client_session(sampling_callback=boom) as (_session, to_client, from_client):
@@ -1159,7 +1160,7 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
                 results.append(await session.send_ping(meta=None))
                 # Server-to-client: direct dispatch delivers ping with no params member (no _meta injection).
                 assert await server_side.send_raw_request("ping", None) == {}
-                await session.send_notification(types.RootsListChangedNotification())
+                await session.send_notification(types.RootsListChangedNotification())  # pyright: ignore[reportDeprecated]
             server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
@@ -1173,9 +1174,9 @@ async def test_direct_dispatch_roots_list_reaches_callback_with_synthesized_requ
     client_side, server_side = create_direct_dispatcher_pair()
     contexts: list[ClientRequestContext] = []
 
-    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
+    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:  # pyright: ignore[reportDeprecated]
         contexts.append(context)
-        return types.ListRootsResult(roots=[types.Root(uri=FileUrl("file:///workspace"))])
+        return types.ListRootsResult(roots=[types.Root(uri=FileUrl("file:///workspace"))])  # pyright: ignore[reportDeprecated]
 
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: dict[str, object] | None
@@ -1211,7 +1212,7 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
     client_side, server_side = create_direct_dispatcher_pair()
     teed: list[types.ServerNotification] = []
 
-    async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
+    async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         raise ValueError("logging callback boom")
 
     async def message_handler(
@@ -1470,7 +1471,7 @@ async def test_send_notification_after_close_is_dropped_silently():
         async with ClientSession(s2c_recv, c2s_send) as session:
             pass
         with anyio.fail_after(5):
-            await session.send_notification(types.RootsListChangedNotification())
+            await session.send_notification(types.RootsListChangedNotification())  # pyright: ignore[reportDeprecated]
         with pytest.raises(anyio.EndOfStream):
             c2s_recv.receive_nowait()  # nothing reached the wire
     finally:

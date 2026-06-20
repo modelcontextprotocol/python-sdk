@@ -118,7 +118,7 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
         """Registered only so the prompts capability is advertised; never called."""
         raise NotImplementedError
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> types.EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> types.EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered only so the logging capability is advertised; never called."""
         raise NotImplementedError
 
@@ -211,7 +211,7 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
             declared.append(f"roots(list_changed={capabilities.roots.list_changed})")
         return CallToolResult(content=[TextContent(text=",".join(declared) or "none")])
 
-    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
+    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:  # pyright: ignore[reportDeprecated]
         """Registered only so the client declares the roots capability; never called."""
         raise NotImplementedError
 

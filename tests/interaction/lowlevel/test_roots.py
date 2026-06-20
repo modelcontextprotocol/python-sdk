@@ -8,7 +8,14 @@ from pydantic import FileUrl
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
-from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
+from mcp.types import (
+    INTERNAL_ERROR,
+    CallToolResult,
+    ErrorData,
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
+    Root,  # pyright: ignore[reportDeprecated]
+    TextContent,
+)
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -35,11 +42,11 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
-        return ListRootsResult(
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
+        return ListRootsResult(  # pyright: ignore[reportDeprecated]
             roots=[
-                Root(uri=FileUrl("file:///home/alice/project"), name="project"),
-                Root(uri=FileUrl("file:///home/alice/scratch")),
+                Root(uri=FileUrl("file:///home/alice/project"), name="project"),  # pyright: ignore[reportDeprecated]
+                Root(uri=FileUrl("file:///home/alice/scratch")),  # pyright: ignore[reportDeprecated]
             ]
         )
 
@@ -69,8 +76,8 @@ async def test_list_roots_empty(connect: Connect) -> None:
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
-        return ListRootsResult(roots=[])
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
+        return ListRootsResult(roots=[])  # pyright: ignore[reportDeprecated]
 
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("count_roots", {})
@@ -154,7 +161,7 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
 
     server = Server("rooted", on_roots_list_changed=roots_list_changed)
 
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
         """Registered so the client declares the roots capability; the server never asks for roots."""
         raise NotImplementedError
 

@@ -213,6 +213,10 @@ filterwarnings = [
     "error",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # SEP-2577 deprecates roots/sampling/logging types; the SDK still builds them
+    # internally to serve <= 2025-11-25 sessions, so the @deprecated runtime warning
+    # is advisory only. Tests asserting it opt back in locally with pytest.warns.
+    "ignore:`.*` is deprecated as of 2026-07-28 \\(SEP-2577\\).:DeprecationWarning",
 ]
 
 [tool.markdown.lint]

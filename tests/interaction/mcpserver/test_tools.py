@@ -16,8 +16,8 @@ from mcp.types import (
     CallToolResult,
     ElicitRequestURLParams,
     ErrorData,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 from tests.interaction._connect import Connect
@@ -428,5 +428,5 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     assert [tool.name for tool in before.tools] == ["doomed", "grow"]
     assert [tool.name for tool in after.tools] == ["grow", "extra"]
     assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]  # pyright: ignore[reportDeprecated]
     )

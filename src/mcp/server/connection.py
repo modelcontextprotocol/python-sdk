@@ -26,14 +26,14 @@ from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
 from mcp.types import (
     ClientCapabilities,
-    CreateMessageRequest,
-    CreateMessageResult,
+    CreateMessageRequest,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     ElicitRequest,
     ElicitResult,
     EmptyResult,
     InitializeRequestParams,
-    ListRootsRequest,
-    ListRootsResult,
+    ListRootsRequest,  # pyright: ignore[reportDeprecated]
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
     LoggingLevel,
     PingRequest,
     Request,
@@ -52,9 +52,9 @@ ResultT = TypeVar("ResultT", bound=BaseModel)
 # request types themselves (a `__mcp_result__` ClassVar read via a structural
 # protocol) so this table and the overload ladder don't need maintaining.
 _RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
-    CreateMessageRequest: CreateMessageResult,
+    CreateMessageRequest: CreateMessageResult,  # pyright: ignore[reportDeprecated]
     ElicitRequest: ElicitResult,
-    ListRootsRequest: ListRootsResult,
+    ListRootsRequest: ListRootsResult,  # pyright: ignore[reportDeprecated]
     PingRequest: EmptyResult,
 }
 
@@ -145,12 +145,15 @@ class Connection:
 
     @overload
     async def send_request(
-        self, req: CreateMessageRequest, *, opts: CallOptions | None = None
-    ) -> CreateMessageResult: ...
+        self,
+        req: CreateMessageRequest,  # pyright: ignore[reportDeprecated]
+        *,
+        opts: CallOptions | None = None,
+    ) -> CreateMessageResult: ...  # pyright: ignore[reportDeprecated]
     @overload
     async def send_request(self, req: ElicitRequest, *, opts: CallOptions | None = None) -> ElicitResult: ...
     @overload
-    async def send_request(self, req: ListRootsRequest, *, opts: CallOptions | None = None) -> ListRootsResult: ...
+    async def send_request(self, req: ListRootsRequest, *, opts: CallOptions | None = None) -> ListRootsResult: ...  # pyright: ignore[reportDeprecated]
     @overload
     async def send_request(self, req: PingRequest, *, opts: CallOptions | None = None) -> EmptyResult: ...
     @overload

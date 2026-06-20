@@ -20,14 +20,14 @@ from mcp.shared.exceptions import NoBackChannelError
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
-    CreateMessageRequest,
-    CreateMessageRequestParams,
+    CreateMessageRequest,  # pyright: ignore[reportDeprecated]
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
     ElicitationCapability,
     EmptyResult,
     Implementation,
     InitializeRequestParams,
-    ListRootsRequest,
-    ListRootsResult,
+    ListRootsRequest,  # pyright: ignore[reportDeprecated]
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
     PingRequest,
     Request,
     RequestParams,
@@ -114,10 +114,10 @@ async def test_connection_send_raw_request_forwards_when_standalone_channel_pres
 async def test_connection_send_request_with_spec_type_infers_result_type():
     out = StubOutbound(result={"roots": [{"uri": "file:///ws"}]})
     conn = Connection(out, has_standalone_channel=True)
-    result = await conn.send_request(ListRootsRequest())
+    result = await conn.send_request(ListRootsRequest())  # pyright: ignore[reportDeprecated]
     method, _ = out.requests[0]
     assert method == "roots/list"
-    assert isinstance(result, ListRootsResult)
+    assert isinstance(result, ListRootsResult)  # pyright: ignore[reportDeprecated]
     assert str(result.roots[0].uri) == "file:///ws"
 
 
@@ -127,7 +127,7 @@ async def test_connection_send_request_validates_result_alias_only():
     ignored as extra, not populated by Python field name."""
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     conn = Connection(StubOutbound(result=snake), has_standalone_channel=True)
-    result = await conn.send_request(CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=1)))
+    result = await conn.send_request(CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=1)))  # pyright: ignore[reportDeprecated]
     assert result.stop_reason is None
 
 
@@ -143,7 +143,7 @@ async def test_connection_send_request_with_result_type_kwarg_validates_custom_t
 async def test_connection_send_request_nonconforming_result_raises_validation_error():
     conn = Connection(StubOutbound(result={"bogus": 1}), has_standalone_channel=True)
     with pytest.raises(ValidationError):
-        await conn.send_request(ListRootsRequest())
+        await conn.send_request(ListRootsRequest())  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio
@@ -152,7 +152,7 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
     `ValidationError` even when the caller's `result_type` would accept it."""
     conn = Connection(StubOutbound(result={"roots": "nope"}), has_standalone_channel=True)
     with pytest.raises(ValidationError):
-        await conn.send_request(ListRootsRequest(), result_type=EmptyResult)
+        await conn.send_request(ListRootsRequest(), result_type=EmptyResult)  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio
@@ -160,8 +160,8 @@ async def test_send_request_passes_a_spec_valid_client_result():
     """A spec-valid client result passes the surface gate and parses to the typed model."""
     conn = Connection(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}), has_standalone_channel=True)
     conn.protocol_version = "2025-11-25"
-    result = await conn.send_request(ListRootsRequest())
-    assert isinstance(result, ListRootsResult)
+    result = await conn.send_request(ListRootsRequest())  # pyright: ignore[reportDeprecated]
+    assert isinstance(result, ListRootsResult)  # pyright: ignore[reportDeprecated]
     assert str(result.roots[0].uri) == "file:///ws"
 
 

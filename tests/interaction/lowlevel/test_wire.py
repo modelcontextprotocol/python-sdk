@@ -33,7 +33,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    ListRootsResult,
+    ListRootsResult,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 from tests.interaction._helpers import RecordingTransport, _RecordingReadStream
@@ -89,7 +89,7 @@ async def test_notifications_are_never_answered() -> None:
     the id of the request it answers, and nothing else.
     """
 
-    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
         """Registered so the client declares the roots capability; the server never asks for roots."""
         raise NotImplementedError
 
@@ -257,7 +257,7 @@ async def test_set_level_with_an_unrecognized_value_is_answered_with_invalid_par
     against a real Server. Reserve this pattern for behaviour the typed API cannot produce.
     """
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered so the logging capability is advertised; never called -- params validation fails first."""
         raise NotImplementedError
 

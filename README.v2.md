@@ -45,7 +45,6 @@
       - [Context Properties and Methods](#context-properties-and-methods)
     - [Completions](#completions)
     - [Elicitation](#elicitation)
-    - [Sampling](#sampling)
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
     - [MCPServer Properties](#mcpserver-properties)
@@ -930,42 +929,6 @@ The `elicit()` method returns an `ElicitationResult` with:
 - `data`: The validated response (only when accepted)
 
 If the client returns data that doesn't match the schema, `elicit()` raises a `pydantic.ValidationError`.
-
-### Sampling
-
-Tools can interact with LLMs through sampling (generating text):
-
-<!-- snippet-source examples/snippets/servers/sampling.py -->
-```python
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import SamplingMessage, TextContent
-
-mcp = MCPServer(name="Sampling Example")
-
-
-@mcp.tool()
-async def generate_poem(topic: str, ctx: Context) -> str:
-    """Generate a poem using LLM sampling."""
-    prompt = f"Write a short poem about {topic}"
-
-    result = await ctx.session.create_message(
-        messages=[
-            SamplingMessage(
-                role="user",
-                content=TextContent(type="text", text=prompt),
-            )
-        ],
-        max_tokens=100,
-    )
-
-    # Since we're not passing tools param, result.content is single content
-    if result.content.type == "text":
-        return result.content.text
-    return str(result.content)
-```
-
-_Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
-<!-- /snippet-source -->
 
 ### Logging and Notifications
 
@@ -2108,7 +2071,6 @@ import asyncio
 import os
 
 from mcp import ClientSession, StdioServerParameters, types
-from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
 
 # Create server parameters for stdio connection
@@ -2119,25 +2081,9 @@ server_params = StdioServerParameters(
 )
 
 
-# Optional: create a sampling callback
-async def handle_sampling_message(
-    context: ClientRequestContext, params: types.CreateMessageRequestParams
-) -> types.CreateMessageResult:
-    print(f"Sampling request: {params.messages}")
-    return types.CreateMessageResult(
-        role="assistant",
-        content=types.TextContent(
-            type="text",
-            text="Hello, world! from model",
-        ),
-        model="gpt-3.5-turbo",
-        stop_reason="endTurn",
-    )
-
-
 async def run():
     async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write, sampling_callback=handle_sampling_message) as session:
+        async with ClientSession(read, write) as session:
             # Initialize the connection
             await session.initialize()
 

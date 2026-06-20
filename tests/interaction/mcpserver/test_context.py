@@ -16,8 +16,8 @@ from mcp.types import (
     ElicitResult,
     ErrorData,
     Implementation,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 from tests.interaction._connect import Connect
@@ -36,7 +36,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
     of them carry a logger name unless one is passed explicitly. The server emits these without
     advertising the logging capability (see the divergence note on logging:capability).
     """
-    received: list[LoggingMessageNotificationParams] = []
+    received: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
     mcp = MCPServer("chatty")
 
     @mcp.tool()
@@ -47,7 +47,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
         await ctx.error("e")
         return "done"
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params)
 
     async with connect(mcp, logging_callback=collect) as client:
@@ -57,10 +57,10 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
     assert received == snapshot(
         [
-            LoggingMessageNotificationParams(level="debug", data="d"),
-            LoggingMessageNotificationParams(level="info", data="i"),
-            LoggingMessageNotificationParams(level="warning", data="w"),
-            LoggingMessageNotificationParams(level="error", data="e"),
+            LoggingMessageNotificationParams(level="debug", data="d"),  # pyright: ignore[reportDeprecated]
+            LoggingMessageNotificationParams(level="info", data="i"),  # pyright: ignore[reportDeprecated]
+            LoggingMessageNotificationParams(level="warning", data="w"),  # pyright: ignore[reportDeprecated]
+            LoggingMessageNotificationParams(level="error", data="e"),  # pyright: ignore[reportDeprecated]
         ]
     )
     # The spec requires servers that emit log notifications to declare the logging capability.
@@ -149,7 +149,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
         CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
     )
     assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="milling done"))]
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="milling done"))]  # pyright: ignore[reportDeprecated]
     )
 
 
@@ -245,7 +245,7 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
     should only send messages at or above the configured level; with no way to configure one,
     everything is sent.
     """
-    received: list[LoggingMessageNotificationParams] = []
+    received: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
     mcp = MCPServer("unfilterable")
 
     @mcp.tool()
@@ -254,7 +254,7 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
         await ctx.error("signal")
         return "done"
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params)
 
     async with connect(mcp, logging_callback=collect) as client:
@@ -268,7 +268,7 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
     )
     assert received == snapshot(
         [
-            LoggingMessageNotificationParams(level="debug", data="noise"),
-            LoggingMessageNotificationParams(level="error", data="signal"),
+            LoggingMessageNotificationParams(level="debug", data="noise"),  # pyright: ignore[reportDeprecated]
+            LoggingMessageNotificationParams(level="error", data="signal"),  # pyright: ignore[reportDeprecated]
         ]
     )

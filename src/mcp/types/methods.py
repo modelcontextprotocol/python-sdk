@@ -341,7 +341,7 @@ MONOLITH_REQUESTS: Final[Mapping[str, type[types.Request[Any, Any]]]] = MappingP
         "completion/complete": types.CompleteRequest,
         "elicitation/create": types.ElicitRequest,
         "initialize": types.InitializeRequest,
-        "logging/setLevel": types.SetLevelRequest,
+        "logging/setLevel": types.SetLevelRequest,  # pyright: ignore[reportDeprecated]
         "ping": types.PingRequest,
         "prompts/get": types.GetPromptRequest,
         "prompts/list": types.ListPromptsRequest,
@@ -350,8 +350,8 @@ MONOLITH_REQUESTS: Final[Mapping[str, type[types.Request[Any, Any]]]] = MappingP
         "resources/subscribe": types.SubscribeRequest,
         "resources/templates/list": types.ListResourceTemplatesRequest,
         "resources/unsubscribe": types.UnsubscribeRequest,
-        "roots/list": types.ListRootsRequest,
-        "sampling/createMessage": types.CreateMessageRequest,
+        "roots/list": types.ListRootsRequest,  # pyright: ignore[reportDeprecated]
+        "sampling/createMessage": types.CreateMessageRequest,  # pyright: ignore[reportDeprecated]
         "server/discover": types.DiscoverRequest,
         "subscriptions/listen": types.SubscriptionsListenRequest,
         "tools/call": types.CallToolRequest,
@@ -365,12 +365,12 @@ MONOLITH_NOTIFICATIONS: Final[Mapping[str, type[types.Notification[Any, Any]]]] 
         "notifications/cancelled": types.CancelledNotification,
         "notifications/elicitation/complete": types.ElicitCompleteNotification,
         "notifications/initialized": types.InitializedNotification,
-        "notifications/message": types.LoggingMessageNotification,
+        "notifications/message": types.LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
         "notifications/progress": types.ProgressNotification,
         "notifications/prompts/list_changed": types.PromptListChangedNotification,
         "notifications/resources/list_changed": types.ResourceListChangedNotification,
         "notifications/resources/updated": types.ResourceUpdatedNotification,
-        "notifications/roots/list_changed": types.RootsListChangedNotification,
+        "notifications/roots/list_changed": types.RootsListChangedNotification,  # pyright: ignore[reportDeprecated]
         "notifications/subscriptions/acknowledged": types.SubscriptionsAcknowledgedNotification,
         "notifications/tools/list_changed": types.ToolListChangedNotification,
     }
@@ -391,10 +391,10 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
         "resources/subscribe": types.EmptyResult,
         "resources/templates/list": types.ListResourceTemplatesResult,
         "resources/unsubscribe": types.EmptyResult,
-        "roots/list": types.ListRootsResult,
+        "roots/list": types.ListRootsResult,  # pyright: ignore[reportDeprecated]
         # Arm order load-bearing: a single-block body satisfies both arms and
         # smart-union ties resolve leftmost. Pinned by tests/types/test_methods.py.
-        "sampling/createMessage": types.CreateMessageResult | types.CreateMessageResultWithTools,
+        "sampling/createMessage": types.CreateMessageResult | types.CreateMessageResultWithTools,  # pyright: ignore[reportDeprecated]
         "server/discover": types.DiscoverResult,
         "subscriptions/listen": types.EmptyResult,
         "tools/call": types.CallToolResult | types.InputRequiredResult,

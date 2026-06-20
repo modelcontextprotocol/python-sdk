@@ -168,7 +168,7 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
             )
         return CallToolResult(content=[TextContent(text="contents")])
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 

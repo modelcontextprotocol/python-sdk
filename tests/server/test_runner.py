@@ -44,7 +44,7 @@ from mcp.types import (
     ProgressNotificationParams,
     RequestParams,
     RequestParamsMeta,
-    SetLevelRequestParams,
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
     Tool,
 )
 
@@ -446,10 +446,10 @@ async def test_runner_on_notify_handler_exception_is_swallowed_and_logged(
 async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pytest.LogCaptureFixture):
     """Malformed notification params are logged and dropped, not raised."""
 
-    async def on_level(ctx: Ctx, params: SetLevelRequestParams) -> None:
+    async def on_level(ctx: Ctx, params: SetLevelRequestParams) -> None:  # pyright: ignore[reportDeprecated]
         raise NotImplementedError
 
-    server.add_notification_handler("notifications/roots/list_changed", SetLevelRequestParams, on_level)
+    server.add_notification_handler("notifications/roots/list_changed", SetLevelRequestParams, on_level)  # pyright: ignore[reportDeprecated]
     async with connected_runner(server) as (client, _):
         await client.notify("notifications/roots/list_changed", {"level": "not-a-level"})
         result = await client.send_raw_request("tools/list", None)
@@ -756,10 +756,10 @@ async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_handler_returning_none_yields_empty_result(server: SrvT):
-    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> None:
+    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> None:  # pyright: ignore[reportDeprecated]
         return None
 
-    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)
+    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)  # pyright: ignore[reportDeprecated]
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("logging/setLevel", {"level": "info"})
     assert result == {}
@@ -770,10 +770,10 @@ async def test_runner_handler_returning_error_data_produces_jsonrpc_error(server
     """A handler returning `ErrorData` reaches the client as a JSON-RPC error,
     not a success result, matching `BaseSession._send_response`."""
 
-    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:
+    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:  # pyright: ignore[reportDeprecated]
         return ErrorData(code=INVALID_PARAMS, message="bad level", data={"got": params.level})
 
-    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)
+    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)  # pyright: ignore[reportDeprecated]
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("logging/setLevel", {"level": "info"})
@@ -794,11 +794,11 @@ async def test_runner_server_middleware_observes_handler_error_data_as_mcp_error
             seen.append(e)
             raise
 
-    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:
+    async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:  # pyright: ignore[reportDeprecated]
         return ErrorData(code=INVALID_PARAMS, message="bad level")
 
     server.middleware.append(observe)
-    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)
+    server.add_request_handler("logging/setLevel", SetLevelRequestParams, set_level)  # pyright: ignore[reportDeprecated]
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("logging/setLevel", {"level": "info"})

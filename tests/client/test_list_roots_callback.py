@@ -4,23 +4,23 @@ from pydantic import FileUrl
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import ListRootsResult, Root, TextContent
+from mcp.types import ListRootsResult, Root, TextContent  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio
 async def test_list_roots_callback():
     server = MCPServer("test")
 
-    callback_return = ListRootsResult(
+    callback_return = ListRootsResult(  # pyright: ignore[reportDeprecated]
         roots=[
-            Root(uri=FileUrl("file://users/fake/test"), name="Test Root 1"),
-            Root(uri=FileUrl("file://users/fake/test/2"), name="Test Root 2"),
+            Root(uri=FileUrl("file://users/fake/test"), name="Test Root 1"),  # pyright: ignore[reportDeprecated]
+            Root(uri=FileUrl("file://users/fake/test/2"), name="Test Root 2"),  # pyright: ignore[reportDeprecated]
         ]
     )
 
     async def list_roots_callback(
         context: ClientRequestContext,
-    ) -> ListRootsResult:
+    ) -> ListRootsResult:  # pyright: ignore[reportDeprecated]
         return callback_return
 
     @server.tool("test_list_roots")

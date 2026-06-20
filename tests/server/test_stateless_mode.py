@@ -51,7 +51,7 @@ async def test_create_message_fails_in_stateless_mode(stateless_session: ServerS
     with pytest.raises(StatelessModeNotSupported, match="sampling"):
         await stateless_session.create_message(
             messages=[
-                types.SamplingMessage(
+                types.SamplingMessage(  # pyright: ignore[reportDeprecated]
                     role="user",
                     content=types.TextContent(type="text", text="hello"),
                 )
@@ -131,10 +131,10 @@ async def test_stateful_mode_does_not_raise_stateless_error(
     """
     send_request_called = False
 
-    async def mock_send_request(*_: Any, **__: Any) -> types.ListRootsResult:
+    async def mock_send_request(*_: Any, **__: Any) -> types.ListRootsResult:  # pyright: ignore[reportDeprecated]
         nonlocal send_request_called
         send_request_called = True
-        return types.ListRootsResult(roots=[])
+        return types.ListRootsResult(roots=[])  # pyright: ignore[reportDeprecated]
 
     monkeypatch.setattr(stateful_session, "send_request", mock_send_request)
 
@@ -142,7 +142,7 @@ async def test_stateful_mode_does_not_raise_stateless_error(
     result = await stateful_session.list_roots()
 
     assert send_request_called
-    assert isinstance(result, types.ListRootsResult)
+    assert isinstance(result, types.ListRootsResult)  # pyright: ignore[reportDeprecated]
 
 
 @pytest.mark.anyio

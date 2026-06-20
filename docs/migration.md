@@ -1199,7 +1199,13 @@ Tasks are expected to return as a separate MCP extension in a future release.
 
 ## Deprecations
 
-<!-- Add deprecations below -->
+### Roots, Sampling, and Logging deprecated (SEP-2577)
+
+[SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) deprecates the Roots, Sampling, and Logging features as of the 2026-07-28 spec. This is advisory only: there are no wire-level changes, capability negotiation is unchanged, and every type remains fully functional for sessions negotiating 2025-11-25 and earlier.
+
+The deprecated capability fields (`ClientCapabilities.roots`, `ClientCapabilities.sampling`, `ClientCapabilities.tasks.requests.sampling`, `ServerCapabilities.logging`) and the associated types (`Root`, `ListRootsRequest`, `ListRootsResult`, `RootsListChangedNotification`, `CreateMessageRequest`/`Params`/`Result`, `SamplingMessage`, `ToolChoice`, `ToolUseContent`, `ToolResultContent`, `ModelPreferences`, `ModelHint`, `SetLevelRequest`/`Params`, `LoggingMessageNotification`/`Params`) are marked with `typing_extensions.deprecated`. Type checkers and IDEs surface a deprecation warning where downstream code uses them; at runtime, accessing a deprecated capability field or constructing a deprecated type emits a `DeprecationWarning`.
+
+No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
 
 ## Bug Fixes
 

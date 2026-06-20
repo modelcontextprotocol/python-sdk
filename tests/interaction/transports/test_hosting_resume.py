@@ -29,7 +29,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     TextContent,
     jsonrpc_message_adapter,
 )
@@ -270,7 +270,7 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
         done.set()
         return "resumed"
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params.data)
         if params.data == "before close":
             before_seen.set()
@@ -331,7 +331,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
         if len(captured) >= 2:
             token_seen.set()
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params.data)
         first_seen.set()
 

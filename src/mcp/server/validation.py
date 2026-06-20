@@ -4,7 +4,13 @@ This module provides validation logic for sampling and elicitation requests.
 """
 
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
+from mcp.types import (
+    INVALID_PARAMS,
+    ClientCapabilities,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
+    Tool,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
+)
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:
@@ -28,7 +34,7 @@ def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> b
 def validate_sampling_tools(
     client_caps: ClientCapabilities | None,
     tools: list[Tool] | None,
-    tool_choice: ToolChoice | None,
+    tool_choice: ToolChoice | None,  # pyright: ignore[reportDeprecated]
 ) -> None:
     """Validate that the client supports sampling tools if tools are being used.
 
@@ -45,7 +51,7 @@ def validate_sampling_tools(
             raise MCPError(code=INVALID_PARAMS, message="Client does not support sampling tools capability")
 
 
-def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
+def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:  # pyright: ignore[reportDeprecated]
     """Validate tool_use/tool_result message structure per SEP-1577.
 
     This validation ensures:

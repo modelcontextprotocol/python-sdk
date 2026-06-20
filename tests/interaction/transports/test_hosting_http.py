@@ -27,7 +27,7 @@ from mcp.types import (
     ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
-    SetLevelRequestParams,
+    SetLevelRequestParams,  # pyright: ignore[reportDeprecated]
     SubscribeRequestParams,
     TextContent,
 )
@@ -56,7 +56,7 @@ def _server() -> Server:
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="done")])
 
-    async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 

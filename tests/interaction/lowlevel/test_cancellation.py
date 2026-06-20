@@ -163,8 +163,9 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
     callback_cancelled = anyio.Event()
 
     async def sampling_callback(
-        context: ClientRequestContext, params: types.CreateMessageRequestParams
-    ) -> types.CreateMessageResult:
+        context: ClientRequestContext,
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
         callback_started.set()
         try:
             await anyio.Event().wait()  # blocks until the cancellation interrupts it
@@ -180,16 +181,16 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "impatient"
-        request = types.CreateMessageRequest(
-            params=types.CreateMessageRequestParams(
-                messages=[types.SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+        request = types.CreateMessageRequest(  # pyright: ignore[reportDeprecated]
+            params=types.CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
+                messages=[types.SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=8,
             )
         )
         async with anyio.create_task_group() as abandon_scope:
 
             async def sample() -> None:
-                await ctx.session.send_request(request, types.CreateMessageResult)
+                await ctx.session.send_request(request, types.CreateMessageResult)  # pyright: ignore[reportDeprecated]
                 raise NotImplementedError  # unreachable: the scope is cancelled
 
             abandon_scope.start_soon(sample)

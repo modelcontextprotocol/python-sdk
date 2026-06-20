@@ -19,8 +19,8 @@ from mcp.types import (
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
     TextContent,
@@ -133,8 +133,8 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
     )
     # The related log notification rides the call's stream; the unrelated resource-updated
     # notification rides the standalone stream. Both arrive, nothing else does.
-    assert [message for message in received if isinstance(message, LoggingMessageNotification)] == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="about to announce"))]
+    assert [message for message in received if isinstance(message, LoggingMessageNotification)] == snapshot(  # pyright: ignore[reportDeprecated]
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="about to announce"))]  # pyright: ignore[reportDeprecated]
     )
     assert [message for message in received if isinstance(message, ResourceUpdatedNotification)] == snapshot(
         [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]

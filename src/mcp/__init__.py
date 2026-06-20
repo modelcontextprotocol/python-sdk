@@ -12,8 +12,8 @@ from .types import (
     ClientRequest,
     ClientResult,
     CompleteRequest,
-    CreateMessageRequest,
-    CreateMessageResult,
+    CreateMessageRequest,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     ErrorData,
     GetPromptRequest,
@@ -32,7 +32,7 @@ from .types import (
     ListResourcesResult,
     ListToolsResult,
     LoggingLevel,
-    LoggingMessageNotification,
+    LoggingMessageNotification,  # pyright: ignore[reportDeprecated]
     Notification,
     PingRequest,
     ProgressNotification,
@@ -46,21 +46,21 @@ from .types import (
     SamplingCapability,
     SamplingContent,
     SamplingContextCapability,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     SamplingMessageContentBlock,
     SamplingToolsCapability,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
     ServerResult,
-    SetLevelRequest,
+    SetLevelRequest,  # pyright: ignore[reportDeprecated]
     StopReason,
     SubscribeRequest,
     Tool,
-    ToolChoice,
-    ToolResultContent,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
+    ToolResultContent,  # pyright: ignore[reportDeprecated]
     ToolsCapability,
-    ToolUseContent,
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
     UnsubscribeRequest,
 )
 from .types import Role as SamplingRole

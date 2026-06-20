@@ -4,12 +4,12 @@ from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import (
-    CreateMessageRequestParams,
-    CreateMessageResult,
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     TextContent,
-    ToolUseContent,
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
 )
 
 
@@ -17,7 +17,7 @@ from mcp.types import (
 async def test_sampling_callback():
     server = MCPServer("test")
 
-    callback_return = CreateMessageResult(
+    callback_return = CreateMessageResult(  # pyright: ignore[reportDeprecated]
         role="assistant",
         content=TextContent(type="text", text="This is a response from the sampling callback"),
         model="test-model",
@@ -26,14 +26,14 @@ async def test_sampling_callback():
 
     async def sampling_callback(
         context: ClientRequestContext,
-        params: CreateMessageRequestParams,
-    ) -> CreateMessageResult:
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         return callback_return
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str, ctx: Context) -> bool:
         value = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         assert value == callback_return
@@ -62,7 +62,7 @@ async def test_create_message_backwards_compat_single_content():
     server = MCPServer("test")
 
     # Callback returns single content (text)
-    callback_return = CreateMessageResult(
+    callback_return = CreateMessageResult(  # pyright: ignore[reportDeprecated]
         role="assistant",
         content=TextContent(type="text", text="Hello from LLM"),
         model="test-model",
@@ -71,19 +71,19 @@ async def test_create_message_backwards_compat_single_content():
 
     async def sampling_callback(
         context: ClientRequestContext,
-        params: CreateMessageRequestParams,
-    ) -> CreateMessageResult:
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         return callback_return
 
     @server.tool("test_backwards_compat")
     async def test_tool(message: str, ctx: Context) -> bool:
         # Call create_message WITHOUT tools
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         # Backwards compat: result should be CreateMessageResult
-        assert isinstance(result, CreateMessageResult)
+        assert isinstance(result, CreateMessageResult)  # pyright: ignore[reportDeprecated]
         # Content should be single (not a list) - this is the key backwards compat check
         assert isinstance(result.content, TextContent)
         assert result.content.text == "Hello from LLM"
@@ -104,7 +104,7 @@ async def test_create_message_result_with_tools_type():
     # Test the type itself, not the overload (overload requires client capability setup)
     result = CreateMessageResultWithTools(
         role="assistant",
-        content=ToolUseContent(type="tool_use", id="call_123", name="get_weather", input={"city": "SF"}),
+        content=ToolUseContent(type="tool_use", id="call_123", name="get_weather", input={"city": "SF"}),  # pyright: ignore[reportDeprecated]
         model="test-model",
         stop_reason="toolUse",
     )
@@ -119,7 +119,7 @@ async def test_create_message_result_with_tools_type():
         role="assistant",
         content=[
             TextContent(type="text", text="Let me check the weather"),
-            ToolUseContent(type="tool_use", id="call_456", name="get_weather", input={"city": "NYC"}),
+            ToolUseContent(type="tool_use", id="call_456", name="get_weather", input={"city": "NYC"}),  # pyright: ignore[reportDeprecated]
         ],
         model="test-model",
         stop_reason="toolUse",

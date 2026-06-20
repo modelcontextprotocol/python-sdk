@@ -16,7 +16,7 @@ from starlette.routing import Route
 from mcp import ClientSession, MCPError, types
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import RequestResponder
-from mcp.types import RootsListChangedNotification
+from mcp.types import RootsListChangedNotification  # pyright: ignore[reportDeprecated]
 
 pytestmark = pytest.mark.anyio
 
@@ -94,7 +94,7 @@ async def test_non_compliant_notification_response() -> None:
                 await session.initialize()
 
                 # The test server returns a 204 instead of the expected 202
-                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
+                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))  # pyright: ignore[reportDeprecated]
 
     if returned_exception:  # pragma: no cover
         pytest.fail(f"Server encountered an exception: {returned_exception}")
@@ -165,7 +165,7 @@ async def test_http_error_on_notification_does_not_hang() -> None:
                 await session.initialize()
 
                 # Should not raise or hang — the error is silently ignored for notifications
-                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
+                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))  # pyright: ignore[reportDeprecated]
 
 
 def _create_invalid_json_response_app() -> Starlette:

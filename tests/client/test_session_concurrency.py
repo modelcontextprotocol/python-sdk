@@ -9,9 +9,9 @@ from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import (
     CallToolResult,
-    CreateMessageRequestParams,
-    CreateMessageResult,
-    SamplingMessage,
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 
@@ -96,7 +96,7 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
 
         async def sample(tag: str) -> None:
             result = await ctx.session.create_message(
-                messages=[SamplingMessage(role="user", content=TextContent(text=tag))],
+                messages=[SamplingMessage(role="user", content=TextContent(text=tag))],  # pyright: ignore[reportDeprecated]
                 max_tokens=10,
             )
             assert isinstance(result.content, TextContent)
@@ -108,13 +108,14 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
         return f"{echoes['x']} {echoes['y']}"
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         content = params.messages[0].content
         assert isinstance(content, TextContent)
         sampling_started[content.text].set()
         await sampling_release.wait()
-        return CreateMessageResult(
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=TextContent(text=f"echo:{content.text}"),
             model="test-model",

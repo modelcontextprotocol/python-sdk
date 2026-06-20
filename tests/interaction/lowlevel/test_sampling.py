@@ -15,18 +15,18 @@ from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     AudioContent,
     CallToolResult,
-    CreateMessageRequestParams,
-    CreateMessageResult,
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     ErrorData,
     ImageContent,
-    ModelHint,
-    ModelPreferences,
+    ModelHint,  # pyright: ignore[reportDeprecated]
+    ModelPreferences,  # pyright: ignore[reportDeprecated]
     SamplingCapability,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     TextContent,
-    ToolResultContent,
-    ToolUseContent,
+    ToolResultContent,  # pyright: ignore[reportDeprecated]
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
 )
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
@@ -40,7 +40,7 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     """A handler's sampling request is answered by the client callback, and the callback's result
     (role, content, model, stop reason) is returned to the handler.
     """
-    received: list[CreateMessageRequestParams] = []
+    received: list[CreateMessageRequestParams] = []  # pyright: ignore[reportDeprecated]
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -50,7 +50,7 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+            messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
@@ -59,10 +59,11 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         received.append(params)
-        return CreateMessageResult(
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=TextContent(text="Hello to you too."),
             model="mock-llm-1",
@@ -75,9 +76,9 @@ async def test_create_message_round_trip(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")]))
     assert received == snapshot(
         [
-            CreateMessageRequestParams(
+            CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 _meta={},
-                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         ]
@@ -95,7 +96,7 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     include_context="thisServer" reaches the callback regardless: the spec's SHOULD NOT is not
     enforced. See the divergence note on `sampling:context:server-gated-by-capability`.
     """
-    received: list[CreateMessageRequestParams] = []
+    received: list[CreateMessageRequestParams] = []  # pyright: ignore[reportDeprecated]
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -105,14 +106,14 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
+            messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],  # pyright: ignore[reportDeprecated]
             max_tokens=50,
             system_prompt="You are terse.",
             include_context="thisServer",
             temperature=0.7,
             stop_sequences=["\n\n", "END"],
-            model_preferences=ModelPreferences(
-                hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
+            model_preferences=ModelPreferences(  # pyright: ignore[reportDeprecated]
+                hints=[ModelHint(name="claude"), ModelHint(name="gpt")],  # pyright: ignore[reportDeprecated]
                 cost_priority=0.2,
                 speed_priority=0.3,
                 intelligence_priority=0.9,
@@ -124,10 +125,11 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         received.append(params)
-        return CreateMessageResult(role="assistant", content=TextContent(text="ok"), model="mock-llm-1")
+        return CreateMessageResult(role="assistant", content=TextContent(text="ok"), model="mock-llm-1")  # pyright: ignore[reportDeprecated]
 
     async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
@@ -135,11 +137,11 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
     assert received == snapshot(
         [
-            CreateMessageRequestParams(
+            CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 _meta={},
-                messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
-                model_preferences=ModelPreferences(
-                    hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
+                messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],  # pyright: ignore[reportDeprecated]
+                model_preferences=ModelPreferences(  # pyright: ignore[reportDeprecated]
+                    hints=[ModelHint(name="claude"), ModelHint(name="gpt")],  # pyright: ignore[reportDeprecated]
                     cost_priority=0.2,
                     speed_priority=0.3,
                     intelligence_priority=0.9,
@@ -161,7 +163,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     This is the server-to-client direction: the server includes an image in the conversation it
     asks the client to sample from.
     """
-    received: list[CreateMessageRequestParams] = []
+    received: list[CreateMessageRequestParams] = []  # pyright: ignore[reportDeprecated]
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -171,7 +173,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "describe_image"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],
+            messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
@@ -180,12 +182,13 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         received.append(params)
         image = params.messages[0].content
         assert isinstance(image, ImageContent)
-        return CreateMessageResult(
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=TextContent(text=f"described {image.mime_type} ({image.data})"),
             model="mock-vision-1",
@@ -197,9 +200,9 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     assert result == snapshot(CallToolResult(content=[TextContent(text="described image/png (aW1n)")]))
     assert received == snapshot(
         [
-            CreateMessageRequestParams(
+            CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 _meta={},
-                messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],
+                messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         ]
@@ -221,7 +224,7 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "draw"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Draw a cat."))],
+            messages=[SamplingMessage(role="user", content=TextContent(text="Draw a cat."))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         image = result.content
@@ -231,9 +234,10 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
-        return CreateMessageResult(
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=ImageContent(data="Y2F0", mime_type="image/png"),
             model="mock-vision-1",
@@ -262,7 +266,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
         assert params.name == "ask_model"
         try:
             await ctx.session.create_message(
-                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         except MCPError as exc:
@@ -271,7 +275,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
 
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> ErrorData:
+    async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> ErrorData:  # pyright: ignore[reportDeprecated]
         return ErrorData(code=-1, message="User rejected sampling request")
 
     async with connect(server, sampling_callback=sampling_callback) as client:
@@ -293,7 +297,7 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
         assert params.name == "ask_model"
         try:
             await ctx.session.create_message(
-                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+                messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         except MCPError as exc:
@@ -325,7 +329,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
         assert params.name == "ask_model"
         try:
             await ctx.session.create_message(
-                messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],
+                messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
                 tools=[types.Tool(name="get_weather", input_schema={"type": "object"})],
             )
@@ -336,8 +340,9 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         """Declares the plain sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -368,10 +373,10 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
         try:
             await ctx.session.create_message(
                 messages=[
-                    SamplingMessage(
+                    SamplingMessage(  # pyright: ignore[reportDeprecated]
                         role="user",
                         content=[
-                            ToolResultContent(tool_use_id="call-1", content=[TextContent(text="42")]),
+                            ToolResultContent(tool_use_id="call-1", content=[TextContent(text="42")]),  # pyright: ignore[reportDeprecated]
                             TextContent(text="Also, a comment alongside the result."),
                         ],
                     )
@@ -385,8 +390,9 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         """Declares the sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -425,8 +431,9 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         """Registered only so the sampling capability is advertised; never called."""
         raise NotImplementedError
 
@@ -443,7 +450,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     This is the server-to-client direction: the server includes audio in the conversation it asks
     the client to sample from.
     """
-    received: list[CreateMessageRequestParams] = []
+    received: list[CreateMessageRequestParams] = []  # pyright: ignore[reportDeprecated]
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -453,7 +460,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "transcribe"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],
+            messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         assert isinstance(result.content, TextContent)
@@ -462,12 +469,13 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         received.append(params)
         audio = params.messages[0].content
         assert isinstance(audio, AudioContent)
-        return CreateMessageResult(
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=TextContent(text=f"transcribed {audio.mime_type} ({audio.data})"),
             model="mock-audio-1",
@@ -479,9 +487,9 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     assert result == snapshot(CallToolResult(content=[TextContent(text="transcribed audio/wav (c25k)")]))
     assert received == snapshot(
         [
-            CreateMessageRequestParams(
+            CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 _meta={},
-                messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],
+                messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         ]
@@ -503,7 +511,7 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "speak"
         result = await ctx.session.create_message(
-            messages=[SamplingMessage(role="user", content=TextContent(text="Say hello, aloud."))],
+            messages=[SamplingMessage(role="user", content=TextContent(text="Say hello, aloud."))],  # pyright: ignore[reportDeprecated]
             max_tokens=100,
         )
         audio = result.content
@@ -513,9 +521,10 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
-        return CreateMessageResult(
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant",
             content=AudioContent(data="aGVsbG8=", mime_type="audio/wav"),
             model="mock-audio-1",
@@ -530,7 +539,7 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
 @requirement("sampling:message:content-cardinality")
 async def test_create_message_with_list_valued_message_content_reaches_callback(connect: Connect) -> None:
     """A sampling message whose content is a list of blocks arrives at the client callback as a list."""
-    received: list[CreateMessageRequestParams] = []
+    received: list[CreateMessageRequestParams] = []  # pyright: ignore[reportDeprecated]
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -541,7 +550,7 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
         assert params.name == "caption"
         result = await ctx.session.create_message(
             messages=[
-                SamplingMessage(
+                SamplingMessage(  # pyright: ignore[reportDeprecated]
                     role="user",
                     content=[
                         TextContent(text="Caption this image."),
@@ -557,12 +566,13 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         received.append(params)
         content = params.messages[0].content
         assert isinstance(content, list)
-        return CreateMessageResult(
+        return CreateMessageResult(  # pyright: ignore[reportDeprecated]
             role="assistant", content=TextContent(text=f"{len(content)} blocks"), model="mock-llm-1"
         )
 
@@ -572,10 +582,10 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
     assert result == snapshot(CallToolResult(content=[TextContent(text="2 blocks")]))
     assert received == snapshot(
         [
-            CreateMessageRequestParams(
+            CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 _meta={},
                 messages=[
-                    SamplingMessage(
+                    SamplingMessage(  # pyright: ignore[reportDeprecated]
                         role="user",
                         content=[
                             TextContent(text="Caption this image."),
@@ -608,13 +618,13 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
         try:
             await ctx.session.create_message(
                 messages=[
-                    SamplingMessage(
+                    SamplingMessage(  # pyright: ignore[reportDeprecated]
                         role="assistant",
-                        content=[ToolUseContent(id="call-1", name="weather", input={})],
+                        content=[ToolUseContent(id="call-1", name="weather", input={})],  # pyright: ignore[reportDeprecated]
                     ),
-                    SamplingMessage(
+                    SamplingMessage(  # pyright: ignore[reportDeprecated]
                         role="user",
-                        content=[ToolResultContent(tool_use_id="call-WRONG", content=[TextContent(text="42")])],
+                        content=[ToolResultContent(tool_use_id="call-WRONG", content=[TextContent(text="42")])],  # pyright: ignore[reportDeprecated]
                     ),
                 ],
                 max_tokens=100,
@@ -626,8 +636,9 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
-    ) -> CreateMessageResult:
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> CreateMessageResult:  # pyright: ignore[reportDeprecated]
         """Declares the sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
@@ -663,7 +674,7 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
         assert params.name == "ask_model"
         try:
             await ctx.session.create_message(
-                messages=[SamplingMessage(role="user", content=TextContent(text="Two thoughts, please."))],
+                messages=[SamplingMessage(role="user", content=TextContent(text="Two thoughts, please."))],  # pyright: ignore[reportDeprecated]
                 max_tokens=100,
             )
         except pydantic.ValidationError as exc:
@@ -673,7 +684,8 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async def sampling_callback(
-        context: ClientRequestContext, params: CreateMessageRequestParams
+        context: ClientRequestContext,
+        params: CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
     ) -> CreateMessageResultWithTools:
         return CreateMessageResultWithTools(
             role="assistant",

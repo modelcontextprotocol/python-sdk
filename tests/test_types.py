@@ -1,3 +1,4 @@
+import warnings
 from typing import Any
 
 import pytest
@@ -9,8 +10,8 @@ from mcp.types import (
     ClientCapabilities,
     CompleteResult,
     Completion,
-    CreateMessageRequestParams,
-    CreateMessageResult,
+    CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    CreateMessageResult,  # pyright: ignore[reportDeprecated]
     CreateMessageResultWithTools,
     DiscoverResult,
     EmptyResult,
@@ -26,14 +27,15 @@ from mcp.types import (
     ListToolsResult,
     ReadResourceResult,
     Result,
+    RootsCapability,
     SamplingCapability,
-    SamplingMessage,
+    SamplingMessage,  # pyright: ignore[reportDeprecated]
     ServerCapabilities,
     TextContent,
     Tool,
-    ToolChoice,
-    ToolResultContent,
-    ToolUseContent,
+    ToolChoice,  # pyright: ignore[reportDeprecated]
+    ToolResultContent,  # pyright: ignore[reportDeprecated]
+    ToolUseContent,  # pyright: ignore[reportDeprecated]
     client_request_adapter,
     jsonrpc_message_adapter,
 )
@@ -94,7 +96,7 @@ async def test_tool_use_content():
         "input": {"location": "San Francisco", "unit": "celsius"},
     }
 
-    tool_use = ToolUseContent.model_validate(tool_use_data)
+    tool_use = ToolUseContent.model_validate(tool_use_data)  # pyright: ignore[reportDeprecated]
     assert tool_use.type == "tool_use"
     assert tool_use.name == "get_weather"
     assert tool_use.id == "call_abc123"
@@ -116,7 +118,7 @@ async def test_tool_result_content():
         "isError": False,
     }
 
-    tool_result = ToolResultContent.model_validate(tool_result_data)
+    tool_result = ToolResultContent.model_validate(tool_result_data)  # pyright: ignore[reportDeprecated]
     assert tool_result.type == "tool_result"
     assert tool_result.tool_use_id == "call_abc123"
     assert len(tool_result.content) == 1
@@ -124,7 +126,7 @@ async def test_tool_result_content():
 
     # Test with empty content (should default to [])
     minimal_result_data = {"type": "tool_result", "toolUseId": "call_xyz"}
-    minimal_result = ToolResultContent.model_validate(minimal_result_data)
+    minimal_result = ToolResultContent.model_validate(minimal_result_data)  # pyright: ignore[reportDeprecated]
     assert minimal_result.content == []
 
 
@@ -133,18 +135,18 @@ async def test_tool_choice():
     """Test ToolChoice type for SEP-1577."""
     # Test with mode
     tool_choice_data = {"mode": "required"}
-    tool_choice = ToolChoice.model_validate(tool_choice_data)
+    tool_choice = ToolChoice.model_validate(tool_choice_data)  # pyright: ignore[reportDeprecated]
     assert tool_choice.mode == "required"
 
     # Test with minimal data (all fields optional)
-    minimal_choice = ToolChoice.model_validate({})
+    minimal_choice = ToolChoice.model_validate({})  # pyright: ignore[reportDeprecated]
     assert minimal_choice.mode is None
 
     # Test different modes
-    auto_choice = ToolChoice.model_validate({"mode": "auto"})
+    auto_choice = ToolChoice.model_validate({"mode": "auto"})  # pyright: ignore[reportDeprecated]
     assert auto_choice.mode == "auto"
 
-    none_choice = ToolChoice.model_validate({"mode": "none"})
+    none_choice = ToolChoice.model_validate({"mode": "none"})  # pyright: ignore[reportDeprecated]
     assert none_choice.mode == "none"
 
 
@@ -153,7 +155,7 @@ async def test_sampling_message_with_user_role():
     """Test SamplingMessage with user role for SEP-1577."""
     # Test with single content
     user_msg_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
-    user_msg = SamplingMessage.model_validate(user_msg_data)
+    user_msg = SamplingMessage.model_validate(user_msg_data)  # pyright: ignore[reportDeprecated]
     assert user_msg.role == "user"
     assert isinstance(user_msg.content, TextContent)
 
@@ -165,7 +167,7 @@ async def test_sampling_message_with_user_role():
             {"type": "tool_result", "toolUseId": "call_123", "content": []},
         ],
     }
-    multi_msg = SamplingMessage.model_validate(multi_content_data)
+    multi_msg = SamplingMessage.model_validate(multi_content_data)  # pyright: ignore[reportDeprecated]
     assert multi_msg.role == "user"
     assert isinstance(multi_msg.content, list)
     assert len(multi_msg.content) == 2
@@ -184,9 +186,9 @@ async def test_sampling_message_with_assistant_role():
             "input": {"query": "MCP protocol"},
         },
     }
-    assistant_msg = SamplingMessage.model_validate(assistant_msg_data)
+    assistant_msg = SamplingMessage.model_validate(assistant_msg_data)  # pyright: ignore[reportDeprecated]
     assert assistant_msg.role == "assistant"
-    assert isinstance(assistant_msg.content, ToolUseContent)
+    assert isinstance(assistant_msg.content, ToolUseContent)  # pyright: ignore[reportDeprecated]
 
     # Test with array of mixed content
     multi_content_data: dict[str, Any] = {
@@ -196,7 +198,7 @@ async def test_sampling_message_with_assistant_role():
             {"type": "tool_use", "name": "search", "id": "call_789", "input": {}},
         ],
     }
-    multi_msg = SamplingMessage.model_validate(multi_content_data)
+    multi_msg = SamplingMessage.model_validate(multi_content_data)  # pyright: ignore[reportDeprecated]
     assert isinstance(multi_msg.content, list)
     assert len(multi_msg.content) == 2
 
@@ -206,7 +208,7 @@ async def test_sampling_message_backward_compatibility():
     """Test that SamplingMessage maintains backward compatibility."""
     # Old-style message (single content, no tools)
     old_style_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
-    old_msg = SamplingMessage.model_validate(old_style_data)
+    old_msg = SamplingMessage.model_validate(old_style_data)  # pyright: ignore[reportDeprecated]
     assert old_msg.role == "user"
     assert isinstance(old_msg.content, TextContent)
 
@@ -215,16 +217,16 @@ async def test_sampling_message_backward_compatibility():
         "role": "assistant",
         "content": {"type": "tool_use", "name": "test", "id": "call_1", "input": {}},
     }
-    new_msg = SamplingMessage.model_validate(new_style_data)
+    new_msg = SamplingMessage.model_validate(new_style_data)  # pyright: ignore[reportDeprecated]
     assert new_msg.role == "assistant"
-    assert isinstance(new_msg.content, ToolUseContent)
+    assert isinstance(new_msg.content, ToolUseContent)  # pyright: ignore[reportDeprecated]
 
     # Array content
     array_style_data: dict[str, Any] = {
         "role": "user",
         "content": [{"type": "text", "text": "Result:"}, {"type": "tool_result", "toolUseId": "call_1", "content": []}],
     }
-    array_msg = SamplingMessage.model_validate(array_style_data)
+    array_msg = SamplingMessage.model_validate(array_style_data)  # pyright: ignore[reportDeprecated]
     assert isinstance(array_msg.content, list)
 
 
@@ -237,11 +239,11 @@ async def test_create_message_request_params_with_tools():
         input_schema={"type": "object", "properties": {"location": {"type": "string"}}},
     )
 
-    params = CreateMessageRequestParams(
-        messages=[SamplingMessage(role="user", content=TextContent(type="text", text="What's the weather?"))],
+    params = CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
+        messages=[SamplingMessage(role="user", content=TextContent(type="text", text="What's the weather?"))],  # pyright: ignore[reportDeprecated]
         max_tokens=1000,
         tools=[tool],
-        tool_choice=ToolChoice(mode="auto"),
+        tool_choice=ToolChoice(mode="auto"),  # pyright: ignore[reportDeprecated]
     )
 
     assert params.tools is not None
@@ -264,7 +266,7 @@ async def test_create_message_result_with_tool_use():
     # Tool use content uses CreateMessageResultWithTools
     result = CreateMessageResultWithTools.model_validate(result_data)
     assert result.role == "assistant"
-    assert isinstance(result.content, ToolUseContent)
+    assert isinstance(result.content, ToolUseContent)  # pyright: ignore[reportDeprecated]
     assert result.stop_reason == "toolUse"
     assert result.model == "claude-3"
 
@@ -285,7 +287,7 @@ async def test_create_message_result_basic():
     }
 
     # Basic content uses CreateMessageResult (single content, no arrays)
-    result = CreateMessageResult.model_validate(result_data)
+    result = CreateMessageResult.model_validate(result_data)  # pyright: ignore[reportDeprecated]
     assert result.role == "assistant"
     assert isinstance(result.content, TextContent)
     assert result.content.text == "Hello!"
@@ -437,3 +439,21 @@ def test_empty_result_dumps_result_type_only_when_explicitly_tagged():
 
 def test_input_required_result_dumps_its_discriminating_tag():
     assert _wire_dump(InputRequiredResult()) == snapshot({"resultType": "input_required"})
+
+
+def test_sep_2577_deprecated_class_warns_on_instantiation():
+    with pytest.warns(DeprecationWarning, match=r"`SamplingMessage` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
+        SamplingMessage(role="user", content=TextContent(type="text", text="hi"))  # pyright: ignore[reportDeprecated]
+
+
+def test_sep_2577_deprecated_capability_field_warns_on_access_not_construction():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        caps = ClientCapabilities(roots=RootsCapability(list_changed=True))
+    with pytest.warns(DeprecationWarning, match=r"`roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
+        _ = caps.roots  # pyright: ignore[reportDeprecated]
+
+
+def test_sep_2577_deprecated_capability_sets_json_schema_flag():
+    assert ClientCapabilities.model_json_schema()["properties"]["roots"]["deprecated"] is True
+    assert ServerCapabilities.model_json_schema()["properties"]["logging"]["deprecated"] is True

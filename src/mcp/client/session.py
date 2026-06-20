@@ -53,8 +53,10 @@ class SamplingFnT(Protocol):
     async def __call__(
         self,
         context: ClientRequestContext,
-        params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
+        params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+    ) -> (
+        types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData  # pyright: ignore[reportDeprecated]
+    ): ...  # pragma: no branch
 
 
 class ElicitationFnT(Protocol):
@@ -68,11 +70,14 @@ class ElicitationFnT(Protocol):
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: ClientRequestContext
-    ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
+    ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch  # pyright: ignore[reportDeprecated]
 
 
 class LoggingFnT(Protocol):
-    async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
+    async def __call__(
+        self,
+        params: types.LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
+    ) -> None: ...  # pragma: no branch
 
 
 class MessageHandlerFnT(Protocol):
@@ -90,8 +95,8 @@ async def _default_message_handler(
 
 async def _default_sampling_callback(
     context: ClientRequestContext,
-    params: types.CreateMessageRequestParams,
-) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
+    params: types.CreateMessageRequestParams,  # pyright: ignore[reportDeprecated]
+) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:  # pyright: ignore[reportDeprecated]
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
@@ -110,7 +115,7 @@ async def _default_elicitation_callback(
 
 async def _default_list_roots_callback(
     context: ClientRequestContext,
-) -> types.ListRootsResult | types.ErrorData:
+) -> types.ListRootsResult | types.ErrorData:  # pyright: ignore[reportDeprecated]
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="List roots not supported",
@@ -118,7 +123,7 @@ async def _default_list_roots_callback(
 
 
 async def _default_logging_callback(
-    params: types.LoggingMessageNotificationParams,
+    params: types.LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
 ) -> None:
     pass
 
@@ -394,7 +399,7 @@ class ClientSession:
     ) -> types.EmptyResult:
         """Send a logging/setLevel request."""
         return await self.send_request(
-            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level, _meta=meta)),
+            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level, _meta=meta)),  # pyright: ignore[reportDeprecated]
             types.EmptyResult,
         )
 
@@ -552,7 +557,7 @@ class ClientSession:
 
     async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
-        await self.send_notification(types.RootsListChangedNotification())
+        await self.send_notification(types.RootsListChangedNotification())  # pyright: ignore[reportDeprecated]
 
     async def _on_request(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
@@ -577,11 +582,11 @@ class ClientSession:
                 session=self, request_id=dctx.request_id, meta=request.params.meta if request.params else None
             )
             match request:
-                case types.CreateMessageRequest(params=sampling_params):
+                case types.CreateMessageRequest(params=sampling_params):  # pyright: ignore[reportDeprecated]
                     response = await self._sampling_callback(ctx, sampling_params)
                 case types.ElicitRequest(params=elicit_params):
                     response = await self._elicitation_callback(ctx, elicit_params)
-                case types.ListRootsRequest():  # pragma: no branch
+                case types.ListRootsRequest():  # pragma: no branch  # pyright: ignore[reportDeprecated]
                     response = await self._list_roots_callback(ctx)
         client_response = ClientResponse.validate_python(response)
         if isinstance(client_response, types.ErrorData):
@@ -612,7 +617,7 @@ class ClientSession:
             # The dispatcher already applied the cancellation; not surfaced to message_handler.
             return
         try:
-            if isinstance(notification, types.LoggingMessageNotification):
+            if isinstance(notification, types.LoggingMessageNotification):  # pyright: ignore[reportDeprecated]
                 await self._logging_callback(notification.params)
             await self._message_handler(notification)
         except Exception:

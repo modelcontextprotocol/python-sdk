@@ -17,7 +17,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    ListRootsRequest,
+    ListRootsRequest,  # pyright: ignore[reportDeprecated]
     ListToolsResult,
     ProgressNotification,
     ProgressNotificationParams,
@@ -78,7 +78,7 @@ def test_empty_result_frame_dumps_an_empty_result_object():
 
 
 def test_input_required_result_frame_carries_the_tag_and_the_embedded_requests():
-    result = InputRequiredResult(input_requests={"r1": ListRootsRequest()}, request_state="s1")
+    result = InputRequiredResult(input_requests={"r1": ListRootsRequest()}, request_state="s1")  # pyright: ignore[reportDeprecated]
     frame = JSONRPCResponse(jsonrpc="2.0", id=4, result=_body(result))
     assert _frame(frame) == snapshot(
         '{"jsonrpc":"2.0","id":4,"result":{"resultType":"input_required","inputRequests":{"r1":{"method":"roots/list"}},"requestState":"s1"}}'

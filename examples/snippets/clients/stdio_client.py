@@ -6,7 +6,6 @@ import asyncio
 import os
 
 from mcp import ClientSession, StdioServerParameters, types
-from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
 
 # Create server parameters for stdio connection
@@ -17,25 +16,9 @@ server_params = StdioServerParameters(
 )
 
 
-# Optional: create a sampling callback
-async def handle_sampling_message(
-    context: ClientRequestContext, params: types.CreateMessageRequestParams
-) -> types.CreateMessageResult:
-    print(f"Sampling request: {params.messages}")
-    return types.CreateMessageResult(
-        role="assistant",
-        content=types.TextContent(
-            type="text",
-            text="Hello, world! from model",
-        ),
-        model="gpt-3.5-turbo",
-        stop_reason="endTurn",
-    )
-
-
 async def run():
     async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write, sampling_callback=handle_sampling_message) as session:
+        async with ClientSession(read, write) as session:
             # Initialize the connection
             await session.initialize()
 

@@ -31,7 +31,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
-    LoggingMessageNotificationParams,
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
     TextContent,
 )
 from mcp.types.jsonrpc import jsonrpc_message_adapter
@@ -66,9 +66,9 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     # child exits promptly. Not under test.
     monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 20.0)
 
-    received: list[LoggingMessageNotificationParams] = []
+    received: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params)
 
     with tempfile.TemporaryFile(mode="w+") as errlog:
@@ -100,7 +100,7 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     # stdio carries one ordered server-to-client stream, so the same notification-before-response
     # guarantee holds here as for the in-memory transport.
     assert received == snapshot(
-        [LoggingMessageNotificationParams(level="info", logger="echo", data="echoing across\nprocesses")]
+        [LoggingMessageNotificationParams(level="info", logger="echo", data="echoing across\nprocesses")]  # pyright: ignore[reportDeprecated]
     )
     # The server writes this line only after its run loop returns on stdin close: seeing it proves
     # a self-exit, not the terminate escalation. The capture itself proves stderr passthrough.

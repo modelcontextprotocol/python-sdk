@@ -135,8 +135,8 @@ class ServerSession:
     ) -> None:
         """Send a log message notification."""
         await self.send_notification(
-            types.LoggingMessageNotification(
-                params=types.LoggingMessageNotificationParams(
+            types.LoggingMessageNotification(  # pyright: ignore[reportDeprecated]
+                params=types.LoggingMessageNotificationParams(  # pyright: ignore[reportDeprecated]
                     level=level,
                     data=data,
                     logger=logger,
@@ -156,7 +156,7 @@ class ServerSession:
     @overload
     async def create_message(
         self,
-        messages: list[types.SamplingMessage],
+        messages: list[types.SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -164,18 +164,18 @@ class ServerSession:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: types.ModelPreferences | None = None,
+        model_preferences: types.ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: None = None,
-        tool_choice: types.ToolChoice | None = None,
+        tool_choice: types.ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         related_request_id: types.RequestId | None = None,
-    ) -> types.CreateMessageResult:
+    ) -> types.CreateMessageResult:  # pyright: ignore[reportDeprecated]
         """Overload: Without tools, returns single content."""
         ...
 
     @overload
     async def create_message(
         self,
-        messages: list[types.SamplingMessage],
+        messages: list[types.SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -183,9 +183,9 @@ class ServerSession:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: types.ModelPreferences | None = None,
+        model_preferences: types.ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: list[types.Tool],
-        tool_choice: types.ToolChoice | None = None,
+        tool_choice: types.ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResultWithTools:
         """Overload: With tools, returns array-capable content."""
@@ -193,7 +193,7 @@ class ServerSession:
 
     async def create_message(
         self,
-        messages: list[types.SamplingMessage],
+        messages: list[types.SamplingMessage],  # pyright: ignore[reportDeprecated]
         *,
         max_tokens: int,
         system_prompt: str | None = None,
@@ -201,11 +201,11 @@ class ServerSession:
         temperature: float | None = None,
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        model_preferences: types.ModelPreferences | None = None,
+        model_preferences: types.ModelPreferences | None = None,  # pyright: ignore[reportDeprecated]
         tools: list[types.Tool] | None = None,
-        tool_choice: types.ToolChoice | None = None,
+        tool_choice: types.ToolChoice | None = None,  # pyright: ignore[reportDeprecated]
         related_request_id: types.RequestId | None = None,
-    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:  # pyright: ignore[reportDeprecated]
         """Send a sampling/create_message request.
 
         Args:
@@ -239,8 +239,8 @@ class ServerSession:
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
-        request = types.CreateMessageRequest(
-            params=types.CreateMessageRequestParams(
+        request = types.CreateMessageRequest(  # pyright: ignore[reportDeprecated]
+            params=types.CreateMessageRequestParams(  # pyright: ignore[reportDeprecated]
                 messages=messages,
                 system_prompt=system_prompt,
                 include_context=include_context,
@@ -263,17 +263,17 @@ class ServerSession:
             )
         return await self.send_request(
             request=request,
-            result_type=types.CreateMessageResult,
+            result_type=types.CreateMessageResult,  # pyright: ignore[reportDeprecated]
             metadata=metadata_obj,
         )
 
-    async def list_roots(self) -> types.ListRootsResult:
+    async def list_roots(self) -> types.ListRootsResult:  # pyright: ignore[reportDeprecated]
         """Send a roots/list request."""
         if self._stateless:
             raise StatelessModeNotSupported(method="list_roots")
         return await self.send_request(
-            types.ListRootsRequest(),
-            types.ListRootsResult,
+            types.ListRootsRequest(),  # pyright: ignore[reportDeprecated]
+            types.ListRootsResult,  # pyright: ignore[reportDeprecated]
         )
 
     async def elicit(

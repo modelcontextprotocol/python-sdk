@@ -10,7 +10,12 @@ from inline_snapshot import snapshot
 
 from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
+from mcp.types import (
+    CallToolResult,
+    EmptyResult,
+    LoggingMessageNotificationParams,  # pyright: ignore[reportDeprecated]
+    TextContent,
+)
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -32,7 +37,7 @@ ALL_LEVELS: tuple[types.LoggingLevel, ...] = (
 async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
     """The level requested by the client is delivered to the server's handler verbatim."""
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         assert params.level == "warning"
         return EmptyResult()
 
@@ -52,9 +57,9 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
     The two messages pin the full notification shape: severity, optional logger name, and both
     string and structured data payloads.
     """
-    received: list[LoggingMessageNotificationParams] = []
+    received: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params)
 
     async def list_tools(
@@ -72,7 +77,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
         )
         return CallToolResult(content=[TextContent(text="done")])
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
@@ -84,8 +89,8 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
     assert received == snapshot(
         [
-            LoggingMessageNotificationParams(level="info", logger="app.lifecycle", data="starting up"),
-            LoggingMessageNotificationParams(level="error", data={"code": 502, "retryable": True}),
+            LoggingMessageNotificationParams(level="info", logger="app.lifecycle", data="starting up"),  # pyright: ignore[reportDeprecated]
+            LoggingMessageNotificationParams(level="error", data={"code": 502, "retryable": True}),  # pyright: ignore[reportDeprecated]
         ]
     )
 
@@ -93,9 +98,9 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
 @requirement("logging:message:all-levels")
 async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     """Each of the eight RFC 5424 severity levels is deliverable as a log message notification."""
-    received: list[LoggingMessageNotificationParams] = []
+    received: list[LoggingMessageNotificationParams] = []  # pyright: ignore[reportDeprecated]
 
-    async def collect(params: LoggingMessageNotificationParams) -> None:
+    async def collect(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received.append(params)
 
     async def list_tools(
@@ -111,7 +116,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
             )
         return CallToolResult(content=[TextContent(text="logged")])
 
-    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 

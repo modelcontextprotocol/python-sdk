@@ -12,7 +12,7 @@ from inline_snapshot import snapshot
 
 from mcp.client.session import LoggingFnT
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import CallToolResult, LoggingMessageNotificationParams, TextContent
+from mcp.types import CallToolResult, LoggingMessageNotificationParams, TextContent  # pyright: ignore[reportDeprecated]
 from tests.interaction._connect import client_via_http, connect_over_sse, mounted_app
 from tests.interaction._requirements import requirement
 
@@ -38,10 +38,10 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
     received_a: list[object] = []
     received_b: list[object] = []
 
-    async def collect_a(params: LoggingMessageNotificationParams) -> None:
+    async def collect_a(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received_a.append(params.data)
 
-    async def collect_b(params: LoggingMessageNotificationParams) -> None:
+    async def collect_b(params: LoggingMessageNotificationParams) -> None:  # pyright: ignore[reportDeprecated]
         received_b.append(params.data)
 
     async with mounted_app(mcp) as (http, _):

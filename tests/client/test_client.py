@@ -60,7 +60,7 @@ def simple_server() -> Server:
     ) -> EmptyResult:
         return EmptyResult()
 
-    async def handle_set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+    async def handle_set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:  # pyright: ignore[reportDeprecated]
         return EmptyResult()
 
     async def handle_completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
