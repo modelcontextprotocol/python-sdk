@@ -164,6 +164,10 @@ class ConformanceOAuthCallbackHandler:
 
 
 @register("initialize")
+# SEP-2106: json-schema-ref-no-deref only requires the client to call tools/list against a
+# server advertising a tool with a network $ref. ClientSession never walks inputSchema or
+# resolves $refs, so plain initialize + list_tools satisfies it; no dedicated handler needed.
+@register("json-schema-ref-no-deref")
 async def run_initialize(server_url: str) -> None:
     """Connect, initialize, list tools, close."""
     async with streamable_http_client(url=server_url) as (read_stream, write_stream):
@@ -183,16 +187,6 @@ async def run_tools_call(server_url: str) -> None:
             await session.list_tools()
             result = await session.call_tool("add_numbers", {"a": 5, "b": 3})
             logger.debug(f"add_numbers result: {result}")
-
-
-@register("json-schema-ref-no-deref")
-async def run_json_schema_ref_no_deref(server_url: str) -> None:
-    """List tools whose schemas contain a network `$ref`; must not dereference it (SEP-2106)."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            tools_result = await session.list_tools()
-            logger.debug(f"Listed tools without dereferencing network $refs: {[t.name for t in tools_result.tools]}")
 
 
 @register("sse-retry")
