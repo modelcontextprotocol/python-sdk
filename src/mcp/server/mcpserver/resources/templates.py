@@ -135,6 +135,7 @@ class ResourceTemplate(BaseModel):
             )
         except ResourceError:
             raise
-        except Exception as e:
-            logger.exception("Error creating resource from template")
-            raise ResourceError(f"Error creating resource from template: {e}") from e
+        except Exception as exc:
+            logger.exception(f"Error creating resource from template {uri}")
+            # If an exception happens when creating the resource, we should not leak the exception to the client.
+            raise ResourceError(f"Error creating resource from template {uri}") from exc
