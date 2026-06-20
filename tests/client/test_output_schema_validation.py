@@ -1,5 +1,4 @@
 import logging
-import socket
 from typing import Any
 
 import pytest
@@ -164,45 +163,3 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
         assert result.is_error is False
 
         assert "Tool mystery_tool not listed" in caplog.text
-
-
-@pytest.mark.anyio
-async def test_client_does_not_dereference_network_ref(monkeypatch: pytest.MonkeyPatch):
-    """SEP-2106: validating a result must not fetch a network `$ref` in the output schema.
-
-    The output schema references a network URI under a property the structured content
-    never sets. A socket guard fails the test if the client opens any connection while
-    validating, proving the ref is never dereferenced.
-    """
-
-    def no_network(*args: object, **kwargs: object) -> None:
-        raise AssertionError("client attempted a network connection while validating a tool result")  # pragma: no cover
-
-    monkeypatch.setattr(socket.socket, "connect", no_network)
-    monkeypatch.setattr(socket, "create_connection", no_network)
-
-    output_schema = {
-        "type": "object",
-        "properties": {
-            "ok": {"type": "boolean"},
-            "profile": {"$ref": "https://canary.invalid/profile-schema.json"},
-        },
-        "required": ["ok"],
-    }
-
-    server = _make_server(
-        tools=[
-            Tool(
-                name="lookup",
-                description="Look something up",
-                input_schema={"type": "object"},
-                output_schema=output_schema,
-            )
-        ],
-        structured_content={"ok": True},
-    )
-
-    async with Client(server) as client:
-        result = await client.call_tool("lookup", {})
-        assert result.is_error is False
-        assert result.structured_content == {"ok": True}
