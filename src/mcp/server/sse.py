@@ -37,6 +37,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -70,6 +71,10 @@ class SseServerTransport:
         2. handle_post_message() is an ASGI application which receives incoming POST
            requests, which should contain client messages that link to a
            previously-established SSE session.
+
+    Deprecated: this transport will be removed in a future version. The HTTP+SSE
+    transport was superseded by Streamable HTTP in protocol revision 2025-03-26;
+    use the streamable HTTP transport instead.
     """
 
     _endpoint: str
@@ -100,6 +105,13 @@ class SseServerTransport:
         Raises:
             ValueError: If the endpoint is a full URL instead of a relative path
         """
+        warnings.warn(
+            "The SSE server transport is deprecated and will be removed in a future version. The HTTP+SSE transport"
+            " was superseded by Streamable HTTP in protocol revision 2025-03-26; use the streamable HTTP transport"
+            " instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         super().__init__()
 

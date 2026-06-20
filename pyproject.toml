@@ -213,6 +213,12 @@ filterwarnings = [
     "error",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # The SSE transport is intentionally deprecated (see sse_client / SseServerTransport). It is still
+    # exercised across the suite (directly and via the transport-parametrized interaction tests), so the
+    # SDK's own deprecation notice must not be promoted to an error here. tests/shared/test_sse.py asserts
+    # the warning is emitted.
+    "ignore:The SSE client transport is deprecated:DeprecationWarning",
+    "ignore:The SSE server transport is deprecated:DeprecationWarning",
 ]
 
 [tool.markdown.lint]
