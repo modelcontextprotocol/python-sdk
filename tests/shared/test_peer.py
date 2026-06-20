@@ -150,9 +150,12 @@ async def test_peer_list_roots_is_deprecated_sep_2577():
     rec = _Recorder({"roots": []})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
-        with pytest.warns(MCPDeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
-            with anyio.fail_after(5):
+        with anyio.fail_after(5):
+            with pytest.warns(
+                MCPDeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."
+            ):
                 await peer.list_roots()  # pyright: ignore[reportDeprecated]
+        assert rec.seen[0][0] == "roots/list"
 
 
 def test_dump_params_merges_meta_over_model_meta():
