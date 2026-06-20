@@ -51,7 +51,7 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens  # pragma: no cover
+        return self._tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
@@ -2833,3 +2833,103 @@ def test_credentials_match_issuer_url_shaped_dcr_id_is_not_portable():
         issuer="https://as.example.com",
     )
     assert credentials_match_issuer(info, "https://other", "https://client.example/metadata.json") is False
+
+
+@pytest.mark.anyio
+async def test_handle_token_response_backfills_omitted_scope_from_request(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §5.1: an omitted token-response scope means granted == requested.
+
+    The token is stored with the requested scope filled in so it remains self-describing
+    after a restart, when the SEP-2350 step-up union reads it but ``client_metadata.scope``
+    has reverted to its constructor value.
+    """
+    oauth_provider.context.client_metadata.scope = "read admin"
+    response = httpx.Response(
+        200,
+        json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    await oauth_provider._handle_token_response(response)
+
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.scope == "read admin"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read admin"
+
+
+@pytest.mark.anyio
+async def test_handle_refresh_response_carries_prior_scope_when_response_omits_it(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §6: an omitted refresh-response scope means scope is unchanged from the prior token."""
+    oauth_provider.context.current_tokens = OAuthToken(access_token="old", scope="read write")
+    response = httpx.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    ok = await oauth_provider._handle_refresh_response(response)
+
+    assert ok is True
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.access_token == "new"
+    assert oauth_provider.context.current_tokens.scope == "read write"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read write"
+
+
+@pytest.mark.anyio
+async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
+    oauth_provider: OAuthClientProvider,
+):
+    """SEP-2352: on the legacy no-PRM path the binding check uses the ASM-discovered issuer.
+
+    PRM discovery fails (404) so ``auth_server_url`` stays ``None`` and the post-PRM check is
+    skipped; when ASM discovery then succeeds via the root well-known fallback, the discovered
+    metadata's issuer is compared against the stored credentials' bound issuer and a mismatch
+    triggers re-registration.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://old-as.example.com",
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(401, request=request)
+
+    # PRM discovery: path-based then root, both 404.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    # ASM discovery via root fallback (no auth_server_url) succeeds with a different issuer.
+    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    # The stale bound credentials are discarded, so the next yield is a DCR request
+    # rather than the authorize redirect.
+    next_req = await auth_flow.asend(asm_response)
+    assert oauth_provider.context.auth_server_url is None
+    assert next_req.method == "POST"
+    assert str(next_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()

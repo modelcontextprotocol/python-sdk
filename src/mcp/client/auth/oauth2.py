@@ -424,6 +424,13 @@ class OAuthClientProvider(httpx.Auth):
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
 
+        # RFC 6749 §5.1: an omitted scope means the granted scope equals the requested
+        # scope. Record it explicitly so the persisted token is self-describing — the
+        # SEP-2350 step-up union reads it after a restart, when client_metadata.scope
+        # has reverted to its constructor value.
+        if token_response.scope is None:
+            token_response.scope = self.context.client_metadata.scope
+
         # Store tokens in context
         self.context.current_tokens = token_response
         self.context.update_token_expiry(token_response)
@@ -469,6 +476,12 @@ class OAuthClientProvider(httpx.Auth):
         try:
             content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
+
+            # RFC 6749 §6: an omitted scope on refresh means the scope is unchanged from
+            # the prior access token. Carry it forward so the persisted token stays
+            # self-describing for the SEP-2350 step-up union after a restart.
+            if token_response.scope is None and self.context.current_tokens is not None:
+                token_response.scope = self.context.current_tokens.scope
 
             self.context.current_tokens = token_response
             self.context.update_token_expiry(token_response)
@@ -578,6 +591,9 @@ class OAuthClientProvider(httpx.Auth):
                         logger.debug("Authorization server changed; discarding bound credentials and re-registering")
                         self.context.client_info = None
                         self.context.clear_tokens()
+                        # Any cached AS metadata is for the old server; drop it so a failed
+                        # rediscovery cannot leak the old registration/token endpoints into Step 4.
+                        self.context.oauth_metadata = None
 
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                         self.context.auth_server_url, self.context.server_url
@@ -599,6 +615,23 @@ class OAuthClientProvider(httpx.Auth):
                             break
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
+
+                    # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
+                    # discovery, so re-evaluate the binding here using the discovered metadata
+                    # issuer (mirroring the bound_issuer fallback in Step 4).
+                    if (
+                        self.context.client_info is not None
+                        and self.context.auth_server_url is None
+                        and self.context.oauth_metadata is not None
+                        and not credentials_match_issuer(
+                            self.context.client_info,
+                            str(self.context.oauth_metadata.issuer),
+                            self.context.client_metadata_url,
+                        )
+                    ):
+                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+                        self.context.client_info = None
+                        self.context.clear_tokens()
 
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
