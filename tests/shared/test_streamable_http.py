@@ -597,6 +597,30 @@ def test_streamable_http_transport_init_validation() -> None:
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
+def test_check_content_type_is_case_insensitive() -> None:
+    """Content-Type media types are case-insensitive (RFC 9110, section 8.3.1).
+
+    A spec-valid request such as ``Content-Type: Application/JSON`` must be
+    accepted, consistent with ``_check_accept_headers`` (which already lowercases).
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+
+    def request_with(content_type: str) -> Request:
+        return Request({"type": "http", "headers": [(b"content-type", content_type.encode())]})
+
+    for value in (
+        "application/json",
+        "Application/JSON",
+        "APPLICATION/JSON",
+        "application/json; charset=utf-8",
+        "Application/Json; charset=utf-8",
+    ):
+        assert transport._check_content_type(request_with(value)) is True, value
+
+    # A genuinely different media type is still rejected.
+    assert transport._check_content_type(request_with("text/plain")) is False
+
+
 @pytest.mark.anyio
 async def test_session_termination(basic_app: Starlette) -> None:
     """DELETE terminates the session, after which requests for it return 404."""

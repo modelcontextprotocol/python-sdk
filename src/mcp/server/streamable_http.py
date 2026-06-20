@@ -411,7 +411,9 @@ class StreamableHTTPServerTransport:
     def _check_content_type(self, request: Request) -> bool:
         """Check if the request has the correct Content-Type."""
         content_type = request.headers.get("content-type", "")
-        content_type_parts = [part.strip() for part in content_type.split(";")[0].split(",")]
+        # Media types are case-insensitive (RFC 9110, section 8.3.1), so normalize
+        # to lower case before comparing — consistent with _check_accept_headers.
+        content_type_parts = [part.strip().lower() for part in content_type.split(";")[0].split(",")]
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
