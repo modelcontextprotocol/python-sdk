@@ -34,7 +34,6 @@ from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import FIRST_MODERN_VERSION as MODERN_PROTOCOL_VERSION
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -160,14 +159,16 @@ class SingleExchangeDispatcher:
 async def handle_modern_request(
     app: Server[Any],
     security_settings: TransportSecuritySettings | None,
+    protocol_version: str,
     scope: Scope,
     receive: Receive,
     send: Send,
 ) -> None:
-    """ASGI handler for a single 2026-07-28 POST.
+    """ASGI handler for a single stateless-era POST.
 
     Called from `StreamableHTTPSessionManager.handle_request` when the
-    `MCP-Protocol-Version` header is `2026-07-28`. Never sets `Mcp-Session-Id`.
+    `MCP-Protocol-Version` header is in `MODERN_PROTOCOL_VERSIONS`; the header
+    value is passed as `protocol_version`. Never sets `Mcp-Session-Id`.
     """
     request = Request(scope, receive)
 
@@ -207,7 +208,7 @@ async def handle_modern_request(
             stateless=True,
             dispatch_middleware=[otel_middleware],
         )
-        runner.connection.protocol_version = MODERN_PROTOCOL_VERSION
+        runner.connection.protocol_version = protocol_version
         try:
             msg = await dispatcher.handle(req, runner._compose_on_request())  # type: ignore[reportPrivateUsage]
         finally:

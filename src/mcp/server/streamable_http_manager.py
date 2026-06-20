@@ -156,7 +156,7 @@ class StreamableHTTPSessionManager:
         # (per SEP-2575) is a follow-up. 2025 paths below remain unchanged.
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == b"mcp-protocol-version"), None)
         if pv in MODERN_PROTOCOL_VERSIONS:
-            await handle_modern_request(self.app, self.security_settings, scope, receive, send)
+            await handle_modern_request(self.app, self.security_settings, pv, scope, receive, send)
             return
 
         # Dispatch to the appropriate handler

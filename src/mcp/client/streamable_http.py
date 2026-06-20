@@ -21,7 +21,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.version import FIRST_MODERN_VERSION, is_version_at_least
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
@@ -107,7 +107,7 @@ class StreamableHTTPTransport:
         MCP-Protocol-Version is not emitted here — `_prepare_headers()` already adds it
         from `self.protocol_version` for every request.
         """
-        if self.protocol_version is None or not is_version_at_least(self.protocol_version, FIRST_MODERN_VERSION):
+        if self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
             return {}
         if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
             return {}

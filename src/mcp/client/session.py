@@ -21,7 +21,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import FIRST_MODERN_VERSION, SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -156,9 +156,7 @@ class ClientSession:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._pinned_version = protocol_version
-        self._stateless_pinned = protocol_version is not None and is_version_at_least(
-            protocol_version, FIRST_MODERN_VERSION
-        )
+        self._stateless_pinned = protocol_version in MODERN_PROTOCOL_VERSIONS
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback

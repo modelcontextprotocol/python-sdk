@@ -20,9 +20,6 @@ KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
 )
 """Every released protocol revision, oldest to newest."""
 
-FIRST_MODERN_VERSION: Final[str] = "2026-07-28"
-"""First protocol revision with the stateless per-request envelope (no `initialize`)."""
-
 MODERN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = ("2026-07-28",)
 """Protocol revisions that use the stateless per-request envelope."""
 

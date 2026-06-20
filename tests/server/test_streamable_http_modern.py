@@ -91,7 +91,7 @@ async def test_handle_maps_validation_error_to_invalid_params() -> None:
 
 def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettings | None = None) -> httpx.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        await handle_modern_request(server, security_settings, scope, receive, send)
+        await handle_modern_request(server, security_settings, "2026-07-28", scope, receive, send)
 
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
 
