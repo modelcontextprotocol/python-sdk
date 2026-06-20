@@ -1226,6 +1226,15 @@ The user-facing methods for these features now carry `typing_extensions.deprecat
 - Roots: `ServerSession.list_roots()`, `ClientPeer.list_roots()`, `ClientSession.send_roots_list_changed()`, `Client.send_roots_list_changed()`
 - Logging: `ServerSession.send_log_message()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
 
+The runtime warning is emitted as `mcp.MCPDeprecationWarning`, which subclasses `UserWarning` (not `DeprecationWarning`) so it is visible by default. To silence it, filter that category:
+
+```python
+import warnings
+from mcp import MCPDeprecationWarning
+
+warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
+```
+
 No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
 
 ## Bug Fixes

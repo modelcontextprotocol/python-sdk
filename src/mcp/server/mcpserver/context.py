@@ -15,6 +15,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
@@ -190,7 +191,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
-    @deprecated("`log` is deprecated as of 2026-07-28 (SEP-2577).")
+    @deprecated("`log` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(
         self,
         level: LoggingLevel,
@@ -267,22 +268,22 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
-    @deprecated("`debug` is deprecated as of 2026-07-28 (SEP-2577).")
+    @deprecated("`debug` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
         await self.log("debug", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
-    @deprecated("`info` is deprecated as of 2026-07-28 (SEP-2577).")
+    @deprecated("`info` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
         await self.log("info", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
-    @deprecated("`warning` is deprecated as of 2026-07-28 (SEP-2577).")
+    @deprecated("`warning` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message."""
         await self.log("warning", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
-    @deprecated("`error` is deprecated as of 2026-07-28 (SEP-2577).")
+    @deprecated("`error` is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
         await self.log("error", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]

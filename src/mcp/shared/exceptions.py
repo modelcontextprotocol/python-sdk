@@ -5,6 +5,17 @@ from typing import Any, cast
 from mcp.types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
+class MCPDeprecationWarning(UserWarning):
+    """A custom deprecation warning for the MCP SDK.
+
+    Unlike the built-in `DeprecationWarning`, this inherits from `UserWarning` so
+    it is shown by default, helping users discover deprecated features without
+    enabling warnings explicitly.
+
+    Reference: https://sethmlarson.dev/deprecations-via-warnings-dont-work-for-python-libraries
+    """
+
+
 class MCPError(Exception):
     """Exception type raised when an error arrives over an MCP connection."""
 

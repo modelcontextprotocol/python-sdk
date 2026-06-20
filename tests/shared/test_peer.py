@@ -12,6 +12,7 @@ import anyio
 import pytest
 
 from mcp.shared.dispatcher import DispatchContext
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.peer import ClientPeer, dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
@@ -149,7 +150,7 @@ async def test_peer_list_roots_is_deprecated_sep_2577():
     rec = _Recorder({"roots": []})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
-        with pytest.warns(DeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
+        with pytest.warns(MCPDeprecationWarning, match=r"`list_roots` is deprecated as of 2026-07-28 \(SEP-2577\)\."):
             with anyio.fail_after(5):
                 await peer.list_roots()  # pyright: ignore[reportDeprecated]
 
