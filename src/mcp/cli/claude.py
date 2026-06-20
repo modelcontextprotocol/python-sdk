@@ -1,5 +1,6 @@
 """Claude app integration utilities."""
 
+import importlib.metadata
 import json
 import os
 import shutil
@@ -11,7 +12,24 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
-MCP_PACKAGE = "mcp[cli]"
+
+def mcp_requirement(package: str = "mcp") -> str:
+    """Requirement string pinning spawned environments to the running SDK version.
+
+    `uv run --with mcp` resolves the requirement in a fresh environment, where
+    an unpinned `mcp` means the latest stable release — not necessarily the
+    version the user installed (pre-releases in particular are never selected
+    without an explicit pin). Source builds carry dev/local version segments
+    that are not published to PyPI, so they fall back to the unpinned form,
+    as does a missing distribution (no metadata to pin from).
+    """
+    try:
+        version = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        return package
+    if ".dev" in version or "+" in version:
+        return package
+    return f"{package}=={version}"
 
 
 def get_claude_config_path() -> Path | None:  # pragma: no cover
@@ -33,7 +51,7 @@ def get_claude_config_path() -> Path | None:  # pragma: no cover
 def get_uv_path() -> str:
     """Get the full path to the uv executable."""
     uv_path = shutil.which("uv")
-    if not uv_path:  # pragma: no cover
+    if not uv_path:
         logger.error(
             "uv executable not found in PATH, falling back to 'uv'. Please ensure uv is installed and in your PATH"
         )
@@ -65,7 +83,7 @@ def update_claude_config(
     """
     config_dir = get_claude_config_path()
     uv_path = get_uv_path()
-    if not config_dir:  # pragma: no cover
+    if not config_dir:
         raise RuntimeError(
             "Claude Desktop config directory not found. Please ensure Claude Desktop"
             " is installed and has been run at least once to initialize its config."
@@ -90,7 +108,7 @@ def update_claude_config(
             config["mcpServers"] = {}
 
         # Always preserve existing env vars and merge with new ones
-        if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:  # pragma: no cover
+        if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:
             existing_env = config["mcpServers"][server_name]["env"]
             if env_vars:
                 # New vars take precedence over existing ones
@@ -102,23 +120,27 @@ def update_claude_config(
         args = ["run", "--frozen"]
 
         # Collect all packages in a set to deduplicate
-        packages = {MCP_PACKAGE}
-        if with_packages:  # pragma: no cover
+        packages = {mcp_requirement("mcp[cli]")}
+        if with_packages:
             packages.update(pkg for pkg in with_packages if pkg)
 
         # Add all packages with --with
         for pkg in sorted(packages):
             args.extend(["--with", pkg])
 
-        if with_editable:  # pragma: no cover
+        if with_editable:
             args.extend(["--with-editable", str(with_editable)])
 
         # Convert file path to absolute before adding to command
         # Split off any :object suffix first
-        if ":" in file_spec:
+        # First check if we have a Windows path (e.g., C:\...)
+        has_windows_drive = len(file_spec) > 1 and file_spec[1] == ":"
+
+        # Split on the last colon, but only if it's not part of the Windows drive letter
+        if ":" in (file_spec[2:] if has_windows_drive else file_spec):
             file_path, server_object = file_spec.rsplit(":", 1)
             file_spec = f"{Path(file_path).resolve()}:{server_object}"
-        else:  # pragma: no cover
+        else:
             file_spec = str(Path(file_spec).resolve())
 
         # Add mcp run command
@@ -127,7 +149,7 @@ def update_claude_config(
         server_config: dict[str, Any] = {"command": uv_path, "args": args}
 
         # Add environment variables if specified
-        if env_vars:  # pragma: no cover
+        if env_vars:
             server_config["env"] = env_vars
 
         config["mcpServers"][server_name] = server_config

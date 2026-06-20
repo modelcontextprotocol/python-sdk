@@ -1,20 +1,34 @@
 from typing import Any
 
 import pytest
+from inline_snapshot import snapshot
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    CallToolResult,
     ClientCapabilities,
+    CompleteResult,
+    Completion,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
+    EmptyResult,
+    GetPromptResult,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
+    InputRequiredResult,
     JSONRPCRequest,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
+    ReadResourceResult,
+    Result,
     SamplingCapability,
     SamplingMessage,
+    ServerCapabilities,
     TextContent,
     Tool,
     ToolChoice,
@@ -360,3 +374,65 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def _wire_dump(result: Result) -> dict[str, Any]:
+    return result.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+def test_concrete_wire_results_always_dump_result_type_complete():
+    """Required by 2026-07-28; the runner's per-version sieve drops it for older peers."""
+    carriers: list[Result] = [
+        CompleteResult(completion=Completion(values=[])),
+        GetPromptResult(messages=[]),
+        CallToolResult(content=[]),
+        ReadResourceResult(contents=[]),
+        ListPromptsResult(prompts=[]),
+        ListResourcesResult(resources=[]),
+        ListResourceTemplatesResult(resource_templates=[]),
+        ListToolsResult(tools=[]),
+        DiscoverResult(
+            supported_versions=["2026-07-28"],
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="server", version="1.0"),
+        ),
+    ]
+    for result in carriers:
+        assert _wire_dump(result)["resultType"] == "complete", type(result).__name__
+
+
+def test_cacheable_results_omit_unset_caching_directives():
+    """`ttl_ms`/`cache_scope` default to None: the SDK declares no caching policy
+    so a 2026-07-28 handler must set them explicitly."""
+    cacheable: list[Result] = [
+        ReadResourceResult(contents=[]),
+        ListPromptsResult(prompts=[]),
+        ListResourceTemplatesResult(resource_templates=[]),
+        ListResourcesResult(resources=[]),
+        ListToolsResult(tools=[]),
+        DiscoverResult(
+            supported_versions=["2026-07-28"],
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="server", version="1.0"),
+        ),
+    ]
+    for result in cacheable:
+        dumped = _wire_dump(result)
+        assert "ttlMs" not in dumped, type(result).__name__
+        assert "cacheScope" not in dumped, type(result).__name__
+    explicit = _wire_dump(ListToolsResult(tools=[], ttl_ms=5, cache_scope="public"))
+    assert explicit["ttlMs"] == 5
+    assert explicit["cacheScope"] == "public"
+
+
+def test_empty_result_dumps_no_fields_by_default():
+    """Deployed peers reject extra keys on empty results, so resultType is never volunteered."""
+    assert _wire_dump(EmptyResult()) == snapshot({})
+
+
+def test_empty_result_dumps_result_type_only_when_explicitly_tagged():
+    assert _wire_dump(EmptyResult(result_type="complete")) == snapshot({"resultType": "complete"})
+
+
+def test_input_required_result_dumps_its_discriminating_tag():
+    assert _wire_dump(InputRequiredResult()) == snapshot({"resultType": "input_required"})

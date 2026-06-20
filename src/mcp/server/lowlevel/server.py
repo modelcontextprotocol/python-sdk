@@ -37,14 +37,13 @@ handler callables by method string.
 from __future__ import annotations
 
 import logging
-import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic
 
-import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -57,21 +56,44 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
-from mcp.server.lowlevel.experimental import ExperimentalHandlers
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.session import ServerSession
+from mcp.server.runner import ServerRunner, otel_middleware
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared._stream_protocols import ReadStream, WriteStream
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import SessionMessage
+from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
+
+_ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
+
+RequestHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[HandlerResult]]
+"""A registered request handler: `(ctx, params) -> result`."""
+
+NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[None]]
+"""A registered notification handler: `(ctx, params) -> None`."""
+
+
+@dataclass(frozen=True, slots=True)
+class HandlerEntry(Generic[LifespanResultT]):
+    """A registered handler and the params model to validate incoming params against.
+
+    Stored in `Server._request_handlers` / `_notification_handlers` and consumed
+    by `ServerRunner` to validate, build `Context`, and invoke. The handler's
+    second-argument type is erased to `Any` in storage (each entry has a
+    different concrete params type and `Callable` parameters are contravariant);
+    the precise type is recoverable via `params_type`. The correlation is
+    enforced at registration time by `Server.add_request_handler`.
+    """
+
+    params_type: type[BaseModel]
+    handler: RequestHandler[LifespanResultT, Any]
 
 
 class NotificationOptions:
@@ -82,7 +104,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
+async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
     Returns:
@@ -118,7 +140,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.CreateTaskResult],
+            Awaitable[types.CallToolResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -190,58 +212,91 @@ class Server(Generic[LifespanResultT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
-        self._notification_handlers: dict[
-            str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
-        ] = {}
-        self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
+        self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
+        self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
+        # Context-tier middleware: wraps every inbound request (including
+        # `initialize`, lookup, validation, handler) with
+        # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
+        # TODO(maxisbey): provisional - signature and semantics change with the
+        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
+        # v2 final.
+        self.middleware: list[ServerMiddleware[LifespanResultT]] = []
         logger.debug("Initializing server %r", name)
 
-        # Populate internal handler dicts from on_* kwargs
-        self._request_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "ping": on_ping,
-                    "prompts/list": on_list_prompts,
-                    "prompts/get": on_get_prompt,
-                    "resources/list": on_list_resources,
-                    "resources/templates/list": on_list_resource_templates,
-                    "resources/read": on_read_resource,
-                    "resources/subscribe": on_subscribe_resource,
-                    "resources/unsubscribe": on_unsubscribe_resource,
-                    "tools/list": on_list_tools,
-                    "tools/call": on_call_tool,
-                    "logging/setLevel": on_set_logging_level,
-                    "completion/complete": on_completion,
-                }.items()
-                if handler is not None
-            }
-        )
+        _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
+            ("ping", types.RequestParams, on_ping),
+            ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
+            ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
+            ("resources/list", types.PaginatedRequestParams, on_list_resources),
+            ("resources/templates/list", types.PaginatedRequestParams, on_list_resource_templates),
+            ("resources/read", types.ReadResourceRequestParams, on_read_resource),
+            ("resources/subscribe", types.SubscribeRequestParams, on_subscribe_resource),
+            ("resources/unsubscribe", types.UnsubscribeRequestParams, on_unsubscribe_resource),
+            ("tools/list", types.PaginatedRequestParams, on_list_tools),
+            ("tools/call", types.CallToolRequestParams, on_call_tool),
+            ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),
+            ("completion/complete", types.CompleteRequestParams, on_completion),
+        ]
+        self._request_handlers.update({m: HandlerEntry(pt, h) for m, pt, h in _spec_requests if h is not None})
 
+        _spec_notifications: list[tuple[str, type[BaseModel], NotificationHandler[LifespanResultT, Any] | None]] = [
+            ("notifications/roots/list_changed", types.NotificationParams, on_roots_list_changed),
+            ("notifications/progress", types.ProgressNotificationParams, on_progress),
+        ]
         self._notification_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "notifications/roots/list_changed": on_roots_list_changed,
-                    "notifications/progress": on_progress,
-                }.items()
-                if handler is not None
-            }
+            {m: HandlerEntry(pt, h) for m, pt, h in _spec_notifications if h is not None}
         )
 
-    def _add_request_handler(
+    def add_request_handler(
         self,
         method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]],
+        params_type: type[_ParamsT],
+        handler: RequestHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Add a request handler, silently replacing any existing handler for the same method."""
-        self._request_handlers[method] = handler
+        """Register a request handler for `method`.
 
-    def _has_handler(self, method: str) -> bool:
-        """Check if a handler is registered for the given method."""
-        return method in self._request_handlers or method in self._notification_handlers
+        `params_type` is the model incoming params are validated against
+        before the handler is invoked. It should subclass `RequestParams` so
+        `_meta` parses uniformly. A message with no `params` member validates
+        `{}` against `params_type`: models with required fields reject it as
+        INVALID_PARAMS, all-optional models reach the handler with their
+        defaults - the handler never receives `None`. Replaces any existing
+        handler for the same method, except `initialize`, which is reserved:
+        the runner owns the handshake, so registering it raises `ValueError`.
+        Use `Server.middleware` to observe or wrap initialization.
+        """
+        if method == "initialize":
+            raise ValueError(
+                "'initialize' is handled by the server runner and cannot be overridden; "
+                "use Server.middleware to observe or wrap initialization"
+            )
+        self._request_handlers[method] = HandlerEntry(params_type, handler)
+
+    def add_notification_handler(
+        self,
+        method: str,
+        params_type: type[_ParamsT],
+        handler: NotificationHandler[LifespanResultT, _ParamsT],
+    ) -> None:
+        """Register a notification handler for `method`.
+
+        `params_type` should subclass `NotificationParams` so `_meta`
+        parses uniformly. Absent params follow the same contract as requests:
+        `{}` is validated, so the handler receives the model with its defaults,
+        never `None`. Replaces any existing handler. A handler for
+        `notifications/initialized` runs after the runner has marked the
+        connection initialized.
+        """
+        self._notification_handlers[method] = HandlerEntry(params_type, handler)
+
+    def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a request method, or `None`."""
+        return self._request_handlers.get(method)
+
+    def get_notification_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a notification method, or `None`."""
+        return self._notification_handlers.get(method)
 
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
@@ -320,24 +375,7 @@ class Server(Generic[LifespanResultT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
-        if self._experimental_handlers:
-            self._experimental_handlers.update_capabilities(capabilities)
         return capabilities
-
-    @property
-    def experimental(self) -> ExperimentalHandlers[LifespanResultT]:
-        """Experimental APIs for tasks and other features.
-
-        WARNING: These APIs are experimental and may change without notice.
-        """
-
-        # We create this inline so we only add these capabilities _if_ they're actually used
-        if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(
-                add_request_handler=self._add_request_handler,
-                has_handler=self._has_handler,
-            )
-        return self._experimental_handlers
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -346,17 +384,17 @@ class Server(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:  # pragma: no cover
-            raise RuntimeError(
+        if self._session_manager is None:
+            raise RuntimeError(  # pragma: no cover
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     async def run(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
@@ -368,146 +406,31 @@ class Server(Generic[LifespanResultT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
-    ):
-        async with AsyncExitStack() as stack:
-            lifespan_context = await stack.enter_async_context(self.lifespan(self))
-            session = await stack.enter_async_context(
-                ServerSession(
-                    read_stream,
-                    write_stream,
-                    initialization_options,
-                    stateless=stateless,
-                )
-            )
-
-            # Configure task support for this session if enabled
-            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-            if task_support is not None:
-                task_support.configure_session(session)
-                await stack.enter_async_context(task_support.run())
-
-            async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
-
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
-
-    async def _handle_message(
-        self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
-        raise_exceptions: bool = False,
-    ):
-        with warnings.catch_warnings(record=True) as w:
-            match message:
-                case RequestResponder() as responder:
-                    with responder:
-                        await self._handle_request(
-                            message, responder.request, session, lifespan_context, raise_exceptions
-                        )
-                case Exception():
-                    logger.error(f"Received exception from stream: {message}")
-                    if raise_exceptions:
-                        raise message
-                case _:
-                    await self._handle_notification(message, session, lifespan_context)
-
-            for warning in w:  # pragma: lax no cover
-                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
-
-    async def _handle_request(
-        self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: types.ClientRequest,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
-        raise_exceptions: bool,
-    ):
-        logger.info("Processing request of type %s", type(req).__name__)
-
-        if handler := self._request_handlers.get(req.method):
-            logger.debug("Dispatching request of type %s", type(req).__name__)
-
-            try:
-                # Extract request context and close_sse_stream from message metadata
-                request_data = None
-                close_sse_stream_cb = None
-                close_standalone_sse_stream_cb = None
-                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
-                    request_data = message.message_metadata.request_context
-                    close_sse_stream_cb = message.message_metadata.close_sse_stream
-                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
-
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                # Get task metadata from request params if present
-                task_metadata = None
-                if hasattr(req, "params") and req.params is not None:
-                    task_metadata = getattr(req.params, "task", None)
-                ctx = ServerRequestContext(
-                    request_id=message.request_id,
-                    meta=message.request_meta,
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=task_metadata,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                    request=request_data,
-                    close_sse_stream=close_sse_stream_cb,
-                    close_standalone_sse_stream=close_standalone_sse_stream_cb,
-                )
-                response = await handler(ctx, req.params)
-            except MCPError as err:
-                response = err.error
-            except anyio.get_cancelled_exc_class():
-                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
-                return
-            except Exception as err:
-                if raise_exceptions:  # pragma: no cover
-                    raise err
-                response = types.ErrorData(code=0, message=str(err))
-
-            await message.respond(response)
-        else:  # pragma: no cover
-            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
-
-        logger.debug("Response sent")
-
-    async def _handle_notification(
-        self,
-        notify: types.ClientNotification,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
     ) -> None:
-        if handler := self._notification_handlers.get(notify.method):
-            logger.debug("Dispatching notification of type %s", type(notify).__name__)
-
-            try:
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                ctx = ServerRequestContext(
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=None,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                )
-                await handler(ctx, notify.params)
-            except Exception:  # pragma: no cover
-                logger.exception("Uncaught exception in notification handler")
+        async with self.lifespan(self) as lifespan_context:
+            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+                read_stream,
+                write_stream,
+                raise_handler_exceptions=raise_exceptions,
+                # Handle `initialize` inline so a client that pipelines it with
+                # the next request (spec says SHOULD NOT, not MUST NOT) sees
+                # the initialized state instead of failing the init-gate.
+                inline_methods=frozenset({"initialize"}),
+            )
+            runner = ServerRunner(
+                server=self,
+                dispatcher=dispatcher,
+                lifespan_state=lifespan_context,
+                init_options=initialization_options,
+                # Stateless HTTP has no standalone GET stream, so server-initiated
+                # requests on `runner.connection` must fail fast with
+                # `NoBackChannelError` rather than write to a channel that will
+                # never deliver a response.
+                has_standalone_channel=not stateless,
+                stateless=stateless,
+                dispatch_middleware=[otel_middleware],
+            )
+            await runner.run()
 
     def streamable_http_app(
         self,
@@ -553,7 +476,7 @@ class Server(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if auth:  # pragma: no cover
+        if auth:
             required_scopes = auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -579,10 +502,10 @@ class Server(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if token_verifier:  # pragma: no cover
+        if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:
+            if auth and auth.resource_server_url:  # pragma: no branch
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 
@@ -602,7 +525,7 @@ class Server(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if auth and auth.resource_server_url:  # pragma: no cover
+        if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,

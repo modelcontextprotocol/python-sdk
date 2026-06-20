@@ -105,6 +105,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool
 
+    dependencies: list[str]
+    """List of dependencies to install in the server environment. Used by the `mcp install` and `mcp dev` CLI."""
+
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
     """An async context manager that will be called when the server is started."""
 
@@ -137,11 +140,13 @@ class MCPServer(Generic[LifespanResultT]):
         token_verifier: TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
+        resources: list[Resource] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
+        dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
     ):
@@ -151,12 +156,16 @@ class MCPServer(Generic[LifespanResultT]):
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
+            dependencies=dependencies or [],
             lifespan=lifespan,
             auth=auth,
         )
+        self.dependencies = self.settings.dependencies
 
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        self._resource_manager = ResourceManager(
+            resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
+        )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",
@@ -235,7 +244,7 @@ class MCPServer(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        return self._lowlevel_server.session_manager  # pragma: no cover
+        return self._lowlevel_server.session_manager
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -438,8 +447,8 @@ class MCPServer(Generic[LifespanResultT]):
             context = Context(mcp_server=self)
         try:
             resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+        except ValueError as exc:
+            raise ResourceError(f"Unknown resource: {uri}") from exc
 
         try:
             content = await resource.read()
@@ -598,11 +607,7 @@ class MCPServer(Generic[LifespanResultT]):
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )
 
-            # TODO(maxisbey): remove private access — completion needs post-construction
-            #   handler registration, find a better pattern for this
-            self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
-                "completion/complete", handler
-            )
+            self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func
 
         return decorator
@@ -1100,4 +1105,4 @@ class MCPServer(Generic[LifespanResultT]):
             )
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e

@@ -1,7 +1,6 @@
 """Shared validation functions for server requests.
 
-This module provides validation logic for sampling and elicitation requests
-that is shared across normal and task-augmented code paths.
+This module provides validation logic for sampling and elicitation requests.
 """
 
 from mcp.shared.exceptions import MCPError

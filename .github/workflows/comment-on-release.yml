@@ -13,51 +13,106 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Get previous release
         id: previous_release
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CURRENT_TAG: ${{ github.event.release.tag_name }}
         with:
           script: |
-            const currentTag = '${{ github.event.release.tag_name }}';
+            const currentTag = process.env.CURRENT_TAG;
 
-            // Get all releases
-            const { data: releases } = await github.rest.repos.listReleases({
+            // Paginate: with two release lines publishing interleaved, the
+            // previous release on this line can sit far down the list.
+            const releases = await github.paginate(github.rest.repos.listReleases, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               per_page: 100
             });
 
-            // Find current release index
-            const currentIndex = releases.findIndex(r => r.tag_name === currentTag);
-
-            if (currentIndex === -1) {
+            if (!releases.some(r => r.tag_name === currentTag)) {
               console.log('Current release not found in list');
               return null;
             }
 
-            // Get previous release (next in the list since they're sorted by date desc)
-            const previousRelease = releases[currentIndex + 1];
+            const major = tag => (tag.match(/^v?(\d+)/) || [])[1];
 
-            if (!previousRelease) {
-              console.log('No previous release found, this might be the first release');
+            if (major(currentTag) === undefined) {
+              console.log(`Cannot parse a major version from ${currentTag}; skipping comments`);
               return null;
             }
 
-            console.log(`Found previous release: ${previousRelease.tag_name}`);
+            // The list is ordered by release creation date, which does not
+            // reliably reflect tag topology (for example, a release published
+            // from a long-lived draft keeps its draft creation date). Instead
+            // of trusting list order, compare every same-major release and
+            // pick the nearest ancestor of the current tag: the one the
+            // smallest number of commits behind it. The major check runs
+            // first so cross-line candidates cost no API calls; per_page=1
+            // because only status/ahead_by are needed here (the commits are
+            // fetched in the next step). For the first release of a new major
+            // line there is no same-line predecessor, and we skip commenting
+            // rather than compare across the entire new line's history.
+            let best = null;
+            for (const candidate of releases) {
+              if (candidate.tag_name === currentTag || candidate.draft) continue;
+              if (major(candidate.tag_name) !== major(currentTag)) continue;
 
-            return previousRelease.tag_name;
+              let comparison;
+              try {
+                ({ data: comparison } = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: candidate.tag_name,
+                  head: currentTag,
+                  per_page: 1
+                }));
+              } catch (error) {
+                // Tolerate only candidates whose tag no longer resolves;
+                // anything else (rate limits, server errors) must fail the
+                // job rather than silently produce a wrong comparison base.
+                if (error.status === 404) {
+                  console.log(`Skipping ${candidate.tag_name}: tag does not resolve`);
+                  continue;
+                }
+                throw error;
+              }
+
+              // 'identical' covers a release re-cut on the same commit; it
+              // yields an empty commit range downstream, hence no comments.
+              if (comparison.status !== 'ahead' && comparison.status !== 'identical') {
+                console.log(`Skipping ${candidate.tag_name}: not an ancestor of ${currentTag} (status: ${comparison.status})`);
+                continue;
+              }
+
+              if (best === null || comparison.ahead_by < best.aheadBy) {
+                best = { tagName: candidate.tag_name, aheadBy: comparison.ahead_by };
+              }
+            }
+
+            if (best === null) {
+              console.log(`No previous release found for ${currentTag} on its major line (it may be the first); skipping comments`);
+              return null;
+            }
+
+            console.log(`Found previous release: ${best.tagName} (${best.aheadBy} commits behind ${currentTag})`);
+            return best.tagName;
 
       - name: Get merged PRs between releases
         id: get_prs
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CURRENT_TAG: ${{ github.event.release.tag_name }}
+          PREVIOUS_TAG_JSON: ${{ steps.previous_release.outputs.result }}
         with:
           script: |
-            const currentTag = '${{ github.event.release.tag_name }}';
-            const previousTag = ${{ steps.previous_release.outputs.result }};
+            const currentTag = process.env.CURRENT_TAG;
+            const previousTag = JSON.parse(process.env.PREVIOUS_TAG_JSON);
 
             if (!previousTag) {
               console.log('No previous release found, skipping');
@@ -66,15 +121,28 @@ jobs:
 
             console.log(`Finding PRs between ${previousTag} and ${currentTag}`);
 
-            // Get commits between previous and current release
-            const comparison = await github.rest.repos.compareCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              base: previousTag,
-              head: currentTag
-            });
-
-            const commits = comparison.data.commits;
+            // Get commits between previous and current release. A single
+            // compare response caps the commit list, so paginate — but bound
+            // the total: a range this large means a mis-selected base, and
+            // commenting on hundreds of PRs is worse than commenting on none.
+            const MAX_COMMITS = 250;
+            const commits = [];
+            for (let page = 1; ; page++) {
+              const { data: comparison } = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: previousTag,
+                head: currentTag,
+                per_page: 100,
+                page
+              });
+              commits.push(...comparison.commits);
+              if (commits.length > MAX_COMMITS) {
+                console.log(`Range ${previousTag}...${currentTag} exceeds ${MAX_COMMITS} commits; skipping comments`);
+                return [];
+              }
+              if (comparison.commits.length < 100) break;
+            }
             console.log(`Found ${commits.length} commits`);
 
             // Get PRs associated with each commit using GitHub API
@@ -103,21 +171,33 @@ jobs:
             return Array.from(prNumbers);
 
       - name: Comment on PRs
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBERS_JSON: ${{ steps.get_prs.outputs.result }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_IS_PRERELEASE: ${{ github.event.release.prerelease }}
         with:
           script: |
-            const prNumbers = ${{ steps.get_prs.outputs.result }};
-            const releaseTag = '${{ github.event.release.tag_name }}';
-            const releaseUrl = '${{ github.event.release.html_url }}';
+            const prNumbers = JSON.parse(process.env.PR_NUMBERS_JSON);
+            const releaseTag = process.env.RELEASE_TAG;
+            const releaseUrl = process.env.RELEASE_URL;
+            // Trust the tag as well as the flag, in case the release manager
+            // forgets to tick the pre-release checkbox.
+            const isPrerelease = process.env.RELEASE_IS_PRERELEASE === 'true' || /\d(a|b|rc)\d/.test(releaseTag);
+            const releaseKind = isPrerelease ? 'pre-release' : 'release';
 
-            const comment = `This pull request is included in [${releaseTag}](${releaseUrl})`;
+            const comment = `This pull request is included in ${releaseKind} [${releaseTag}](${releaseUrl})`;
 
             let commentedCount = 0;
 
             for (const prNumber of prNumbers) {
               try {
-                // Check if we've already commented on this PR for this release
-                const { data: comments } = await github.rest.issues.listComments({
+                // Check if we've already commented on this PR for this
+                // release. Paginate: comments are returned oldest-first, so
+                // on a busy PR an earlier bot comment is exactly what would
+                // fall off a single page.
+                const comments = await github.paginate(github.rest.issues.listComments, {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: prNumber,
@@ -125,7 +205,7 @@ jobs:
                 });
 
                 const alreadyCommented = comments.some(c =>
-                  c.user.type === 'Bot' && c.body.includes(releaseTag)
+                  c.user.type === 'Bot' && c.body.includes(`[${releaseTag}]`)
                 );
 
                 if (alreadyCommented) {

@@ -40,7 +40,7 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
+    def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
         if not host:
             logger.warning("Missing Host header in request")
@@ -62,7 +62,7 @@ class TransportSecurityMiddleware:
         logger.warning(f"Invalid Host header: {host}")
         return False
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
+    def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
@@ -94,7 +94,7 @@ class TransportSecurityMiddleware:
         Returns None if validation passes, or an error Response if validation fails.
         """
         # Always validate Content-Type for POST requests
-        if is_post:  # pragma: no branch
+        if is_post:
             content_type = request.headers.get("content-type")
             if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
@@ -103,14 +103,14 @@ class TransportSecurityMiddleware:
         if not self.settings.enable_dns_rebinding_protection:
             return None
 
-        # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: no cover
-        if not self._validate_host(host):  # pragma: no cover
-            return Response("Invalid Host header", status_code=421)  # pragma: no cover
+        # Validate Host header
+        host = request.headers.get("host")
+        if not self._validate_host(host):
+            return Response("Invalid Host header", status_code=421)
 
-        # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: no cover
-        if not self._validate_origin(origin):  # pragma: no cover
-            return Response("Invalid Origin header", status_code=403)  # pragma: no cover
+        # Validate Origin header
+        origin = request.headers.get("origin")
+        if not self._validate_origin(origin):
+            return Response("Invalid Origin header", status_code=403)
 
-        return None  # pragma: no cover
+        return None

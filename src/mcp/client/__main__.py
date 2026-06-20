@@ -6,9 +6,9 @@ from functools import partial
 from urllib.parse import urlparse
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -33,8 +33,8 @@ async def message_handler(
 
 
 async def run_session(
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-    write_stream: MemoryObjectSendStream[SessionMessage],
+    read_stream: ReadStream[SessionMessage | Exception],
+    write_stream: WriteStream[SessionMessage],
     client_info: types.Implementation | None = None,
 ):
     async with ClientSession(

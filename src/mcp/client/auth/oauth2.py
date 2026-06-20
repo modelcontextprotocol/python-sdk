@@ -49,6 +49,7 @@ from mcp.shared.auth_utils import (
     check_resource_allowed,
     resource_url_from_server_url,
 )
+from mcp.shared.version import is_version_at_least
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +173,7 @@ class OAuthContext:
         if not protocol_version:
             return False
 
-        # Check if protocol version is 2025-06-18 or later
-        # Version format is YYYY-MM-DD, so string comparison works
-        return protocol_version >= "2025-06-18"
+        return is_version_at_least(protocol_version, "2025-06-18")
 
     def prepare_token_auth(
         self, data: dict[str, str], headers: dict[str, str] | None = None
@@ -320,7 +319,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
-            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)  # pragma: no cover
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
@@ -343,10 +342,15 @@ class OAuthClientProvider(httpx.Auth):
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
-            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707  # pragma: no cover
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:  # pragma: no branch
             auth_params["scope"] = self.context.client_metadata.scope
+
+            # OIDC requires prompt=consent when offline_access is requested
+            # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+            if "offline_access" in self.context.client_metadata.scope.split():
+                auth_params["prompt"] = "consent"
 
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
         await self.context.redirect_handler(authorization_url)
@@ -355,10 +359,10 @@ class OAuthClientProvider(httpx.Auth):
         auth_code, returned_state = await self.context.callback_handler()
 
         if returned_state is None or not secrets.compare_digest(returned_state, state):
-            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")  # pragma: no cover
+            raise OAuthFlowError(f"State parameter mismatch: {returned_state} != {state}")
 
         if not auth_code:
-            raise OAuthFlowError("No authorization code received")  # pragma: no cover
+            raise OAuthFlowError("No authorization code received")
 
         # Return auth code and code verifier for token exchange
         return auth_code, pkce_params.code_verifier
@@ -447,7 +451,7 @@ class OAuthClientProvider(httpx.Auth):
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:  # pragma: no cover
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
@@ -463,12 +467,12 @@ class OAuthClientProvider(httpx.Auth):
             await self.context.storage.set_tokens(token_response)
 
             return True
-        except ValidationError:
+        except ValidationError:  # pragma: no cover
             logger.exception("Invalid refresh response")
             self.context.clear_tokens()
             return False
 
-    async def _initialize(self) -> None:  # pragma: no cover
+    async def _initialize(self) -> None:
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
@@ -502,17 +506,17 @@ class OAuthClientProvider(httpx.Auth):
         """HTTPX auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
-                await self._initialize()  # pragma: no cover
+                await self._initialize()
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
-                refresh_request = await self._refresh_token()  # pragma: no cover
-                refresh_response = yield refresh_request  # pragma: no cover
+                refresh_request = await self._refresh_token()
+                refresh_response = yield refresh_request
 
-                if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+                if not await self._handle_refresh_response(refresh_response):
                     # Refresh failed, need full re-authentication
                     self._initialized = False
 
@@ -576,6 +580,7 @@ class OAuthClientProvider(httpx.Auth):
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
+                        self.context.client_metadata.grant_types,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
@@ -606,7 +611,7 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("OAuth flow error")
                     raise
 
@@ -622,7 +627,10 @@ class OAuthClientProvider(httpx.Auth):
                     try:
                         # Step 2a: Update the required scopes
                         self.context.client_metadata.scope = get_client_metadata_scopes(
-                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
+                            extract_scope_from_www_auth(response),
+                            self.context.protected_resource_metadata,
+                            self.context.oauth_metadata,
+                            self.context.client_metadata.grant_types,
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange

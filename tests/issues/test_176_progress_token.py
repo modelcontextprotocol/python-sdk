@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context
 
 pytestmark = pytest.mark.anyio
@@ -22,7 +21,7 @@ async def test_progress_token_zero_first_call():
         session=mock_session,
         meta={"progress_token": 0},
         lifespan_context=None,
-        experimental=Experimental(),
+        protocol_version="2025-11-25",
     )
 
     # Create context with our mocks

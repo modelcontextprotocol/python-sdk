@@ -11,11 +11,12 @@ from dataclasses import dataclass
 import anyio
 import httpx
 from anyio.abc import TaskGroup
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._compat import resync_tracer
+from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -38,8 +39,8 @@ logger = logging.getLogger(__name__)
 
 # TODO(Marcelo): Put the TransportStreams in a module under shared, so we can import here.
 SessionMessageOrError = SessionMessage | Exception
-StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
-StreamReader = MemoryObjectReceiveStream[SessionMessage]
+StreamWriter = ContextSendStream[SessionMessageOrError]
+StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
@@ -120,7 +121,7 @@ class StreamableHTTPTransport:
             try:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.result, by_name=False)
-                self.protocol_version = str(init_result.protocol_version)
+                self.protocol_version = init_result.protocol_version
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception:  # pragma: no cover
                 logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
@@ -210,7 +211,7 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception:  # pragma: lax no cover
+            except Exception:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
 
@@ -267,8 +268,8 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:  # pragma: no branch
-                if isinstance(message, JSONRPCRequest):  # pragma: no branch
+            if response.status_code == 404:
+                if isinstance(message, JSONRPCRequest):
                     error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
@@ -434,14 +435,15 @@ class StreamableHTTPTransport:
         client: httpx.AsyncClient,
         write_stream_reader: StreamReader,
         read_stream_writer: StreamWriter,
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        write_stream: ContextSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
         tg: TaskGroup,
     ) -> None:
         """Handle writing requests to the server."""
         try:
-            async with write_stream_reader:
-                async for session_message in write_stream_reader:
+            async with write_stream_reader, read_stream_writer, write_stream:
+
+                async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
                     metadata = (
                         session_message.metadata
@@ -478,25 +480,30 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
+                async for session_message in write_stream_reader:
+                    sender_ctx = write_stream_reader.last_context
+                    if sender_ctx is not None:
+                        async with anyio.create_task_group() as tg_local:
+                            sender_ctx.run(tg_local.start_soon, _handle_message, session_message)
+                    else:
+                        await _handle_message(session_message)  # pragma: no cover
+
         except Exception:  # pragma: lax no cover
             logger.exception("Error in post_writer")
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
 
     async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""
-        if not self.session_id:  # pragma: lax no cover
-            return
+        if not self.session_id:
+            return  # pragma: no cover
 
         try:
             headers = self._prepare_headers()
             response = await client.delete(self.url, headers=headers)
 
-            if response.status_code == 405:  # pragma: lax no cover
+            if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
-            elif response.status_code not in (200, 204):  # pragma: lax no cover
-                logger.warning(f"Session termination failed: {response.status_code}")
+            elif response.status_code not in (200, 204):
+                logger.warning(f"Session termination failed: {response.status_code}")  # pragma: no cover
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
@@ -533,9 +540,6 @@ async def streamable_http_client(
     Example:
         See examples/snippets/clients/ for usage patterns.
     """
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
-
     # Determine if we need to create and manage the client
     client_provided = http_client is not None
     client = http_client
@@ -546,36 +550,41 @@ async def streamable_http_client(
 
     transport = StreamableHTTPTransport(url)
 
-    async with anyio.create_task_group() as tg:
-        try:
-            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
+    logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with contextlib.AsyncExitStack() as stack:
-                # Only manage client lifecycle if we created it
-                if not client_provided:
-                    await stack.enter_async_context(client)
+    async with contextlib.AsyncExitStack() as stack:
+        # Only manage client lifecycle if we created it
+        if not client_provided:
+            await stack.enter_async_context(client)
 
-                def start_get_stream() -> None:
-                    tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
-                tg.start_soon(
-                    transport.post_writer,
-                    client,
-                    write_stream_reader,
-                    read_stream_writer,
-                    write_stream,
-                    start_get_stream,
-                    tg,
-                )
+        async with (
+            read_stream_writer,
+            read_stream,
+            write_stream,
+            write_stream_reader,
+            anyio.create_task_group() as tg,
+        ):
 
-                try:
-                    yield read_stream, write_stream
-                finally:
-                    if transport.session_id and terminate_on_close:
-                        await transport.terminate_session(client)
-                    tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
-            await read_stream.aclose()
-            await write_stream_reader.aclose()
+            def start_get_stream() -> None:
+                tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+
+            tg.start_soon(
+                transport.post_writer,
+                client,
+                write_stream_reader,
+                read_stream_writer,
+                write_stream,
+                start_get_stream,
+                tg,
+            )
+
+            try:
+                yield read_stream, write_stream
+            finally:
+                if transport.session_id and terminate_on_close:
+                    await transport.terminate_session(client)
+                tg.cancel_scope.cancel()
+        await resync_tracer()

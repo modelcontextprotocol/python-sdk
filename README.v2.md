@@ -15,12 +15,13 @@
 
 <!-- TODO(v2): Move this content back to README.md when v2 is released -->
 
-> [!IMPORTANT]
-> **This documents v2 of the SDK (currently in development, pre-alpha on `main`).**
+> **Important: this documents v2 of the SDK, which is in alpha.** Pre-releases are published to PyPI as `2.0.0aN`, and each alpha may contain breaking changes from the previous one.
 >
-> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for what's changed. We're targeting a beta on 2026-06-30 and a stable v2 on 2026-07-27, alongside the spec release. Before stable, we plan to add a significant set of backwards compatibility shims so the final upgrade is much smaller than today's diff.
 >
-> For v1 documentation (the current stable release), see [`README.md`](README.md).
+> **v1.x is the only stable release line and remains recommended for production.** It is in maintenance mode and continues to receive critical bug fixes and security patches. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0aN`), so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
+>
+> Try the alpha and tell us what breaks: [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX). For v1 documentation, see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md).
 
 <!-- omit in toc -->
 ## Table of Contents
@@ -84,7 +85,7 @@
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
-[docs-url]: https://modelcontextprotocol.github.io/python-sdk/
+[docs-url]: https://py.sdk.modelcontextprotocol.io/v2/
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
@@ -115,14 +116,16 @@ If you haven't created a uv-managed project yet, create one:
    Then add MCP to your project dependencies:
 
    ```bash
-   uv add "mcp[cli]"
+   uv add "mcp[cli]==2.0.0a1"
    ```
 
 Alternatively, for projects using pip for dependencies:
 
 ```bash
-pip install "mcp[cli]"
+pip install "mcp[cli]==2.0.0a1"
 ```
+
+> While v2 is in pre-release, you must pin the version explicitly: unpinned installs resolve to the latest stable v1.x release, which these docs do not describe. Check the [release history](https://pypi.org/project/mcp/#history) for the newest pre-release. The same applies to ad-hoc commands: use `uv run --with "mcp==2.0.0a1"` rather than `uv run --with mcp`.
 
 ### Running the standalone MCP development tools
 
@@ -188,7 +191,7 @@ _Full example: [examples/snippets/servers/mcpserver_quickstart.py](https://githu
 You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run --with mcp examples/snippets/servers/mcpserver_quickstart.py
+uv run --with "mcp==2.0.0a1" examples/snippets/servers/mcpserver_quickstart.py
 ```
 
 Then add it to Claude Code:
@@ -207,7 +210,11 @@ In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
-The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions. MCP servers can:
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you build servers that expose data and functionality to LLM applications in a secure, standardized way. Think of it like a web API, but specifically designed for LLM interactions.
+
+MCP follows a **client-server model**, where LLM applications act as clients and connect to MCP servers to access capabilities such as data retrieval and tool execution in a consistent format.
+
+MCP servers can:
 
 - Expose data through **Resources** (think of these sort of like GET endpoints; they are used to load information into the LLM's context)
 - Provide functionality through **Tools** (sort of like POST endpoints; they are used to execute code or otherwise produce a side effect)
@@ -600,8 +607,8 @@ from mcp.server.mcpserver import MCPServer, Icon
 # Create an icon from a file path or URL
 icon = Icon(
     src="icon.png",
-    mimeType="image/png",
-    sizes="64x64"
+    mime_type="image/png",
+    sizes=["64x64"]
 )
 
 # Add icons to server
@@ -681,11 +688,11 @@ The Context object provides the following capabilities:
 - `ctx.mcp_server` - Access to the MCPServer server instance (see [MCPServer Properties](#mcpserver-properties))
 - `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
 - `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
-- `await ctx.debug(message)` - Send debug log message
-- `await ctx.info(message)` - Send info log message
-- `await ctx.warning(message)` - Send warning log message
-- `await ctx.error(message)` - Send error log message
-- `await ctx.log(level, message, logger_name=None)` - Send log with custom level
+- `await ctx.debug(data)` - Send debug log message
+- `await ctx.info(data)` - Send info log message
+- `await ctx.warning(data)` - Send warning log message
+- `await ctx.error(data)` - Send error log message
+- `await ctx.log(level, data, logger_name=None)` - Send log with custom level
 - `await ctx.report_progress(progress, total=None, message=None)` - Report operation progress
 - `await ctx.read_resource(uri)` - Read a resource by URI
 - `await ctx.elicit(message, schema)` - Request additional information from user with validation
@@ -921,7 +928,8 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
-- `validation_error`: Any validation error message
+
+If the client returns data that doesn't match the schema, `elicit()` raises a `pydantic.ValidationError`.
 
 ### Sampling
 
@@ -1048,7 +1056,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
 <!-- /snippet-source -->
 
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-auth/).
 
 **Architecture:**
 
@@ -1056,7 +1064,7 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
-See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+See [TokenVerifier](https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ### MCPServer Properties
 
@@ -1094,7 +1102,7 @@ The session object accessible via `ctx.session` provides advanced control over c
 
 - `ctx.session.client_params` - Client initialization parameters and declared capabilities
 - `await ctx.session.send_log_message(level, data, logger)` - Send log messages with full control
-- `await ctx.session.create_message(messages, max_tokens)` - Request LLM sampling/completion
+- `await ctx.session.create_message(messages, max_tokens=...)` - Request LLM sampling/completion (`max_tokens` is keyword-only)
 - `await ctx.session.send_progress_notification(token, progress, total, message)` - Direct progress updates
 - `await ctx.session.send_resource_updated(uri)` - Notify clients that a specific resource changed
 - `await ctx.session.send_resource_list_changed()` - Notify clients that the resource list changed
@@ -1124,9 +1132,9 @@ The request context accessible via `ctx.request_context` contains request-specif
   - Database connections, configuration objects, shared services
   - Type-safe access to resources defined in your server's lifespan function
 - `ctx.request_context.meta` - Request metadata from the client including:
-  - `progressToken` - Token for progress notifications
+  - `progress_token` - Token for progress notifications
   - Other client-provided metadata
-- `ctx.request_context.request` - The original MCP request object for advanced processing
+- `ctx.request_context.request` - Data the transport attached to this message (for example the HTTP request object on HTTP transports; `None` on stdio)
 - `ctx.request_context.request_id` - Unique identifier for this request
 
 ```python
@@ -1335,8 +1343,8 @@ _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https:/
 
 For low level server with Streamable HTTP implementations, see:
 
-- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+- Stateful server: [`examples/servers/simple-streamablehttp/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
 
@@ -2084,7 +2092,7 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
 
-See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
+See the [simple-pagination example](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-pagination) for a complete implementation.
 
 ### Writing MCP Clients
 
@@ -2153,7 +2161,7 @@ async def run():
             # Read a resource (greeting resource from mcpserver_quickstart)
             resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
-            if isinstance(content_block, types.TextContent):
+            if isinstance(content_block, types.TextResourceContents):
                 print(f"Resource content: {content_block.text}")
 
             # Call a tool (add tool from mcpserver_quickstart)
@@ -2393,12 +2401,13 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
 <!-- /snippet-source -->
 
-For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+For a complete working example, see [`examples/clients/simple-auth-client/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/clients/simple-auth-client/).
 
 ### Parsing Tool Results
 
 When calling tools through MCP, the `CallToolResult` object contains the tool's response in a structured format. Understanding how to parse this result is essential for properly handling tool outputs.
 
+<!-- snippet-source examples/snippets/clients/parsing_tool_results.py -->
 ```python
 """examples/snippets/clients/parsing_tool_results.py"""
 
@@ -2410,9 +2419,7 @@ from mcp.client.stdio import stdio_client
 
 async def parse_tool_results():
     """Demonstrates how to parse different types of content in CallToolResult."""
-    server_params = StdioServerParameters(
-        command="python", args=["path/to/mcp_server.py"]
-    )
+    server_params = StdioServerParameters(command="python", args=["path/to/mcp_server.py"])
 
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -2426,9 +2433,9 @@ async def parse_tool_results():
 
             # Example 2: Parsing structured content from JSON tools
             result = await session.call_tool("get_user", {"id": "123"})
-            if hasattr(result, "structuredContent") and result.structuredContent:
+            if hasattr(result, "structured_content") and result.structured_content:
                 # Access structured data directly
-                user_data = result.structuredContent
+                user_data = result.structured_content
                 print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
 
             # Example 3: Parsing embedded resources
@@ -2438,18 +2445,18 @@ async def parse_tool_results():
                     resource = content.resource
                     if isinstance(resource, types.TextResourceContents):
                         print(f"Config from {resource.uri}: {resource.text}")
-                    elif isinstance(resource, types.BlobResourceContents):
+                    else:
                         print(f"Binary data from {resource.uri}")
 
             # Example 4: Parsing image content
             result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
             for content in result.content:
                 if isinstance(content, types.ImageContent):
-                    print(f"Image ({content.mimeType}): {len(content.data)} bytes")
+                    print(f"Image ({content.mime_type}): {len(content.data)} bytes")
 
             # Example 5: Handling errors
             result = await session.call_tool("failing_tool", {})
-            if result.isError:
+            if result.is_error:
                 print("Tool execution failed!")
                 for content in result.content:
                     if isinstance(content, types.TextContent):
@@ -2463,6 +2470,9 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+_Full example: [examples/snippets/clients/parsing_tool_results.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/parsing_tool_results.py)_
+<!-- /snippet-source -->
 
 ### MCP Primitives
 
@@ -2488,15 +2498,14 @@ MCP servers declare capabilities during initialization:
 
 ## Documentation
 
-- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
-- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
+- [API Reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
 
 ## Contributing
 
-We are passionate about supporting contributors of all levels of experience and would love to see you get involved in the project. See the [contributing guide](CONTRIBUTING.md) to get started.
+We are passionate about supporting contributors of all levels of experience and would love to see you get involved in the project. See the [contributing guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/CONTRIBUTING.md) to get started.
 
 ## License
 

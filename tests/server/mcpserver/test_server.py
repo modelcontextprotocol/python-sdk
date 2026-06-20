@@ -11,7 +11,6 @@ from starlette.routing import Mount, Route
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
-from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
@@ -64,6 +63,15 @@ class TestServer:
         assert isinstance(mcp.icons, list)
         assert len(mcp.icons) == 1
         assert mcp.icons[0].src == "https://example.com/icon.png"
+
+    def test_dependencies(self):
+        """Dependencies list is read by `mcp install` / `mcp dev` CLI commands."""
+        mcp = MCPServer("test", dependencies=["pandas", "numpy"])
+        assert mcp.dependencies == ["pandas", "numpy"]
+        assert mcp.settings.dependencies == ["pandas", "numpy"]
+
+        mcp_no_deps = MCPServer("test")
+        assert mcp_no_deps.dependencies == []
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
@@ -676,6 +684,32 @@ class TestServerTools:
 
 
 class TestServerResources:
+    async def test_init_with_resources(self):
+        def get_text() -> str:
+            """Seeded resource."""
+            return "Hello from init!"
+
+        resource = FunctionResource.from_function(fn=get_text, uri="resource://init", name="init_resource")
+
+        mcp = MCPServer(resources=[resource])
+
+        async with Client(mcp) as client:
+            assert client.initialize_result.capabilities.resources is not None
+
+            resources = await client.list_resources()
+            assert len(resources.resources) == 1
+            listed = resources.resources[0]
+            assert listed.uri == "resource://init"
+            assert listed.name == "init_resource"
+            assert listed.description == "Seeded resource."
+
+            result = await client.read_resource("resource://init")
+
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Hello from init!"
+
     async def test_text_resource(self):
         mcp = MCPServer()
 
@@ -1064,10 +1098,10 @@ class TestContextInjection:
                 assert "Logged messages for test" in content.text
 
                 assert mock_log.call_count == 4
-                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="2")
 
     async def test_optional_context(self):
         """Test that context is optional."""
@@ -1467,7 +1501,7 @@ async def test_report_progress_passes_related_request_id():
         session=mock_session,
         meta={"progress_token": "tok-1"},
         lifespan_context=None,
-        experimental=Experimental(),
+        protocol_version="2025-11-25",
     )
 
     ctx = Context(request_context=request_context, mcp_server=MagicMock())

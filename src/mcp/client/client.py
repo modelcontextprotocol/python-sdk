@@ -12,13 +12,14 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
-from mcp.shared.session import ProgressFnT
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.types import (
     CallToolResult,
     CompleteResult,
     EmptyResult,
     GetPromptResult,
     Implementation,
+    InitializeResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -29,7 +30,6 @@ from mcp.types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
-    ServerCapabilities,
 )
 
 
@@ -155,9 +155,16 @@ class Client:
         return self._session
 
     @property
-    def server_capabilities(self) -> ServerCapabilities | None:
-        """The server capabilities received during initialization, or None if not yet initialized."""
-        return self.session.get_server_capabilities()
+    def initialize_result(self) -> InitializeResult:
+        """The server's InitializeResult.
+
+        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
+        Raises RuntimeError if accessed outside the context manager.
+        """
+        result = self.session.initialize_result
+        if result is None:  # pragma: no cover
+            raise RuntimeError("Client must be used within an async context manager")
+        return result
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
@@ -298,4 +305,4 @@ class Client:
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
         # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
-        await self.session.send_roots_list_changed()  # pragma: no cover
+        await self.session.send_roots_list_changed()

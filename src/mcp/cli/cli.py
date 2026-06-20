@@ -70,7 +70,7 @@ def _build_uv_command(
     """Build the uv run command that runs an MCP server through mcp run."""
     cmd = ["uv"]
 
-    cmd.extend(["run", "--with", "mcp"])
+    cmd.extend(["run", "--with", claude.mcp_requirement()])
 
     if with_editable:
         cmd.extend(["--with-editable", str(with_editable)])
@@ -277,7 +277,7 @@ def dev(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=dict(os.environ.items()),  # Copy the environment for subprocess launch
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:

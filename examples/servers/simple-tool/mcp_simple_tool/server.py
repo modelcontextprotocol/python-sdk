@@ -3,7 +3,6 @@ import click
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.shared._httpx_utils import create_mcp_http_client
-from starlette.requests import Request
 
 
 async def fetch_website(
@@ -51,10 +50,10 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
 
 
 @click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option("--port", default=8000, help="Port to listen on for HTTP")
 @click.option(
     "--transport",
-    type=click.Choice(["stdio", "sse"]),
+    type=click.Choice(["stdio", "streamable-http"]),
     default="stdio",
     help="Transport type",
 )
@@ -65,30 +64,10 @@ def main(port: int, transport: str) -> int:
         on_call_tool=handle_call_tool,
     )
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from starlette.applications import Starlette
-        from starlette.responses import Response
-        from starlette.routing import Mount, Route
-
-        sse = SseServerTransport("/messages/")
-
-        async def handle_sse(request: Request):
-            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
-                await app.run(streams[0], streams[1], app.create_initialization_options())
-            return Response()
-
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse, methods=["GET"]),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
-
+    if transport == "streamable-http":
         import uvicorn
 
-        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+        uvicorn.run(app.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

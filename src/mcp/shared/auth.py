@@ -67,15 +67,33 @@ class OAuthClientMetadata(BaseModel):
     software_id: str | None = None
     software_version: str | None = None
 
+    @field_validator(
+        "client_uri",
+        "logo_uri",
+        "tos_uri",
+        "policy_uri",
+        "jwks_uri",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_optional_url_to_none(cls, v: object) -> object:
+        # RFC 7591 §2 marks these URL fields OPTIONAL. Some authorization servers
+        # echo omitted metadata back as "" instead of dropping the keys, which
+        # AnyHttpUrl would otherwise reject — throwing away an otherwise valid
+        # registration response. Treat "" as absent.
+        if v == "":
+            return None
+        return v
+
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
             return None
         requested_scopes = requested_scope.split(" ")
         allowed_scopes = [] if self.scope is None else self.scope.split(" ")
         for scope in requested_scopes:
-            if scope not in allowed_scopes:  # pragma: no branch
+            if scope not in allowed_scopes:
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes  # pragma: no cover
+        return requested_scopes
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:

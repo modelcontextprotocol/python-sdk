@@ -2,6 +2,15 @@
 
 Thank you for helping keep the Model Context Protocol and its ecosystem secure.
 
+## Supported Versions
+
+Security fixes are released for the most recent stable (v1.x) release line.
+
+v2 pre-releases (`2.0.0aN`, …) are development snapshots: fixes land only in
+the newest pre-release, and already-published pre-releases are not patched. If
+you are testing the v2 line, track the latest pre-release; for production use,
+stay on the latest stable release.
+
 ## Reporting Security Issues
 
 If you discover a security vulnerability in this repository, please report it through

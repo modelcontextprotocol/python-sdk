@@ -1,5 +1,8 @@
 # MCP Python SDK
 
+!!! info "You are viewing the in-development v2 documentation"
+    For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
+
 The **Model Context Protocol (MCP)** allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction.
 
 This Python SDK implements the full MCP specification, making it easy to:
@@ -64,4 +67,4 @@ npx -y @modelcontextprotocol/inspector
 
 ## API Reference
 
-Full API documentation is available in the [API Reference](api.md).
+Full API documentation is available in the [API Reference](api/mcp/index.md).
