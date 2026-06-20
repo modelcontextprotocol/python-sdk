@@ -324,10 +324,15 @@ class StreamableHTTPTransport:
                         try:
                             body = await response.aread()
                             parsed = jsonrpc_message_adapter.validate_json(body, by_name=False)
-                            await ctx.read_stream_writer.send(SessionMessage(parsed))
-                            return
+                            if isinstance(parsed, JSONRPCError):
+                                # The server may have set `id: null` (request rejected before its
+                                # id was parsed); use this request's id so correlation works.
+                                reply = JSONRPCError(jsonrpc="2.0", id=message.id, error=parsed.error)
+                                await ctx.read_stream_writer.send(SessionMessage(reply))
+                                return
                         except (httpx.StreamError, ValidationError):
-                            logger.debug("Non-2xx body was not a valid JSON-RPC message; using fallback error")
+                            pass
+                        logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
                     if response.status_code == 404:
                         error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     else:

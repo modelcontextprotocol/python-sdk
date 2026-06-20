@@ -61,7 +61,7 @@ async def test_list_roots_raises_no_back_channel(no_channel_session: ServerSessi
     """SDK-defined: `list_roots` has no `related_request_id` so it always rides
     the standalone channel, which raises here."""
     with pytest.raises(NoBackChannelError) as exc:
-        await no_channel_session.list_roots()
+        await no_channel_session.list_roots()  # pyright: ignore[reportDeprecated]
     assert exc.value.method == "roots/list"
 
 
@@ -77,7 +77,7 @@ async def test_send_ping_raises_no_back_channel(no_channel_session: ServerSessio
 async def test_create_message_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
     """SDK-defined: `create_message` without a related id rides the standalone channel and raises."""
     with pytest.raises(NoBackChannelError) as exc:
-        await no_channel_session.create_message(
+        await no_channel_session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
             max_tokens=100,
         )
@@ -144,7 +144,7 @@ async def test_loop_connection_outbound_does_not_raise_no_back_channel():
     conn = Connection.for_loop(standalone)
     assert conn.has_standalone_channel is True
     session = ServerSession(StubOutbound(), conn, standalone_outbound=conn.outbound)
-    result = await session.list_roots()
+    result = await session.list_roots()  # pyright: ignore[reportDeprecated]
     assert isinstance(result, types.ListRootsResult)
     assert standalone.requests[0][0] == "roots/list"
 
