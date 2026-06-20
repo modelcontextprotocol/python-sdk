@@ -8,8 +8,6 @@ rejection's ``code`` through :data:`ERROR_CODE_HTTP_STATUS` to pick the HTTP
 status.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType

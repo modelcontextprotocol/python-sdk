@@ -1,10 +1,11 @@
 """Direct-handler tests for the auto-derived `server/discover` handler.
 
-These call the registered handler straight from `Server._request_handlers`
-without spinning up a `ServerRunner` or any transport, so they verify the
-handler's contract in isolation from the dispatch pipeline.
+These call the registered handler via the public `Server.get_request_handler`
+accessor without spinning up a `ServerRunner` or any transport, so they verify
+the handler's contract in isolation from the dispatch pipeline.
 """
 
+import importlib.metadata
 from typing import Any, cast
 
 import pytest
@@ -13,23 +14,26 @@ from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
-# The default handler ignores its `ctx` argument entirely (it derives the
+# `Server._handle_discover` ignores its `ctx` argument entirely (it derives the
 # result from server state), so a sentinel keeps the call site type-correct
 # without dragging session machinery into a unit test.
 _UNUSED_CTX = cast("ServerRequestContext[Any]", None)
 
 
 async def _discover(server: Server[Any]) -> types.DiscoverResult:
-    entry = server._request_handlers["server/discover"]
+    entry = server.get_request_handler("server/discover")
+    assert entry is not None
     result = await entry.handler(_UNUSED_CTX, types.RequestParams())
     assert isinstance(result, types.DiscoverResult)
     return result
 
 
 def test_registered_by_default() -> None:
+    """SDK-defined: a bare `Server` registers a `server/discover` handler out of
+    the box, typed for the base `RequestParams`."""
     server = Server("test-server")
-    assert "server/discover" in server._request_handlers
-    entry = server._request_handlers["server/discover"]
+    entry = server.get_request_handler("server/discover")
+    assert entry is not None
     assert entry.params_type is types.RequestParams
 
 
@@ -43,6 +47,8 @@ async def test_supported_versions_is_modern_set() -> None:
 
 @pytest.mark.anyio
 async def test_server_info_reflects_constructor_fields() -> None:
+    """SDK-defined: `serverInfo` is built field-for-field from the `Server`
+    constructor arguments."""
     icons = [types.Icon(src="https://example.test/icon.png")]
     server = Server(
         "info-server",
@@ -65,15 +71,16 @@ async def test_server_info_reflects_constructor_fields() -> None:
 
 @pytest.mark.anyio
 async def test_server_info_version_falls_back_to_package() -> None:
-    """When no explicit version is supplied, `serverInfo.version` is still a
-    non-empty string (the installed `mcp` package version)."""
+    """SDK-defined: when no explicit version is supplied, `serverInfo.version`
+    falls back to the installed `mcp` package version."""
     result = await _discover(Server("unversioned"))
-    assert isinstance(result.server_info.version, str)
-    assert result.server_info.version
+    assert result.server_info.version == importlib.metadata.version("mcp")
 
 
 @pytest.mark.anyio
 async def test_instructions_threaded_through() -> None:
+    """SDK-defined: the `instructions` constructor argument is passed through
+    verbatim, defaulting to `None` when omitted."""
     server = Server("inst-server", instructions="Read the docs first.")
     result = await _discover(server)
     assert result.instructions == "Read the docs first."
@@ -84,8 +91,9 @@ async def test_instructions_threaded_through() -> None:
 
 @pytest.mark.anyio
 async def test_capabilities_derived_from_registered_handlers() -> None:
-    """Capabilities are computed at handler call time from the live registry,
-    so post-construction `add_request_handler` calls are reflected."""
+    """SDK-defined: capabilities are computed at handler call time from the
+    live registry, so post-construction `add_request_handler` calls are
+    reflected."""
 
     async def list_tools(
         ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
@@ -111,9 +119,9 @@ async def test_capabilities_derived_from_registered_handlers() -> None:
 
 
 @pytest.mark.anyio
-async def test_cacheable_defaults() -> None:
-    """`DiscoverResult` is cacheable; the auto-derived handler relies on the
-    model defaults (immediately-stale, private)."""
+async def test_discover_result_defaults_to_immediately_stale_private_cache() -> None:
+    """SDK-defined: `DiscoverResult` is cacheable; the auto-derived handler
+    relies on the model defaults (immediately-stale, private)."""
     result = await _discover(Server("cache-server"))
     assert result.ttl_ms == 0
     assert result.cache_scope == "private"
@@ -121,6 +129,8 @@ async def test_cacheable_defaults() -> None:
 
 @pytest.mark.anyio
 async def test_overridable_via_add_request_handler() -> None:
+    """SDK-defined: a custom `server/discover` handler registered via
+    `add_request_handler` replaces the auto-derived default wholesale."""
     server = Server("custom-server", version="1.0.0")
     custom = types.DiscoverResult(
         supported_versions=list(MODERN_PROTOCOL_VERSIONS),

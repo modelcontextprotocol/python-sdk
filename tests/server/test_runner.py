@@ -1181,6 +1181,9 @@ async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
 
 @pytest.mark.anyio
 async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response():
+    """SDK-defined: a handler coroutine resolving to a result dict is wrapped as a
+    `JSONRPCResponse` carrying the supplied id and the dict verbatim as `result`."""
+
     async def ok() -> dict[str, Any]:
         return {"k": "v"}
 
@@ -1192,6 +1195,9 @@ async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response():
 
 @pytest.mark.anyio
 async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error():
+    """SDK-defined: an `MCPError` raised by the handler coroutine is wrapped as a
+    `JSONRPCError` whose `error` carries the same code, message, and data."""
+
     async def fail() -> dict[str, Any]:
         raise MCPError(code=METHOD_NOT_FOUND, message="nope", data="x")
 
@@ -1203,6 +1209,10 @@ async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error():
 
 @pytest.mark.anyio
 async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params():
+    """SDK-defined: a pydantic `ValidationError` escaping the handler coroutine is
+    mapped to `INVALID_PARAMS` with a generic message (validator detail does not
+    reach the wire)."""
+
     async def fail() -> dict[str, Any]:
         Tool.model_validate({"name": 123})  # raises ValidationError
         raise NotImplementedError
@@ -1216,6 +1226,10 @@ async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params():
 async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and_logs(
     caplog: pytest.LogCaptureFixture,
 ):
+    """SDK-defined: an unmapped exception is logged server-side and surfaced as
+    `INTERNAL_ERROR` with a generic message; the exception text never reaches the
+    wire."""
+
     async def fail() -> dict[str, Any]:
         raise RuntimeError("boom")
 
@@ -1271,13 +1285,13 @@ class _StubDispatchContext:
     async def send_raw_request(
         self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
     ) -> dict[str, Any]:
-        raise AssertionError("serve_one tests do not send requests on the back-channel")
+        raise NotImplementedError
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        pass
+        raise NotImplementedError
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        pass
+        raise NotImplementedError
 
 
 async def _append_async(dst: list[int], v: int) -> None:
@@ -1305,7 +1319,10 @@ async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT)
 
 
 @pytest.mark.anyio
-async def test_serve_one_maps_handler_error_to_jsonrpc_error_and_still_closes_exit_stack(server: SrvT):
+async def test_serve_one_maps_error_to_jsonrpc_error_and_still_closes_exit_stack(server: SrvT):
+    """SDK-defined: a kernel-produced error (here `METHOD_NOT_FOUND` for an
+    unregistered method) is wrapped as a `JSONRPCError`, and the per-request
+    exit stack is closed on the error path too."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)

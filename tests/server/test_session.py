@@ -17,6 +17,7 @@ from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.message import ServerMessageMetadata
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -60,6 +61,7 @@ def _make_session(
 
 
 def _two_channel_session(request_ch: Outbound, standalone_ch: Outbound) -> ServerSession:
+    """Distinct request/standalone outbounds so routing assertions can tell the channels apart."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None, outbound=standalone_ch)
     return ServerSession(request_ch, conn, standalone_outbound=standalone_ch)
 
@@ -105,7 +107,7 @@ async def test_send_request_timeout_zero_is_forwarded():
 
 @pytest.mark.anyio
 async def test_send_request_without_related_id_routes_to_standalone_channel():
-    """No `related_request_id`: the request rides the connection's standalone channel."""
+    """SDK-defined: no `related_request_id` routes the request onto the connection's standalone channel."""
     request_ch = StubOutbound()
     standalone_ch = StubOutbound(result={"roots": []})
     session = _two_channel_session(request_ch, standalone_ch)
@@ -116,7 +118,7 @@ async def test_send_request_without_related_id_routes_to_standalone_channel():
 
 @pytest.mark.anyio
 async def test_send_request_with_related_id_routes_to_request_channel():
-    """With `related_request_id`: the request rides the per-request channel
+    """SDK-defined: with `related_request_id` the request rides the per-request channel
     (the originating POST's response stream over streamable HTTP)."""
     request_ch = StubOutbound(result={"action": "cancel"})
     standalone_ch = StubOutbound()
@@ -133,7 +135,7 @@ async def test_send_request_with_related_id_routes_to_request_channel():
 
 @pytest.mark.anyio
 async def test_send_notification_routes_by_related_request_id():
-    """Notifications select channel by `related_request_id` exactly like requests."""
+    """SDK-defined: notifications select channel by `related_request_id` exactly like requests."""
     request_ch = StubOutbound()
     standalone_ch = StubOutbound()
     session = _two_channel_session(request_ch, standalone_ch)
@@ -145,10 +147,14 @@ async def test_send_notification_routes_by_related_request_id():
 
 @pytest.mark.anyio
 async def test_standalone_outbound_defaults_to_request_outbound():
-    """Omitting `standalone_outbound` collapses both channels onto the request
-    one — the duplex case (stdio) where a single stream serves both."""
+    """SDK-defined: omitting `standalone_outbound` collapses both channels onto the
+    request one — the duplex case (stdio) where a single stream serves both.
+
+    `conn.outbound` is the no-channel sentinel here, so traffic landing on `only`
+    proves the default is the request outbound (the alternate impl — defaulting to
+    `conn.outbound` — would raise `NoBackChannelError`)."""
     only = StubOutbound(result={"roots": []})
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None, outbound=only)
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     session = ServerSession(only, conn)
     await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
     await session.send_notification(types.ToolListChangedNotification())
@@ -178,7 +184,7 @@ async def test_send_request_passes_a_spec_valid_client_result():
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
     """Surface row absent for the connection's version: gate is bypassed and only
     `result_type` validates."""
-    session = _make_session(StubOutbound(result={}), protocol_version="2026-07-28")
+    session = _make_session(StubOutbound(result={}), protocol_version=MODERN_PROTOCOL_VERSIONS[0])
     result = await session.send_request(types.PingRequest(), types.EmptyResult)
     assert isinstance(result, types.EmptyResult)
 
@@ -219,8 +225,9 @@ def test_check_client_capability_delegates_to_connection():
 
 
 def test_protocol_version_proxies_connection():
-    """`session.protocol_version` reads through to the held `Connection`."""
-    conn = Connection.from_envelope("2025-03-26", None, None)
+    """SDK-defined: `session.protocol_version` reads through to the held `Connection`."""
+    _ARBITRARY_VERSION = "sentinel-version"  # identity-only: any string the connection holds
+    conn = Connection.from_envelope(_ARBITRARY_VERSION, None, None)
     session = ServerSession(StubOutbound(), conn, standalone_outbound=conn.outbound)
-    assert session.protocol_version == "2025-03-26"
+    assert session.protocol_version == _ARBITRARY_VERSION
     assert session.client_params is None

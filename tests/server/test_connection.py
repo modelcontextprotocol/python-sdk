@@ -68,8 +68,8 @@ class StubOutbound:
 
 
 def test_from_envelope_is_born_ready_with_no_back_channel():
-    """`from_envelope` populates `protocol_version`, sets `initialized`, and
-    holds the no-channel sentinel so `has_standalone_channel` derives False."""
+    """SDK-defined: `from_envelope` populates `protocol_version`, sets `initialized`,
+    and holds the no-channel sentinel so `has_standalone_channel` derives False."""
     conn = Connection.from_envelope(_MODERN, None, None)
     assert conn.protocol_version == _MODERN
     assert conn.initialized.is_set()
@@ -80,6 +80,8 @@ def test_from_envelope_is_born_ready_with_no_back_channel():
 
 
 def test_from_envelope_records_client_params_when_both_info_and_caps_supplied():
+    """SDK-defined: when both client info and capabilities are supplied,
+    `from_envelope` synthesizes `client_params` so capability checks can run."""
     caps = ClientCapabilities(sampling=SamplingCapability())
     conn = Connection.from_envelope(_MODERN, _CLIENT_INFO, caps)
     assert conn.client_params is not None
@@ -95,12 +97,14 @@ def test_from_envelope_records_client_params_when_both_info_and_caps_supplied():
 def test_from_envelope_leaves_client_params_none_when_either_is_missing(
     info: Implementation | None, caps: ClientCapabilities | None
 ):
+    """SDK-defined: `client_params` is only synthesized when both info and
+    caps are present; either missing leaves it `None`."""
     conn = Connection.from_envelope(_MODERN, info, caps)
     assert conn.client_params is None
 
 
 def test_from_envelope_with_explicit_outbound_has_standalone_channel():
-    """Duplex modern transports pass an outbound; `has_standalone_channel`
+    """SDK-defined: duplex modern transports pass an outbound; `has_standalone_channel`
     derives True since the held outbound is not the no-channel sentinel."""
     out = StubOutbound()
     conn = Connection.from_envelope(_MODERN, None, None, outbound=out)
@@ -110,6 +114,8 @@ def test_from_envelope_with_explicit_outbound_has_standalone_channel():
 
 
 def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
+    """SDK-defined: `for_loop` seeds `protocol_version` from the hint when given,
+    else `LATEST_PROTOCOL_VERSION`; the connection awaits the initialize handshake."""
     out = StubOutbound()
     conn = Connection.for_loop(out)
     assert conn.protocol_version == LATEST_PROTOCOL_VERSION
@@ -118,9 +124,14 @@ def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
     assert conn.initialize_accepted is False
     assert conn.client_params is None
 
-    hinted = Connection.for_loop(out, session_id="sess-1", protocol_version_hint=_MODERN)
+    hinted = Connection.for_loop(out, protocol_version_hint=_MODERN)
     assert hinted.protocol_version == _MODERN
-    assert hinted.session_id == "sess-1"
+
+
+def test_for_loop_records_session_id_when_supplied():
+    """SDK-defined: `for_loop` stores the `session_id` kwarg verbatim."""
+    conn = Connection.for_loop(StubOutbound(), session_id="sess-1")
+    assert conn.session_id == "sess-1"
 
 
 # --- outbound channel ----------------------------------------------------------
@@ -145,7 +156,7 @@ async def test_connection_notify_swallows_broken_stream_and_debug_logs(caplog: p
 
 @pytest.mark.anyio
 async def test_connection_notify_drops_when_no_standalone_channel(caplog: pytest.LogCaptureFixture):
-    """The no-channel sentinel debug-logs and drops; `notify` never raises."""
+    """SDK-defined: the no-channel sentinel debug-logs and drops; `notify` never raises."""
     caplog.set_level(logging.DEBUG, logger="mcp.server.connection")
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     await conn.notify("notifications/message", {"data": "x"})  # must not raise
@@ -154,7 +165,7 @@ async def test_connection_notify_drops_when_no_standalone_channel(caplog: pytest
 
 @pytest.mark.anyio
 async def test_connection_send_raw_request_raises_nobackchannel_when_no_standalone_channel():
-    """The no-channel sentinel raises structurally; `Connection` does no pre-check."""
+    """SDK-defined: the no-channel sentinel raises structurally; `Connection` does no pre-check."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     with pytest.raises(NoBackChannelError):
         await conn.send_raw_request("ping", None)
@@ -312,6 +323,8 @@ async def test_connection_send_tool_list_changed_with_meta_includes_meta_only_pa
 
 
 def test_connection_check_capability_false_when_no_client_params_recorded():
+    """SDK-defined: `check_capability` returns False when no `client_params`
+    were recorded, regardless of which factory built the connection."""
     conn = Connection.for_loop(StubOutbound())
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is False
     # Same for a born-ready connection that supplied neither info nor caps.

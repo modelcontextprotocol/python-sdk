@@ -18,9 +18,18 @@ from mcp.server import Server, ServerRequestContext, runner
 from mcp.server._streamable_http_modern import _SingleExchangeDispatchContext, handle_modern_request
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import NoBackChannelError
-from mcp.shared.inbound import ERROR_CODE_HTTP_STATUS
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
-from mcp.types import METHOD_NOT_FOUND, PARSE_ERROR, ListToolsResult, PaginatedRequestParams
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
+    ListToolsResult,
+    PaginatedRequestParams,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -47,28 +56,38 @@ def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettin
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
-        headers={"mcp-protocol-version": "2026-07-28"},
+        headers={MCP_PROTOCOL_VERSION_HEADER: MODERN_PROTOCOL_VERSIONS[0]},
     )
 
 
 async def test_handle_modern_request_rejects_non_post_with_method_not_found() -> None:
-    """A GET on the 2026-07-28 entry is answered with the table-mapped METHOD_NOT_FOUND status."""
+    """A GET on the modern entry is rejected with HTTP 404 and a ``METHOD_NOT_FOUND`` JSON-RPC error.
+
+    SDK-defined: the 404 status comes from the SDK's error-code→HTTP-status table; spec-mandated: the
+    body carries the JSON-RPC ``METHOD_NOT_FOUND`` code.
+    """
     async with _asgi_client(Server("test")) as http:
         response = await http.get("/mcp")
-    assert response.status_code == ERROR_CODE_HTTP_STATUS[METHOD_NOT_FOUND]
+    assert response.status_code == 404
     assert response.headers["allow"] == "POST"
     assert response.json()["error"]["code"] == METHOD_NOT_FOUND
 
 
 async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -> None:
-    """A POST whose body is not a valid ``JSONRPCRequest`` returns the table-mapped PARSE_ERROR status."""
+    """An unparseable POST body yields HTTP 400 with a ``PARSE_ERROR`` JSON-RPC error envelope.
+
+    SDK-defined: the 400 status comes from the SDK's error-code→HTTP-status table; spec-mandated: the
+    body is a full JSON-RPC error object with ``id: null`` and code ``-32700``.
+    """
     async with _asgi_client(Server("test")) as http:
         response = await http.post("/mcp", content=b"not json", headers={"content-type": "application/json"})
-    assert response.status_code == ERROR_CODE_HTTP_STATUS[PARSE_ERROR]
+    assert response.status_code == 400
     assert response.headers["content-type"].split(";", 1)[0] == "application/json"
-    body = response.json()
-    assert body["jsonrpc"] == "2.0"
-    assert body["error"] == {"code": PARSE_ERROR, "message": "Parse error"}
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": PARSE_ERROR, "message": "Parse error"},
+    }
 
 
 async def test_handle_modern_request_returns_transport_security_error_response() -> None:
@@ -83,9 +102,9 @@ async def test_handle_modern_request_returns_transport_security_error_response()
 def _list_tools_body() -> dict[str, Any]:
     """A minimal valid 2026-07-28 ``tools/list`` request body, including the required ``_meta`` envelope."""
     meta = {
-        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-        "io.modelcontextprotocol/clientInfo": {"name": "raw", "version": "0.0.0"},
-        "io.modelcontextprotocol/clientCapabilities": {},
+        PROTOCOL_VERSION_META_KEY: MODERN_PROTOCOL_VERSIONS[0],
+        CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
     }
     return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta}}
 

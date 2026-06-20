@@ -5,8 +5,6 @@ pass+fail with no ``mcp.server`` / transport imports and no inlined error-code
 or protocol-version literals — all facts are imported from their one source.
 """
 
-from __future__ import annotations
-
 import dataclasses
 from typing import Any
 
@@ -82,6 +80,7 @@ def assert_rejected(result: object, code: int) -> InboundLadderRejection:
     ],
 )
 def test_envelope_rung_rejects_missing_keys(body: dict[str, Any]) -> None:
+    """Spec-mandated: a modern request lacking any of the three reserved ``_meta`` keys is rejected INVALID_PARAMS."""
     rejection = assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
     assert rejection.data is None
 
@@ -97,6 +96,7 @@ def test_envelope_rung_rejects_missing_keys(body: dict[str, Any]) -> None:
     ],
 )
 def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
+    """Spec-mandated: non-mapping ``params`` / ``_meta`` cannot carry the envelope and reject INVALID_PARAMS."""
     assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
 
 
@@ -104,6 +104,7 @@ def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
 
 
 def test_version_rung_rejects_unsupported_with_data_shape() -> None:
+    """Spec-mandated: an envelope version outside the modern set rejects with the ``supported``/``requested`` data."""
     rejection = assert_rejected(
         classify_inbound_request(envelope(version=LATEST_PROTOCOL_VERSION)),
         UNSUPPORTED_PROTOCOL_VERSION,
@@ -115,6 +116,7 @@ def test_version_rung_rejects_unsupported_with_data_shape() -> None:
 
 
 def test_version_rung_data_reflects_supplied_supported_list() -> None:
+    """SDK-defined: the caller-supplied ``supported_modern_versions`` is what rejection ``data.supported`` echoes."""
     custom = (LATEST_PROTOCOL_VERSION,)
     rejection = assert_rejected(
         classify_inbound_request(envelope(), supported_modern_versions=custom),
@@ -126,12 +128,14 @@ def test_version_rung_data_reflects_supplied_supported_list() -> None:
 # --- rung 3: header ↔ envelope agreement ---------------------------------------
 
 
-def test_header_rung_skipped_when_headers_none() -> None:
+def test_header_rung_does_not_reject_when_headers_arg_is_none() -> None:
+    """SDK-defined: ``headers=None`` (non-HTTP transports) means rung 3 has nothing to check and the ladder proceeds."""
     result = classify_inbound_request(envelope(), headers=None)
     assert isinstance(result, InboundModernRoute)
 
 
 def test_header_rung_passes_when_header_matches_envelope() -> None:
+    """Spec-mandated: an HTTP version header equal to the envelope version passes rung 3."""
     result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert isinstance(result, InboundModernRoute)
 
@@ -144,6 +148,7 @@ def test_header_rung_passes_when_header_matches_envelope() -> None:
     ],
 )
 def test_header_rung_rejects_on_disagreement(headers: dict[str, str]) -> None:
+    """Spec-mandated: an absent or mismatched HTTP version header rejects HEADER_MISMATCH."""
     assert_rejected(classify_inbound_request(envelope(), headers=headers), HEADER_MISMATCH)
 
 
@@ -161,16 +166,18 @@ def test_header_rung_rejects_on_disagreement(headers: dict[str, str]) -> None:
     ],
 )
 def test_method_rung_rejects_methods_removed_at_modern_version(method: str) -> None:
-    """Absence from ``CLIENT_REQUESTS`` at the modern version *is* the gate."""
+    """Spec-mandated: absence from ``CLIENT_REQUESTS`` at the modern version *is* the gate — removed methods reject."""
     rejection = assert_rejected(classify_inbound_request(envelope(method)), METHOD_NOT_FOUND)
     assert method in rejection.message
 
 
 def test_method_rung_rejects_unknown_method() -> None:
+    """Spec-mandated: a method name not in the version's request table rejects METHOD_NOT_FOUND."""
     assert_rejected(classify_inbound_request(envelope("does/not/exist")), METHOD_NOT_FOUND)
 
 
 def test_method_rung_rejects_absent_method_key() -> None:
+    """Spec-mandated: a body with no ``method`` key cannot route and rejects METHOD_NOT_FOUND."""
     body = envelope()
     del body["method"]
     assert_rejected(classify_inbound_request(body), METHOD_NOT_FOUND)
@@ -181,6 +188,7 @@ def test_method_rung_rejects_absent_method_key() -> None:
 
 @pytest.mark.parametrize("method", ["tools/list", "tools/call", "server/discover"])
 def test_all_rungs_pass_yields_route(method: str) -> None:
+    """Spec-mandated: a complete envelope at a supported version with agreeing header routes, surfacing the envelope."""
     result = classify_inbound_request(envelope(method), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert isinstance(result, InboundModernRoute)
     assert result.method == method
@@ -190,7 +198,7 @@ def test_all_rungs_pass_yields_route(method: str) -> None:
 
 
 def test_ladder_first_failure_wins() -> None:
-    """Version, header and method rungs would all fail; the version rung fires first."""
+    """Spec-mandated: rungs evaluate in order — version, header and method would all fail; the version rung fires."""
     body = envelope("initialize", version=LATEST_PROTOCOL_VERSION)
     result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert_rejected(result, UNSUPPORTED_PROTOCOL_VERSION)
@@ -210,10 +218,12 @@ def test_ladder_first_failure_wins() -> None:
     ],
 )
 def test_error_code_http_status_table(code: int, status: int) -> None:
+    """SDK-defined: pins the JSON-RPC error code → HTTP status mapping the streamable transport reads."""
     assert ERROR_CODE_HTTP_STATUS[code] == status
 
 
 def test_error_code_http_status_covers_every_ladder_code() -> None:
+    """SDK-defined: every code the ladder can emit has an HTTP-status entry, so the transport never has to default."""
     ladder_codes = {INVALID_PARAMS, UNSUPPORTED_PROTOCOL_VERSION, HEADER_MISMATCH, METHOD_NOT_FOUND}
     assert ladder_codes <= ERROR_CODE_HTTP_STATUS.keys()
 
@@ -222,7 +232,9 @@ def test_error_code_http_status_covers_every_ladder_code() -> None:
 
 
 def test_verdict_dataclasses_are_frozen() -> None:
+    """SDK-defined: both verdict dataclasses are frozen so a route/rejection cannot be mutated after classification."""
     route = classify_inbound_request(envelope())
+    assert isinstance(route, InboundModernRoute)
     rejection = InboundLadderRejection(code=METHOD_NOT_FOUND, message="m")
     for verdict in (route, rejection):
         with pytest.raises(dataclasses.FrozenInstanceError):
