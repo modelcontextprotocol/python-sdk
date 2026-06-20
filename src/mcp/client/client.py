@@ -97,7 +97,9 @@ class Client:
 
     Pinning to ``2026-07-28`` or later selects the stateless transport era: no initialize
     handshake is sent on the wire (the session synthesizes its `InitializeResult` locally),
-    and for HTTP the ``MCP-Protocol-Version`` header is set from the first request.
+    and for HTTP the ``MCP-Protocol-Version`` header is set from the first request. A modern
+    pin currently requires a URL or `Transport`; the in-memory `Server`/`MCPServer` path
+    does not yet have a modern entry point.
     Leave as ``None`` to negotiate the version via the initialize handshake.
     """
 
