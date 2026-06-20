@@ -13,7 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import ExternalSchemaRefError, StrictJsonSchema, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.types import CallToolResult
 
 
@@ -1191,34 +1191,3 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
-
-
-def test_strict_json_schema_allows_same_document_refs():
-    class Inner(BaseModel):
-        x: int
-
-    class Model(BaseModel):
-        inner: Inner
-
-    schema = Model.model_json_schema(schema_generator=StrictJsonSchema)
-    assert "$defs" in schema
-    assert schema["properties"]["inner"]["$ref"] == "#/$defs/Inner"
-
-
-def test_strict_json_schema_rejects_external_ref_in_property():
-    class Model(BaseModel):
-        profile: Annotated[dict[str, Any], Field(json_schema_extra={"$ref": "https://evil.example/s.json"})]
-
-    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/s.json"):
-        Model.model_json_schema(schema_generator=StrictJsonSchema)
-
-
-def test_strict_json_schema_rejects_external_ref_nested_in_list():
-    class Model(BaseModel):
-        items: Annotated[
-            list[str],
-            Field(json_schema_extra={"prefixItems": [{"$ref": "https://evil.example/a.json"}]}),
-        ]
-
-    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/a.json"):
-        Model.model_json_schema(schema_generator=StrictJsonSchema)

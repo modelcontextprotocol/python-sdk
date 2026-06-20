@@ -1,16 +1,16 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
-from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, ExternalSchemaRefError, FuncMetadata
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 
@@ -904,46 +904,3 @@ class TestRemoveTools:
         # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None
-
-
-def test_add_tool_rejects_external_input_ref():
-    """SEP-2106: a tool whose input schema carries an external $ref is rejected at registration."""
-
-    def lookup(
-        profile: Annotated[dict[str, Any], Field(json_schema_extra={"$ref": "https://evil.example/s.json"})],
-    ) -> None:  # pragma: no cover
-        ...
-
-    manager = ToolManager()
-    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/s.json"):
-        manager.add_tool(lookup)
-    assert manager.get_tool("lookup") is None
-
-
-def test_add_tool_rejects_external_output_ref():
-    """SEP-2106: a tool whose output schema carries an external $ref is rejected at registration."""
-
-    class Out(BaseModel):
-        value: Annotated[str, Field(json_schema_extra={"$ref": "https://evil.example/out.json"})]
-
-    def lookup() -> Out:  # pragma: no cover
-        ...
-
-    manager = ToolManager()
-    with pytest.raises(ExternalSchemaRefError, match="https://evil.example/out.json"):
-        manager.add_tool(lookup)
-    assert manager.get_tool("lookup") is None
-
-
-def test_add_tool_allows_same_document_refs():
-    """Pydantic-generated `#/$defs/...` refs from nested models must pass registration."""
-
-    class Inner(BaseModel):
-        x: int
-
-    def good(inner: Inner) -> Inner:  # pragma: no cover
-        ...
-
-    manager = ToolManager()
-    tool = manager.add_tool(good)
-    assert "$defs" in tool.parameters

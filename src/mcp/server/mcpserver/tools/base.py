@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, StrictJsonSchema, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -53,12 +53,7 @@ class Tool(BaseModel):
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
-        """Create a Tool from a function.
-
-        Raises:
-            ExternalSchemaRefError: If the generated input or output schema contains a
-                `$ref` that is not a same-document reference (SEP-2106).
-        """
+        """Create a Tool from a function."""
         func_name = name or fn.__name__
 
         validate_and_warn_tool_name(func_name)
@@ -77,7 +72,7 @@ class Tool(BaseModel):
             skip_names=[context_kwarg] if context_kwarg is not None else [],
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True, schema_generator=StrictJsonSchema)
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 
         return cls(
             fn=fn,
