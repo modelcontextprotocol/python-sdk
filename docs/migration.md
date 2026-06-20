@@ -501,17 +501,17 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
 
-### `stateless_http=True`: lifespan now entered once at startup
+### Streamable HTTP: lifespan now entered once at manager startup
 
-When serving streamable HTTP with `stateless_http=True`, the server's `lifespan` context manager is now entered once when `StreamableHTTPSessionManager.run()` starts, and the resulting state is shared across all requests. Previously each incoming request entered (and exited) `lifespan` independently.
+When serving streamable HTTP (stateful or `stateless_http=True`), the server's `lifespan` context manager is now entered once when `StreamableHTTPSessionManager.run()` starts, and the resulting state is shared across all sessions and requests. Previously each session (stateful) or each request (stateless) entered and exited `lifespan` independently.
 
-Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of on every request. If your lifespan was acquiring per-connection resources, move that into the handler and register cleanup on the per-connection `exit_stack`:
+Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of per session/request. If your lifespan was acquiring per-connection resources, move that acquisition into the handler body; per-connection cleanup belongs on the connection's `exit_stack` (the public surface for reaching it from high-level `@mcp.tool()` handlers is being finalised as part of the public-surface review).
 
-```python
-async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-    db = await ctx.connection.exit_stack.enter_async_context(open_db())
-    ...
-```
+### `Server.run()` no longer takes a `stateless` flag; `StatelessModeNotSupported` removed
+
+The `stateless: bool` parameter on the lowlevel `Server.run()` has been removed. Stateless serving is now a property of how the connection is constructed (the streamable-HTTP manager builds a born-ready `Connection` per request), not a flag the loop driver inspects.
+
+`StatelessModeNotSupported` has been removed. Server-initiated requests that have no channel to travel on now raise `NoBackChannelError` (an `MCPError` subclass) — the same exception regardless of why the channel is absent. If you were catching `StatelessModeNotSupported`, catch `NoBackChannelError` instead.
 
 ### `MCPServer.get_context()` removed
 
@@ -1228,8 +1228,8 @@ from mcp.server import ServerRequestContext
 session = ServerSession(read_stream, write_stream, init_options, stateless=False)
 
 # After (v2)
-session = ServerSession(dispatcher, connection, stateless=False)
-# where `dispatcher` is a JSONRPCDispatcher and `connection` is a Connection
+session = ServerSession(request_outbound, connection)
+# where `request_outbound` is an Outbound and `connection` is a Connection
 ```
 
 In practice, replace direct `ServerSession` use with `Server.run(read_stream, write_stream, init_options)` and let the framework wire it up.

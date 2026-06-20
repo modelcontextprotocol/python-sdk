@@ -30,10 +30,11 @@ from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
-from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
-from mcp.shared.message import ServerMessageMetadata
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -434,6 +435,39 @@ async def serve_connection(
         await dispatcher.run(runner.on_request, runner.on_notify, task_status=task_status)
     finally:
         await aclose_shielded(connection)
+
+
+async def serve_loop(
+    server: Server[LifespanT],
+    read_stream: ReadStream[SessionMessage | Exception],
+    write_stream: WriteStream[SessionMessage],
+    *,
+    lifespan_state: LifespanT,
+    session_id: str | None = None,
+    init_options: InitializationOptions | None = None,
+    raise_exceptions: bool = False,
+) -> None:
+    """Drive ``server`` in loop mode over a stream pair until the channel closes.
+
+    Builds the loop-mode `JSONRPCDispatcher` + `Connection` and hands them to
+    `serve_connection`, so the dispatcher-construction recipe (notably the
+    `inline_methods={"initialize"}` rule) lives in one place. Callers that own
+    a lifespan (the streamable-HTTP manager) pass it in; callers that don't
+    (`Server.run` for stdio/memory) enter the lifespan and then call this.
+    """
+    dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        read_stream,
+        write_stream,
+        raise_handler_exceptions=raise_exceptions,
+        # Handle `initialize` inline so a client that pipelines it with the
+        # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
+        # state instead of failing the init-gate.
+        inline_methods=frozenset({"initialize"}),
+    )
+    connection = Connection.for_loop(dispatcher, session_id=session_id)
+    await serve_connection(
+        server, dispatcher, connection=connection, lifespan_state=lifespan_state, init_options=init_options
+    )
 
 
 async def serve_one(

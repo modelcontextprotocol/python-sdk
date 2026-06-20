@@ -24,7 +24,7 @@ from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    METHOD_NOT_FOUND,
+    INVALID_REQUEST,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     ListToolsResult,
@@ -60,17 +60,29 @@ def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettin
     )
 
 
-async def test_handle_modern_request_rejects_non_post_with_method_not_found() -> None:
-    """A GET on the modern entry is rejected with HTTP 404 and a ``METHOD_NOT_FOUND`` JSON-RPC error.
-
-    SDK-defined: the 404 status comes from the SDK's error-code→HTTP-status table; spec-mandated: the
-    body carries the JSON-RPC ``METHOD_NOT_FOUND`` code.
-    """
+async def test_handle_modern_request_rejects_non_post_with_http_405_and_allow_header() -> None:
+    """SDK-defined: a GET on the modern entry is an HTTP-verb mismatch — 405 Method Not
+    Allowed with ``Allow: POST`` per RFC 9110. This is HTTP-layer (before JSON-RPC parsing)
+    so there is no JSON-RPC body."""
     async with _asgi_client(Server("test")) as http:
         response = await http.get("/mcp")
-    assert response.status_code == 404
+    assert response.status_code == 405
     assert response.headers["allow"] == "POST"
-    assert response.json()["error"]["code"] == METHOD_NOT_FOUND
+    assert response.content == b""
+
+
+async def test_handle_modern_request_rejects_a_notification_body_with_invalid_request() -> None:
+    """SDK-defined: well-formed JSON that isn't a single JSON-RPC request object (e.g. a
+    notification, which lacks ``id``) is ``INVALID_REQUEST`` — distinct from ``PARSE_ERROR``,
+    which is for malformed JSON."""
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post(
+            "/mcp",
+            content=b'{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}',
+            headers={"content-type": "application/json"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == INVALID_REQUEST
 
 
 async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -> None:

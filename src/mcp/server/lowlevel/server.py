@@ -56,17 +56,14 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.connection import Connection
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import serve_connection
+from mcp.server.runner import serve_loop
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
-from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
 logger = logging.getLogger(__name__)
@@ -442,27 +439,18 @@ class Server(Generic[LifespanResultT]):
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
-        Thin wrapper over `serve_connection` (L28): enters the server lifespan,
-        builds a `JSONRPCDispatcher` over the streams and a loop-mode
-        `Connection` on it, then drives the dispatcher to completion.
+        Thin wrapper over `serve_loop` (L28): enters the server lifespan,
+        then drives the loop. Transports with their own lifespan owner
+        (the streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
-            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+            await serve_loop(
+                self,
                 read_stream,
                 write_stream,
-                raise_handler_exceptions=raise_exceptions,
-                # Handle `initialize` inline so a client that pipelines it with
-                # the next request (spec says SHOULD NOT, not MUST NOT) sees
-                # the initialized state instead of failing the init-gate.
-                inline_methods=frozenset({"initialize"}),
-            )
-            connection = Connection.for_loop(dispatcher)
-            await serve_connection(
-                self,
-                dispatcher,
-                connection=connection,
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
+                raise_exceptions=raise_exceptions,
             )
 
     def streamable_http_app(

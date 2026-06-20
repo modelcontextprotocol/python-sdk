@@ -33,7 +33,7 @@ from mcp.shared.inbound import ERROR_CODE_HTTP_STATUS, InboundLadderRejection, c
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
-    METHOD_NOT_FOUND,
+    INVALID_REQUEST,
     PARSE_ERROR,
     ClientCapabilities,
     ErrorData,
@@ -148,23 +148,34 @@ async def handle_modern_request(
     # TODO(D-005a): validate Accept once the JSON-vs-SSE response mode is settled.
 
     if request.method != "POST":
-        rej = JSONRPCError(
-            jsonrpc="2.0",
-            id=None,
-            error=ErrorData(code=METHOD_NOT_FOUND, message=f"HTTP {request.method} not supported on this endpoint"),
-        )
-        await _write(rej, scope, receive, send, extra_headers={"Allow": "POST"})
+        # HTTP-layer rejection (Allow accompanies 405 per RFC 9110) — happens
+        # before JSON-RPC parsing, so it doesn't go through `_write`.
+        await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
         return
 
     body = await request.body()
     try:
-        req = JSONRPCRequest.model_validate_json(body)
-    except ValidationError:
+        decoded = json.loads(body)
+    except json.JSONDecodeError:
         rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await _write(rej, scope, receive, send)
         return
+    try:
+        req = JSONRPCRequest.model_validate(decoded)
+    except ValidationError:
+        # Well-formed JSON that isn't a single request object (a notification,
+        # a response, a batch). TODO(L57): the 2026 HTTP path carries no
+        # client→server notifications (cancellation is via SSE close), so a
+        # plain rejection is currently sufficient.
+        rej = JSONRPCError(
+            jsonrpc="2.0",
+            id=None,
+            error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request object"),
+        )
+        await _write(rej, scope, receive, send)
+        return
 
-    verdict = classify_inbound_request({"method": req.method, "params": req.params}, headers=dict(request.headers))
+    verdict = classify_inbound_request(decoded, headers=dict(request.headers))
     if isinstance(verdict, InboundLadderRejection):
         rej = JSONRPCError(
             jsonrpc="2.0", id=req.id, error=ErrorData(code=verdict.code, message=verdict.message, data=verdict.data)

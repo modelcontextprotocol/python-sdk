@@ -17,7 +17,7 @@ from starlette.types import Receive, Scope, Send
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.connection import Connection
-from mcp.server.runner import serve_connection
+from mcp.server.runner import serve_connection, serve_loop
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -296,7 +296,7 @@ class StreamableHTTPSessionManager:
                         task_status.started()
                         try:
                             # Use a cancel scope for idle timeout — when the
-                            # deadline passes the scope cancels app.run() and
+                            # deadline passes the scope cancels the loop and
                             # execution continues after the ``with`` block.
                             # Incoming requests push the deadline forward.
                             idle_scope = anyio.CancelScope()
@@ -305,10 +305,15 @@ class StreamableHTTPSessionManager:
                                 http_transport.idle_scope = idle_scope
 
                             with idle_scope:
-                                await self.app.run(
+                                # Drive via `serve_loop` (not `Server.run()`) so the
+                                # manager's already-entered lifespan is reused
+                                # rather than re-entered per session.
+                                await serve_loop(
+                                    self.app,
                                     read_stream,
                                     write_stream,
-                                    self.app.create_initialization_options(),
+                                    lifespan_state=self._lifespan_state,
+                                    session_id=http_transport.mcp_session_id,
                                 )
 
                             if idle_scope.cancelled_caught:

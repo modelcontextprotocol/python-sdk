@@ -22,6 +22,7 @@ from mcp.types import (
 from mcp.types.jsonrpc import (
     HEADER_MISMATCH,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     PARSE_ERROR,
@@ -42,6 +43,7 @@ MCP_PROTOCOL_VERSION_HEADER: Final = "mcp-protocol-version"
 ERROR_CODE_HTTP_STATUS: Final[Mapping[int, int]] = MappingProxyType(
     {
         PARSE_ERROR: 400,
+        INVALID_REQUEST: 400,
         INVALID_PARAMS: 400,
         HEADER_MISMATCH: 400,
         MISSING_REQUIRED_CLIENT_CAPABILITY: 400,
