@@ -131,6 +131,28 @@ def get_client_metadata_scopes(
     return selected_scope
 
 
+def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | None:
+    """Merge two space-delimited scope strings, preserving order and dropping duplicates.
+
+    SEP-2350: on step-up re-authorization the client requests the union of previously requested
+    scopes and the newly challenged scopes, so escalating one operation does not drop the
+    permissions granted for another. Previously requested scopes come first; new scopes are
+    appended in order.
+    """
+    if not previous_scope:
+        return new_scope
+    if not new_scope:
+        return previous_scope
+
+    merged = previous_scope.split()
+    seen = set(merged)
+    for scope in new_scope.split():
+        if scope not in seen:
+            merged.append(scope)
+            seen.add(scope)
+    return " ".join(merged)
+
+
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
     """Generate an ordered list of URLs for authorization server metadata discovery.
 

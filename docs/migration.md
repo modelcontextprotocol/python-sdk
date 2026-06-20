@@ -1303,6 +1303,10 @@ If you relied on extra fields round-tripping through MCP types, move that data i
 
 ## New Features
 
+### Step-up authorization unions previously requested scopes (SEP-2350)
+
+When a `403 insufficient_scope` challenge triggers step-up re-authorization, the OAuth client now requests the union of the previously requested scopes and the newly challenged scopes, instead of replacing the scope with only the challenged ones. This keeps permissions granted for earlier operations from being dropped when a later operation escalates. No API change; the wider scope is sent automatically on the re-authorization request.
+
 ### OAuth Dynamic Client Registration sends `application_type` (SEP-837)
 
 `OAuthClientMetadata` now carries an `application_type` field that is sent during Dynamic Client Registration. It defaults to `"native"`, which suits MCP clients that use loopback redirect URIs (CLI and desktop apps); browser-based clients served from a non-local host should set it to `"web"`:

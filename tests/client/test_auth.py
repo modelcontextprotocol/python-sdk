@@ -26,6 +26,7 @@ from mcp.client.auth.utils import (
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
+    union_scopes,
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
@@ -1387,10 +1388,9 @@ class TestAuthFlow:
         async def capture_redirect(url: str) -> None:
             nonlocal redirect_captured, captured_state
             redirect_captured = True
-            # Verify the new scope is included in authorization URL
-            assert "scope=admin%3Awrite+admin%3Adelete" in url or "scope=admin:write+admin:delete" in url.replace(
-                "%3A", ":"
-            ).replace("+", " ")
+            # SEP-2350: the authorization URL carries the union of the prior and challenged scopes
+            scope = parse_qs(urlparse(url).query)["scope"][0]
+            assert scope == "read write admin:write admin:delete"
             # Extract state from redirect URL
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
@@ -1420,8 +1420,8 @@ class TestAuthFlow:
         # Trigger step-up - should get token exchange request
         token_exchange_request = await auth_flow.asend(response_403)
 
-        # Verify scope was updated
-        assert oauth_provider.context.client_metadata.scope == "admin:write admin:delete"
+        # Verify scope was updated to the union of prior and challenged scopes (SEP-2350)
+        assert oauth_provider.context.client_metadata.scope == "read write admin:write admin:delete"
         assert redirect_captured
 
         # Complete the flow with successful token response
@@ -2717,3 +2717,20 @@ def test_validate_metadata_issuer_accepts_match():
 def test_validate_metadata_issuer_rejects_mismatch():
     with pytest.raises(OAuthFlowError, match="metadata issuer mismatch"):
         validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), _ISSUER)
+
+
+@pytest.mark.parametrize(
+    ("previous", "new", "expected"),
+    [
+        pytest.param("mcp:basic", "mcp:write", "mcp:basic mcp:write", id="disjoint-union-order"),
+        pytest.param(
+            "mcp:basic offline_access", "mcp:write mcp:basic", "mcp:basic offline_access mcp:write", id="dedup"
+        ),
+        pytest.param(None, "mcp:write", "mcp:write", id="no-previous"),
+        pytest.param("mcp:basic", None, "mcp:basic", id="no-new"),
+        pytest.param(None, None, None, id="both-empty"),
+    ],
+)
+def test_union_scopes(previous: str | None, new: str | None, expected: str | None):
+    """SEP-2350: union merges previous and new scopes, dedups, and preserves order."""
+    assert union_scopes(previous, new) == expected

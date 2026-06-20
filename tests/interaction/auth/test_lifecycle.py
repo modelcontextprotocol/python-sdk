@@ -178,6 +178,35 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     assert counts[("POST", "/token")] == 2
 
 
+@requirement("client-auth:403-scope-union")
+async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenged_scopes() -> None:
+    """The step-up re-authorize requests the union of the previously requested and challenged scopes.
+
+    The first authorization requests `mcp`; the 403 challenges a disjoint `write` (not naming
+    `mcp`). Per SEP-2350 the client must re-authorize with `mcp write`, not drop `mcp`. The client
+    is pre-registered with both scopes so the server's authorize handler accepts the wider request.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    challenge = 'Bearer error="insufficient_scope", scope="write"'
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=step_up_shim(challenge),
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+
 @requirement("client-auth:401-after-auth-throws")
 async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_looping() -> None:
     """A 401 on the post-auth retry surfaces as an error rather than re-entering discovery.
