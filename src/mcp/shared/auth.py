@@ -37,8 +37,6 @@ class OAuthClientMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     """
 
-    # Preserve empty URL paths so identifiers are compared as transmitted (RFC 3986 6.2.1)
-    # instead of acquiring a trailing slash; defaults in Pydantic v3.
     model_config = ConfigDict(url_preserve_empty_path=True)
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
@@ -127,8 +125,6 @@ class OAuthMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
-    # Preserve empty URL paths so the issuer is compared as transmitted (RFC 3986 6.2.1)
-    # instead of acquiring a trailing slash; defaults in Pydantic v3.
     model_config = ConfigDict(url_preserve_empty_path=True)
 
     issuer: AnyHttpUrl
@@ -160,8 +156,6 @@ class ProtectedResourceMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
 
-    # Preserve empty URL paths so the resource and authorization servers are compared as
-    # transmitted (RFC 3986 6.2.1) instead of acquiring a trailing slash; defaults in Pydantic v3.
     model_config = ConfigDict(url_preserve_empty_path=True)
 
     resource: AnyHttpUrl
