@@ -65,23 +65,19 @@ server:
   - input-required-result-result-type
   - input-required-result-tampered-state
   - input-required-result-capability-check
-  # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
-  # stateful-mode "Missing session ID" error.
-  - caching
   # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
   # case-insensitive/whitespace-trimmed header validation not implemented.
   - http-header-validation
-  - http-custom-header-server-validation
   # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
   # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
   # SEP-2164: server returns -32600 (not -32602) and omits error.data.uri.
   - sep-2164-resource-not-found
-  # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses, ignore
-  # unrecognized inputResponses keys).
+  # SEP-2322 SHOULD-level behaviour (re-request missing inputResponses).
   - input-required-result-missing-input-response
-  - input-required-result-ignore-extra-params
-  # Intentionally NOT baselined (2 of 19 draft scenarios): the SEP-2322
-  # negative-case scenarios input-required-result-unsupported-methods and
-  # input-required-result-validate-input pass today only because the stateful
-  # server's -32600 "Missing session ID" satisfies their assertions. They will
-  # start failing for real once stateless mode lands; add them then.
+  # SEP-2322 negative-case scenarios: input-required-result-validate-input is
+  # now baselined (added when the stateless path landed — the stateless server
+  # reaches the handler, so the previous accidental pass via -32600 "Missing
+  # session ID" no longer applies). input-required-result-unsupported-methods
+  # is intentionally NOT baselined: it still passes for now; add it once it
+  # starts failing for real.
+  - input-required-result-validate-input

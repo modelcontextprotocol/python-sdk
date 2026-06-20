@@ -61,12 +61,13 @@ def test_non_empty_result_dump_carries_result_type_complete_before_the_sieve():
     )
 
 
-def test_cacheable_list_result_dump_omits_unset_caching_directives():
-    """`ttl_ms`/`cache_scope` default to None so the raw dump omits them; 2026 handlers set them explicitly."""
+def test_cacheable_list_result_dump_carries_default_caching_directives():
+    """`ttl_ms`/`cache_scope` default to 0/"private" so the raw dump carries them; the
+    runner's per-version sieve drops them for pre-2026 peers."""
     result = ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
     frame = JSONRPCResponse(jsonrpc="2.0", id=2, result=_body(result))
     assert _frame(frame) == snapshot(
-        '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","inputSchema":{"type":"object"}}],"resultType":"complete"}}'
+        '{"jsonrpc":"2.0","id":2,"result":{"ttlMs":0,"cacheScope":"private","tools":[{"name":"echo","inputSchema":{"type":"object"}}],"resultType":"complete"}}'
     )
 
 
