@@ -261,7 +261,9 @@ def test_structured_output_dict_str_preserves_annotated_metadata():
     )
 
     # Additional metadata (title, max_length, etc.) should also be preserved
-    def get_headers() -> Annotated[dict[str, str], Field(description="HTTP headers", title="Headers")]:  # pragma: no cover
+    def get_headers() -> Annotated[
+        dict[str, str], Field(description="HTTP headers", title="Headers")
+    ]:  # pragma: no cover
         return {"Content-Type": "application/json"}
 
     meta2 = func_metadata(get_headers)
