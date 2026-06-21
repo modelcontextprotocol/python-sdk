@@ -169,3 +169,20 @@ def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatc
     assert events == ["setup", "cleanup"]
     response = jsonrpc_message_adapter.validate_json(captured.getvalue().decode().strip())
     assert response == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+
+def test_mcpserver_run_catches_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ctrl+C during `run()` should exit cleanly without a traceback.
+
+    Regression test for #2663: when running a stdio server from the terminal,
+    KeyboardInterrupt (Ctrl+C) should not produce a multi-frame traceback
+    through anyio.run() → asyncio.runners.
+    """
+
+    def mock_anyio_run(*args: object, **kwargs: object) -> None:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(anyio, "run", mock_anyio_run)
+
+    # Should not raise — KeyboardInterrupt is caught inside run()
+    MCPServer(name="KeyboardInterruptServer").run("stdio")
