@@ -225,7 +225,7 @@ class Server(Generic[LifespanResultT]):
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
-        # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
+        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
         # TODO(L54): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.

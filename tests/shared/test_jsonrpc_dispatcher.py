@@ -2315,11 +2315,11 @@ async def test_server_middleware_observes_cancelled_notification():
         await anyio.sleep_forever()
         raise NotImplementedError
 
-    async def observe(ctx: Any, method: str, params: Mapping[str, Any] | None, call_next: Any) -> Any:
-        if method == "notifications/cancelled":
-            observed.append((method, dict(params or {})))
+    async def observe(ctx: Any, call_next: Any) -> Any:
+        if ctx.method == "notifications/cancelled":
+            observed.append((ctx.method, dict(ctx.params or {})))
             cancel_observed.set()
-        return await call_next()
+        return await call_next(ctx)
 
     server = Server("test-server", on_call_tool=handle_call_tool)
     server.middleware.append(observe)

@@ -602,9 +602,9 @@ async def test_runner_dispatch_middleware_wraps_everything_including_initialize(
 async def test_runner_server_middleware_wraps_every_request_including_initialize(server: SrvT):
     seen: list[tuple[str, Any]] = []
 
-    async def ctx_mw(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
-        seen.append((method, params))
-        return await call_next()
+    async def ctx_mw(ctx: Ctx, call_next: Any) -> Any:
+        seen.append((ctx.method, ctx.params))
+        return await call_next(ctx)
 
     server.middleware.append(ctx_mw)
     async with connected_runner(server) as (client, _):
@@ -621,9 +621,9 @@ async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_conn
     client as an error and skips the state commit: the pre-init gate stays
     closed and `connection.initialized` never fires."""
 
-    async def reject_initialize(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
-        result = await call_next()
-        if method == "initialize":
+    async def reject_initialize(ctx: Ctx, call_next: Any) -> Any:
+        result = await call_next(ctx)
+        if ctx.method == "initialize":
             raise MCPError(code=INTERNAL_ERROR, message="rejected by middleware")
         return result
 
@@ -646,11 +646,11 @@ async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_conn
 async def test_runner_server_middleware_observes_method_not_found_via_call_next_raise(server: SrvT):
     seen: list[tuple[str, type[BaseException] | None]] = []
 
-    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+    async def observe(ctx: Ctx, call_next: Any) -> Any:
         try:
-            return await call_next()
+            return await call_next(ctx)
         except MCPError as e:
-            seen.append((method, type(e)))
+            seen.append((ctx.method, type(e)))
             raise
 
     server.middleware.append(observe)
@@ -668,9 +668,9 @@ async def test_runner_server_middleware_wraps_notifications(server: SrvT):
     `ctx.request_id is None`."""
     seen: list[tuple[str, bool]] = []
 
-    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
-        seen.append((method, ctx.request_id is None))
-        return await call_next()
+    async def observe(ctx: Ctx, call_next: Any) -> Any:
+        seen.append((ctx.method, ctx.request_id is None))
+        return await call_next(ctx)
 
     async def on_roots(ctx: Ctx, params: NotificationParams | None) -> None:
         return None
@@ -713,9 +713,9 @@ async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
     order: list[str] = []
 
     def make_mw(tag: str) -> Any:
-        async def mw(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+        async def mw(ctx: Ctx, call_next: Any) -> Any:
             order.append(f"{tag}-in")
-            result = await call_next()
+            result = await call_next(ctx)
             order.append(f"{tag}-out")
             return result
 
@@ -761,9 +761,9 @@ async def test_runner_server_middleware_observes_handler_error_data_as_mcp_error
     successful-looking `ErrorData` return."""
     seen: list[MCPError] = []
 
-    async def observe(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+    async def observe(ctx: Ctx, call_next: Any) -> Any:
         try:
-            return await call_next()
+            return await call_next(ctx)
         except MCPError as e:
             seen.append(e)
             raise
@@ -785,7 +785,7 @@ async def test_runner_middleware_returning_error_data_produces_jsonrpc_error(ser
     """A middleware that short-circuits with an `ErrorData` return gets the
     same treatment as a handler return: the wire sees a JSON-RPC error."""
 
-    async def short_circuit(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
+    async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
         return ErrorData(code=INVALID_PARAMS, message="denied")
 
     server.middleware.append(short_circuit)
@@ -956,10 +956,10 @@ async def test_runner_middleware_short_circuit_on_a_wrong_version_spec_method_sk
     spec method absent at the negotiated version owns the result shape; the
     outbound sieve has no `(method, version)` row and must not raise."""
 
-    async def short_circuit(ctx: Ctx, method: str, params: Any, call_next: Any) -> Any:
-        if method == "server/discover":
+    async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
+        if ctx.method == "server/discover":
             return {"ok": True}
-        return await call_next()
+        return await call_next(ctx)
 
     server.middleware.append(short_circuit)
     async with connected_runner(server) as (client, runner):
@@ -1047,13 +1047,12 @@ async def test_otel_trace_context_propagates_client_to_server(server: SrvT, span
 
 @pytest.mark.anyio
 async def test_otel_middleware_malformed_traceparent_degrades_to_no_parent(server: SrvT, spans: SpanCapture):
-    """A non-string traceparent in `_meta` must not fail the request; the
-    server span simply gets no parent."""
+    """A non-string traceparent in `_meta` must not fail the request; the server span simply gets no parent."""
 
-    def break_traceparent(next_on_request: OnRequest) -> OnRequest:
-        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
+    def break_traceparent(call_next: OnRequest) -> OnRequest:
+        async def wrapped(ctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
             mangled = {"_meta": {"traceparent": 123}} if method == "tools/list" else params
-            return await next_on_request(dctx, method, mangled)
+            return await call_next(ctx, method, mangled)
 
         return wrapped
 
