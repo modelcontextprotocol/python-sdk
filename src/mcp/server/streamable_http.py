@@ -28,7 +28,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS, is_version_at_least
+from mcp.shared.version import is_version_at_least
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
@@ -248,12 +248,11 @@ class StreamableHTTPServerTransport:
 
             metadata = ServerMessageMetadata(
                 request_context=request,
-                protocol_version=protocol_version,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
+            metadata = ServerMessageMetadata(request_context=request)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -507,10 +506,7 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                metadata = ServerMessageMetadata(
-                    request_context=request,
-                    protocol_version=request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION),
-                )
+                metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
 
@@ -533,7 +529,7 @@ class StreamableHTTPServerTransport:
 
             if self.is_json_response_enabled:
                 # Process the message
-                metadata = ServerMessageMetadata(request_context=request, protocol_version=protocol_version)
+                metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
@@ -818,11 +814,10 @@ class StreamableHTTPServerTransport:
         await response(request.scope, request.receive, send)
 
     async def _validate_request_headers(self, request: Request, send: Send) -> bool:
-        if not await self._validate_session(request, send):
-            return False
-        if not await self._validate_protocol_version(request, send):
-            return False
-        return True
+        # Protocol-version validation lives in the manager's era-routing: only
+        # values in `SUPPORTED_PROTOCOL_VERSIONS` (or no header at all) reach
+        # this transport, so the legacy version-gate is gone.
+        return await self._validate_session(request, send)
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
@@ -853,28 +848,6 @@ class StreamableHTTPServerTransport:
 
         return True
 
-    async def _validate_protocol_version(self, request: Request, send: Send) -> bool:
-        """Validate the protocol version header in the request."""
-        # Get the protocol version from the request headers
-        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
-
-        # If no protocol version provided, assume default version
-        if protocol_version is None:
-            protocol_version = DEFAULT_NEGOTIATED_VERSION
-
-        # Check if the protocol version is supported
-        if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
-            supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
-            response = self._create_error_response(
-                f"Bad Request: Unsupported protocol version: {protocol_version}. "
-                + f"Supported versions: {supported_versions}",
-                HTTPStatus.BAD_REQUEST,
-            )
-            await response(request.scope, request.receive, send)
-            return False
-
-        return True
-
     async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:
         """Replays events that would have been sent after the specified event ID.
 
@@ -894,7 +867,7 @@ class StreamableHTTPServerTransport:
             if self.mcp_session_id:  # pragma: no branch
                 headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
-            # Get protocol version from header (already validated in _validate_protocol_version)
+            # The manager only routes supported (or absent) header values to this transport
             replay_protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
 
             # Create SSE stream for replay

@@ -15,7 +15,9 @@ from pydantic import BaseModel
 from mcp.client import ClientRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_REQUEST,
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
@@ -92,15 +94,15 @@ async def test_tool_calls_over_stateless_streamable_http() -> None:
 
 @requirement("transport:streamable-http:stateless-restrictions")
 async def test_stateless_streamable_http_rejects_server_initiated_requests() -> None:
-    """A handler that tries to call back to the client in stateless mode fails: there is no session."""
+    """A handler that tries to call back to the client in stateless mode fails: there is no
+    back-channel for server-initiated requests. The resulting ``NoBackChannelError`` is an
+    ``MCPError``, so it surfaces as a top-level JSON-RPC error rather than an
+    ``isError`` result."""
     async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
-        result = await client.call_tool("ask", {})
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("ask", {})
 
-    assert result.is_error is True
-    assert isinstance(result.content[0], TextContent)
-    # The exact message is the StatelessModeNotSupported exception text wrapped by the tool-error
-    # path; pin the stable prefix rather than the full exception prose.
-    assert result.content[0].text.startswith("Error executing tool ask:")
+    assert exc_info.value.error.code == INVALID_REQUEST
 
 
 @requirement("transport:streamable-http:notifications")

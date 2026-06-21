@@ -49,7 +49,7 @@ from mcp.types import (
     RequestId,
 )
 
-__all__ = ["JSONRPCDispatcher"]
+__all__ = ["JSONRPCDispatcher", "handler_exception_to_error_data"]
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,23 @@ TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportCont
 PeerCancelMode = Literal["interrupt", "signal"]
 """How `notifications/cancelled` is applied: `"interrupt"` (default) cancels
 the handler's scope; `"signal"` only sets `ctx.cancel_requested`."""
+
+
+def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
+    """Map a handler-raised exception to its wire `ErrorData`.
+
+    The two rungs every dispatcher shares: an `MCPError` carries its own
+    `ErrorData`; a pydantic `ValidationError` is the spec's INVALID_PARAMS
+    with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
+    any other exception so each caller applies its own catch-all -
+    `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
+    `to_jsonrpc_response` uses `INTERNAL_ERROR`.
+    """
+    if isinstance(exc, MCPError):
+        return exc.error
+    if isinstance(exc, ValidationError):
+        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+    return None
 
 
 def _coerce_id(request_id: RequestId) -> RequestId:
@@ -667,7 +684,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # anyio absorbs the scope's own cancel at __exit__, and
                 # `cancelled_caught` (unlike `cancel_called`) guarantees the
                 # result write above did not happen - no double response.
-                # TODO(maxisbey): spec says SHOULD NOT respond after cancel;
+                # TODO(L38): spec says SHOULD NOT respond after cancel;
                 # the existing server always has, so match that for now.
                 answer_write_started = True
                 await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
@@ -684,21 +701,17 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     describe=f"shutdown error response for request {req.id!r}",
                 )
             raise
-        except MCPError as e:
-            await self._write_error(req.id, e.error)
-        except ValidationError:
-            # TODO(maxisbey): data="" pins existing-server compat (no pydantic
-            # text on the wire); revisit per the suite's divergence entry.
-            await self._write_error(
-                req.id, ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-            )
         except Exception as e:
-            logger.exception("handler for %r raised", req.method)
-            # TODO(maxisbey): code=0 pins existing-server compat; JSON-RPC says
-            # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-            await self._write_error(req.id, ErrorData(code=0, message=str(e)))
-            if self._raise_handler_exceptions:
-                raise
+            error = handler_exception_to_error_data(e)
+            if error is not None:
+                await self._write_error(req.id, error)
+            else:
+                logger.exception("handler for %r raised", req.method)
+                # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
+                # INTERNAL_ERROR. Revisit per the suite's divergence entry.
+                await self._write_error(req.id, ErrorData(code=0, message=str(e)))
+                if self._raise_handler_exceptions:
+                    raise
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:

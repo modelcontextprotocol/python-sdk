@@ -69,9 +69,6 @@ server:
   - json-schema-2020-12
 
   # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
-  # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
-  # _meta-derived capabilities, error-code mappings, or server/discover yet.
-  - server-stateless
   # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
   - input-required-result-basic-elicitation
   - input-required-result-basic-sampling
@@ -83,14 +80,12 @@ server:
   - input-required-result-result-type
   - input-required-result-tampered-state
   - input-required-result-capability-check
-  - input-required-result-validate-input
-  # SEP-2243 (HTTP header standardization): -32020 HeaderMismatch handling and
-  # case-insensitive/whitespace-trimmed header validation not implemented.
+  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
+  # against the request body is not implemented.
   - http-header-validation
-
-  # --- WARNING-only entries ---
-  # These scenarios emit no FAILURE checks, only SHOULD-level WARNINGs, but
-  # the expected-failures evaluator counts WARNINGs as failures. Same entries
-  # as the draft suite in expected-failures.yml.
-  # SEP-2322 SHOULD-level behaviour (re-request missing inputResponses).
+  # WARNING-only entries: these scenarios emit no FAILURE checks but the
+  # expected-failures evaluator counts WARNINGs as failures (the summary line
+  # only shows passed/failed, not warnings, so a local re-probe can mis-read
+  # these as stale).
   - input-required-result-missing-input-response
+  - input-required-result-validate-input

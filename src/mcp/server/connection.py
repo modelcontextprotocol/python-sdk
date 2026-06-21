@@ -1,17 +1,23 @@
 """`Connection` - per-client connection state and the standalone outbound channel.
 
 Always present on `Context` (never `None`), even in stateless deployments.
-Holds peer info populated at `initialize` time, per-connection scratch
-`state` and an `exit_stack` for teardown, and an `Outbound` for the
-standalone stream (the SSE GET stream in streamable HTTP, or the single duplex
-stream in stdio).
+Holds peer info, per-connection scratch `state` and an `exit_stack` for
+teardown, and an `Outbound` for the standalone stream (the SSE GET stream in
+streamable HTTP, or the single duplex stream in stdio).
+
+Construct via the factories: `Connection.from_envelope` for the 2026-era
+single-exchange path (born ready, no back-channel) and `Connection.for_loop`
+for the handshake-driven loop path. Both populate `protocol_version` so the
+kernel reads it as a fact.
 
 `notify` is best-effort: it never raises. If there's no standalone channel
-(stateless HTTP) or the stream has been dropped, the notification is
-debug-logged and silently discarded - server-initiated notifications are
-inherently advisory. `send_raw_request` *does* raise `NoBackChannelError` when
-there's no channel; `ping` is the only spec-sanctioned standalone request.
+or the stream has been dropped, the notification is debug-logged and silently
+discarded - server-initiated notifications are inherently advisory.
+`send_raw_request` raises `NoBackChannelError` when there's no channel; `ping`
+is the only spec-sanctioned standalone request.
 """
+
+from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
@@ -26,12 +32,14 @@ from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
 from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
     ElicitRequest,
     ElicitResult,
     EmptyResult,
+    Implementation,
     InitializeRequestParams,
     ListRootsRequest,
     ListRootsResult,
@@ -68,32 +76,57 @@ def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> d
     return out
 
 
+class _NoChannelOutbound:
+    """Connection-scoped `Outbound` for the no-back-channel case.
+
+    The structural answer to "this connection cannot push to its peer":
+    `send_raw_request` raises `NoBackChannelError`; `notify` drops with a
+    debug log. `Connection.from_envelope` installs this so the modern
+    single-exchange path never needs a mode flag - the channel itself says no.
+    """
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        raise NoBackChannelError(method)
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        logger.debug("dropped %s: no standalone channel", method)
+
+
+_NO_CHANNEL = _NoChannelOutbound()
+
+
 class Connection:
     """Per-client connection state and standalone-stream `Outbound`.
 
-    Constructed by `ServerRunner` once per connection. The peer-info fields
-    are `None` until `initialize` completes; `initialized` is set later, when
-    the client's `notifications/initialized` follow-up arrives. In stateless
-    deployments the runner sets `initialized` immediately and peer-info
-    remains `None` (no handshake reaches a stateless connection).
+    Construct via `from_envelope` (modern single-exchange: born ready, no
+    back-channel) or `for_loop` (handshake-driven: ready once the client's
+    `notifications/initialized` arrives). Either way `protocol_version` is
+    populated at construction.
     """
 
-    has_standalone_channel: bool
+    outbound: Outbound
+    """The connection-scoped channel for server-initiated messages."""
+
     session_id: str | None
 
     client_params: InitializeRequestParams | None
-    """The full `initialize` request params; `None` before initialization."""
+    """The full `initialize` request params, or the equivalent built from the
+    2026-era envelope. `None` when no client info was supplied."""
 
-    protocol_version: str | None
-    """The protocol version negotiated during `initialize`; `None` before
-    initialization. Stateless connections don't require the handshake, so this
-    normally stays `None` there (a client that sends `initialize` anyway still
-    commits it). For the per-request value, read `ctx.protocol_version`."""
+    protocol_version: str
+    """The protocol version this connection speaks. Populated at construction
+    by the factory and overwritten by `_handle_initialize` once the handshake
+    commits on the loop path."""
 
     initialized: anyio.Event
     """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
     the point from which the spec permits server-initiated requests beyond
-    ping/logging. Pre-set on stateless connections."""
+    ping/logging. Pre-set on connections built via `from_envelope`."""
 
     state: dict[str, Any]
     """Per-connection scratch state; persists across requests on this connection."""
@@ -103,24 +136,83 @@ class Connection:
     closes. Push cleanup from handlers or middleware; exceptions are logged
     and swallowed."""
 
-    def __init__(self, outbound: Outbound, *, has_standalone_channel: bool, session_id: str | None = None) -> None:
-        self._outbound = outbound
-        self.has_standalone_channel = has_standalone_channel
+    def __init__(
+        self,
+        outbound: Outbound,
+        *,
+        protocol_version: str,
+        session_id: str | None = None,
+        client_params: InitializeRequestParams | None = None,
+    ) -> None:
+        self.outbound = outbound
+        self.protocol_version = protocol_version
         self.session_id = session_id
-
-        self.client_params = None
-        self.protocol_version = None
+        self.client_params = client_params
         self.initialized = anyio.Event()
-
         self.state = {}
-
         self.exit_stack = AsyncExitStack()
+
+    @classmethod
+    def from_envelope(
+        cls,
+        protocol_version: str,
+        client_info: Implementation | None,
+        client_capabilities: ClientCapabilities | None,
+        *,
+        outbound: Outbound = _NO_CHANNEL,
+    ) -> Connection:
+        """A born-ready connection populated from a request's `_meta` envelope.
+
+        `initialized` is set and the envelope's client info/capabilities (when
+        both supplied) are recorded as `client_params` so capability checks
+        work. `outbound` defaults to the no-channel sentinel for the
+        single-exchange HTTP path; duplex modern transports (e.g. stdio) pass
+        the dispatcher so server-initiated messages have a back-channel.
+        """
+        client_params = None
+        if client_info is not None and client_capabilities is not None:
+            client_params = InitializeRequestParams(
+                protocol_version=protocol_version,
+                capabilities=client_capabilities,
+                client_info=client_info,
+            )
+        connection = cls(outbound, protocol_version=protocol_version, client_params=client_params)
+        connection.initialized.set()
+        return connection
+
+    @classmethod
+    def for_loop(
+        cls,
+        outbound: Outbound,
+        *,
+        session_id: str | None = None,
+        protocol_version_hint: str | None = None,
+    ) -> Connection:
+        """A connection for the handshake-driven loop path.
+
+        Not born-ready: `initialized` is set later by the kernel when
+        `notifications/initialized` arrives. `protocol_version` is seeded from
+        the transport hint (or `LATEST_PROTOCOL_VERSION`) so it's never `None`;
+        the handshake overwrites it once negotiated.
+        """
+        return cls(
+            outbound,
+            protocol_version=protocol_version_hint if protocol_version_hint is not None else LATEST_PROTOCOL_VERSION,
+            session_id=session_id,
+        )
+
+    @property
+    def has_standalone_channel(self) -> bool:
+        """Whether this connection has a real back-channel for server-initiated
+        messages. Derived from `outbound` - the no-channel sentinel is the only
+        case that doesn't."""
+        return self.outbound is not _NO_CHANNEL
 
     @property
     def initialize_accepted(self) -> bool:
         """True once the inbound request gate is open: `initialize` recorded the
-        peer info, or the handshake completed outright (stateless birth, or a
-        bare `notifications/initialized`). Derived, never stored."""
+        peer info, or the handshake completed outright (born-ready, or a bare
+        `notifications/initialized`). Derived, never stored."""
         return self.client_params is not None or self.initialized.is_set()
 
     async def send_raw_request(
@@ -140,9 +232,7 @@ class Connection:
             MCPError: The peer responded with an error.
             NoBackChannelError: `has_standalone_channel` is `False`.
         """
-        if not self.has_standalone_channel:
-            raise NoBackChannelError(method)
-        return await self._outbound.send_raw_request(method, params, opts)
+        return await self.outbound.send_raw_request(method, params, opts)
 
     @overload
     async def send_request(
@@ -177,11 +267,9 @@ class Connection:
             KeyError: `result_type` omitted for a non-spec request type.
         """
         raw = await self.send_raw_request(req.method, dump_params(req.params), opts)
-        # Literal fallback covers pre-handshake and stateless; matches runner.py.
-        version = self.protocol_version or "2025-11-25"
         if req.method in _methods.MONOLITH_REQUESTS:
             try:
-                _methods.validate_client_result(req.method, version, raw)
+                _methods.validate_client_result(req.method, self.protocol_version, raw)
             except KeyError:
                 pass
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
@@ -193,11 +281,8 @@ class Connection:
         Never raises. If there's no standalone channel or the stream is broken,
         the notification is dropped and debug-logged.
         """
-        if not self.has_standalone_channel:
-            logger.debug("dropped %s: no standalone channel", method)
-            return
         try:
-            await self._outbound.notify(method, params)
+            await self.outbound.notify(method, params)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped %s: standalone stream closed", method)
 
@@ -233,9 +318,9 @@ class Connection:
     def check_capability(self, capability: ClientCapabilities) -> bool:
         """Return whether the connected client declared the given capability.
 
-        Returns `False` if `initialize` hasn't completed yet.
+        Returns `False` when no client info has been recorded.
         """
-        # TODO: redesign - mirrors v1 ServerSession.check_client_capability
+        # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability
         # verbatim for parity.
         if self.client_params is None:
             return False

@@ -50,6 +50,8 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     DEFAULT_NEGOTIATED_VERSION,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -1045,8 +1047,10 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio
@@ -1106,8 +1110,10 @@ async def test_streamable_http_client_session_termination_204(
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio
@@ -1388,7 +1394,7 @@ async def test_streamablehttp_stateless_ctx_protocol_version_tracks_the_header(
     assert response.status_code == 200
     echoed = json.loads(first_sse_data(response)["result"]["content"][0]["text"])
     assert echoed["protocol_version"] == expected
-    assert echoed["session_protocol_version"] is None
+    assert echoed["session_protocol_version"] == expected
 
 
 @pytest.mark.anyio
@@ -1503,7 +1509,8 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
 
-        # Test request with invalid protocol version (should fail)
+        # An unrecognised header value routes to the modern entry, where the
+        # validation ladder rejects an envelope-less body at rung 1.
         response = await client.post(
             "/mcp",
             headers={
@@ -1515,21 +1522,7 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
             json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
         )
         assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
-
-        # Test request with unsupported protocol version (should fail)
-        response = await client.post(
-            "/mcp",
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,
-                MCP_PROTOCOL_VERSION_HEADER: "1999-01-01",  # Very old unsupported version
-            },
-            json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
-        )
-        assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
+        assert response.json()["error"]["code"] == INVALID_PARAMS
 
         # Test request with valid protocol version (should succeed)
         negotiated_version = extract_protocol_version_from_sse(init_response)

@@ -2,59 +2,36 @@
 
 The interaction suite under ``tests/interaction/transports/test_hosting_http_modern.py`` pins
 the wire contract end to end; these tests cover the module's internal seams directly --
-the closed back-channel on the dispatcher and dispatch context, the exception-to-error
-mapping in ``handle()``, and the request-validation ladder in ``handle_modern_request``.
+the closed back-channel on the dispatch context, and the request-validation ladder in
+``handle_modern_request``.
 """
 
 import logging
-from collections.abc import Mapping
 from typing import Any
 
 import anyio
 import httpx
 import pytest
-from starlette.requests import Request
 from starlette.types import Receive, Scope, Send
 
-import mcp.server._streamable_http_modern as modern
-from mcp.server import Server, ServerRequestContext
-from mcp.server._streamable_http_modern import (
-    SingleExchangeDispatcher,
-    _SingleExchangeDispatchContext,
-    handle_modern_request,
-)
+from mcp.server import Server, ServerRequestContext, runner
+from mcp.server._streamable_http_modern import _SingleExchangeDispatchContext, handle_modern_request
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INVALID_PARAMS, PARSE_ERROR, JSONRPCError, JSONRPCRequest, ListToolsResult, PaginatedRequestParams
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INVALID_REQUEST,
+    PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
+    ListToolsResult,
+    PaginatedRequestParams,
+)
 
 pytestmark = pytest.mark.anyio
-
-
-def _request() -> Request:
-    return Request({"type": "http", "method": "POST", "headers": []})
-
-
-async def test_single_exchange_dispatcher_has_no_back_channel_and_is_never_driven() -> None:
-    """The dispatcher refuses server-initiated requests, drops notifications, and is not run-driven.
-
-    A 2026-07-28 POST has no channel for the server to push to the client, and ``ServerRunner``
-    never calls ``run()`` on this dispatcher -- ``handle()`` is invoked directly per request.
-    """
-    dispatcher = SingleExchangeDispatcher(_request())
-    with pytest.raises(NoBackChannelError):
-        await dispatcher.send_raw_request("sampling/createMessage", None)
-    assert await dispatcher.notify("notifications/message", None) is None
-
-    async def on_request(ctx: DispatchContext[Any], method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        raise AssertionError("unreachable")  # pragma: no cover
-
-    async def on_notify(ctx: DispatchContext[Any], method: str, params: Mapping[str, Any] | None) -> None:
-        raise AssertionError("unreachable")  # pragma: no cover
-
-    with pytest.raises(RuntimeError, match="never driven"):
-        await dispatcher.run(on_request, on_notify)
 
 
 async def test_single_exchange_dispatch_context_has_no_back_channel() -> None:
@@ -71,41 +48,49 @@ async def test_single_exchange_dispatch_context_has_no_back_channel() -> None:
     assert await dctx.progress(0.5, total=1.0, message="half") is None
 
 
-async def test_handle_maps_validation_error_to_invalid_params() -> None:
-    """A handler raising ``ValidationError`` is mapped to a ``-32602`` JSON-RPC error.
-
-    Mirrors ``JSONRPCDispatcher``'s exception-to-wire boundary: a Pydantic validation failure
-    inside the handler becomes ``INVALID_PARAMS`` rather than the generic internal error.
-    """
-
-    async def on_request(ctx: DispatchContext[Any], method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        JSONRPCRequest.model_validate({})  # raises ValidationError
-        raise AssertionError("unreachable")  # pragma: no cover
-
-    dispatcher = SingleExchangeDispatcher(_request())
-    msg = await dispatcher.handle(JSONRPCRequest(jsonrpc="2.0", id=7, method="tools/call", params={}), on_request)
-    assert isinstance(msg, JSONRPCError)
-    assert msg.id == 7
-    assert msg.error.code == INVALID_PARAMS
-
-
 def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettings | None = None) -> httpx.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        await handle_modern_request(server, security_settings, "2026-07-28", scope, receive, send)
+        async with server.lifespan(server) as lifespan_state:
+            await handle_modern_request(server, security_settings, lifespan_state, scope, receive, send)
 
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        headers={MCP_PROTOCOL_VERSION_HEADER: MODERN_PROTOCOL_VERSIONS[0]},
+    )
 
 
-async def test_handle_modern_request_rejects_non_post_with_405() -> None:
-    """A GET on the 2026-07-28 entry is answered with 405 before any body is read."""
+async def test_handle_modern_request_rejects_non_post_with_http_405_and_allow_header() -> None:
+    """SDK-defined: a GET on the modern entry is an HTTP-verb mismatch — 405 Method Not
+    Allowed with ``Allow: POST`` per RFC 9110. This is HTTP-layer (before JSON-RPC parsing)
+    so there is no JSON-RPC body."""
     async with _asgi_client(Server("test")) as http:
         response = await http.get("/mcp")
     assert response.status_code == 405
     assert response.headers["allow"] == "POST"
+    assert response.content == b""
+
+
+async def test_handle_modern_request_rejects_a_notification_body_with_invalid_request() -> None:
+    """SDK-defined: well-formed JSON that isn't a single JSON-RPC request object (e.g. a
+    notification, which lacks ``id``) is ``INVALID_REQUEST`` — distinct from ``PARSE_ERROR``,
+    which is for malformed JSON."""
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post(
+            "/mcp",
+            content=b'{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}',
+            headers={"content-type": "application/json"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == INVALID_REQUEST
 
 
 async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -> None:
-    """A POST whose body is not a valid ``JSONRPCRequest`` returns 400 with ``-32700``."""
+    """An unparseable POST body yields HTTP 400 with a ``PARSE_ERROR`` JSON-RPC error envelope.
+
+    SDK-defined: the 400 status comes from the SDK's error-code→HTTP-status table; spec-mandated: the
+    body is a full JSON-RPC error object with ``id: null`` and code ``-32700``.
+    """
     async with _asgi_client(Server("test")) as http:
         response = await http.post("/mcp", content=b"not json", headers={"content-type": "application/json"})
     assert response.status_code == 400
@@ -113,7 +98,7 @@ async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -
     assert response.json() == {
         "jsonrpc": "2.0",
         "id": None,
-        "error": {"code": PARSE_ERROR, "message": "Parse error", "data": None},
+        "error": {"code": PARSE_ERROR, "message": "Parse error"},
     }
 
 
@@ -129,11 +114,35 @@ async def test_handle_modern_request_returns_transport_security_error_response()
 def _list_tools_body() -> dict[str, Any]:
     """A minimal valid 2026-07-28 ``tools/list`` request body, including the required ``_meta`` envelope."""
     meta = {
-        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-        "io.modelcontextprotocol/clientInfo": {"name": "raw", "version": "0.0.0"},
-        "io.modelcontextprotocol/clientCapabilities": {},
+        PROTOCOL_VERSION_META_KEY: MODERN_PROTOCOL_VERSIONS[0],
+        CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
     }
     return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta}}
+
+
+async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info() -> None:
+    """SDK-defined: a mis-shaped ``clientInfo`` envelope value is treated as not supplied —
+    the request still routes (200 + result) and the handler observes ``client_params is None``
+    rather than the request being rejected at the validation ladder. A non-spec method is
+    used so the kernel's per-method params validation does not re-reject the envelope."""
+    seen: list[object] = []
+
+    async def greet(ctx: ServerRequestContext, params: PaginatedRequestParams) -> dict[str, Any]:
+        seen.append(ctx.session.client_params)
+        return {"ok": True}
+
+    server: Server[Any] = Server("test")
+    server.add_request_handler("custom/greet", PaginatedRequestParams, greet)
+
+    body = _list_tools_body()
+    body["method"] = "custom/greet"
+    body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=body, headers={"content-type": "application/json"})
+    assert response.status_code == 200
+    assert response.json()["result"] == {"ok": True}
+    assert seen == [None]
 
 
 async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_raises(
@@ -141,8 +150,9 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_rais
 ) -> None:
     """A raising ``connection.exit_stack`` callback is logged and swallowed; the computed result still ships.
 
-    The exit-stack guard mirrors ``ServerRunner.run``: cleanup runs in a ``finally`` after the
-    handler, and an exception there must not displace the JSON-RPC response that was already built.
+    The exit-stack guard is `aclose_shielded`: cleanup runs in `serve_one`'s ``finally`` after
+    the handler, and an exception there must not displace the JSON-RPC response that was already
+    built.
     """
 
     async def boom() -> None:
@@ -152,7 +162,7 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_rais
         ctx.session._connection.exit_stack.push_async_callback(boom)
         return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
 
-    with caplog.at_level(logging.ERROR, logger=modern.__name__):
+    with caplog.at_level(logging.ERROR, logger=runner.__name__):
         async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
             response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
 
@@ -170,7 +180,7 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
     blocker at its first checkpoint, the abandonment warning is logged, and the JSON-RPC response
     that was built before cleanup is sent unchanged.
     """
-    monkeypatch.setattr(modern, "_EXIT_STACK_CLOSE_TIMEOUT", 0)
+    monkeypatch.setattr(runner, "_EXIT_STACK_CLOSE_TIMEOUT", 0)
 
     async def block() -> None:
         await anyio.Event().wait()
@@ -180,7 +190,7 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
         ctx.session._connection.exit_stack.push_async_callback(block)
         return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
 
-    with anyio.fail_after(5), caplog.at_level(logging.WARNING, logger=modern.__name__):
+    with anyio.fail_after(5), caplog.at_level(logging.WARNING, logger=runner.__name__):
         async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
             response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
     # coverage.py on Python 3.11 misreports the lines below as unhit (the test passes there);

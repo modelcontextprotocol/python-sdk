@@ -19,6 +19,20 @@ If you call `MCPServer.call_tool()` directly, read `.content` and
 `.structured_content` off the returned `CallToolResult` instead of branching on
 the result type.
 
+### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
+
+Raising `MCPError` (or a subclass such as `UrlElicitationRequiredError`) inside
+an `@mcp.tool()` handler now produces a top-level JSON-RPC error response with
+the raised `code`, `message`, and `data` intact. Previously the tool wrapper
+caught it like any other exception and returned `CallToolResult(isError=True)`,
+which discarded the error code and structured `data`.
+
+`MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
+when the request itself should be rejected (missing client capability,
+elicitation required, invalid parameters). For tool *execution* failures the
+calling LLM should see and react to, raise any other exception or return
+`CallToolResult(is_error=True, ...)` directly; that path is unchanged.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
@@ -486,6 +500,18 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
+### Streamable HTTP: lifespan now entered once at manager startup
+
+When serving streamable HTTP (stateful or `stateless_http=True`), the server's `lifespan` context manager is now entered once when `StreamableHTTPSessionManager.run()` starts, and the resulting state is shared across all sessions and requests. Previously each session (stateful) or each request (stateless) entered and exited `lifespan` independently.
+
+Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of per session/request. If your lifespan was acquiring per-connection resources, move that acquisition into the handler body; per-connection cleanup belongs on the connection's `exit_stack` (the public surface for reaching it from high-level `@mcp.tool()` handlers is being finalised as part of the public-surface review).
+
+### `Server.run()` no longer takes a `stateless` flag; `StatelessModeNotSupported` removed
+
+The `stateless: bool` parameter on the lowlevel `Server.run()` has been removed. Stateless serving is now a property of how the connection is constructed (the streamable-HTTP manager builds a born-ready `Connection` per request), not a flag the loop driver inspects.
+
+`StatelessModeNotSupported` has been removed. Server-initiated requests that have no channel to travel on now raise `NoBackChannelError` (an `MCPError` subclass) — the same exception regardless of why the channel is absent. If you were catching `StatelessModeNotSupported`, catch `NoBackChannelError` instead.
 
 ### `MCPServer.get_context()` removed
 
@@ -1202,8 +1228,8 @@ from mcp.server import ServerRequestContext
 session = ServerSession(read_stream, write_stream, init_options, stateless=False)
 
 # After (v2)
-session = ServerSession(dispatcher, connection, stateless=False)
-# where `dispatcher` is a JSONRPCDispatcher and `connection` is a Connection
+session = ServerSession(request_outbound, connection)
+# where `request_outbound` is an Outbound and `connection` is a Connection
 ```
 
 In practice, replace direct `ServerSession` use with `Server.run(read_stream, write_stream, init_options)` and let the framework wire it up.

@@ -1,49 +1,63 @@
-"""Tests for `ServerRunner`.
+"""Tests for `ServerRunner` and the free-function drivers.
 
-End-to-end over `JSONRPCDispatcher` with a real lowlevel `Server` as the
-registry. The `connected_runner` helper starts both sides and (by default)
-performs the initialize handshake, so each test exercises only the behaviour
-under test.
+The kernel tests run end-to-end over `JSONRPCDispatcher` with a real lowlevel
+`Server` as the registry. The `connected_runner` helper starts both sides and
+(by default) performs the initialize handshake, so each test exercises only the
+behaviour under test. Driver tests (`serve_connection`, `serve_one`,
+`to_jsonrpc_response`, `aclose_shielded`) follow at the bottom.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, cast
 
 import anyio
+import anyio.abc
 import pytest
 from opentelemetry.trace import SpanKind, StatusCode
 
 import mcp.server.runner
+from mcp.server.connection import Connection
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, _extract_meta, _resolve_protocol_version, otel_middleware
+from mcp.server.runner import (
+    ServerRunner,
+    _extract_meta,
+    aclose_shielded,
+    otel_middleware,
+    serve_connection,
+    serve_one,
+    to_jsonrpc_response,
+)
 from mcp.server.session import ServerSession
-from mcp.shared.dispatcher import DispatchContext, DispatchMiddleware, OnRequest
+from mcp.shared.dispatcher import CallOptions, DispatchContext, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata
+from mcp.shared.message import MessageMetadata
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    PROTOCOL_VERSION_META_KEY,
     CallToolRequestParams,
     ClientCapabilities,
     ErrorData,
     Implementation,
     InitializeRequestParams,
+    JSONRPCError,
+    JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
     ProgressNotificationParams,
     RequestParams,
-    RequestParamsMeta,
     SetLevelRequestParams,
     Tool,
 )
@@ -84,36 +98,46 @@ async def connected_runner(
     server: SrvT,
     *,
     initialized: bool = True,
-    stateless: bool = False,
-    has_standalone_channel: bool = True,
     init_options: InitializationOptions | None = None,
-    session_id: str | None = None,
     dispatch_middleware: list[DispatchMiddleware] | None = None,
+    connection: Connection | None = None,
 ) -> AsyncIterator[tuple[JSONRPCDispatcher[TransportContext], ServerRunner[dict[str, Any]]]]:
     """Yield `(client, runner)` running over an in-memory JSON-RPC dispatcher pair.
 
-    Starts the client (echo handlers) and `runner.run()` in a task group, wraps
-    the body in `anyio.fail_after(5)`, and cancels on exit. When
-    `initialized` is true the helper performs the real `initialize` request
-    before yielding, so tests start past the init-gate via the public path.
+    Starts the client (echo handlers) and the server-side dispatcher loop
+    (kernel `on_request`/`on_notify` + `aclose_shielded` teardown - the
+    `serve_connection` shape) in a task group, wraps the body in
+    `anyio.fail_after(5)`, and cancels on exit. When `initialized` is true the
+    helper performs the real `initialize` request before yielding, so tests
+    start past the init-gate via the public path.
+
+    `connection` defaults to `Connection.for_loop(server_dispatcher)`. Pass a
+    factory-built connection (e.g. `Connection.from_envelope(...)`) to exercise
+    the born-ready path; the kernel reads it as a fact and is mode-agnostic.
     """
     client, server_d, close = jsonrpc_pair()
     assert isinstance(client, JSONRPCDispatcher) and isinstance(server_d, JSONRPCDispatcher)
+    if connection is None:
+        connection = Connection.for_loop(server_d)
     runner = ServerRunner(
         server=server,
-        dispatcher=server_d,
+        connection=connection,
         lifespan_state={},
-        has_standalone_channel=has_standalone_channel,
         init_options=init_options,
-        session_id=session_id,
-        stateless=stateless,
         dispatch_middleware=dispatch_middleware or [],
     )
     c_req, c_notify = echo_handlers(Recorder())
     body_exc: BaseException | None = None
+
+    async def _drive(*, task_status: anyio.abc.TaskStatus[None]) -> None:
+        try:
+            await server_d.run(runner.on_request, runner.on_notify, task_status=task_status)
+        finally:
+            await aclose_shielded(connection)
+
     async with anyio.create_task_group() as tg:
         await tg.start(client.run, c_req, c_notify)
-        await tg.start(runner.run)
+        await tg.start(_drive)
         try:
             with anyio.fail_after(5):
                 if initialized:
@@ -219,9 +243,19 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
     assert isinstance(ctx, ServerRequestContext)
     assert ctx.lifespan_context == {}
     assert isinstance(ctx.session, ServerSession)
-    assert ctx.session is runner.session
+    assert ctx.session.protocol_version == runner.connection.protocol_version
     assert ctx.request_id is not None
     assert ctx.protocol_version == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_runner_builds_a_fresh_session_per_request(server: SrvT):
+    """`ctx.session` is built per-request from the per-request `DispatchContext`
+    and the connection's standalone outbound; it is not connection-scoped."""
+    async with connected_runner(server) as (client, _):
+        await client.send_raw_request("tools/list", None)
+        await client.send_raw_request("tools/list", None)
+    assert _seen_ctx[0].session is not _seen_ctx[1].session
 
 
 @pytest.mark.anyio
@@ -605,7 +639,6 @@ async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_conn
         assert await client.send_raw_request("ping", None) == {}
     assert runner.connection.initialize_accepted is False
     assert runner.connection.client_params is None
-    assert runner.connection.protocol_version is None
     assert not runner.connection.initialized.is_set()
 
 
@@ -654,65 +687,6 @@ async def test_runner_server_middleware_wraps_notifications(server: SrvT):
         ("notifications/initialized", True),
         ("notifications/roots/list_changed", True),
     ]
-
-
-def test_resolve_protocol_version_handshake_committed_value_wins():
-    md = ServerMessageMetadata(protocol_version="2025-03-26")
-    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-03-26"}
-    assert _resolve_protocol_version("2025-06-18", meta, md) == "2025-06-18"
-
-
-def test_resolve_protocol_version_reads_per_request_meta_when_no_handshake():
-    md = ServerMessageMetadata(protocol_version="2025-03-26")
-    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "2025-06-18"}
-    assert _resolve_protocol_version(None, meta, md) == "2025-06-18"
-
-
-def test_resolve_protocol_version_skips_unsupported_meta_value():
-    md = ServerMessageMetadata(protocol_version="2025-03-26")
-    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: "1900-01-01"}
-    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
-
-
-def test_resolve_protocol_version_skips_non_string_meta_value():
-    md = ServerMessageMetadata(protocol_version="2025-03-26")
-    meta: RequestParamsMeta = {PROTOCOL_VERSION_META_KEY: 42}
-    assert _resolve_protocol_version(None, meta, md) == "2025-03-26"
-
-
-def test_resolve_protocol_version_reads_transport_hint_when_no_handshake_or_meta():
-    md = ServerMessageMetadata(protocol_version="2025-06-18")
-    assert _resolve_protocol_version(None, None, md) == "2025-06-18"
-    assert _resolve_protocol_version(None, {}, md) == "2025-06-18"
-
-
-def test_resolve_protocol_version_skips_unsupported_transport_hint():
-    """The `initialize` params version reaches the metadata unvalidated; surface validation must never see it."""
-    md = ServerMessageMetadata(protocol_version="1900-01-01")
-    assert _resolve_protocol_version(None, None, md) == "2025-11-25"
-
-
-def test_resolve_protocol_version_terminal_default_with_no_signals():
-    assert _resolve_protocol_version(None, None, None) == "2025-11-25"
-    assert _resolve_protocol_version(None, None, ServerMessageMetadata()) == "2025-11-25"
-    assert _resolve_protocol_version(None, None, ClientMessageMetadata()) == "2025-11-25"
-
-
-@pytest.mark.anyio
-async def test_runner_ctx_protocol_version_is_terminal_default_on_stateless_in_memory(server: SrvT):
-    async with connected_runner(server, initialized=False, stateless=True) as (client, runner):
-        await client.send_raw_request("tools/list", None)
-    ctx = _seen_ctx[0]
-    assert ctx.protocol_version == "2025-11-25"
-    assert ctx.session.protocol_version is None
-    assert runner.connection.protocol_version is None
-
-
-@pytest.mark.anyio
-async def test_runner_ctx_protocol_version_tracks_per_request_meta_on_stateless(server: SrvT):
-    async with connected_runner(server, initialized=False, stateless=True) as (client, _):
-        await client.send_raw_request("tools/list", {"_meta": {PROTOCOL_VERSION_META_KEY: "2025-06-18"}})
-    assert _seen_ctx[0].protocol_version == "2025-06-18"
 
 
 def test_extract_meta_returns_none_for_absent_or_malformed():
@@ -837,21 +811,16 @@ async def test_runner_handler_returning_unsupported_type_surfaces_as_error(serve
 
 
 @pytest.mark.anyio
-async def test_runner_stateless_skips_init_gate(server: SrvT):
-    async with connected_runner(server, initialized=False, stateless=True, has_standalone_channel=False) as (client, _):
-        result = await client.send_raw_request("tools/list", None)
-    assert result["tools"][0]["name"] == "t"
-
-
-@pytest.mark.anyio
-async def test_runner_stateless_connection_initialized_event_set_on_construction(server: SrvT):
-    """`connection.initialized` mirrors the gate flag in stateless mode so
-    `await connection.initialized.wait()` does not hang when no handshake
-    arrives."""
-    async with connected_runner(server, initialized=False, stateless=True, has_standalone_channel=False) as (_, runner):
+async def test_runner_with_born_ready_connection_skips_init_gate(server: SrvT):
+    """A `Connection.from_envelope` connection is born ready: the kernel's
+    init-gate is open without any handshake. The kernel is mode-agnostic - the
+    same `on_request` reads `connection.initialize_accepted` as a fact."""
+    born_ready = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
         assert runner.connection.initialize_accepted is True
         assert runner.connection.initialized.is_set()
-        await runner.connection.initialized.wait()
+        result = await client.send_raw_request("tools/list", None)
+    assert result["tools"][0]["name"] == "t"
 
 
 @pytest.mark.anyio
@@ -952,6 +921,33 @@ async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("server/discover", None)
     assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="server/discover")
+
+
+@pytest.mark.anyio
+async def test_on_request_rejects_initialize_at_modern_version_with_method_not_found(server: SrvT):
+    """Spec-mandated: `initialize` has no `CLIENT_REQUESTS` row at the modern
+    version; kernel dispatch (not the inbound classifier) rejects it."""
+    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
+        assert runner.connection.protocol_version == MODERN_PROTOCOL_VERSIONS[0]
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", _initialize_params())
+    assert exc.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_on_request_dispatches_custom_method_registered_via_add_request_handler(server: SrvT):
+    """SDK-defined: a method outside `SPEC_CLIENT_METHODS` skips the version
+    gate and reaches its registered handler at any negotiated version."""
+
+    async def echo(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True}
+
+    server.add_request_handler("myorg/echo", RequestParams, echo)
+    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {"echoed": True}
 
 
 @pytest.mark.anyio
@@ -1205,3 +1201,194 @@ async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
         await client.send_raw_request("tools/list", None)
     assert cleaned == [2, 1]
     assert "abandoning remaining callbacks" not in caplog.text
+
+
+# --- to_jsonrpc_response -------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response():
+    """SDK-defined: a handler coroutine resolving to a result dict is wrapped as a
+    `JSONRPCResponse` carrying the supplied id and the dict verbatim as `result`."""
+
+    async def ok() -> dict[str, Any]:
+        return {"k": "v"}
+
+    reply = await to_jsonrpc_response(7, ok())
+    assert isinstance(reply, JSONRPCResponse)
+    assert reply.id == 7
+    assert reply.result == {"k": "v"}
+
+
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error():
+    """SDK-defined: an `MCPError` raised by the handler coroutine is wrapped as a
+    `JSONRPCError` whose `error` carries the same code, message, and data."""
+
+    async def fail() -> dict[str, Any]:
+        raise MCPError(code=METHOD_NOT_FOUND, message="nope", data="x")
+
+    reply = await to_jsonrpc_response("rid", fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.id == "rid"
+    assert reply.error == ErrorData(code=METHOD_NOT_FOUND, message="nope", data="x")
+
+
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params():
+    """SDK-defined: a pydantic `ValidationError` escaping the handler coroutine is
+    mapped to `INVALID_PARAMS` with a generic message (validator detail does not
+    reach the wire)."""
+
+    async def fail() -> dict[str, Any]:
+        Tool.model_validate({"name": 123})  # raises ValidationError
+        raise NotImplementedError
+
+    reply = await to_jsonrpc_response(1, fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+
+
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and_logs(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: an unmapped exception is logged server-side and surfaced as
+    `INTERNAL_ERROR` with a generic message; the exception text never reaches the
+    wire."""
+
+    async def fail() -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    reply = await to_jsonrpc_response(1, fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error.code == INTERNAL_ERROR
+    # Handler internals never reach the wire.
+    assert "boom" not in reply.error.message
+    assert "request handler raised" in caplog.text
+
+
+# --- aclose_shielded -----------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_aclose_shielded_runs_callbacks_under_outer_cancellation():
+    """The shield lets per-connection cleanup run even when the enclosing scope
+    is being cancelled."""
+    cleaned: list[int] = []
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+
+    async def _append() -> None:
+        await anyio.sleep(0)
+        cleaned.append(1)
+
+    conn.exit_stack.push_async_callback(_append)
+    with anyio.CancelScope() as scope:
+        scope.cancel()
+        await aclose_shielded(conn)
+    assert cleaned == [1]
+
+
+# --- serve_one / serve_connection ---------------------------------------------
+
+
+@dataclass
+class _StubDispatchContext:
+    """Minimal `DispatchContext` for `serve_one` driver tests.
+
+    The modern entry hands a per-request context to `serve_one`; this stub
+    satisfies the protocol structurally with no real back-channel.
+    """
+
+    request_id: int | str | None
+    transport: TransportContext = field(default_factory=lambda: TransportContext(kind="direct", can_send_request=False))
+    message_metadata: MessageMetadata = None
+    cancel_requested: anyio.Event = field(default_factory=anyio.Event)
+    can_send_request: bool = False
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        raise NotImplementedError
+
+
+async def _append_async(dst: list[int], v: int) -> None:
+    dst.append(v)
+
+
+_LIFESPAN: dict[str, Any] = {}
+
+
+@pytest.mark.anyio
+async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT):
+    """The single-exchange driver: builds the kernel, runs `on_request` once,
+    wraps via `to_jsonrpc_response`, and tears down `connection.exit_stack`."""
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    cleaned: list[int] = []
+    conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
+    request = JSONRPCRequest(jsonrpc="2.0", id=9, method="tools/list", params=None)
+    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(9), lifespan_state=_LIFESPAN)
+    assert isinstance(reply, JSONRPCResponse)
+    assert reply.id == 9
+    assert reply.result["tools"][0]["name"] == "t"
+    assert cleaned == [1]
+    ctx = _seen_ctx[0]
+    assert ctx.protocol_version == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_serve_one_maps_error_to_jsonrpc_error_and_still_closes_exit_stack(server: SrvT):
+    """SDK-defined: a kernel-produced error (here `METHOD_NOT_FOUND` for an
+    unregistered method) is wrapped as a `JSONRPCError`, and the per-request
+    exit stack is closed on the error path too."""
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    cleaned: list[int] = []
+    conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
+    request = JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/list", params=None)
+    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(2), lifespan_state=_LIFESPAN)
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error.code == METHOD_NOT_FOUND
+    assert cleaned == [1]
+
+
+@pytest.mark.anyio
+async def test_serve_one_reads_connection_protocol_version_as_a_fact(server: SrvT):
+    """`serve_one` builds the kernel over the entry's `Connection`; the kernel
+    reads `connection.protocol_version` for the version gate. A `from_envelope`
+    connection at a modern version rejects a method absent there."""
+    conn = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="logging/setLevel", params={"level": "info"})
+    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(1), lifespan_state=_LIFESPAN)
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_serve_connection_drives_dispatcher_loop_and_tears_down(server: SrvT):
+    """The loop-mode driver: `serve_connection` builds the kernel, hands
+    `on_request`/`on_notify` to `dispatcher.run()`, and `aclose_shielded`s the
+    connection on the way out."""
+    client, server_d, close = jsonrpc_pair()
+    assert isinstance(client, JSONRPCDispatcher) and isinstance(server_d, JSONRPCDispatcher)
+    conn = Connection.for_loop(server_d)
+    cleaned: list[int] = []
+    conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(partial(serve_connection, server, server_d, connection=conn, lifespan_state=_LIFESPAN))
+        with anyio.fail_after(5):
+            await client.send_raw_request("initialize", _initialize_params())
+            result = await client.send_raw_request("tools/list", None)
+            assert result["tools"][0]["name"] == "t"
+            assert cleaned == []
+        close()
+    assert cleaned == [1]
+    assert conn.protocol_version == LATEST_PROTOCOL_VERSION
+    assert conn.client_params is not None

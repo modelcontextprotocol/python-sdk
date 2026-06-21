@@ -314,16 +314,29 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:
-                if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
-                    session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
-                    await ctx.read_stream_writer.send(session_message)
-                return
-
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    # A spec-correct server may return the JSON-RPC error in the
+                    # body at a non-2xx status (e.g. 400 for INVALID_PARAMS, 404
+                    # for METHOD_NOT_FOUND). Surface that error rather than the
+                    # status-derived stand-in below.
+                    if response.headers.get("content-type", "").lower().startswith("application/json"):
+                        try:
+                            body = await response.aread()
+                            parsed = jsonrpc_message_adapter.validate_json(body, by_name=False)
+                            if isinstance(parsed, JSONRPCError):
+                                # The server may have set `id: null` (request rejected before its
+                                # id was parsed); use this request's id so correlation works.
+                                reply = JSONRPCError(jsonrpc="2.0", id=message.id, error=parsed.error)
+                                await ctx.read_stream_writer.send(SessionMessage(reply))
+                                return
+                        except (httpx.StreamError, ValidationError):
+                            pass
+                        logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
+                    if response.status_code == 404:
+                        error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    else:
+                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return

@@ -1,15 +1,12 @@
 """`ServerSession`: server-to-client requests and notifications.
 
-A thin proxy over `JSONRPCDispatcher` and `Connection`. One instance per
-client connection (built by `ServerRunner`). Handlers reach it as
-`ctx.session` and use the typed helpers (`create_message`, `elicit_form`,
+A per-request proxy built by the kernel for each inbound request. Exposes the
+request-scoped outbound channel and the connection's standalone channel.
+Handlers reach it as `ctx.session` and use the typed helpers (`elicit_form`,
 `send_log_message`, ...) to call back to the client.
-
-The receive-loop, initialize handling, and per-request task isolation that
-used to live here are now owned by `JSONRPCDispatcher` and `ServerRunner`.
 """
 
-from typing import Any, TypeVar, cast, overload
+from typing import Any, TypeVar, overload
 
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
@@ -17,8 +14,8 @@ from typing_extensions import deprecated
 from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
-from mcp.shared.dispatcher import CallOptions, Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError, StatelessModeNotSupported
+from mcp.shared.dispatcher import CallOptions, Outbound, ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
 from mcp.types import methods as _methods
 
@@ -28,35 +25,32 @@ ResultT = TypeVar("ResultT", bound=BaseModel)
 
 
 class ServerSession:
-    """Connection-scoped proxy for server-to-client requests and notifications.
+    """Per-request proxy for server-to-client requests and notifications.
 
-    `send_request` / `send_notification` model-dump their argument and forward
-    to the dispatcher; the typed helpers below are unchanged from the previous
-    implementation and only call those two methods.
+    Built once per inbound request by the kernel's `_make_context`. Holds two
+    `Outbound` channels: the request-scoped one (the per-request
+    `DispatchContext`, which on streamable HTTP routes onto the originating
+    POST's response stream) and the connection's standalone channel
+    (`connection.outbound`). `related_request_id` on the public methods is the
+    selector — present means request-scoped, absent means standalone — and
+    never crosses the `Outbound` Protocol.
     """
 
-    def __init__(
-        self,
-        dispatcher: Dispatcher[Any],
-        connection: Connection,
-        *,
-        stateless: bool = False,
-    ) -> None:
-        self._dispatcher = dispatcher
+    def __init__(self, request_outbound: Outbound, connection: Connection) -> None:
+        self._request_outbound = request_outbound
         self._connection = connection
-        self._stateless = stateless
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
-        """The client's `initialize` request params; `None` before initialization."""
+        """The client's `initialize` request params; `None` when no client info was supplied."""
         return self._connection.client_params
 
     @property
-    def protocol_version(self) -> str | None:
-        """The protocol version negotiated during `initialize`.
+    def protocol_version(self) -> str:
+        """The protocol version this connection speaks.
 
-        `None` before initialization, and normally `None` on stateless
-        connections. For the per-request value, read `ctx.protocol_version`.
+        Populated at `Connection` construction and overwritten once the
+        handshake commits on the loop path; never `None`.
         """
         return self._connection.protocol_version
 
@@ -70,46 +64,23 @@ class ServerSession:
     ) -> ResultT:
         """Send a typed server-to-client request and validate the result.
 
-        `metadata.related_request_id` (when supplied) routes the outgoing
-        message onto the originating request's response stream over
-        streamable HTTP; it is the only metadata field honored here.
-
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: If there is no related request to ride on and
-                the connection has no standalone channel (stateless HTTP), so
-                a response could never arrive.
+            NoBackChannelError: The connection has no back-channel for
+                server-initiated requests (raised by the held `Outbound`).
             pydantic.ValidationError: The peer's result does not match `result_type`.
         """
+        related = metadata.related_request_id if metadata is not None else None
+        channel = self._request_outbound if related is not None else self._connection.outbound
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
         if request_read_timeout_seconds is not None:
             opts["timeout"] = request_read_timeout_seconds
         if progress_callback is not None:
             opts["on_progress"] = progress_callback
-        related = metadata.related_request_id if metadata is not None else None
-        if related is None and not self._connection.has_standalone_channel:
-            # Fail fast instead of parking forever on a response that cannot
-            # arrive; matches `Connection.send_raw_request`.
-            raise NoBackChannelError(data["method"])
-        # TODO: _related_request_id is not on the Dispatcher Protocol (and must not
-        # be — it's transport-specific). The fix is to give `ctx.session` a per-request
-        # Outbound (the DispatchContext, which threads its own request_id) alongside
-        # the connection-level one, with `related_request_id` as the selector; that
-        # belongs with the ServerSession/Context rework, not here.
-        result = cast(
-            "dict[str, Any]",
-            await self._dispatcher.send_raw_request(
-                data["method"],
-                data.get("params"),
-                opts or None,
-                _related_request_id=related,  # type: ignore[call-arg]
-            ),
-        )
-        # Literal fallback covers pre-handshake and stateless; matches runner.py.
-        version = self.protocol_version or "2025-11-25"
+        result = await channel.send_raw_request(data["method"], data.get("params"), opts or None)
         try:
-            _methods.validate_client_result(request.method, version, result)
+            _methods.validate_client_result(request.method, self.protocol_version, result)
         except KeyError:
             pass
         return result_type.model_validate(result, by_name=False)
@@ -120,8 +91,9 @@ class ServerSession:
         related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a typed server-to-client notification."""
+        channel = self._request_outbound if related_request_id is not None else self._connection.outbound
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        await self._dispatcher.notify(data["method"], data.get("params"), _related_request_id=related_request_id)  # type: ignore[call-arg]
+        await channel.notify(data["method"], data.get("params"))
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
@@ -236,10 +208,9 @@ class ServerSession:
         Raises:
             MCPError: If tools are provided but client doesn't support them.
             ValueError: If tool_use or tool_result message structure is invalid.
-            StatelessModeNotSupported: If called in stateless HTTP mode.
+            NoBackChannelError: The connection has no back-channel for
+                server-initiated requests.
         """
-        if self._stateless:
-            raise StatelessModeNotSupported(method="sampling")
         client_caps = self.client_params.capabilities if self.client_params else None
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
@@ -274,9 +245,12 @@ class ServerSession:
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def list_roots(self) -> types.ListRootsResult:
-        """Send a roots/list request."""
-        if self._stateless:
-            raise StatelessModeNotSupported(method="list_roots")
+        """Send a roots/list request.
+
+        Raises:
+            NoBackChannelError: The connection has no back-channel for
+                server-initiated requests.
+        """
         return await self.send_request(
             types.ListRootsRequest(),
             types.ListRootsResult,
@@ -321,10 +295,9 @@ class ServerSession:
             The client's response with form data.
 
         Raises:
-            StatelessModeNotSupported: If called in stateless HTTP mode.
+            NoBackChannelError: The connection has no back-channel for
+                server-initiated requests.
         """
-        if self._stateless:
-            raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
             types.ElicitRequest(
                 params=types.ElicitRequestFormParams(
@@ -358,10 +331,9 @@ class ServerSession:
             The client's response indicating acceptance, decline, or cancellation.
 
         Raises:
-            StatelessModeNotSupported: If called in stateless HTTP mode.
+            NoBackChannelError: The connection has no back-channel for
+                server-initiated requests.
         """
-        if self._stateless:
-            raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
             types.ElicitRequest(
                 params=types.ElicitRequestURLParams(

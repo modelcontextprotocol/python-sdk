@@ -1,187 +1,170 @@
-"""Tests for stateless HTTP mode limitations.
+"""Tests for the no-back-channel path (stateless HTTP).
 
-Stateless HTTP mode does not support server-to-client requests because there
-is no persistent connection for bidirectional communication. These tests verify
-that appropriate errors are raised when attempting to use unsupported features.
+A `Connection.from_envelope(...)` connection installs the no-channel sentinel
+as its standalone outbound, so server-to-client requests with no related
+request to ride on raise `NoBackChannelError` from the channel itself.
 
 See: https://github.com/modelcontextprotocol/python-sdk/issues/1097
 """
 
+from collections.abc import Mapping
 from typing import Any
-from unittest.mock import Mock
 
-import anyio
 import pytest
 
 from mcp import types
 from mcp.server.connection import Connection
-from mcp.server.context import ServerRequestContext
-from mcp.server.lowlevel.server import Server
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import NoBackChannelError, StatelessModeNotSupported
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest, JSONRPCResponse, ListToolsResult, PaginatedRequestParams
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
+from mcp.types import LATEST_PROTOCOL_VERSION
 
 
-def _make_session(*, stateless: bool) -> ServerSession:
-    """A `ServerSession` with a mock dispatcher; the stateless guard fires before any send."""
-    return ServerSession(
-        Mock(spec=JSONRPCDispatcher),
-        Connection(Mock(), has_standalone_channel=False),
-        stateless=stateless,
-    )
+class StubOutbound:
+    """Records `send_raw_request` / `notify` calls and returns a canned result."""
+
+    def __init__(self, result: dict[str, Any] | None = None) -> None:
+        self.requests: list[tuple[str, Mapping[str, Any] | None, CallOptions | None]] = []
+        self.notifications: list[tuple[str, Mapping[str, Any] | None]] = []
+        self.result = result if result is not None else {}
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        self.requests.append((method, params, opts))
+        return self.result
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        self.notifications.append((method, params))
+
+
+def _no_channel_session(request_ch: StubOutbound | None = None) -> tuple[ServerSession, StubOutbound]:
+    """A session whose standalone channel is the connection's no-channel
+    sentinel; the request channel is a working stub."""
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    assert conn.has_standalone_channel is False
+    request = request_ch if request_ch is not None else StubOutbound()
+    return ServerSession(request, conn), request
 
 
 @pytest.fixture
-def stateless_session() -> ServerSession:
-    return _make_session(stateless=True)
+def no_channel_session() -> ServerSession:
+    session, _ = _no_channel_session()
+    return session
 
 
 @pytest.mark.anyio
-async def test_list_roots_fails_in_stateless_mode(stateless_session: ServerSession):
-    """Test that list_roots raises StatelessModeNotSupported in stateless mode."""
-    with pytest.raises(StatelessModeNotSupported, match="list_roots"):
-        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
+async def test_list_roots_raises_no_back_channel(no_channel_session: ServerSession):
+    """SDK-defined: `list_roots` has no `related_request_id` so it always rides
+    the standalone channel, which raises here."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.list_roots()  # pyright: ignore[reportDeprecated]
+    assert exc.value.method == "roots/list"
 
 
 @pytest.mark.anyio
-async def test_create_message_fails_in_stateless_mode(stateless_session: ServerSession):
-    """Test that create_message raises StatelessModeNotSupported in stateless mode."""
-    with pytest.raises(StatelessModeNotSupported, match="sampling"):
-        await stateless_session.create_message(  # pyright: ignore[reportDeprecated]
-            messages=[
-                types.SamplingMessage(
-                    role="user",
-                    content=types.TextContent(type="text", text="hello"),
-                )
-            ],
+async def test_send_ping_raises_no_back_channel(no_channel_session: ServerSession):
+    """SDK-defined: `send_ping` rides the standalone channel and raises when there is none."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.send_ping()
+    assert exc.value.method == "ping"
+
+
+@pytest.mark.anyio
+async def test_create_message_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
+    """SDK-defined: `create_message` without a related id rides the standalone channel and raises."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.create_message(  # pyright: ignore[reportDeprecated]
+            messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
             max_tokens=100,
         )
+    assert exc.value.method == "sampling/createMessage"
 
 
 @pytest.mark.anyio
-async def test_elicit_form_fails_in_stateless_mode(stateless_session: ServerSession):
-    """Test that elicit_form raises StatelessModeNotSupported in stateless mode."""
-    with pytest.raises(StatelessModeNotSupported, match="elicitation"):
-        await stateless_session.elicit_form(
-            message="Please provide input",
-            requested_schema={"type": "object", "properties": {}},
-        )
+async def test_elicit_form_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
+    """SDK-defined: `elicit_form` without a related id rides the standalone channel and raises."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.elicit_form(message="m", requested_schema={"type": "object", "properties": {}})
+    assert exc.value.method == "elicitation/create"
 
 
 @pytest.mark.anyio
-async def test_elicit_url_fails_in_stateless_mode(stateless_session: ServerSession):
-    """Test that elicit_url raises StatelessModeNotSupported in stateless mode."""
-    with pytest.raises(StatelessModeNotSupported, match="elicitation"):
-        await stateless_session.elicit_url(
-            message="Please authenticate",
-            url="https://example.com/auth",
-            elicitation_id="test-123",
-        )
+async def test_elicit_url_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
+    """SDK-defined: `elicit_url` without a related id rides the standalone channel and raises."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.elicit_url(message="m", url="https://example.com/auth", elicitation_id="e-1")
+    assert exc.value.method == "elicitation/create"
 
 
 @pytest.mark.anyio
-async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: ServerSession):
-    """Test that the deprecated elicit method also fails in stateless mode."""
-    with pytest.raises(StatelessModeNotSupported, match="elicitation"):
-        await stateless_session.elicit(
-            message="Please provide input",
-            requested_schema={"type": "object", "properties": {}},
-        )
+async def test_elicit_deprecated_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
+    """SDK-defined: the deprecated `elicit` alias routes the same as `elicit_form` and raises."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.elicit(message="m", requested_schema={"type": "object", "properties": {}})
+    assert exc.value.method == "elicitation/create"
 
 
 @pytest.mark.anyio
-async def test_stateless_error_message_is_actionable(stateless_session: ServerSession):
-    """Test that the error message provides actionable guidance."""
-    with pytest.raises(StatelessModeNotSupported) as exc_info:
-        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
-
-    error_message = str(exc_info.value)
-    # Should mention it's stateless mode
-    assert "stateless HTTP mode" in error_message
-    # Should explain why it doesn't work
-    assert "server-to-client requests" in error_message
-    # Should tell user how to fix it
-    assert "stateless_http=False" in error_message
+async def test_send_request_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
+    """SDK-defined: the generic `send_request` path with no metadata routes standalone and raises."""
+    with pytest.raises(NoBackChannelError) as exc:
+        await no_channel_session.send_request(types.ListRootsRequest(), types.ListRootsResult)
+    assert exc.value.method == "roots/list"
 
 
 @pytest.mark.anyio
-async def test_exception_has_method_attribute(stateless_session: ServerSession):
-    """Test that the exception has a method attribute for programmatic access."""
-    with pytest.raises(StatelessModeNotSupported) as exc_info:
-        await stateless_session.list_roots()  # pyright: ignore[reportDeprecated]
-
-    assert exc_info.value.method == "list_roots"
-
-
-@pytest.fixture
-def stateful_session() -> ServerSession:
-    return _make_session(stateless=False)
+async def test_elicit_form_with_related_id_rides_the_request_channel():
+    """SDK-defined: with a related request the message rides the per-request
+    channel, so the no-channel standalone is never touched and the call succeeds."""
+    session, request_ch = _no_channel_session(StubOutbound(result={"action": "cancel"}))
+    result = await session.elicit_form(
+        message="m", requested_schema={"type": "object", "properties": {}}, related_request_id=3
+    )
+    assert isinstance(result, types.ElicitResult)
+    assert request_ch.requests[0][0] == "elicitation/create"
 
 
 @pytest.mark.anyio
-async def test_stateful_mode_does_not_raise_stateless_error(
-    stateful_session: ServerSession, monkeypatch: pytest.MonkeyPatch
-):
-    """Test that StatelessModeNotSupported is not raised in stateful mode.
+async def test_send_log_message_with_related_id_rides_the_request_channel():
+    """SDK-defined: the deprecated ``send_log_message`` notification with a related id
+    rides the per-request channel, so it is delivered even with no standalone back-channel."""
+    session, request_ch = _no_channel_session()
+    await session.send_log_message(  # pyright: ignore[reportDeprecated]
+        level="info", data="hello", logger="test", related_request_id=3
+    )
+    assert request_ch.notifications == [("notifications/message", {"level": "info", "data": "hello", "logger": "test"})]
 
-    We mock send_request to avoid blocking on I/O while still verifying
-    that the stateless check passes.
-    """
-    send_request_called = False
 
-    async def mock_send_request(*_: Any, **__: Any) -> types.ListRootsResult:
-        nonlocal send_request_called
-        send_request_called = True
-        return types.ListRootsResult(roots=[])
+@pytest.mark.anyio
+async def test_unrelated_notification_is_dropped_silently():
+    """SDK-defined: notifications on the no-channel standalone are best-effort — dropped, never raised."""
+    session, request_ch = _no_channel_session()
+    await session.send_tool_list_changed()
+    assert request_ch.notifications == []
 
-    monkeypatch.setattr(stateful_session, "send_request", mock_send_request)
 
-    # This should NOT raise StatelessModeNotSupported
-    result = await stateful_session.list_roots()  # pyright: ignore[reportDeprecated]
-
-    assert send_request_called
+@pytest.mark.anyio
+async def test_loop_connection_outbound_does_not_raise_no_back_channel():
+    """SDK-defined: a `for_loop` connection holds a real outbound, so the
+    standalone path reaches the channel rather than raising."""
+    standalone = StubOutbound(result={"roots": []})
+    conn = Connection.for_loop(standalone)
+    assert conn.has_standalone_channel is True
+    session = ServerSession(StubOutbound(), conn)
+    result = await session.list_roots()  # pyright: ignore[reportDeprecated]
     assert isinstance(result, types.ListRootsResult)
+    assert standalone.requests[0][0] == "roots/list"
 
 
 @pytest.mark.anyio
-async def test_server_run_stateless_wires_no_standalone_channel():
-    """`Server.run(stateless=True)` must wire `Connection.has_standalone_channel=False`.
-
-    Stateless HTTP has no standalone GET stream, so server-initiated requests on
-    the connection must fail fast with `NoBackChannelError` rather than write to
-    a channel that will never deliver a response. The `ServerSession` typed
-    helpers carry their own stateless guard (tested above); this pins the
-    `Connection` wiring that `Server.run` produces.
-    """
-    captured: list[Connection] = []
-
-    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
-        # `ServerRequestContext` doesn't expose `connection` directly yet (it
-        # will after the Context rework); reach it via the session for now.
-        captured.append(ctx.session._connection)  # pyright: ignore[reportPrivateUsage]
-        return ListToolsResult(tools=[])
-
-    server: Server[Any] = Server("test", on_list_tools=list_tools)
-
-    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
-    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
-
-    async def run_server() -> None:
-        await server.run(server_read, server_write, server.create_initialization_options(), stateless=True)
-
-    async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
-        tg.start_soon(run_server)
-        # stateless=True skips the init gate, so tools/list routes immediately.
-        await to_server.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list")))
-        with anyio.fail_after(5):
-            response = (await from_server.receive()).message
-        assert isinstance(response, JSONRPCResponse)
-        tg.cancel_scope.cancel()
-
-    assert len(captured) == 1
-    conn = captured[0]
-    assert conn.has_standalone_channel is False
-    with pytest.raises(NoBackChannelError):
+async def test_from_envelope_connection_ping_raises_no_back_channel():
+    """SDK-defined: `Connection`'s own helpers route through the same sentinel,
+    so `ping` on a `from_envelope` connection raises."""
+    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    with pytest.raises(NoBackChannelError) as exc:
         await conn.ping()
+    assert exc.value.method == "ping"
