@@ -1486,4 +1486,4 @@ async def test_default_message_handler():
         await _default_message_handler(ValueError("test error"))
 
     # Should not raise for non-exception
-    await _default_message_handler(types.RootsListChangedNotification())
+    await _default_message_handler(types.ToolListChangedNotification())
