@@ -67,6 +67,21 @@ class OAuthClientMetadata(BaseModel):
     software_id: str | None = None
     software_version: str | None = None
 
+    @field_validator("redirect_uris")
+    @classmethod
+    def _coerce_redirect_uris_to_any_url(cls, v: list[AnyUrl] | None) -> list[AnyUrl] | None:
+        """Coerce AnyUrl subtypes to plain AnyUrl for correct equality comparison.
+
+        pydantic v2 uses strict-type equality: ``AnyUrl(x) != AnyHttpUrl(x)``
+        even when the URLs are identical.  This breaks ``validate_redirect_uri``
+        membership checks when callers pass AnyHttpUrl instances.
+        Converting each element to ``AnyUrl(str(...))`` strips the subtype
+        while preserving the URL value.
+        """
+        if v is None:
+            return v
+        return [AnyUrl(str(url)) for url in v]
+
     @field_validator(
         "client_uri",
         "logo_uri",

@@ -1,9 +1,14 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import (
+    InvalidRedirectUriError,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+)
 
 
 def test_oauth():
@@ -138,3 +143,56 @@ def test_invalid_non_empty_url_still_rejected():
     }
     with pytest.raises(ValidationError):
         OAuthClientMetadata.model_validate(data)
+
+
+# ─── redirect_uris AnyUrl subtype coercion (#2687) ────────────────────────────
+
+
+def test_redirect_uris_coerces_any_http_url_to_any_url():
+    """When a caller passes AnyHttpUrl instances in redirect_uris, they
+    should be coerced to plain AnyUrl so that equality checks work."""
+    from pydantic import AnyHttpUrl
+
+    data = {
+        "redirect_uris": [AnyHttpUrl("https://example.com/callback")],
+    }
+    metadata = OAuthClientMetadata.model_validate(data)
+    for url in metadata.redirect_uris:
+        assert type(url) is AnyUrl, f"Expected AnyUrl, got {type(url)}"
+
+
+def test_redirect_uris_validate_matches_coerced_url():
+    """validate_redirect_uri should succeed when the incoming redirect_uri
+    matches a coerced AnyUrl in redirect_uris."""
+    from pydantic import AnyHttpUrl
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+    # This must not raise InvalidRedirectUriError
+    result = metadata.validate_redirect_uri(AnyUrl("https://example.com/callback"))
+    assert str(result) == "https://example.com/callback"
+
+
+def test_redirect_uris_validate_rejects_mismatched_url():
+    """validate_redirect_uri should still reject genuinely different URLs."""
+    from pydantic import AnyHttpUrl
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+    with pytest.raises(InvalidRedirectUriError):
+        metadata.validate_redirect_uri(AnyUrl("https://evil.example/callback"))
+
+
+def test_redirect_uris_none_untouched():
+    """None redirect_uris should not be affected by coercion."""
+    metadata = OAuthClientMetadata(redirect_uris=None)
+    assert metadata.redirect_uris is None
+
+
+def test_redirect_uris_string_list_still_works():
+    """Passing raw strings should still work (and coerce to AnyUrl)."""
+    metadata = OAuthClientMetadata(redirect_uris=["https://example.com/callback"])
+    assert len(metadata.redirect_uris) == 1
+    assert type(metadata.redirect_uris[0]) is AnyUrl
