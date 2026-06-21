@@ -470,6 +470,18 @@ class OAuthClientProvider(httpx.Auth):
             content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
+            # Per RFC 6749 Section 6, the authorization server MAY issue a new
+            # refresh token. If the response omits one, preserve the existing
+            # refresh token so subsequent refresh attempts remain possible.
+            if (
+                not token_response.refresh_token
+                and self.context.current_tokens
+                and self.context.current_tokens.refresh_token
+            ):
+                token_response = token_response.model_copy(
+                    update={"refresh_token": self.context.current_tokens.refresh_token}
+                )
+
             self.context.current_tokens = token_response
             self.context.update_token_expiry(token_response)
             await self.context.storage.set_tokens(token_response)
