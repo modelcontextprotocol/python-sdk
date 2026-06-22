@@ -5,9 +5,6 @@ handler returns as next_cursor comes back verbatim on the client's next call, no
 pagination scheme.
 """
 
-from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
-
 import pytest
 from inline_snapshot import snapshot
 
@@ -28,19 +25,6 @@ from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
-
-_ResultT = TypeVar("_ResultT")
-
-
-def _page(list_fn: Callable[..., Coroutine[Any, Any, _ResultT]], cursor: str | None) -> Coroutine[Any, Any, _ResultT]:
-    """Call a paginated list method with a cursor on whichever client surface `connect` yielded.
-
-    `Client.list_*` takes `cursor=`; `ClientSession.list_*` takes `params=PaginatedRequestParams(...)`.
-    """
-    try:
-        return list_fn(cursor=cursor)
-    except TypeError:
-        return list_fn(params=types.PaginatedRequestParams(cursor=cursor))
 
 
 @requirement("tools:list:pagination")
@@ -65,7 +49,7 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
 
     async with connect(server) as client:
         first_page = await client.list_tools()
-        second_page = await _page(client.list_tools, first_page.next_cursor)
+        second_page = await client.list_tools(cursor=first_page.next_cursor)
 
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]
@@ -95,7 +79,7 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect:
     requests_made = 0
     async with connect(server) as client:
         while True:
-            result = await _page(client.list_tools, cursor)
+            result = await client.list_tools(cursor=cursor)
             requests_made += 1
             assert requests_made <= len(pages), "the server kept returning next_cursor past the last page"
             collected.extend(tool.name for tool in result.tools)
@@ -138,7 +122,7 @@ async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(
     cursor: str | None = None
     async with connect(server) as client:
         while True:
-            result = await _page(client.list_tools, cursor)
+            result = await client.list_tools(cursor=cursor)
             page_sizes.append(len(result.tools))
             if result.next_cursor is None:
                 break
@@ -166,7 +150,7 @@ async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params
 
     async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
-            await _page(client.list_tools, "never-issued")
+            await client.list_tools(cursor="never-issued")
 
     assert exc_info.value.error.code == INVALID_PARAMS
 
@@ -190,7 +174,7 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
 
     async with connect(server) as client:
         first_page = await client.list_resources()
-        second_page = await _page(client.list_resources, first_page.next_cursor)
+        second_page = await client.list_resources(cursor=first_page.next_cursor)
 
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]
@@ -223,7 +207,7 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
 
     async with connect(server) as client:
         first_page = await client.list_resource_templates()
-        second_page = await _page(client.list_resource_templates, first_page.next_cursor)
+        second_page = await client.list_resource_templates(cursor=first_page.next_cursor)
 
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]
@@ -249,7 +233,7 @@ async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None
 
     async with connect(server) as client:
         first_page = await client.list_prompts()
-        second_page = await _page(client.list_prompts, first_page.next_cursor)
+        second_page = await client.list_prompts(cursor=first_page.next_cursor)
 
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]

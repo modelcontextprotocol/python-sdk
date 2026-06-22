@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from typing_extensions import deprecated
 
+from mcp import types
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -34,6 +35,17 @@ from mcp.types import (
     RequestParamsMeta,
     ResourceTemplateReference,
 )
+
+
+def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
+    return types.DiscoverResult(
+        supported_versions=[protocol_version],
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="", version=""),
+        result_type="complete",
+        ttl_ms=0,
+        cache_scope="public",
+    )
 
 
 @dataclass
@@ -95,6 +107,15 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
+    mode: Literal["legacy"] | str = "legacy"
+    """'legacy' performs the initialize handshake. A protocol-version string (e.g. '2026-07-28') adopts that
+    version directly without a handshake — supply prior_discover to reuse a known DiscoverResult, or omit it
+    to synthesize a minimal one."""
+
+    prior_discover: types.DiscoverResult | None = None
+    """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
+    Ignored when mode='legacy'."""
+
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
@@ -132,7 +153,10 @@ class Client:
                 )
             )
 
-            await self._session.initialize()
+            if self.mode == "legacy":
+                await self._session.initialize()
+            else:
+                self._session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
             # Transfer ownership to self for __aexit__ to handle
             self._exit_stack = exit_stack.pop_all()
