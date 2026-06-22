@@ -288,6 +288,8 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus,
         error_code: int = INVALID_REQUEST,
         headers: dict[str, str] | None = None,
+        *,
+        request_id: RequestId | None = None,
     ) -> Response:
         """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
@@ -300,7 +302,7 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=None,
+            id=request_id,
             error=ErrorData(code=error_code, message=error_message),
         )
 
@@ -436,7 +438,7 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
-    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
+    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:  # noqa: C901
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
@@ -523,6 +525,19 @@ class StreamableHTTPServerTransport:
 
             # Extract the request ID outside the try block for proper scope
             request_id = str(message.id)
+
+            # Reject duplicate request IDs — a client that reuses an id while
+            # the original request is still in flight violates the JSON-RPC
+            # spec and would silently overwrite the prior stream slot.
+            if request_id in self._request_streams:
+                response = self._create_error_response(
+                    f"Conflict: Request ID {request_id!r} is already in flight on this session",
+                    HTTPStatus.CONFLICT,
+                    request_id=message.id,
+                )
+                await response(scope, receive, send)
+                return
+
             # Register this stream for the request ID
             self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)
             request_stream_reader = self._request_streams[request_id][1]
