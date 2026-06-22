@@ -20,6 +20,7 @@ from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -46,7 +47,6 @@ StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
-MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 MCP_METHOD = "mcp-method"
 MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
@@ -138,7 +138,7 @@ class StreamableHTTPTransport:
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         if self.protocol_version:
-            headers[MCP_PROTOCOL_VERSION] = self.protocol_version
+            headers[MCP_PROTOCOL_VERSION_HEADER] = self.protocol_version
         return headers
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:

@@ -16,11 +16,11 @@ from inline_snapshot import snapshot
 
 from mcp.client import ClientSession
 from mcp.client.streamable_http import (
-    MCP_PROTOCOL_VERSION,
     StreamableHTTPTransport,
     _encode_header_value,
     streamable_http_client,
 )
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
@@ -160,7 +160,7 @@ def test_stateful_constructor_pin_is_ignored_and_the_negotiated_version_wins() -
     """A pre-2026 pin is a session-layer concern; the transport must not stamp it on the
     initialize request and must adopt the server's negotiated version for later headers."""
     transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2025-06-18")
-    assert MCP_PROTOCOL_VERSION not in transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
+    assert MCP_PROTOCOL_VERSION_HEADER not in transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
     init = JSONRPCResponse(
         jsonrpc="2.0",
         id=1,
@@ -172,4 +172,4 @@ def test_stateful_constructor_pin_is_ignored_and_the_negotiated_version_wins() -
     )
     transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
     assert transport.protocol_version == "2025-03-26"
-    assert transport._prepare_headers()[MCP_PROTOCOL_VERSION] == "2025-03-26"  # pyright: ignore[reportPrivateUsage]
+    assert transport._prepare_headers()[MCP_PROTOCOL_VERSION_HEADER] == "2025-03-26"  # pyright: ignore[reportPrivateUsage]

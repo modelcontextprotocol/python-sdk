@@ -18,7 +18,7 @@ from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequ
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
@@ -313,7 +313,7 @@ async def test_client_session_version_negotiation_success():
     # Assert the result with negotiated version
     assert isinstance(result, InitializeResult)
     assert result.protocol_version == "2024-11-05"
-    assert result.protocol_version in SUPPORTED_PROTOCOL_VERSIONS
+    assert result.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
 
 
 @pytest.mark.anyio

@@ -39,7 +39,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -998,7 +998,7 @@ async def test_runner_initialize_result_reflects_init_options():
 
 @pytest.mark.anyio
 async def test_runner_initialize_echoes_supported_version_and_falls_back_to_latest(server: SrvT):
-    oldest = SUPPORTED_PROTOCOL_VERSIONS[0]
+    oldest = HANDSHAKE_PROTOCOL_VERSIONS[0]
     async with connected_runner(server, initialized=False) as (client, _):
         params = {**_initialize_params(), "protocolVersion": oldest}
         result = await client.send_raw_request("initialize", params)

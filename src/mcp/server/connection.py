@@ -31,8 +31,8 @@ from typing_extensions import deprecated
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
@@ -192,12 +192,14 @@ class Connection:
 
         Not born-ready: `initialized` is set later by the kernel when
         `notifications/initialized` arrives. `protocol_version` is seeded from
-        the transport hint (or `LATEST_PROTOCOL_VERSION`) so it's never `None`;
+        the transport hint (or `HANDSHAKE_PROTOCOL_VERSIONS[-1]`) so it's never `None`;
         the handshake overwrites it once negotiated.
         """
         return cls(
             outbound,
-            protocol_version=protocol_version_hint if protocol_version_hint is not None else LATEST_PROTOCOL_VERSION,
+            protocol_version=protocol_version_hint
+            if protocol_version_hint is not None
+            else HANDSHAKE_PROTOCOL_VERSIONS[-1],
             session_id=session_id,
         )
 

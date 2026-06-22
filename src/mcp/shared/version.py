@@ -9,8 +9,6 @@ ordering questions go through KNOWN_PROTOCOL_VERSIONS.
 
 from typing import Final
 
-from mcp.types import LATEST_PROTOCOL_VERSION
-
 KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
     "2024-11-05",
     "2025-03-26",
@@ -20,11 +18,22 @@ KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
 )
 """Every released protocol revision, oldest to newest."""
 
+HANDSHAKE_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    "2025-11-25",
+)
+"""Protocol revisions reachable via the initialize handshake."""
+
 MODERN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = ("2026-07-28",)
 """Protocol revisions that use the stateless per-request envelope."""
 
-SUPPORTED_PROTOCOL_VERSIONS: list[str] = ["2024-11-05", "2025-03-26", "2025-06-18", LATEST_PROTOCOL_VERSION]
-"""Protocol revisions this SDK can negotiate."""
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (*HANDSHAKE_PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS)
+"""Deprecated: prefer HANDSHAKE_PROTOCOL_VERSIONS or MODERN_PROTOCOL_VERSIONS.
+
+Kept as the union for v1.x compatibility.
+"""
 
 
 def is_version_at_least(version: str, minimum: str) -> bool:

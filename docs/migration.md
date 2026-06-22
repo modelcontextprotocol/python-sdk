@@ -764,6 +764,10 @@ async def my_tool(ctx: Context) -> str: ...
 async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ```
 
+### Version constants
+
+`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`.
+
 ### `ProgressContext` and `progress()` context manager removed
 
 The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.

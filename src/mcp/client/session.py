@@ -21,7 +21,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -320,7 +320,7 @@ class ClientSession:
                 params=types.InitializeRequestParams(
                     protocol_version=self._pinned_version
                     if self._pinned_version is not None
-                    else types.LATEST_PROTOCOL_VERSION,
+                    else HANDSHAKE_PROTOCOL_VERSIONS[-1],
                     capabilities=capabilities,
                     client_info=self._client_info,
                 ),
@@ -328,7 +328,7 @@ class ClientSession:
             types.InitializeResult,
         )
 
-        if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+        if result.protocol_version not in HANDSHAKE_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
         self._initialize_result = result

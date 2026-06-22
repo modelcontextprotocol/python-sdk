@@ -36,11 +36,10 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
-    LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     ErrorData,
     Implementation,
@@ -414,7 +413,7 @@ class ServerRunner(Generic[LifespanT]):
         """Validate `initialize` params and pick the protocol version."""
         init = InitializeRequestParams.model_validate(params or {}, by_name=False)
         requested = init.protocol_version
-        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
+        negotiated = requested if requested in HANDSHAKE_PROTOCOL_VERSIONS else HANDSHAKE_PROTOCOL_VERSIONS[-1]
         return init, negotiated
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
