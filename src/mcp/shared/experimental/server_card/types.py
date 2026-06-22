@@ -3,18 +3,13 @@
 WARNING: These APIs are experimental and may change without notice.
 
 A Server Card is a static metadata document describing a remote MCP server —
-its identity, transport endpoints, and supported protocol versions — so a
-client can discover and connect to it before initialization. Cards are
-published at any URL and advertised through an AI Catalog entry (see
-``mcp.shared.experimental.ai_catalog``). The companion ``Server`` shape is a
-strict superset that adds locally-runnable ``packages`` (the MCP Registry
-``server.json`` shape).
+its identity, transport endpoints, and supported protocol versions — that a
+client can fetch before initialization. Cards are published at any URL and
+advertised through an AI Catalog entry (see
+``mcp.shared.experimental.ai_catalog``).
 
-These models mirror the protocol types in ``mcp.types`` (camelCase wire format,
-``Icon`` reused from the core spec) and validate purely through Pydantic, like
-the rest of the SDK.
-
-See https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2127.
+A Server Card describes remote connectivity only: it does not list primitives
+(tools/resources/prompts), which remain subject to runtime listing.
 """
 
 from __future__ import annotations
@@ -29,32 +24,29 @@ from mcp.types._types import MCPModel
 
 #: Canonical ``$schema`` value for a Server Card document.
 SERVER_CARD_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json"
-#: Canonical ``$schema`` value for a registry-shaped Server document.
-SERVER_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/v1/server.schema.json"
 
-# Constraints copied verbatim from the schema source of truth.
-_SCHEMA_URL_PATTERN = r"^https://static\.modelcontextprotocol\.io/schemas/v1/[^/]+\.schema\.json$"
+# Pinned to the Server Card schema name: a card referencing the registry
+# ``server.schema.json`` is rejected.
+_SCHEMA_URL_PATTERN = r"^https://static\.modelcontextprotocol\.io/schemas/v1/server-card\.schema\.json$"
 _NAME_PATTERN = r"^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$"
 _URL_TEMPLATE_PATTERN = r"^(https?://[^\s]+|\{[a-zA-Z_][a-zA-Z0-9_]*\}[^\s]*)$"
-_SHA256_PATTERN = r"^[a-f0-9]{64}$"
 
-# Version strings that look like ranges/wildcards. The spec allows non-semantic
-# versions but rejects ranges; this is the one constraint not expressible as a
-# field pattern, so it is enforced with a validator. Range operators are
-# rejected anywhere; wildcard segments (``1.x``, ``1.*``) only count in the
-# release part, so semver prereleases like ``1.0.0-x`` stay valid.
-_VERSION_RANGE_OPERATOR_RE = re.compile(r"[\^~]|[<>]=?")
+# Reject version ranges/wildcards. Range operators (incl. ``||`` unions and the
+# whitespace of hyphen ranges like ``1.0.0 - 2.0.0``) match anywhere; wildcard
+# segments (``1.x``, ``1.*``) only count in the release part, so prereleases
+# like ``1.0.0-x`` stay valid.
+_VERSION_RANGE_OPERATOR_RE = re.compile(r"[\^~|]|[<>]=?|\s")
 _VERSION_WILDCARD_SEGMENT_RE = re.compile(r"(?:^|\.)[xX*](?:\.|$)")
 
 
 class Input(MCPModel):
-    """A user-supplied or pre-set input value (header value, env var, argument)."""
+    """A user-supplied or pre-set input value (header value or URL variable)."""
 
     description: str | None = None
     """Human-readable explanation of the input."""
 
     is_required: bool | None = None
-    """Whether the input must be supplied for the server to run."""
+    """Whether the input must be supplied for the connection to succeed."""
 
     is_secret: bool | None = None
     """Whether the input is a secret value (password, token, ...)."""
@@ -75,46 +67,14 @@ class Input(MCPModel):
     """Allowed values. If provided, the user must select one."""
 
 
-class InputWithVariables(Input):
-    """An ``Input`` whose ``value`` may reference ``{curly_braces}`` variables."""
+class KeyValueInput(Input):
+    """A named input — used for HTTP headers — whose ``value`` may reference variables."""
+
+    name: str
+    """Name of the header."""
 
     variables: dict[str, Input] | None = None
     """Variables referenced by ``{curly_braces}`` identifiers in ``value``."""
-
-
-class KeyValueInput(InputWithVariables):
-    """A named input — used for environment variables and HTTP headers."""
-
-    name: str
-    """Name of the header or environment variable."""
-
-
-class PositionalArgument(InputWithVariables):
-    """A positional command-line input — inserted verbatim into the command line."""
-
-    type: Literal["positional"] = "positional"
-
-    value_hint: str | None = None
-    """Label / value-hint identifying the argument in URL variable substitution."""
-
-    is_repeated: bool | None = None
-    """Whether the argument can be repeated multiple times."""
-
-
-class NamedArgument(InputWithVariables):
-    """A named command-line input — a ``--flag={value}`` parameter."""
-
-    type: Literal["named"] = "named"
-
-    name: str
-    """The flag name, including any leading dashes (e.g. ``"--port"``)."""
-
-    is_repeated: bool | None = None
-    """Whether the argument can be repeated multiple times."""
-
-
-Argument = Annotated[PositionalArgument | NamedArgument, Field(discriminator="type")]
-"""A command-line argument supplied to a package's binary or runtime."""
 
 
 class Repository(MCPModel):
@@ -152,80 +112,6 @@ class Remote(MCPModel):
     """MCP protocol versions actively supported by this endpoint."""
 
 
-class StdioTransport(MCPModel):
-    """Stdio transport — the client launches the package as a subprocess."""
-
-    type: Literal["stdio"] = "stdio"
-
-
-class StreamableHttpPackageTransport(MCPModel):
-    """Streamable-HTTP transport for a locally-runnable package."""
-
-    type: Literal["streamable-http"] = "streamable-http"
-
-    url: Annotated[str, Field(pattern=_URL_TEMPLATE_PATTERN)]
-    """URL template for the streamable-http transport."""
-
-    headers: list[KeyValueInput] | None = None
-    """HTTP headers to include when connecting to the local endpoint."""
-
-
-class SsePackageTransport(MCPModel):
-    """Server-sent events (SSE) transport for a locally-runnable package."""
-
-    type: Literal["sse"] = "sse"
-
-    url: Annotated[str, Field(pattern=_URL_TEMPLATE_PATTERN)]
-    """SSE endpoint URL template."""
-
-    headers: list[KeyValueInput] | None = None
-    """HTTP headers to include when connecting to the local endpoint."""
-
-
-PackageTransport = Annotated[
-    StdioTransport | StreamableHttpPackageTransport | SsePackageTransport,
-    Field(discriminator="type"),
-]
-"""Transport protocol configuration for a locally-runnable package."""
-
-
-class Package(MCPModel):
-    """Metadata for installing and running a packaged MCP server locally."""
-
-    registry_type: str
-    """How to download the package (``"npm"``, ``"pypi"``, ``"oci"``, ...)."""
-
-    identifier: str
-    """Package name (for registries) or URL (for direct downloads)."""
-
-    transport: PackageTransport
-    """Transport configuration for invoking this package after installation."""
-
-    registry_base_url: str | None = None
-    """Base URL of the package registry."""
-
-    version: Annotated[str, Field(min_length=1)] | None = None
-    """Package version."""
-
-    supported_protocol_versions: list[str] | None = None
-    """MCP protocol versions actively supported by this package."""
-
-    runtime_hint: str | None = None
-    """Hint for the runtime to use (``"npx"``, ``"uvx"``, ``"docker"``, ...)."""
-
-    runtime_arguments: list[Argument] | None = None
-    """Arguments passed to the package's runtime command."""
-
-    package_arguments: list[Argument] | None = None
-    """Arguments passed to the package's binary."""
-
-    environment_variables: list[KeyValueInput] | None = None
-    """Environment variables to set when running the package."""
-
-    file_sha256: Annotated[str, Field(pattern=_SHA256_PATTERN)] | None = None
-    """SHA-256 of the package file. Required for MCPB packages."""
-
-
 class ServerCard(MCPModel):
     """A static metadata document describing a remote MCP server.
 
@@ -238,8 +124,9 @@ class ServerCard(MCPModel):
     schema_uri: Annotated[str, Field(alias="$schema", pattern=_SCHEMA_URL_PATTERN)] = SERVER_CARD_SCHEMA_URL
     """The Server Card JSON Schema URI this document conforms to (the ``$schema`` key).
 
-    The JSON Schema marks ``$schema`` as required; ingestion here is
-    deliberately lenient and defaults it for documents that omit the key.
+    Required by the schema, but ingestion is intentionally lenient: a document
+    that omits ``$schema`` is accepted and defaulted to the current ``v1`` URL
+    rather than rejected. When present it must match the ``v1`` Server Card schema.
     """
 
     name: Annotated[str, Field(min_length=3, max_length=200, pattern=_NAME_PATTERN)]
@@ -276,16 +163,3 @@ class ServerCard(MCPModel):
         if _VERSION_RANGE_OPERATOR_RE.search(value) or _VERSION_WILDCARD_SEGMENT_RE.search(release):
             raise ValueError(f"version must be an exact version, not a range/wildcard: {value!r}")
         return value
-
-
-class Server(ServerCard):
-    """A superset of ``ServerCard`` that also describes locally-runnable packages.
-
-    This is the shape used by the MCP Registry's ``server.json``. Typically
-    published to a registry rather than served by the server itself.
-    """
-
-    schema_uri: Annotated[str, Field(alias="$schema", pattern=_SCHEMA_URL_PATTERN)] = SERVER_SCHEMA_URL
-
-    packages: list[Package] | None = None
-    """Metadata for running and connecting to local instances of this server."""

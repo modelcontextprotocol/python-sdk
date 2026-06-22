@@ -12,8 +12,8 @@ fetching its AI Catalog and the Server Cards the catalog references::
             print(remote.type, remote.url, remote.supported_protocol_versions)
 
 Returned :class:`ServerCard` objects are validated; malformed documents raise
-``pydantic.ValidationError``. Ingestion is deliberately lenient about a
-missing ``$schema`` key — see ``ServerCard.schema_uri``.
+``pydantic.ValidationError``. A missing ``$schema`` key is tolerated — see
+``ServerCard.schema_uri``.
 """
 
 from __future__ import annotations
@@ -33,10 +33,6 @@ from mcp.shared.experimental.ai_catalog.types import (
 from mcp.shared.experimental.server_card.types import ServerCard
 
 __all__ = ["fetch_server_card", "load_server_card", "discover_server_cards"]
-
-# The MCP discovery extension and the AI Catalog specification currently name
-# the Server Card media type differently; accept either when filtering.
-_SERVER_CARD_MEDIA_TYPES = frozenset({MCP_SERVER_CARD_MEDIA_TYPE, "application/mcp-server-card+json"})
 
 
 async def fetch_server_card(url: str, *, http_client: httpx.AsyncClient | None = None) -> ServerCard:
@@ -62,7 +58,7 @@ async def discover_server_cards(url: str, *, http_client: httpx.AsyncClient | No
     """Discover the MCP servers advertised by the host of ``url``.
 
     Fetches the host's AI Catalog from ``/.well-known/ai-catalog.json``
-    (falling back to the transitional ``/.well-known/mcp/catalog.json`` on a
+    (falling back to the MCP-scoped ``/.well-known/mcp/catalog.json`` on a
     404), then validates the Server Card of every MCP server entry — fetched
     from the entry's ``url`` or read from its inline ``data``. Entries with
     other media types are ignored.
@@ -95,7 +91,7 @@ async def discover_server_cards(url: str, *, http_client: httpx.AsyncClient | No
 
     cards: list[ServerCard] = []
     for entry in catalog.entries:
-        if entry.media_type not in _SERVER_CARD_MEDIA_TYPES:
+        if entry.media_type != MCP_SERVER_CARD_MEDIA_TYPE:
             continue
         if entry.url is not None:
             # Entry URLs are usually absolute; resolve relative ones against

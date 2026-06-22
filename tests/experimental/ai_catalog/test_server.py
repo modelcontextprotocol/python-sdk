@@ -21,12 +21,18 @@ def make_card(title: str | None = None) -> ServerCard:
 
 def test_server_card_entry_derives_identifier_and_metadata_from_card() -> None:
     entry = server_card_entry(make_card(title="Dice Roller"), CARD_URL)
-    assert entry.identifier == "urn:mcp:server:example/dice"
+    assert entry.identifier == "urn:air:example:dice"
     assert entry.display_name == "Dice Roller"
-    assert entry.media_type == "application/mcp-server+json"
+    assert entry.media_type == "application/mcp-server-card+json"
     assert entry.url == CARD_URL
     assert entry.description == "Rolls dice."
     assert entry.version == "1.0.0"
+
+
+def test_server_card_entry_reverses_namespace_to_publisher_domain() -> None:
+    """The identifier is anchored on the publisher's forward-DNS domain."""
+    card = ServerCard(name="com.example/weather", version="1.0.0", description="Weather.")
+    assert server_card_entry(card, CARD_URL).identifier == "urn:air:example.com:weather"
 
 
 def test_server_card_entry_falls_back_to_card_name_without_title() -> None:
