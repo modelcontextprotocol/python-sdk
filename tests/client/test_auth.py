@@ -51,13 +51,13 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens  # pragma: no cover
+        return self._tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info  # pragma: no cover
+        return self._client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -2833,3 +2833,220 @@ def test_credentials_match_issuer_url_shaped_dcr_id_is_not_portable():
         issuer="https://as.example.com",
     )
     assert credentials_match_issuer(info, "https://other", "https://client.example/metadata.json") is False
+
+
+@pytest.mark.anyio
+async def test_handle_token_response_backfills_omitted_scope_from_request(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §5.1: an omitted token-response scope means granted == requested.
+
+    The token is stored with the requested scope filled in so it remains self-describing
+    after a restart, when the SEP-2350 step-up union reads it but ``client_metadata.scope``
+    has reverted to its constructor value.
+    """
+    oauth_provider.context.client_metadata.scope = "read admin"
+    response = httpx.Response(
+        200,
+        json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    await oauth_provider._handle_token_response(response)
+
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.scope == "read admin"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read admin"
+
+
+@pytest.mark.anyio
+async def test_handle_refresh_response_carries_prior_scope_when_response_omits_it(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §6: an omitted refresh-response scope means scope is unchanged from the prior token."""
+    oauth_provider.context.current_tokens = OAuthToken(access_token="old", scope="read write")
+    response = httpx.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    ok = await oauth_provider._handle_refresh_response(response)
+
+    assert ok is True
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.access_token == "new"
+    assert oauth_provider.context.current_tokens.scope == "read write"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read write"
+
+
+@pytest.mark.anyio
+async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
+    oauth_provider: OAuthClientProvider,
+):
+    """SEP-2352: on the legacy no-PRM path the binding check uses the ASM-discovered issuer.
+
+    PRM discovery fails (404) so ``auth_server_url`` stays ``None`` and the post-PRM check is
+    skipped; when ASM discovery then succeeds via the root well-known fallback, the discovered
+    metadata's issuer is compared against the stored credentials' bound issuer and a mismatch
+    triggers re-registration.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://old-as.example.com",
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(401, request=request)
+
+    # PRM discovery: path-based then root, both 404.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    # ASM discovery via root fallback (no auth_server_url) succeeds with a different issuer.
+    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    # The stale bound credentials are discarded, so the next yield is a DCR request
+    # rather than the authorize redirect.
+    next_req = await auth_flow.asend(asm_response)
+    assert oauth_provider.context.auth_server_url is None
+    assert next_req.method == "POST"
+    assert str(next_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "asm_responses",
+    [
+        pytest.param(
+            [httpx.Response(404), httpx.Response(404)],
+            id="asm-discovery-failed",
+        ),
+        pytest.param(
+            [
+                httpx.Response(
+                    200,
+                    content=(
+                        b'{"issuer": "https://new-as.example.com", '
+                        b'"authorization_endpoint": "https://new-as.example.com/authorize", '
+                        b'"token_endpoint": "https://new-as.example.com/token"}'
+                    ),
+                )
+            ],
+            id="asm-metadata-without-registration-endpoint",
+        ),
+    ],
+)
+async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resource_origin(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, asm_responses: list[httpx.Response]
+):
+    """SEP-2352: a fallback registration is not recorded as bound to the PRM-advertised AS.
+
+    PRM advertises a new authorization server, so the stored credentials (bound to the old
+    issuer) are discarded. DCR then falls back to the resource-server origin's ``/register``
+    because the new AS's metadata either could not be discovered or omits
+    ``registration_endpoint``. That registration was not derived from the new AS's metadata,
+    so persisting it as bound to the new AS would wedge the binding check on later flows;
+    instead the issuer is left unset.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://api.example.com/",
+    )
+
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            )
+        },
+        request=request,
+    )
+
+    # PRM succeeds and advertises a new AS — the discard block fires.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+    prm_response = httpx.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}'
+        ),
+        request=prm_req,
+    )
+
+    # ASM discovery for the new AS yields no usable registration_endpoint — either every
+    # well-known URL 404s, or metadata is returned without one.
+    next_req = await auth_flow.asend(prm_response)
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.oauth_metadata is None
+    assert str(next_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    for asm_response in asm_responses:
+        asm_response.request = next_req
+        next_req = await auth_flow.asend(asm_response)
+
+    # Step 4 falls back to the resource-server origin's /register.
+    dcr_req = next_req
+    assert dcr_req.method == "POST"
+    assert str(dcr_req.url) == "https://api.example.com/register"
+    dcr_response = httpx.Response(
+        201,
+        json={"client_id": "fallback-client", "redirect_uris": ["http://localhost:3030/callback"]},
+        request=dcr_req,
+    )
+    token_req = await auth_flow.asend(dcr_response)
+
+    # The persisted record carries no issuer binding — not the PRM-advertised AS we never reached.
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fallback-client"
+    assert stored.issuer is None
+
+    # Drive the flow to completion so the context lock is released cleanly.
+    token_response = httpx.Response(
+        200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
+    )
+    final_req = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass

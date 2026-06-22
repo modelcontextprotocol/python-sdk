@@ -424,6 +424,13 @@ class OAuthClientProvider(httpx.Auth):
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
 
+        # RFC 6749 §5.1: an omitted scope means the granted scope equals the requested
+        # scope. Record it explicitly so the persisted token is self-describing — the
+        # SEP-2350 step-up union reads it after a restart, when client_metadata.scope
+        # has reverted to its constructor value.
+        if token_response.scope is None:
+            token_response.scope = self.context.client_metadata.scope
+
         # Store tokens in context
         self.context.current_tokens = token_response
         self.context.update_token_expiry(token_response)
@@ -469,6 +476,12 @@ class OAuthClientProvider(httpx.Auth):
         try:
             content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
+
+            # RFC 6749 §6: an omitted scope on refresh means the scope is unchanged from
+            # the prior access token. Carry it forward so the persisted token stays
+            # self-describing for the SEP-2350 step-up union after a restart.
+            if token_response.scope is None and self.context.current_tokens is not None:
+                token_response.scope = self.context.current_tokens.scope
 
             self.context.current_tokens = token_response
             self.context.update_token_expiry(token_response)
@@ -578,6 +591,9 @@ class OAuthClientProvider(httpx.Auth):
                         logger.debug("Authorization server changed; discarding bound credentials and re-registering")
                         self.context.client_info = None
                         self.context.clear_tokens()
+                        # Any cached AS metadata is for the old server; drop it so a failed
+                        # rediscovery cannot leak the old registration/token endpoints into Step 4.
+                        self.context.oauth_metadata = None
 
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                         self.context.auth_server_url, self.context.server_url
@@ -600,6 +616,23 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
+                    # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
+                    # discovery, so re-evaluate the binding here using the discovered metadata
+                    # issuer (mirroring the bound_issuer fallback in Step 4).
+                    if (
+                        self.context.client_info is not None
+                        and self.context.auth_server_url is None
+                        and self.context.oauth_metadata is not None
+                        and not credentials_match_issuer(
+                            self.context.client_info,
+                            str(self.context.oauth_metadata.issuer),
+                            self.context.client_metadata_url,
+                        )
+                    ):
+                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+                        self.context.client_info = None
+                        self.context.clear_tokens()
+
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
@@ -610,23 +643,22 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
-                        # SEP-2352: bind the credentials to the issuing AS. Prefer the PRM-advertised
-                        # authorization server; on the legacy no-PRM path fall back to the issuer from
-                        # the discovered metadata so the binding is still recorded.
-                        bound_issuer = self.context.auth_server_url
-                        if bound_issuer is None and self.context.oauth_metadata is not None:
-                            bound_issuer = str(self.context.oauth_metadata.issuer)
+                        # SEP-2352: the issuer to bind these credentials to, when known.
+                        discovered_issuer: str | None = None
+                        if self.context.oauth_metadata is not None:
+                            discovered_issuer = self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
 
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
-                            # Use URL-based client ID (CIMD)
+                            # Use URL-based client ID (CIMD). CIMD records are portable across
+                            # authorization servers, so the issuer stamp is informational.
                             logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
                             client_information = create_client_info_from_metadata_url(
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
                                 redirect_uris=self.context.client_metadata.redirect_uris,
                             )
-                            client_information.issuer = bound_issuer
+                            client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
                         else:
@@ -638,7 +670,16 @@ class OAuthClientProvider(httpx.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
-                            client_information.issuer = bound_issuer
+                            # Only record the issuer when the registration above actually targeted
+                            # the discovered AS's registration_endpoint. With no metadata, or
+                            # metadata that omits registration_endpoint, DCR fell back to the
+                            # resource-server origin's /register — recording that as bound to a
+                            # PRM-advertised AS would persist a binding that was never established.
+                            if (
+                                self.context.oauth_metadata is not None
+                                and self.context.oauth_metadata.registration_endpoint is not None
+                            ):
+                                client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
