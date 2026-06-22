@@ -1310,7 +1310,7 @@ class _StubDispatchContext:
     ) -> dict[str, Any]:
         raise NotImplementedError
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         raise NotImplementedError
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:

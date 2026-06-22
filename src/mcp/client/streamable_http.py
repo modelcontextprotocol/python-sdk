@@ -2,10 +2,8 @@
 
 from __future__ import annotations as _annotations
 
-import base64
 import contextlib
 import logging
-import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -20,7 +18,7 @@ from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -47,23 +45,11 @@ StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
-MCP_METHOD = "mcp-method"
-MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
-
-_B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
-# RFC 7230 token chars minus DEL; visible ASCII 0x20-0x7E is the practical bound for a header value.
-_HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
-
-
-def _encode_header_value(value: str) -> str:
-    if _HEADER_SAFE.fullmatch(value) and value == value.strip() and not _B64_SENTINEL.fullmatch(value):
-        return value
-    return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
 
 class StreamableHTTPError(Exception):
@@ -112,7 +98,7 @@ class StreamableHTTPTransport:
             return {}
         if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
             return {}
-        headers: dict[str, str] = {MCP_METHOD: message.method}
+        headers: dict[str, str] = {MCP_METHOD_HEADER: message.method}
         # TODO: Mcp-Name is also REQUIRED for prompts/get (params.name) and resources/read
         # (params.uri); a method->param-key map replaces this gate when those land.
         if (
@@ -121,7 +107,7 @@ class StreamableHTTPTransport:
             and message.params
             and isinstance(name := message.params.get("name"), str)
         ):
-            headers[MCP_NAME] = _encode_header_value(name)
+            headers[MCP_NAME_HEADER] = encode_header_value(name)
         return headers
 
     def _prepare_headers(self) -> dict[str, str]:
@@ -302,6 +288,8 @@ class StreamableHTTPTransport:
         headers = self._prepare_headers()
         message = ctx.session_message.message
         headers.update(self._per_message_headers(message))
+        if ctx.metadata is not None and ctx.metadata.headers is not None:
+            headers.update(ctx.metadata.headers)
         is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(

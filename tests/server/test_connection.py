@@ -58,7 +58,7 @@ class StubOutbound:
         self.requests.append((method, params))
         return self._result
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._raise_on_send is not None:
             raise self._raise_on_send()
         self.notifications.append((method, params))

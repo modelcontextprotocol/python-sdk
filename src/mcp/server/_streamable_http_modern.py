@@ -77,7 +77,7 @@ class _SingleExchangeDispatchContext:
     ) -> dict[str, Any]:
         raise NoBackChannelError(method)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         # TODO(D-005a): buffer and stream as SSE once the JSON-vs-SSE response mode lands.
         return None
 

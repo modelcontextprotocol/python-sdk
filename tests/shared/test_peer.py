@@ -185,7 +185,7 @@ async def test_peer_notify_forwards_to_wrapped_outbound():
         ) -> dict[str, Any]:
             raise NotImplementedError
 
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: Any = None) -> None:
             sent.append((method, params))
 
     await ClientPeer(_Out()).notify("n", {"x": 1})

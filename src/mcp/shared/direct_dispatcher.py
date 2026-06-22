@@ -63,7 +63,7 @@ class _DirectDispatchContext:
     def can_send_request(self) -> bool:
         return self.transport.can_send_request
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         await self._back_notify(method, params)
 
     async def send_raw_request(
@@ -133,12 +133,13 @@ class DirectDispatcher:
             raise RuntimeError("DirectDispatcher.send_raw_request called before run()")
         return await self._peer._dispatch_request(method, params, opts)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a notification by invoking the peer's `on_notify` directly.
 
         Fire-and-forget: usable before `run()` (delivery waits for the peer to
         start), and after close it is silently dropped, matching
-        `JSONRPCDispatcher.notify`.
+        `JSONRPCDispatcher.notify`. `opts` is accepted for `Dispatcher`
+        conformance; there is no HTTP layer here so `headers` is ignored.
         """
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")

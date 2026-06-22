@@ -1333,7 +1333,7 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
                 ).model_dump(by_alias=True, mode="json", exclude_none=True)
             return {}
 
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
             pass
 
     dispatcher = RecordingDispatcher()
@@ -1387,7 +1387,7 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
         ) -> dict[str, Any]:
             raise NotImplementedError
 
-        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
             raise NotImplementedError
 
     session = ClientSession(dispatcher=NeverStartsDispatcher())

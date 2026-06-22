@@ -132,11 +132,11 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     def can_send_request(self) -> bool:
         return self.transport.can_send_request and not self._closed
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._closed:
             logger.debug("dropped %s: dispatch context closed", method)
             return
-        await self._dispatcher.notify(method, params, _related_request_id=self._request_id)
+        await self._dispatcher.notify(method, params, opts, _related_request_id=self._request_id)
 
     async def send_raw_request(
         self,
@@ -209,6 +209,7 @@ def _plan_outbound(related_request_id: RequestId | None, opts: CallOptions | Non
     cancel_on_abandon = opts.get("cancel_on_abandon", True)
     token = opts.get("resumption_token")
     on_token = opts.get("on_resumption_token")
+    headers = opts.get("headers")
     if related_request_id is not None:
         if token is not None or on_token is not None:
             logger.debug(
@@ -217,9 +218,11 @@ def _plan_outbound(related_request_id: RequestId | None, opts: CallOptions | Non
         return _OutboundPlan(ServerMessageMetadata(related_request_id=related_request_id), cancel_on_abandon)
     if token is not None or on_token is not None:
         return _OutboundPlan(
-            ClientMessageMetadata(resumption_token=token, on_resumption_token_update=on_token),
+            ClientMessageMetadata(resumption_token=token, on_resumption_token_update=on_token, headers=headers),
             cancel_on_abandon=False,
         )
+    if headers:
+        return _OutboundPlan(ClientMessageMetadata(headers=headers), cancel_on_abandon)
     return _OutboundPlan(None, cancel_on_abandon)
 
 
@@ -395,6 +398,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self,
         method: str,
         params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
         *,
         _related_request_id: RequestId | None = None,
     ) -> None:
@@ -414,7 +418,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         else:
             msg = JSONRPCNotification(jsonrpc="2.0", method=method)
         try:
-            await self._write(msg, _plan_outbound(_related_request_id, None).metadata)
+            await self._write(msg, _plan_outbound(_related_request_id, opts).metadata)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             # Transport tore down before run() noticed EOF.
             logger.debug("dropped %s: write stream closed", method)

@@ -93,7 +93,7 @@ class _NoChannelOutbound:
     ) -> dict[str, Any]:
         raise NoBackChannelError(method)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         logger.debug("dropped %s: no standalone channel", method)
 
 
@@ -277,14 +277,14 @@ class Connection:
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
         return cls.model_validate(raw, by_name=False)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a best-effort notification on the standalone stream.
 
         Never raises. If there's no standalone channel or the stream is broken,
         the notification is dropped and debug-logged.
         """
         try:
-            await self.outbound.notify(method, params)
+            await self.outbound.notify(method, params, opts)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped %s: standalone stream closed", method)
 

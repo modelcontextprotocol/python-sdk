@@ -73,9 +73,9 @@ class BaseContext(Generic[TransportT]):
         """
         return await self._dctx.send_raw_request(method, params, opts)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a notification to the peer on the back-channel."""
-        await self._dctx.notify(method, params)
+        await self._dctx.notify(method, params, opts)
 
     async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         """Report progress for this request, if the peer supplied a progress token.

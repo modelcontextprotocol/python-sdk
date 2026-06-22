@@ -24,6 +24,8 @@ class ClientMessageMetadata:
 
     resumption_token: ResumptionToken | None = None
     on_resumption_token_update: Callable[[ResumptionToken], Awaitable[None]] | None = None
+    # Per-message HTTP headers (e.g. MCP-Protocol-Version, Mcp-Method) the transport should set.
+    headers: dict[str, str] | None = None
 
 
 @dataclass

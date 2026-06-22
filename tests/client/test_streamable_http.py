@@ -17,10 +17,10 @@ from inline_snapshot import snapshot
 from mcp.client import ClientSession
 from mcp.client.streamable_http import (
     StreamableHTTPTransport,
-    _encode_header_value,
     streamable_http_client,
 )
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
@@ -89,7 +89,7 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
     or trailing space is wrapped because RFC 7230 forbids it in field-values (h11 rejects on real
     transports); an empty value is allowed and passes verbatim.
     """
-    encoded = _encode_header_value(raw)
+    encoded = encode_header_value(raw)
     assert encoded == expected
     if wrapped:
         assert encoded.startswith("=?base64?") and encoded.endswith("?=")
@@ -138,6 +138,34 @@ async def test_pinned_transport_ignores_returned_session_id_and_never_opens_get_
 
     assert [r.method for r in recorded] == snapshot(["POST", "POST"])
     assert all("mcp-session-id" not in r.headers for r in recorded)
+
+
+@pytest.mark.anyio
+async def test_post_request_merges_per_message_metadata_headers() -> None:
+    """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
+    (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
+    recorded: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http, protocol_version="2026-07-28") as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={}),
+                    metadata=ClientMessageMetadata(headers={"x-test": "v"}),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert [r.method for r in recorded] == ["POST"]
+    assert recorded[0].headers["x-test"] == "v"
 
 
 def test_modern_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:

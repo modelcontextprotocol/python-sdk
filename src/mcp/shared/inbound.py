@@ -8,6 +8,8 @@ rejection's ``code`` through :data:`ERROR_CODE_HTTP_STATUS` to pick the HTTP
 status.
 """
 
+import base64
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -34,12 +36,32 @@ __all__ = [
     "ERROR_CODE_HTTP_STATUS",
     "InboundLadderRejection",
     "InboundModernRoute",
+    "MCP_METHOD_HEADER",
+    "MCP_NAME_HEADER",
     "MCP_PROTOCOL_VERSION_HEADER",
     "classify_inbound_request",
+    "encode_header_value",
 ]
 
 MCP_PROTOCOL_VERSION_HEADER: Final = "mcp-protocol-version"
 """Canonical lowercase name of the HTTP header carrying the MCP protocol version."""
+
+MCP_METHOD_HEADER: Final = "mcp-method"
+"""Canonical lowercase name of the HTTP header carrying the JSON-RPC method."""
+
+MCP_NAME_HEADER: Final = "mcp-name"
+"""Canonical lowercase name of the HTTP header carrying the resource name (tool/prompt/resource URI)."""
+
+_B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
+# RFC 7230 token chars minus DEL; visible ASCII 0x20-0x7E is the practical bound for a header value.
+_HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
+
+
+def encode_header_value(value: str) -> str:
+    if _HEADER_SAFE.fullmatch(value) and value == value.strip() and not _B64_SENTINEL.fullmatch(value):
+        return value
+    return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
+
 
 # INTERNAL_ERROR is deliberately unmapped (→ HTTP 200): the spec assigns no status to
 # -32603, and whether handler-origin errors get 5xx is an open S4 question — see TODO(L66).
