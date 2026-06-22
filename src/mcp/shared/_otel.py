@@ -41,10 +41,16 @@ def inject_trace_context(meta: dict[str, Any]) -> None:
     inject(meta)
 
 
-def extract_trace_context(meta: Mapping[str, Any]) -> Context:
-    """Extract W3C trace context from a `_meta` dict."""
+def extract_trace_context(meta: Mapping[str, Any] | None) -> Context | None:
+    """Extract W3C trace context from a `_meta` dict.
+
+    Returns `None` when the carrier is absent or malformed so callers fall
+    through to ambient parenting; an explicit empty `Context` would orphan
+    the span instead of nesting under the current one.
+    """
+    if not meta:
+        return None
     try:
         return extract(meta)
     except (ValueError, TypeError):
-        # If the traceparent is malformed, degrade to no parent rather than failing the request.
-        return Context()
+        return None

@@ -201,11 +201,11 @@ async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, A
 
 
 def _apply_middleware(
-    mw: ServerMiddleware[Any], call_next: CallNext, ctx: ServerRequestContext[Any, Any]
+    middleware: ServerMiddleware[Any], call_next: CallNext, ctx: ServerRequestContext[Any, Any]
 ) -> Awaitable[HandlerResult]:
     """Adapt one middleware to the `CallNext` shape: bind `call_next`, take
     `ctx` at call time so a rewritten context flows down the chain."""
-    return mw(ctx, call_next)
+    return middleware(ctx, call_next)
 
 
 @dataclass
@@ -228,7 +228,9 @@ class ServerRunner(Generic[LifespanT]):
         wraps everything - initialize, METHOD_NOT_FOUND, validation failures
         included.
         """
-        return reduce(lambda h, mw: mw(h), reversed(self.dispatch_middleware), self._on_request)
+        return reduce(
+            lambda handler, middleware: middleware(handler), reversed(self.dispatch_middleware), self._on_request
+        )
 
     @cached_property
     def on_notify(self) -> OnNotify:
@@ -303,6 +305,11 @@ class ServerRunner(Generic[LifespanT]):
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
+            # TODO: this re-reads the wire `params`, so a middleware that rewrote
+            # `ctx.params` (or `ctx.method`, or short-circuited without `call_next`)
+            # can leave `connection.protocol_version` out of step with the
+            # `InitializeResult` `_inner` produced. Resolve when `initialize` becomes
+            # a built-in handler so commit and result derive from one negotiation.
             self.connection.client_params, self.connection.protocol_version = self._negotiate_initialize(params)
         return result
 
@@ -362,9 +369,9 @@ class ServerRunner(Generic[LifespanT]):
         observes every inbound message. The composed callable takes the `ctx`
         at call time, so a middleware can rewrite it for the rest of the chain.
         """
-        call: CallNext = inner
-        for mw in reversed(self.server.middleware):
-            call = partial(_apply_middleware, mw, call)
+        call = inner
+        for middleware in reversed(self.server.middleware):
+            call = partial(_apply_middleware, middleware, call)
         return call
 
     def _make_context(

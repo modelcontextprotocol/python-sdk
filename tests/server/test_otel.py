@@ -10,6 +10,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.context import CallNext
 from mcp.server.lowlevel.server import Server
+from mcp.server.runner import otel_middleware
 from mcp.shared._otel import inject_trace_context
 from mcp.shared.exceptions import MCPError
 from mcp.types import CallToolRequestParams, ListToolsResult, NotificationParams, PaginatedRequestParams, Tool
@@ -62,6 +63,36 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
     assert span.attributes is not None
     assert span.attributes["mcp.method.name"] == "notifications/roots/list_changed"
     assert "jsonrpc.request.id" not in span.attributes
+
+
+@pytest.mark.anyio
+async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans: SpanCapture):
+    """With no `_meta` on the inbound message (a non-SDK client), the
+    context-tier span must parent to the ambient current span (here, the
+    dispatch-tier `otel_middleware` span) rather than become an orphan root.
+    SDK-defined: SEP-414 only covers the traceparent-present case."""
+
+    def strip_meta(call_next: Any) -> Any:
+        # The in-process client always injects `_meta.traceparent`; strip it so
+        # both server tiers see the no-carrier path.
+        async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
+            stripped = {k: v for k, v in (params or {}).items() if k != "_meta"}
+            return await call_next(dctx, method, stripped or None)
+
+        return wrapped
+
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server, dispatch_middleware=[strip_meta, otel_middleware]) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/list", None)
+    server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert len(server_spans) == 2
+    [outer] = [s for s in server_spans if s.parent is None]
+    [inner] = [s for s in server_spans if s.parent is not None]
+    assert inner.context is not None and outer.context is not None
+    assert inner.parent is not None
+    assert inner.context.trace_id == outer.context.trace_id
+    assert inner.parent.span_id == outer.context.span_id
 
 
 @pytest.mark.anyio

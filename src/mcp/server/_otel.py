@@ -32,7 +32,7 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
             name=f"MCP handle {ctx.method}{f' {target}' if target else ''}",
             kind=SpanKind.SERVER,
             attributes=attributes,
-            context=extract_trace_context(ctx.meta or {}),
+            context=extract_trace_context(ctx.meta),
             record_exception=False,
             set_status_on_exception=False,
         ) as span:

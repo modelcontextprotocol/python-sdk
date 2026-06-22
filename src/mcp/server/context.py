@@ -150,6 +150,9 @@ class ServerMiddleware(Protocol[_MwLifespanT]):
         server-to-client request (`ctx.session.send_request`, `send_ping`, ...)
         while handling `initialize` therefore deadlocks the connection: the
         response can never be dequeued. Send-and-forget notifications are safe.
+        `initialize` is observed but not rewritable: the post-chain handshake
+        commit reads the wire params, so to veto the handshake raise *before*
+        `call_next()`.
 
     `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
     middleware sees `ctx.lifespan_context: L`. While the context is the
