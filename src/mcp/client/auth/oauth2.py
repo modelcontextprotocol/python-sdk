@@ -477,11 +477,15 @@ class OAuthClientProvider(httpx.Auth):
             content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
-            # RFC 6749 §6: an omitted scope on refresh means the scope is unchanged from
-            # the prior access token. Carry it forward so the persisted token stays
-            # self-describing for the SEP-2350 step-up union after a restart.
-            if token_response.scope is None and self.context.current_tokens is not None:
-                token_response.scope = self.context.current_tokens.scope
+            # RFC 6749 §6: a refresh response may omit scope (unchanged) and refresh_token
+            # (the AS does not rotate). Carry both forward so the persisted token stays
+            # self-describing for the SEP-2350 step-up union and the next expiry can
+            # still refresh instead of forcing a full re-authorization.
+            prior = self.context.current_tokens
+            if token_response.scope is None and prior is not None:
+                token_response.scope = prior.scope
+            if token_response.refresh_token is None and prior is not None:
+                token_response.refresh_token = prior.refresh_token
 
             self.context.current_tokens = token_response
             self.context.update_token_expiry(token_response)
@@ -663,21 +667,25 @@ class OAuthClientProvider(httpx.Auth):
                             await self.context.storage.set_client_info(client_information)
                         else:
                             # Fallback to Dynamic Client Registration
+                            fallback_base = self.context.get_authorization_base_url(self.context.server_url)
                             registration_request = create_client_registration_request(
-                                self.context.oauth_metadata,
-                                self.context.client_metadata,
-                                self.context.get_authorization_base_url(self.context.server_url),
+                                self.context.oauth_metadata, self.context.client_metadata, fallback_base
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
                             # Only record the issuer when the registration above actually targeted
-                            # the discovered AS's registration_endpoint. With no metadata, or
-                            # metadata that omits registration_endpoint, DCR fell back to the
-                            # resource-server origin's /register — recording that as bound to a
-                            # PRM-advertised AS would persist a binding that was never established.
+                            # the discovered AS — either via its published registration_endpoint,
+                            # or because the resource-origin /register fallback is on the issuer's
+                            # own host (legacy same-origin embedded AS). Otherwise the fallback hit
+                            # a different server and recording a binding to the PRM-advertised AS
+                            # would persist a binding that was never established.
                             if (
                                 self.context.oauth_metadata is not None
-                                and self.context.oauth_metadata.registration_endpoint is not None
+                                and discovered_issuer is not None
+                                and (
+                                    self.context.oauth_metadata.registration_endpoint is not None
+                                    or self.context.get_authorization_base_url(discovered_issuer) == fallback_base
+                                )
                             ):
                                 client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
