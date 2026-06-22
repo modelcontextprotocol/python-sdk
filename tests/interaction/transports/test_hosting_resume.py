@@ -130,7 +130,7 @@ async def test_the_priming_row_is_stored_before_any_handler_output_for_that_stre
         await ctx.info("c")  # pyright: ignore[reportDeprecated]
         return "done"
 
-    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, _):
+    async with mounted_app(mcp, event_store=store) as (http, _):
         session_id = await initialize_via_http(http)
         with anyio.fail_after(5):
             async with http.stream(  # pragma: no branch
