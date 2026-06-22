@@ -217,6 +217,9 @@ filterwarnings = [
     # them internally (e.g. `ctx.debug` -> `log` -> `send_log_message`), so the
     # advisory warning is silenced. Tests asserting it opt back in with pytest.warns.
     "ignore:.*is deprecated as of 2026-07-28 \\(SEP-2577\\).:mcp.MCPDeprecationWarning",
+    # 2026-07-28 restricts progress to server->client; the client send path is
+    # advisory-deprecated and a handful of tests still exercise it.
+    "ignore:Client-to-server progress is deprecated as of 2026-07-28.*:mcp.MCPDeprecationWarning",
 ]
 
 [tool.markdown.lint]

@@ -72,6 +72,7 @@ def _make_modern_stamp(
         headers = opts.setdefault("headers", {})
         headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
         headers[MCP_METHOD_HEADER] = data["method"]
+        # TODO: also emit Mcp-Name for prompts/get (params.name) and resources/read (params.uri)
         if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
             headers[MCP_NAME_HEADER] = encode_header_value(name)
 
@@ -451,6 +452,10 @@ class ClientSession:
         """Send a ping request."""
         return await self.send_request(types.PingRequest(params=types.RequestParams(_meta=meta)), types.EmptyResult)
 
+    @deprecated(
+        "Client-to-server progress is deprecated as of 2026-07-28; progress is server-to-client only.",
+        category=MCPDeprecationWarning,
+    )
     async def send_progress_notification(
         self,
         progress_token: str | int,

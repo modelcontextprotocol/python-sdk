@@ -776,6 +776,8 @@ async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 
 `SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`.
 
+`LATEST_PROTOCOL_VERSION` now reflects the newest protocol revision the SDK supports (`2026-07-28`). Code that used it to mean "the version `.initialize()` offers" should switch to `HANDSHAKE_PROTOCOL_VERSIONS[-1]`.
+
 ### `ProgressContext` and `progress()` context manager removed
 
 The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
@@ -1300,6 +1302,12 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 ```
 
 No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
+
+### Client-to-server progress deprecated (2026-07-28)
+
+The 2026-07-28 spec restricts `notifications/progress` to the server-to-client direction only — `ProgressNotification` is no longer in `ClientNotification`. `Client.send_progress_notification()` and `ClientSession.send_progress_notification()` now carry `typing_extensions.deprecated` and emit `mcp.MCPDeprecationWarning` at runtime. They continue to work against servers negotiating 2025-11-25 or earlier.
+
+On the server side, prefer the new dispatcher-agnostic `ServerSession.report_progress(progress, total, message)` (and `Context.report_progress()` on `MCPServer`) over the raw `ServerSession.send_progress_notification(progress_token, …)`. `report_progress` encapsulates the "no-op when the caller did not request progress" rule and works on every dispatcher; the raw token-taking form remains for handlers that read `_meta.progressToken` directly.
 
 ## Bug Fixes
 

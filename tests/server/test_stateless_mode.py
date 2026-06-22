@@ -21,7 +21,16 @@ from mcp.types import LATEST_PROTOCOL_VERSION
 
 
 class StubOutbound:
-    """Records `send_raw_request` / `notify` calls and returns a canned result."""
+    """Records `send_raw_request` / `notify` calls and returns a canned result.
+
+    Structurally a `DispatchContext[Any]` so it can stand in for the per-request channel.
+    """
+
+    transport: Any = None
+    can_send_request: bool = True
+    request_id: Any = None
+    message_metadata: Any = None
+    cancel_requested: Any = None
 
     def __init__(self, result: dict[str, Any] | None = None) -> None:
         self.requests: list[tuple[str, Mapping[str, Any] | None, CallOptions | None]] = []
@@ -39,6 +48,9 @@ class StubOutbound:
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         self.notifications.append((method, params))
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        raise NotImplementedError  # pragma: no cover
 
 
 def _no_channel_session(request_ch: StubOutbound | None = None) -> tuple[ServerSession, StubOutbound]:

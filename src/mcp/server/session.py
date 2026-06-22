@@ -14,7 +14,7 @@ from typing_extensions import deprecated
 from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
-from mcp.shared.dispatcher import CallOptions, Outbound, ProgressFnT
+from mcp.shared.dispatcher import CallOptions, DispatchContext, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
 from mcp.types import methods as _methods
@@ -36,7 +36,7 @@ class ServerSession:
     never crosses the `Outbound` Protocol.
     """
 
-    def __init__(self, request_outbound: Outbound, connection: Connection) -> None:
+    def __init__(self, request_outbound: DispatchContext[Any], connection: Connection) -> None:
         self._request_outbound = request_outbound
         self._connection = connection
 
@@ -352,6 +352,16 @@ class ServerSession:
             types.PingRequest(),
             types.EmptyResult,
         )
+
+    async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        """Report progress for the inbound request this session is scoped to.
+
+        A no-op when the caller did not request progress. Dispatcher-agnostic:
+        on JSON-RPC the held `DispatchContext` emits ``notifications/progress``
+        against the caller's token; on the in-process direct dispatcher it
+        invokes the caller's callback directly.
+        """
+        await self._request_outbound.progress(progress, total, message)
 
     async def send_progress_notification(
         self,

@@ -21,8 +21,8 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.message import ClientMessageMetadata
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -431,7 +431,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 # The session id is only observable via the manager (the client transport does not expose it).
                 (session_id,) = manager._server_instances
                 http.headers["mcp-session-id"] = session_id
-                http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+                http.headers["mcp-protocol-version"] = HANDSHAKE_PROTOCOL_VERSIONS[-1]
                 tg.cancel_scope.cancel()
 
         with anyio.fail_after(5):  # pragma: no branch

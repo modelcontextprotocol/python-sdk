@@ -1515,21 +1515,21 @@ def test_streamable_http_no_redirect() -> None:
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
 
 
-async def test_report_progress_passes_related_request_id():
-    """Test that report_progress passes the request_id as related_request_id.
+async def test_report_progress_delegates_to_session_report_progress():
+    """Context.report_progress delegates to ServerSession.report_progress unconditionally.
 
-    Without related_request_id, the streamable HTTP transport cannot route
-    progress notifications to the correct SSE stream, causing them to be
-    silently dropped. See #953 and #2001.
+    Stream routing (related_request_id, progress-token gating) is encapsulated in the
+    per-request DispatchContext that ServerSession holds, so Context never inspects
+    request metadata itself. See #953 and #2001 for the original streamable-HTTP routing bug.
     """
     mock_session = AsyncMock()
-    mock_session.send_progress_notification = AsyncMock()
+    mock_session.report_progress = AsyncMock()
 
     request_context = ServerRequestContext(
         request_id="req-abc-123",
         session=mock_session,
         method="tools/call",
-        meta={"progress_token": "tok-1"},
+        meta=None,
         lifespan_context=None,
         protocol_version="2025-11-25",
     )
@@ -1538,13 +1538,7 @@ async def test_report_progress_passes_related_request_id():
 
     await ctx.report_progress(50, 100, message="halfway")
 
-    mock_session.send_progress_notification.assert_awaited_once_with(
-        progress_token="tok-1",
-        progress=50,
-        total=100,
-        message="halfway",
-        related_request_id="req-abc-123",
-    )
+    mock_session.report_progress.assert_awaited_once_with(50, 100, "halfway")
 
 
 async def test_read_resource_template_error():

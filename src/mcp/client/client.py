@@ -239,6 +239,10 @@ class Client:
         """Send a ping request to the server."""
         return await self.session.send_ping(meta=meta)
 
+    @deprecated(
+        "Client-to-server progress is deprecated as of 2026-07-28; progress is server-to-client only.",
+        category=MCPDeprecationWarning,
+    )
     async def send_progress_notification(
         self,
         progress_token: str | int,
@@ -247,7 +251,7 @@ class Client:
         message: str | None = None,
     ) -> None:
         """Send a progress notification to the server."""
-        await self.session.send_progress_notification(
+        await self.session.send_progress_notification(  # pyright: ignore[reportDeprecated]
             progress_token=progress_token,
             progress=progress,
             total=total,

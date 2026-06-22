@@ -71,7 +71,7 @@ Ctx = ServerRequestContext[dict[str, Any], Any]
 
 def _initialize_params() -> dict[str, Any]:
     return InitializeRequestParams(
-        protocol_version=LATEST_PROTOCOL_VERSION,
+        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
         capabilities=ClientCapabilities(),
         client_info=Implementation(name="test-client", version="1.0"),
     ).model_dump(by_alias=True, exclude_none=True)
@@ -168,7 +168,7 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
     assert "tools" in result["capabilities"]
     assert runner.connection.client_params is not None
     assert runner.connection.client_params.client_info.name == "test-client"
-    assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
+    assert runner.connection.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
     assert runner.connection.initialize_accepted is True
 
 
@@ -245,7 +245,7 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
     assert isinstance(ctx.session, ServerSession)
     assert ctx.session.protocol_version == runner.connection.protocol_version
     assert ctx.request_id is not None
-    assert ctx.protocol_version == LATEST_PROTOCOL_VERSION
+    assert ctx.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 @pytest.mark.anyio
@@ -815,7 +815,7 @@ async def test_runner_with_born_ready_connection_skips_init_gate(server: SrvT):
     """A `Connection.from_envelope` connection is born ready: the kernel's
     init-gate is open without any handshake. The kernel is mode-agnostic - the
     same `on_request` reads `connection.initialize_accepted` as a fact."""
-    born_ready = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    born_ready = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
         assert runner.connection.initialize_accepted is True
         assert runner.connection.initialized.is_set()
@@ -848,7 +848,7 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
 @pytest.mark.anyio
 async def test_runner_spec_method_with_invalid_params_is_invalid_params_at_the_negotiated_version(server: SrvT):
     async with connected_runner(server) as (client, runner):
-        assert runner.connection.protocol_version == LATEST_PROTOCOL_VERSION
+        assert runner.connection.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/call", {"name": 42})
     assert exc.value.error.code == INVALID_PARAMS
@@ -1006,7 +1006,7 @@ async def test_runner_initialize_echoes_supported_version_and_falls_back_to_late
     async with connected_runner(server, initialized=False) as (client, _):
         params = {**_initialize_params(), "protocolVersion": "1999-01-01"}
         result = await client.send_raw_request("initialize", params)
-        assert result["protocolVersion"] == LATEST_PROTOCOL_VERSION
+        assert result["protocolVersion"] == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 @pytest.mark.anyio
@@ -1328,7 +1328,7 @@ _LIFESPAN: dict[str, Any] = {}
 async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT):
     """The single-exchange driver: builds the kernel, runs `on_request` once,
     wraps via `to_jsonrpc_response`, and tears down `connection.exit_stack`."""
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
     request = JSONRPCRequest(jsonrpc="2.0", id=9, method="tools/list", params=None)
@@ -1338,7 +1338,7 @@ async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT)
     assert reply.result["tools"][0]["name"] == "t"
     assert cleaned == [1]
     ctx = _seen_ctx[0]
-    assert ctx.protocol_version == LATEST_PROTOCOL_VERSION
+    assert ctx.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 @pytest.mark.anyio
@@ -1346,7 +1346,7 @@ async def test_serve_one_maps_error_to_jsonrpc_error_and_still_closes_exit_stack
     """SDK-defined: a kernel-produced error (here `METHOD_NOT_FOUND` for an
     unregistered method) is wrapped as a `JSONRPCError`, and the per-request
     exit stack is closed on the error path too."""
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
+    conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
     request = JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/list", params=None)
@@ -1389,5 +1389,5 @@ async def test_serve_connection_drives_dispatcher_loop_and_tears_down(server: Sr
             assert cleaned == []
         close()
     assert cleaned == [1]
-    assert conn.protocol_version == LATEST_PROTOCOL_VERSION
+    assert conn.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
     assert conn.client_params is not None

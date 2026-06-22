@@ -17,11 +17,10 @@ from mcp.shared.inbound import (
     InboundModernRoute,
     classify_inbound_request,
 )
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
 )
 from mcp.types.jsonrpc import (
@@ -108,18 +107,18 @@ def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
 def test_version_rung_rejects_unsupported_with_data_shape() -> None:
     """Spec-mandated: an envelope version outside the modern set rejects with the ``supported``/``requested`` data."""
     rejection = assert_rejected(
-        classify_inbound_request(envelope(version=LATEST_PROTOCOL_VERSION)),
+        classify_inbound_request(envelope(version=HANDSHAKE_PROTOCOL_VERSIONS[-1])),
         UNSUPPORTED_PROTOCOL_VERSION,
     )
     assert rejection.data == {
         "supported": list(MODERN_PROTOCOL_VERSIONS),
-        "requested": LATEST_PROTOCOL_VERSION,
+        "requested": HANDSHAKE_PROTOCOL_VERSIONS[-1],
     }
 
 
 def test_version_rung_data_reflects_supplied_supported_list() -> None:
     """SDK-defined: the caller-supplied ``supported_modern_versions`` is what rejection ``data.supported`` echoes."""
-    custom = (LATEST_PROTOCOL_VERSION,)
+    custom = (HANDSHAKE_PROTOCOL_VERSIONS[-1],)
     rejection = assert_rejected(
         classify_inbound_request(envelope(), supported_modern_versions=custom),
         UNSUPPORTED_PROTOCOL_VERSION,
@@ -145,7 +144,7 @@ def test_header_rung_passes_when_header_matches_envelope() -> None:
 @pytest.mark.parametrize(
     "headers",
     [
-        pytest.param({MCP_PROTOCOL_VERSION_HEADER: LATEST_PROTOCOL_VERSION}, id="mismatch"),
+        pytest.param({MCP_PROTOCOL_VERSION_HEADER: HANDSHAKE_PROTOCOL_VERSIONS[-1]}, id="mismatch"),
         pytest.param({}, id="header-absent"),
     ],
 )
@@ -177,7 +176,7 @@ def test_ladder_first_failure_wins() -> None:
     """Spec-mandated: rungs evaluate in order — header-mismatch and version-unsupported
     would both fail; the header rung fires first so an inconsistent client is told it
     disagrees with itself rather than that its body version is unsupported."""
-    body = envelope(version=LATEST_PROTOCOL_VERSION)
+    body = envelope(version=HANDSHAKE_PROTOCOL_VERSIONS[-1])
     result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
     assert_rejected(result, HEADER_MISMATCH)
 

@@ -23,7 +23,6 @@ from mcp.types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
-    LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
@@ -88,7 +87,7 @@ async def test_client_session_initialize():
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(
                 logging=None,
                 resources=None,
@@ -141,7 +140,7 @@ async def test_client_session_initialize():
 
     # Assert the result
     assert isinstance(result, InitializeResult)
-    assert result.protocol_version == LATEST_PROTOCOL_VERSION
+    assert result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
     assert isinstance(result.capabilities, ServerCapabilities)
     assert result.server_info == Implementation(name="mock-server", version="0.1.0")
     assert result.instructions == "The server instructions."
@@ -172,7 +171,7 @@ async def test_client_session_custom_client_info():
         received_client_info = request.params.client_info
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -229,7 +228,7 @@ async def test_client_session_default_client_info():
         received_client_info = request.params.client_info
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -278,8 +277,8 @@ async def test_client_session_version_negotiation_success():
         )
         assert isinstance(request, InitializeRequest)
 
-        # Verify client sent the latest protocol version
-        assert request.params.protocol_version == LATEST_PROTOCOL_VERSION
+        # Verify client offers the newest handshake protocol version
+        assert request.params.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
         # Server responds with a supported older version
         result = InitializeResult(
@@ -387,7 +386,7 @@ async def test_client_capabilities_default():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -458,7 +457,7 @@ async def test_client_capabilities_with_custom_callbacks():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -537,7 +536,7 @@ async def test_client_capabilities_with_sampling_tools():
         received_capabilities = request.params.capabilities
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -605,7 +604,7 @@ async def test_initialize_result():
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=expected_capabilities,
             server_info=expected_server_info,
             instructions=expected_instructions,
@@ -644,7 +643,7 @@ async def test_initialize_result():
         assert result.server_info == expected_server_info
         assert result.capabilities == expected_capabilities
         assert result.instructions == expected_instructions
-        assert result.protocol_version == LATEST_PROTOCOL_VERSION
+        assert result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 @pytest.mark.anyio
@@ -667,7 +666,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         assert isinstance(request, InitializeRequest)
 
         result = InitializeResult(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
             capabilities=ServerCapabilities(),
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
@@ -1348,7 +1347,7 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
             self.calls.append((method, opts or {}))
             if method == "initialize":
                 return InitializeResult(
-                    protocol_version=LATEST_PROTOCOL_VERSION,
+                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
                     capabilities=ServerCapabilities(),
                     server_info=Implementation(name="mock-server", version="0.1.0"),
                 ).model_dump(by_alias=True, mode="json", exclude_none=True)

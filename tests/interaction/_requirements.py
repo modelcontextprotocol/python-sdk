@@ -579,7 +579,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Progress notifications emitted by a handler during a request are delivered to the caller's "
             "progress callback, in order, with their progress, total, and message."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "protocol:progress:token-injected": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -592,7 +594,14 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:progress:token-unique": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior=("Concurrent in-flight requests that each supply a progress callback carry distinct progress tokens."),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        note=(
+            "Tested as the consequence: each callback receives only its own request's progress under "
+            "interleaved emission. Token distinctness is the JSON-RPC mechanism for that; the in-process "
+            "direct dispatcher carries the callback per-request without a wire-level token."
+        ),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "protocol:progress:monotonic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -605,7 +614,9 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "handler that emits non-increasing values has them forwarded to the callback unchanged."
             ),
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "protocol:progress:stops-after-completion": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#behavior-requirements",
@@ -753,7 +764,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Progress notifications emitted by a tool handler reach the caller's progress callback before "
             "the tool result returns."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "tools:call:sampling-roundtrip": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
@@ -983,7 +996,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Context.report_progress sends a progress notification against the requesting client's progress token."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "mcpserver:context:elicit": Requirement(
         source="sdk",

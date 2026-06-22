@@ -17,6 +17,7 @@ from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -118,7 +119,7 @@ async def test_client_is_initialized(app: MCPServer):
 async def test_client_initialize_result_exposes_negotiated_protocol_version(app: MCPServer):
     """The negotiated protocol version is readable after initialization."""
     async with Client(app) as client:
-        assert client.initialize_result.protocol_version == types.LATEST_PROTOCOL_VERSION
+        assert client.initialize_result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -241,7 +242,7 @@ async def test_client_send_progress_notification():
     server = Server(name="test_server", on_progress=handle_progress)
 
     async with Client(server) as client:
-        await client.send_progress_notification(progress_token="token123", progress=50.0)
+        await client.send_progress_notification(progress_token="token123", progress=50.0)  # pyright: ignore[reportDeprecated]
         await event.wait()
         assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
 

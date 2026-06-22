@@ -31,9 +31,8 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -71,7 +70,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        spec_version: str = LATEST_PROTOCOL_VERSION,
+        spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -86,7 +85,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport.
 
@@ -123,7 +122,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
@@ -270,14 +269,14 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
     """Standard request headers for raw-httpx streamable-HTTP tests.
 
     Every well-formed request carries these (Accept covering both response representations,
-    Content-Type for POST bodies, MCP-Protocol-Version at the latest revision, and the session
+    Content-Type for POST bodies, MCP-Protocol-Version at the newest handshake revision, and the session
     ID once one exists), so a test that wants to assert a specific rejection only varies the one
     header under test.
     """
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
-        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+        "mcp-protocol-version": HANDSHAKE_PROTOCOL_VERSIONS[-1],
     }
     if session_id is not None:
         headers["mcp-session-id"] = session_id
@@ -287,7 +286,7 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
 def initialize_body(request_id: int = 1) -> dict[str, object]:
     """A wire-level initialize JSON-RPC request body, exactly as an SDK client would send it."""
     params = InitializeRequestParams(
-        protocol_version=LATEST_PROTOCOL_VERSION,
+        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
         capabilities=ClientCapabilities(),
         client_info=Implementation(name="raw", version="0.0.0"),
     )
@@ -355,7 +354,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)

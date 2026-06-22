@@ -22,7 +22,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
-LATEST_PROTOCOL_VERSION: Final[str] = "2025-11-25"
+LATEST_PROTOCOL_VERSION: Final[str] = "2026-07-28"
 """The newest protocol version this SDK can negotiate.
 
 See https://modelcontextprotocol.io/specification/latest.
