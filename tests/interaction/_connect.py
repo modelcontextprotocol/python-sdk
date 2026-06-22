@@ -20,7 +20,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.client.client import Client
-from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
@@ -31,14 +31,17 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
+    DiscoverResult,
     Implementation,
     InitializeRequestParams,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
+    ServerCapabilities,
     jsonrpc_message_adapter,
 )
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -70,7 +73,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        protocol_version: str = LATEST_PROTOCOL_VERSION,
+        spec_version: str = LATEST_PROTOCOL_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -85,7 +88,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport."""
     async with Client(
@@ -97,7 +100,6 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
-        protocol_version=protocol_version,
     ) as client:
         yield client
 
@@ -117,7 +119,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
@@ -126,6 +128,10 @@ async def connect_over_streamable_http(
     transport-specific tests pass `json_response` to select the other server mode, and the
     resumability tests pass an `event_store` (with `retry_interval=0` so the client's
     reconnection wait is a no-op).
+
+    When `spec_version` is a modern (2026-07-28+) revision, the modern path is exercised: a bare
+    `ClientSession` is built over the streams and adopted from a synthesized `DiscoverResult`
+    instead of negotiating via `Client`'s legacy initialize handshake.
     """
     app = server.streamable_http_app(
         stateless_http=stateless_http,
@@ -137,19 +143,48 @@ async def connect_over_streamable_http(
     async with (
         server.session_manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
-        Client(
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client, protocol_version=protocol_version),
-            read_timeout_seconds=read_timeout_seconds,
-            sampling_callback=sampling_callback,
-            list_roots_callback=list_roots_callback,
-            logging_callback=logging_callback,
-            message_handler=message_handler,
-            client_info=client_info,
-            elicitation_callback=elicitation_callback,
-            protocol_version=protocol_version,
-        ) as client,
     ):
-        yield client
+        if spec_version in MODERN_PROTOCOL_VERSIONS:
+            async with (
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read, write),
+                ClientSession(
+                    read,
+                    write,
+                    read_timeout_seconds=read_timeout_seconds,
+                    sampling_callback=sampling_callback,
+                    list_roots_callback=list_roots_callback,
+                    logging_callback=logging_callback,
+                    message_handler=message_handler,
+                    client_info=client_info,
+                    elicitation_callback=elicitation_callback,
+                ) as session,
+            ):
+                session.adopt(
+                    DiscoverResult(
+                        supported_versions=[spec_version],
+                        capabilities=ServerCapabilities(),
+                        server_info=Implementation(name="test", version="0"),
+                        result_type="complete",
+                        ttl_ms=0,
+                        cache_scope="public",
+                    )
+                )
+                # ClientSession quacks as Client for every modern-arm requirement; the surfaces
+                # diverge (cursor= vs params=, .session, nullable initialize_result) so widening
+                # Connect to the union cascades ~58 errors. Contained here until the two converge.
+                yield session  # pyright: ignore[reportReturnType]
+        else:
+            async with Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+                read_timeout_seconds=read_timeout_seconds,
+                sampling_callback=sampling_callback,
+                list_roots_callback=list_roots_callback,
+                logging_callback=logging_callback,
+                message_handler=message_handler,
+                client_info=client_info,
+                elicitation_callback=elicitation_callback,
+            ) as client:
+                yield client
 
 
 connect_over_streamable_http_stateless: Connect = partial(connect_over_streamable_http, stateless_http=True)
@@ -345,7 +380,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)

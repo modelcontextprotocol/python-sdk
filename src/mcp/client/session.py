@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Protocol, cast
@@ -17,6 +17,12 @@ from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.inbound import (
+    MCP_METHOD_HEADER,
+    MCP_NAME_HEADER,
+    MCP_PROTOCOL_VERSION_HEADER,
+    encode_header_value,
+)
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -36,6 +42,38 @@ from mcp.types import methods as _methods
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
+
+
+def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
+    # Only initialize/discover go out before connect; both forbid cancellation.
+    opts["cancel_on_abandon"] = False
+
+
+def _make_handshake_stamp(protocol_version: str) -> Callable[[dict[str, Any], CallOptions], None]:
+    def stamp(data: dict[str, Any], opts: CallOptions) -> None:
+        opts.setdefault("headers", {})[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
+
+    return stamp
+
+
+def _make_modern_stamp(
+    protocol_version: str, client_info: dict[str, Any], capabilities: dict[str, Any]
+) -> Callable[[dict[str, Any], CallOptions], None]:
+    def stamp(data: dict[str, Any], opts: CallOptions) -> None:
+        params = data.setdefault("params", {})
+        meta = params.setdefault("_meta", {})
+        meta[PROTOCOL_VERSION_META_KEY] = protocol_version
+        meta[CLIENT_INFO_META_KEY] = client_info
+        meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
+        opts["cancel_on_abandon"] = False
+        headers = opts.setdefault("headers", {})
+        headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
+        headers[MCP_METHOD_HEADER] = data["method"]
+        if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
+            headers[MCP_NAME_HEADER] = encode_header_value(name)
+
+    return stamp
+
 
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
@@ -149,14 +187,11 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
-        protocol_version: str | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
-        self._pinned_version = protocol_version
-        self._stateless_pinned = protocol_version in MODERN_PROTOCOL_VERSIONS
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -164,19 +199,8 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._initialize_result: types.InitializeResult | None
-        if self._stateless_pinned:
-            assert protocol_version is not None
-            # A stateless-pinned session is born initialized: there is no handshake
-            # at 2026-07-28+, so we synthesize the result locally. `server_info` is a
-            # placeholder until `server/discover` is implemented to populate it.
-            self._initialize_result = types.InitializeResult(
-                protocol_version=protocol_version,
-                capabilities=types.ServerCapabilities(),
-                server_info=types.Implementation(name="", version=""),
-            )
-        else:
-            self._initialize_result = None
+        self._initialize_result: types.InitializeResult | None = None
+        self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
@@ -242,19 +266,7 @@ class ClientSession:
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
-        if self._stateless_pinned:
-            params = data.setdefault("params", {})
-            envelope_meta = params.setdefault("_meta", {})
-            envelope_meta[PROTOCOL_VERSION_META_KEY] = self._pinned_version
-            envelope_meta[CLIENT_INFO_META_KEY] = self._client_info.model_dump(
-                by_alias=True, mode="json", exclude_none=True
-            )
-            envelope_meta[CLIENT_CAPABILITIES_META_KEY] = self._build_capabilities().model_dump(
-                by_alias=True, mode="json", exclude_none=True
-            )
-            # Stateless pinned mode: disconnect-as-cancel is the spec mechanism, so the
-            # dispatcher must not emit notifications/cancelled when the caller abandons.
-            opts["cancel_on_abandon"] = False
+        self._stamp(data, opts)
         timeout = (
             request_read_timeout_seconds
             if request_read_timeout_seconds is not None
@@ -269,9 +281,6 @@ class ClientSession:
                 opts["resumption_token"] = metadata.resumption_token
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
-        if method == "initialize":
-            # The spec forbids cancelling initialize.
-            opts["cancel_on_abandon"] = False
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self.protocol_version or "2025-11-25"
@@ -288,7 +297,9 @@ class ClientSession:
         dropped with a debug log instead of raising.
         """
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        await self._dispatcher.notify(data["method"], data.get("params"))
+        opts: CallOptions = {}
+        self._stamp(data, opts)
+        await self._dispatcher.notify(data["method"], data.get("params"), opts)
 
     def _build_capabilities(self) -> types.ClientCapabilities:
         sampling = (
@@ -314,14 +325,11 @@ class ClientSession:
     async def initialize(self) -> types.InitializeResult:
         if self._initialize_result is not None:
             return self._initialize_result
-        capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=self._pinned_version
-                    if self._pinned_version is not None
-                    else HANDSHAKE_PROTOCOL_VERSIONS[-1],
-                    capabilities=capabilities,
+                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+                    capabilities=self._build_capabilities(),
                     client_info=self._client_info,
                 ),
             ),
@@ -331,34 +339,49 @@ class ClientSession:
         if result.protocol_version not in HANDSHAKE_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
-        self._initialize_result = result
+        self.adopt(result)
 
         await self.send_notification(types.InitializedNotification())
 
         return result
 
+    def adopt(self, result: types.InitializeResult | types.DiscoverResult) -> None:
+        """Install negotiated state from a result the caller already holds (no wire traffic)."""
+        if isinstance(result, types.DiscoverResult):
+            mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in result.supported_versions]
+            if not mutual:
+                raise RuntimeError(
+                    f"No mutually supported modern protocol version "
+                    f"(server: {result.supported_versions}, client: {list(MODERN_PROTOCOL_VERSIONS)})"
+                )
+            protocol_version = mutual[-1]
+            client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+            capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+            self._stamp = _make_modern_stamp(protocol_version, client_info, capabilities)
+            self._initialize_result = types.InitializeResult(
+                protocol_version=protocol_version,
+                capabilities=result.capabilities,
+                server_info=result.server_info,
+                instructions=result.instructions,
+            )
+        else:
+            self._stamp = _make_handshake_stamp(result.protocol_version)
+            self._initialize_result = result
+
     @property
     def initialize_result(self) -> types.InitializeResult | None:
-        """The server's InitializeResult. None until initialize() has been called.
+        """The server's InitializeResult. None until `initialize()` or `adopt()`.
 
-        A stateless-pinned session (protocol_version >= 2026-07-28) is born
-        initialized: this property is populated at construction with a
-        synthesized result and `initialize()` returns it without touching the
-        wire. Contains server_info, capabilities, instructions, and the
-        negotiated protocol_version.
+        Contains server_info, capabilities, instructions, and the negotiated
+        protocol_version. For a modern session adopted from a DiscoverResult,
+        this is synthesized locally with the chosen protocol version.
         """
         return self._initialize_result
 
     @property
     def protocol_version(self) -> str | None:
-        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction.
-
-        Once `initialize()` has completed, this is the version the server actually
-        negotiated (which can differ from a stateful pin); before that, the pin.
-        """
-        if self._initialize_result is not None:
-            return self._initialize_result.protocol_version
-        return self._pinned_version
+        """Negotiated protocol version. None until `initialize()` or `adopt()`."""
+        return self._initialize_result.protocol_version if self._initialize_result is not None else None
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""

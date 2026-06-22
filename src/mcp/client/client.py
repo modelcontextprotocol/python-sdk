@@ -95,17 +95,6 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    protocol_version: str | None = None
-    """Pin the protocol version instead of negotiating it.
-
-    Pinning to ``2026-07-28`` or later selects the stateless transport era: no initialize
-    handshake is sent on the wire (the session synthesizes its `InitializeResult` locally),
-    and for HTTP the ``MCP-Protocol-Version`` header is set from the first request. A modern
-    pin currently requires a URL or `Transport`; the in-memory `Server`/`MCPServer` path
-    does not yet have a modern entry point.
-    Leave as ``None`` to negotiate the version via the initialize handshake.
-    """
-
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
@@ -117,7 +106,7 @@ class Client:
         if isinstance(self.server, Server | MCPServer):
             self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
         elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server, protocol_version=self.protocol_version)
+            self._transport = streamable_http_client(self.server)
         else:
             self._transport = self.server
 
@@ -140,7 +129,6 @@ class Client:
                     message_handler=self.message_handler,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
-                    protocol_version=self.protocol_version,
                 )
             )
 

@@ -28,6 +28,7 @@ from mcp.types import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolRequestParams,
     CallToolResult,
+    DiscoverResult,
     EmptyResult,
     Implementation,
     JSONRPCError,
@@ -35,6 +36,7 @@ from mcp.types import (
     ListToolsResult,
     PaginatedRequestParams,
     RequestParams,
+    ServerCapabilities,
     TextContent,
     Tool,
 )
@@ -328,12 +330,16 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     with anyio.fail_after(5):
         async with (
             mounted_app(server, on_request=on_request, on_response=on_response) as (http, _),
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version=MODERN_VERSION) as (
-                read,
-                write,
-            ),
-            ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            ClientSession(read, write, client_info=client_info) as session,
         ):
+            session.adopt(
+                DiscoverResult(
+                    supported_versions=[MODERN_VERSION],
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="srv", version="0"),
+                )
+            )
             result = await session.call_tool(
                 "add",
                 {"a": 2, "b": 3},

@@ -159,6 +159,10 @@ The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been re
 
 Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 
+### `protocol_version` removed from `StreamableHTTPTransport` and `streamable_http_client`
+
+The `protocol_version` attribute on `StreamableHTTPTransport` and the `protocol_version` parameter on `streamable_http_client` have been removed. The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are supplied per-message by the session, so the transport never needs to know the negotiated version.
+
 ### `terminate_windows_process` removed
 
 The deprecated `mcp.os.win32.utilities.terminate_windows_process` function has been
@@ -349,6 +353,10 @@ if result is not None:
 ```
 
 The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. This replaces v1's `Client.server_capabilities`; use `client.initialize_result.capabilities` instead.
+
+### `ClientSession(protocol_version=)` removed
+
+The `protocol_version` constructor parameter on `ClientSession` has been removed. To install a known protocol version without performing the `initialize` handshake (e.g. when reconnecting to an existing session), call `session.adopt(result)` after construction with a stored `InitializeResult`.
 
 ### `McpError` renamed to `MCPError`
 

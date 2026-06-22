@@ -148,7 +148,8 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
     server = Server("calm", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
-        await client.session.send_notification(
+        session = client if isinstance(client, ClientSession) else client.session  # modern arm yields a bare session
+        await session.send_notification(
             types.CancelledNotification(params=types.CancelledNotificationParams(request_id=9999))
         )
         result = await client.call_tool("echo", {})

@@ -1300,6 +1300,25 @@ async def test_dispatcher_keyword_request_timeout_bounds_wait_for_never_run_peer
             assert exc.value.error.code == REQUEST_TIMEOUT
 
 
+def test_adopt_raises_when_no_mutual_modern_version_is_supported() -> None:
+    """SDK-defined: ``adopt(DiscoverResult)`` picks the newest version both sides support; an
+    empty intersection is unrecoverable and raises rather than installing a stamp."""
+    client_d, _ = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_d)
+    with pytest.raises(RuntimeError, match="No mutually supported modern protocol version"):
+        session.adopt(
+            types.DiscoverResult(
+                supported_versions=["1999-01-01"],
+                capabilities=types.ServerCapabilities(),
+                server_info=types.Implementation(name="s", version="0"),
+                result_type="complete",
+                ttl_ms=0,
+                cache_scope="public",
+            )
+        )
+    assert session.protocol_version is None
+
+
 @pytest.mark.anyio
 async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_leave_it_unset():
     """`send_request` passes `cancel_on_abandon=False` for `initialize` — the spec forbids
@@ -1398,66 +1417,6 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
     assert scope.cancelled_caught
     # The failed enter must not leave the session half-entered.
     assert session._task_group is None
-
-
-@pytest.mark.anyio
-async def test_initialize_on_a_stateless_pinned_session_returns_the_synthesized_result_without_any_frame_sent():
-    """A session pinned to the 2026-07-28 stateless protocol is born initialized.
-
-    The 2026-07-28 lifecycle replaces the initialize handshake with a per-request ``_meta``
-    envelope, so ``initialize()`` is idempotent and returns a locally-synthesized result
-    without ever touching the wire.
-    """
-    async with raw_client_session(protocol_version="2026-07-28") as (session, _send, from_client):
-        result = await session.initialize()
-        assert result.protocol_version == "2026-07-28"
-        assert isinstance(result.capabilities, ServerCapabilities)
-        assert from_client.statistics().current_buffer_used == 0
-        assert (await session.initialize()) is result
-
-
-@pytest.mark.anyio
-async def test_initialize_on_a_stateful_pin_requests_the_pinned_version():
-    """A session pinned to a pre-2026 stateful version still runs the handshake, but the
-    outgoing ``initialize`` frame requests the pinned version rather than ``LATEST``."""
-    async with raw_client_session(protocol_version="2025-06-18") as (session, to_client, from_client):
-        first: list[InitializeResult] = []
-
-        async def do_initialize() -> None:
-            first.append(await session.initialize())
-
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(do_initialize)
-            out = await from_client.receive()
-            assert isinstance(out.message, JSONRPCRequest)
-            assert out.message.params is not None
-            assert out.message.params["protocolVersion"] == "2025-06-18"
-            assert session.protocol_version == "2025-06-18"
-            # Server negotiates a different (older) supported version than the pin requested.
-            result = InitializeResult(
-                protocol_version="2025-03-26",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
-            await to_client.send(
-                SessionMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=out.message.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
-                )
-            )
-        # Drain the notifications/initialized frame so the buffer-used assertion below
-        # measures only what the second initialize() emits.
-        notif = await from_client.receive()
-        assert isinstance(notif.message, JSONRPCNotification)
-        # The property reports the negotiated version, not the pin, once the handshake is done.
-        assert session.protocol_version == "2025-03-26"
-        # A second call returns the cached result without a second handshake frame.
-        again = await session.initialize()
-        assert again is first[0]
-        assert from_client.statistics().current_buffer_used == 0
 
 
 @pytest.mark.anyio
