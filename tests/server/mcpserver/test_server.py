@@ -1528,6 +1528,7 @@ async def test_report_progress_passes_related_request_id():
     request_context = ServerRequestContext(
         request_id="req-abc-123",
         session=mock_session,
+        method="tools/call",
         meta={"progress_token": "tok-1"},
         lifespan_context=None,
         protocol_version="2025-11-25",

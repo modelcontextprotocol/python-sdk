@@ -746,7 +746,7 @@ ctx: ClientRequestContext
 server_ctx: ServerRequestContext[LifespanContextT, RequestT]
 ```
 
-`ServerRequestContext` is now a standalone dataclass — it no longer subclasses `RequestContext[ServerSession]`. It carries the same fields (`session`, `request_id`, `meta`, `lifespan_context`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) plus a new `protocol_version: str` field, so handler code is unaffected, but `isinstance(ctx, RequestContext)` checks and `RequestContext[ServerSession]` annotations need updating to `ServerRequestContext`.
+`ServerRequestContext` is now a standalone dataclass — it no longer subclasses `RequestContext[ServerSession]`. It carries the same fields (`session`, `request_id`, `meta`, `lifespan_context`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) plus new `protocol_version: str`, `method: str`, and raw `params: Mapping[str, Any] | None` fields (the last two let middleware read and rewrite the inbound message), so handler code is unaffected, but `isinstance(ctx, RequestContext)` checks and `RequestContext[ServerSession]` annotations need updating to `ServerRequestContext`.
 
 The high-level `Context` class (injected into `@mcp.tool()` etc.) similarly dropped its `ServerSessionT` parameter: `Context[ServerSessionT, LifespanContextT, RequestT]` → `Context[LifespanContextT, RequestT]`. Both remaining parameters have defaults, so bare `Context` is usually sufficient:
 
@@ -961,19 +961,16 @@ server.add_notification_handler("notifications/custom", MyNotifyParams, my_notif
 These were private, but some users subclassed `Server` and overrode them to intercept requests. Use middleware instead:
 
 ```python
-from collections.abc import Mapping
 from typing import Any
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.context import CallNext, HandlerResult
 
 
-async def logging_middleware(
-    ctx: ServerRequestContext[Any, Any], method: str, params: Mapping[str, Any] | None, call_next: CallNext
-) -> HandlerResult:
-    print(f"handling {method}")
-    result = await call_next()
-    print(f"done {method}")
+async def logging_middleware(ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
+    print(f"handling {ctx.method}")
+    result = await call_next(ctx)
+    print(f"done {ctx.method}")
     return result
 
 
@@ -981,7 +978,7 @@ server = Server("my-server", on_call_tool=...)
 server.middleware.append(logging_middleware)
 ```
 
-Middleware runs before params validation, so `params` is the raw inbound mapping (or `None`), and it also wraps unknown methods.
+The method and the raw inbound params are `ctx.method` and `ctx.params` (`params` is `None` when the message carries none). Middleware runs before params validation and also wraps unknown methods. To rewrite the method or params before the handler runs, pass an adjusted context through: `await call_next(replace(ctx, params=...))`.
 
 ### Lowlevel `Server.run(raise_exceptions=True)`: transport errors no longer re-raised
 

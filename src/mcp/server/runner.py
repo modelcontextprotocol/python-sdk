@@ -93,7 +93,7 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return None
 
 
-def otel_middleware(next_on_request: OnRequest) -> OnRequest:
+def otel_middleware(call_next: OnRequest) -> OnRequest:
     """Dispatch-tier middleware that wraps each request in an OpenTelemetry span.
 
     Mirrors the span shape of the existing `Server._handle_request`: span name
@@ -129,7 +129,7 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
             set_status_on_exception=False,
         ) as span:
             try:
-                return await next_on_request(dctx, method, params)
+                return await call_next(dctx, method, params)
             except MCPError as e:
                 span.set_status(StatusCode.ERROR, e.error.message)
                 raise
@@ -200,6 +200,14 @@ async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, A
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
+def _apply_middleware(
+    middleware: ServerMiddleware[Any], call_next: CallNext, ctx: ServerRequestContext[Any, Any]
+) -> Awaitable[HandlerResult]:
+    """Adapt one middleware to the `CallNext` shape: bind `call_next`, take
+    `ctx` at call time so a rewritten context flows down the chain."""
+    return middleware(ctx, call_next)
+
+
 @dataclass
 class ServerRunner(Generic[LifespanT]):
     """Per-connection handler kernel. One instance per client connection."""
@@ -220,7 +228,9 @@ class ServerRunner(Generic[LifespanT]):
         wraps everything - initialize, METHOD_NOT_FOUND, validation failures
         included.
         """
-        return reduce(lambda h, mw: mw(h), reversed(self.dispatch_middleware), self._on_request)
+        return reduce(
+            lambda handler, middleware: middleware(handler), reversed(self.dispatch_middleware), self._on_request
+        )
 
     @cached_property
     def on_notify(self) -> OnNotify:
@@ -234,15 +244,18 @@ class ServerRunner(Generic[LifespanT]):
     ) -> dict[str, Any]:
         meta = _extract_meta(params)
         version = self.connection.protocol_version
-        ctx = self._make_context(dctx, meta, version)
+        ctx = self._make_context(dctx, method, params, meta, version)
         is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
-        async def _inner() -> HandlerResult:
+        async def _inner(ctx: ServerRequestContext[LifespanT, Any]) -> HandlerResult:
+            # Read method/params off `ctx` so a middleware that rewrote them via
+            # `call_next(replace(ctx, ...))` reaches lookup and the handler.
+            method, params = ctx.method, ctx.params
             # Pinned compat: spec methods are surface-validated before lookup,
             # so malformed params are INVALID_PARAMS even with no handler
             # registered. Custom methods miss the monolith map and fall through
             # to `entry.params_type` exactly as before.
-            if is_spec_method:
+            if method in _methods.SPEC_CLIENT_METHODS:
                 try:
                     _methods.validate_client_request(method, version, params)
                 except KeyError:
@@ -272,8 +285,8 @@ class ServerRunner(Generic[LifespanT]):
                 raise MCPError.from_error_data(result)
             return result
 
-        call = self._compose_server_middleware(ctx, method, params, _inner)
-        result = _dump_result(await call())
+        call = self._compose_server_middleware(_inner)
+        result = _dump_result(await call(ctx))
         # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
         # corresponding extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
@@ -292,6 +305,11 @@ class ServerRunner(Generic[LifespanT]):
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
+            # TODO: this re-reads the wire `params`, so a middleware that rewrote
+            # `ctx.params` (or `ctx.method`, or short-circuited without `call_next`)
+            # can leave `connection.protocol_version` out of step with the
+            # `InitializeResult` `_inner` produced. Resolve when `initialize` becomes
+            # a built-in handler so commit and result derive from one negotiation.
             self.connection.client_params, self.connection.protocol_version = self._negotiate_initialize(params)
         return result
 
@@ -303,9 +321,10 @@ class ServerRunner(Generic[LifespanT]):
     ) -> None:
         meta = _extract_meta(params)
         version = self.connection.protocol_version
-        ctx = self._make_context(dctx, meta, version)
+        ctx = self._make_context(dctx, method, params, meta, version)
 
-        async def _inner() -> None:
+        async def _inner(ctx: ServerRequestContext[LifespanT, Any]) -> None:
+            method, params = ctx.method, ctx.params
             if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:
                 try:
                     _methods.validate_client_notification(method, version, params)
@@ -335,33 +354,33 @@ class ServerRunner(Generic[LifespanT]):
                 return
             await entry.handler(ctx, typed_params)
 
-        call = self._compose_server_middleware(ctx, method, params, _inner)
+        call = self._compose_server_middleware(_inner)
         try:
-            await call()
+            await call(ctx)
         except Exception:
             # A crashing handler must not cancel the dispatcher's task group;
             # middleware saw the raise out of call_next() first.
             logger.exception("notification handler for %r raised", method)
 
-    def _compose_server_middleware(
-        self,
-        ctx: ServerRequestContext[LifespanT, Any],
-        method: str,
-        params: Mapping[str, Any] | None,
-        inner: CallNext,
-    ) -> CallNext:
+    def _compose_server_middleware(self, inner: CallNext) -> CallNext:
         """Wrap `inner` in `Server.middleware`, outermost-first.
 
         Shared by `_on_request` and `_on_notify` so the same middleware chain
-        observes every inbound message.
+        observes every inbound message. The composed callable takes the `ctx`
+        at call time, so a middleware can rewrite it for the rest of the chain.
         """
         call = inner
-        for mw in reversed(self.server.middleware):
-            call = partial(mw, ctx, method, params, call)
+        for middleware in reversed(self.server.middleware):
+            call = partial(_apply_middleware, middleware, call)
         return call
 
     def _make_context(
-        self, dctx: DispatchContext[TransportContext], meta: RequestParamsMeta | None, protocol_version: str
+        self,
+        dctx: DispatchContext[TransportContext],
+        method: str,
+        params: Mapping[str, Any] | None,
+        meta: RequestParamsMeta | None,
+        protocol_version: str,
     ) -> ServerRequestContext[LifespanT, Any]:
         # TODO(L54): remove for Context rework. Reads the SHTTP per-request
         # data off the raw `dctx.message_metadata` carrier; replace with the
@@ -380,6 +399,8 @@ class ServerRunner(Generic[LifespanT]):
         return ServerRequestContext(
             session=session,
             lifespan_context=self.lifespan_state,
+            method=method,
+            params=params,
             request_id=dctx.request_id,
             meta=meta,
             protocol_version=protocol_version,
