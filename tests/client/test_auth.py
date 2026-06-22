@@ -2936,16 +2936,39 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
 
 
 @pytest.mark.anyio
-async def test_issuer_is_not_stamped_when_registration_falls_back_after_asm_discovery_fails(
-    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+@pytest.mark.parametrize(
+    "asm_responses",
+    [
+        pytest.param(
+            [httpx.Response(404), httpx.Response(404)],
+            id="asm-discovery-failed",
+        ),
+        pytest.param(
+            [
+                httpx.Response(
+                    200,
+                    content=(
+                        b'{"issuer": "https://new-as.example.com", '
+                        b'"authorization_endpoint": "https://new-as.example.com/authorize", '
+                        b'"token_endpoint": "https://new-as.example.com/token"}'
+                    ),
+                )
+            ],
+            id="asm-metadata-without-registration-endpoint",
+        ),
+    ],
+)
+async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resource_origin(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, asm_responses: list[httpx.Response]
 ):
-    """SEP-2352: a fallback registration is not recorded as bound to an undiscovered AS.
+    """SEP-2352: a fallback registration is not recorded as bound to the PRM-advertised AS.
 
     PRM advertises a new authorization server, so the stored credentials (bound to the old
-    issuer) are discarded. ASM discovery for the new server then fails, so DCR falls back to
-    the resource-server origin's ``/register``. That registration was not derived from the new
-    AS's metadata, so persisting it as bound to the new AS would wedge the binding check on
-    later flows; instead the issuer is left unset.
+    issuer) are discarded. DCR then falls back to the resource-server origin's ``/register``
+    because the new AS's metadata either could not be discovered or omits
+    ``registration_endpoint``. That registration was not derived from the new AS's metadata,
+    so persisting it as bound to the new AS would wedge the binding check on later flows;
+    instead the issuer is left unset.
     """
     oauth_provider.context.current_tokens = None
     oauth_provider.context.token_expiry_time = None
@@ -2991,16 +3014,18 @@ async def test_issuer_is_not_stamped_when_registration_falls_back_after_asm_disc
         request=prm_req,
     )
 
-    # ASM discovery for the new AS fails on every well-known URL.
-    asm_req = await auth_flow.asend(prm_response)
+    # ASM discovery for the new AS yields no usable registration_endpoint — either every
+    # well-known URL 404s, or metadata is returned without one.
+    next_req = await auth_flow.asend(prm_response)
     assert oauth_provider.context.client_info is None
     assert oauth_provider.context.oauth_metadata is None
-    assert str(asm_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
-    asm_req = await auth_flow.asend(httpx.Response(404, request=asm_req))
-    assert str(asm_req.url) == "https://new-as.example.com/.well-known/openid-configuration"
+    assert str(next_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    for asm_response in asm_responses:
+        asm_response.request = next_req
+        next_req = await auth_flow.asend(asm_response)
 
     # Step 4 falls back to the resource-server origin's /register.
-    dcr_req = await auth_flow.asend(httpx.Response(404, request=asm_req))
+    dcr_req = next_req
     assert dcr_req.method == "POST"
     assert str(dcr_req.url) == "https://api.example.com/register"
     dcr_response = httpx.Response(

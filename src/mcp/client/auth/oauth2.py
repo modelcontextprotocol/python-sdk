@@ -643,26 +643,22 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
-                        # SEP-2352: bind the credentials to the issuing AS — but only when ASM
-                        # discovery succeeded, so the registration request below actually targets
-                        # that issuer's registration_endpoint. With no metadata (discovery failed),
-                        # DCR falls back to the resource-server origin's /register; recording that
-                        # as bound to a PRM-advertised AS we never reached would persist a
-                        # mis-bound record that the binding check then accepts indefinitely.
-                        bound_issuer: str | None = None
+                        # SEP-2352: the issuer to bind these credentials to, when known.
+                        discovered_issuer: str | None = None
                         if self.context.oauth_metadata is not None:
-                            bound_issuer = self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
+                            discovered_issuer = self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
 
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
-                            # Use URL-based client ID (CIMD)
+                            # Use URL-based client ID (CIMD). CIMD records are portable across
+                            # authorization servers, so the issuer stamp is informational.
                             logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
                             client_information = create_client_info_from_metadata_url(
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
                                 redirect_uris=self.context.client_metadata.redirect_uris,
                             )
-                            client_information.issuer = bound_issuer
+                            client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
                         else:
@@ -674,7 +670,16 @@ class OAuthClientProvider(httpx.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
-                            client_information.issuer = bound_issuer
+                            # Only record the issuer when the registration above actually targeted
+                            # the discovered AS's registration_endpoint. With no metadata, or
+                            # metadata that omits registration_endpoint, DCR fell back to the
+                            # resource-server origin's /register — recording that as bound to a
+                            # PRM-advertised AS would persist a binding that was never established.
+                            if (
+                                self.context.oauth_metadata is not None
+                                and self.context.oauth_metadata.registration_endpoint is not None
+                            ):
+                                client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
