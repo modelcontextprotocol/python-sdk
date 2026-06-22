@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal
 
+import anyio
 from typing_extensions import deprecated
 
 from mcp import types
@@ -15,6 +17,8 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.server.runner import modern_on_request
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import (
@@ -46,6 +50,14 @@ def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
         ttl_ms=0,
         cache_scope="public",
     )
+
+
+async def _drop_notify(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
+    """Server-side ``OnNotify`` for the modern in-process path: client→server notifications are dropped.
+
+    The per-request driver (`serve_one`) has no notification dispatch table; progress and
+    cancellation travel via `CallOptions` on the `DirectDispatcher`, not as JSON-RPC notifies.
+    """
 
 
 @dataclass
@@ -121,11 +133,14 @@ class Client:
 
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
-    _transport: Transport = field(init=False)
+    _transport: Transport | None = field(init=False, default=None)
+    _inproc_server: Server[Any] | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        if isinstance(self.server, Server | MCPServer):
-            self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
+        if isinstance(self.server, MCPServer):
+            self._inproc_server = self.server._lowlevel_server  # pyright: ignore[reportPrivateUsage]
+        elif isinstance(self.server, Server):
+            self._inproc_server = self.server
         elif isinstance(self.server, str):
             self._transport = streamable_http_client(self.server)
         else:
@@ -137,10 +152,34 @@ class Client:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            read_stream, write_stream = await exit_stack.enter_async_context(self._transport)
-
-            self._session = await exit_stack.enter_async_context(
-                ClientSession(
+            if self._inproc_server is not None and self.mode != "legacy":
+                # Modern in-process path: drive the server through a DirectDispatcher peer-pair
+                # with one `serve_one` per request — no streams, no initialize handshake.
+                lifespan_state = await exit_stack.enter_async_context(self._inproc_server.lifespan(self._inproc_server))
+                client_disp, server_disp = create_direct_dispatcher_pair()
+                tg = await exit_stack.enter_async_context(anyio.create_task_group())
+                exit_stack.callback(server_disp.close)
+                await tg.start(server_disp.run, modern_on_request(self._inproc_server, lifespan_state), _drop_notify)
+                session = ClientSession(
+                    dispatcher=client_disp,
+                    read_timeout_seconds=self.read_timeout_seconds,
+                    sampling_callback=self.sampling_callback,
+                    list_roots_callback=self.list_roots_callback,
+                    logging_callback=self.logging_callback,
+                    message_handler=self.message_handler,
+                    client_info=self.client_info,
+                    elicitation_callback=self.elicitation_callback,
+                )
+            else:
+                if self._inproc_server is not None:
+                    transport: Transport = InMemoryTransport(
+                        self._inproc_server, raise_exceptions=self.raise_exceptions
+                    )
+                else:
+                    assert self._transport is not None
+                    transport = self._transport
+                read_stream, write_stream = await exit_stack.enter_async_context(transport)
+                session = ClientSession(
                     read_stream=read_stream,
                     write_stream=write_stream,
                     read_timeout_seconds=self.read_timeout_seconds,
@@ -151,7 +190,8 @@ class Client:
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
                 )
-            )
+
+            self._session = await exit_stack.enter_async_context(session)
 
             if self.mode == "legacy":
                 await self._session.initialize()

@@ -36,11 +36,14 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     Implementation,
     InitializeRequestParams,
@@ -62,6 +65,7 @@ __all__ = [
     "ServerMiddleware",
     "ServerRunner",
     "aclose_shielded",
+    "modern_on_request",
     "otel_middleware",
     "serve_connection",
     "serve_loop",
@@ -512,3 +516,34 @@ async def serve_one(
         return await to_jsonrpc_response(request.id, runner.on_request(dctx, request.method, request.params))
     finally:
         await aclose_shielded(connection)
+
+
+def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> OnRequest:
+    """Return an `OnRequest` callback that serves each call via `serve_one` with a fresh per-request `Connection`.
+
+    Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
+    in-process server on the modern per-request-envelope path (each request
+    carries protocol version, client info, and capabilities in `params._meta`;
+    no `initialize` handshake).
+    """
+
+    async def handle(
+        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        meta = (params or {}).get("_meta", {})
+        connection = Connection.from_envelope(
+            meta.get(PROTOCOL_VERSION_META_KEY, MODERN_PROTOCOL_VERSIONS[-1]),
+            meta.get(CLIENT_INFO_META_KEY),
+            meta.get(CLIENT_CAPABILITIES_META_KEY),
+        )
+        # `OnRequest` is invoked for requests only, so `request_id` is always set.
+        assert dctx.request_id is not None
+        req = JSONRPCRequest(
+            jsonrpc="2.0", id=dctx.request_id, method=method, params=dict(params) if params is not None else None
+        )
+        msg = await serve_one(server, req, connection=connection, dctx=dctx, lifespan_state=lifespan_state)
+        if isinstance(msg, JSONRPCError):
+            raise MCPError(code=msg.error.code, message=msg.error.message, data=msg.error.data)
+        return msg.result
+
+    return handle

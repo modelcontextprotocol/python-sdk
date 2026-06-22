@@ -63,9 +63,7 @@ CONNECTABLE_TRANSPORTS: tuple[Transport, ...] = ("in-memory", "sse", "streamable
 
 TRANSPORT_SPEC_VERSIONS: dict[Transport, tuple[SpecVersion, ...]] = {
     "sse": ("2025-11-25",),
-    # Temporary lock: the in-memory transport has no modern entry point yet, so it cannot
-    # negotiate the newer revision. Remove once an in-memory factory for the modern path lands.
-    "in-memory": ("2025-11-25",),
+    "in-memory": ("2025-11-25", "2026-07-28"),
     # At the newer revision the protocol-version header check runs before the stateless branch is
     # taken, so a stateless connection at that revision behaves identically to the stateful one.
     # Locked to avoid a redundant matrix column; revisit if the header/stateless ordering changes.
@@ -745,7 +743,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Log notifications emitted by a tool handler during execution reach the client's logging "
             "callback before the tool result returns."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "tools:call:progress": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -974,7 +974,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
             "corresponding severity."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "mcpserver:context:progress": Requirement(
         source="sdk",
@@ -1339,7 +1341,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
@@ -1347,7 +1351,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
         ),
-        known_failures=(KnownFailure(spec_version="2026-07-28", note=_MODERN_NOTIFY_DROP, issue=None),),
+        known_failures=(
+            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
+        ),
     ),
     "logging:message:filtered": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
@@ -1970,6 +1976,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         known_failures=(
             KnownFailure(
                 spec_version="2026-07-28",
+                transport="streamable-http",
                 note=(
                     "List-mutation assertions hold; only the sentinel ctx.info() never reaches the client. "
                     + _MODERN_NOTIFY_DROP

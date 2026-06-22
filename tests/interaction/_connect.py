@@ -88,9 +88,15 @@ async def connect_in_memory(
     elicitation_callback: ElicitationFnT | None = None,
     spec_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
-    """Yield a Client connected to the server over the in-memory transport."""
+    """Yield a Client connected to the server over the in-memory transport.
+
+    When `spec_version` is a modern (2026-07-28+) revision the Client is opened with
+    `mode=<version>`, which drives the server through the DirectDispatcher peer-pair
+    (per-request `serve_one`, no initialize handshake) instead of the legacy stream pair.
+    """
     async with Client(
         server,
+        mode=spec_version if spec_version in MODERN_PROTOCOL_VERSIONS else "legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,
