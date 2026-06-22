@@ -274,12 +274,12 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
     return headers
 
 
-def initialize_body(request_id: int = 1) -> dict[str, object]:
+def initialize_body(request_id: int = 1, *, client_name: str = "raw") -> dict[str, object]:
     """A wire-level initialize JSON-RPC request body, exactly as an SDK client would send it."""
     params = InitializeRequestParams(
         protocol_version=LATEST_PROTOCOL_VERSION,
         capabilities=ClientCapabilities(),
-        client_info=Implementation(name="raw", version="0.0.0"),
+        client_info=Implementation(name=client_name, version="0.0.0"),
     )
     return JSONRPCRequest(
         jsonrpc="2.0", id=request_id, method="initialize", params=params.model_dump(by_alias=True, exclude_none=True)

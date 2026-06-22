@@ -14,7 +14,17 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp.server import Server, ServerRequestContext
-from mcp.types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
+from mcp.types import (
+    INVALID_REQUEST,
+    CallToolRequestParams,
+    CallToolResult,
+    JSONRPCError,
+    JSONRPCResponse,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 from tests.interaction._connect import (
     base_headers,
     client_via_http,
@@ -32,9 +42,25 @@ def _server() -> Server:
     """A minimal low-level server with one tool, so subsequent-request routing can be observed."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="noop", description="Does nothing.", input_schema={"type": "object"})])
+        return ListToolsResult(
+            tools=[
+                Tool(name="noop", description="Does nothing.", input_schema={"type": "object"}),
+                Tool(
+                    name="client-name",
+                    description="Reports the initialized client name.",
+                    input_schema={"type": "object"},
+                ),
+            ]
+        )
 
-    return Server("hosted", on_list_tools=list_tools)
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        client_params = ctx.session.client_params
+        assert client_params is not None
+        assert params.name == "client-name"
+        client_name = client_params.client_info.name
+        return CallToolResult(content=[TextContent(text=client_name)], structured_content={"clientName": client_name})
+
+    return Server("hosted", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 @requirement("hosting:session:create")
@@ -142,20 +168,49 @@ async def test_terminating_one_session_leaves_others_working() -> None:
 
 
 @requirement("hosting:session:reinitialize")
-async def test_second_initialize_on_an_existing_session_is_accepted() -> None:
-    """A second initialize POST carrying an existing session ID is processed rather than rejected.
-
-    See the divergence on the requirement: the entry expects a rejection, but the SDK forwards the
-    second initialize to the running server, which answers it as a fresh handshake.
-    """
+async def test_second_initialize_on_an_existing_session_is_rejected() -> None:
+    """A second initialize POST carrying an existing session ID is rejected without changing client params."""
     async with mounted_app(_server()) as (http, manager):
         session_id = await initialize_via_http(http)
-        response, messages = await post_jsonrpc(http, initialize_body(request_id=2), session_id=session_id)
+        call_body: dict[str, object] = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "client-name"},
+        }
+        first_call_response, first_call_messages = await post_jsonrpc(http, call_body, session_id=session_id)
+
+        response, messages = await post_jsonrpc(
+            http, initialize_body(request_id=3, client_name="reinitializer"), session_id=session_id
+        )
+        second_call_body: dict[str, object] = {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "client-name"},
+        }
+        second_call_response, second_call_messages = await post_jsonrpc(
+            http,
+            second_call_body,
+            session_id=session_id,
+        )
         assert len(manager._server_instances) == 1
 
+    assert first_call_response.status_code == 200
+    assert isinstance(first_call_messages[0], JSONRPCResponse)
+    first_call_result = CallToolResult.model_validate(first_call_messages[0].result)
+    assert first_call_result.structured_content == {"clientName": "raw"}
+
     assert response.status_code == snapshot(200)
-    assert isinstance(messages[0], JSONRPCResponse)
-    assert messages[0].id == 2
+    assert isinstance(messages[0], JSONRPCError)
+    assert messages[0].id == 3
+    assert messages[0].error.code == INVALID_REQUEST
+    assert messages[0].error.message == "Server is already initialized"
+
+    assert second_call_response.status_code == 200
+    assert isinstance(second_call_messages[0], JSONRPCResponse)
+    second_call_result = CallToolResult.model_validate(second_call_messages[0].result)
+    assert second_call_result.structured_content == {"clientName": "raw"}
 
 
 @requirement("hosting:stateless:no-session-id")

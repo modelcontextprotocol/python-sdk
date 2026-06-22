@@ -40,6 +40,7 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     ErrorData,
@@ -251,6 +252,8 @@ class ServerRunner(Generic[LifespanT]):
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
+                if self.connection.client_params is not None:
+                    raise MCPError(code=INVALID_REQUEST, message="Server is already initialized")
                 return self._handle_initialize(params)
             # Methods without a handler are METHOD_NOT_FOUND regardless of
             # initialization state: JSON-RPC 2.0 reserves -32601 for "not
