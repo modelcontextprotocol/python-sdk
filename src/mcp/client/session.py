@@ -34,12 +34,15 @@ from mcp.types import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    REQUEST_TIMEOUT,
+    UNSUPPORTED_PROTOCOL_VERSION,
     RequestId,
     RequestParamsMeta,
 )
 from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+DISCOVER_TIMEOUT_SECONDS = 10.0
 
 logger = logging.getLogger("client")
 
@@ -367,6 +370,67 @@ class ClientSession:
         else:
             self._stamp = _make_handshake_stamp(result.protocol_version)
             self._initialize_result = result
+
+    async def discover(self) -> types.InitializeResult:
+        """Probe `server/discover` and adopt the result, falling back to `initialize()`.
+
+        Sends a single `server/discover` proposing the newest modern protocol
+        version. The error ladder, in order:
+
+        - `UNSUPPORTED_PROTOCOL_VERSION` (-32022): the server's `supported`
+          list is intersected with `MODERN_PROTOCOL_VERSIONS` and the probe is
+          retried once at the highest mutual version. No mutual version, or a
+          second failure, raises the server's `MCPError`.
+        - `METHOD_NOT_FOUND` (-32601) or `REQUEST_TIMEOUT` (-32001): the server
+          is treated as legacy and `initialize()` runs instead — exactly as
+          ``mode='legacy'`` would.
+        - Any other error: re-raised.
+
+        Returns the synthesized `InitializeResult` (also available afterwards
+        via `initialize_result`).
+        """
+        if self._initialize_result is not None:
+            return self._initialize_result
+
+        client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+        capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        async def probe(version: str) -> dict[str, Any]:
+            params = {
+                "_meta": {
+                    PROTOCOL_VERSION_META_KEY: version,
+                    CLIENT_INFO_META_KEY: client_info,
+                    CLIENT_CAPABILITIES_META_KEY: capabilities,
+                }
+            }
+            opts: CallOptions = {
+                "timeout": DISCOVER_TIMEOUT_SECONDS,
+                "cancel_on_abandon": False,
+                "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
+            }
+            return await self._dispatcher.send_raw_request("server/discover", params, opts)
+
+        try:
+            raw = await probe(MODERN_PROTOCOL_VERSIONS[-1])
+        except MCPError as e:
+            if e.code == UNSUPPORTED_PROTOCOL_VERSION:
+                try:
+                    data = types.UnsupportedProtocolVersionErrorData.model_validate(e.error.data)
+                except ValidationError:
+                    raise e from None
+                mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in data.supported]
+                if not mutual:
+                    raise
+                raw = await probe(mutual[-1])
+            elif e.code in (METHOD_NOT_FOUND, REQUEST_TIMEOUT):
+                return await self.initialize()
+            else:
+                raise
+
+        result = types.DiscoverResult.model_validate(raw)
+        self.adopt(result)
+        assert self._initialize_result is not None
+        return self._initialize_result
 
     @property
     def initialize_result(self) -> types.InitializeResult | None:

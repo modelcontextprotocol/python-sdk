@@ -25,7 +25,9 @@ from mcp.types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolResult,
     Implementation,
     InitializedNotification,
@@ -1435,3 +1437,195 @@ async def test_send_notification_after_close_is_dropped_silently():
     finally:
         for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
             s.close()
+
+
+# --- discover() ladder ---
+
+
+class _ScriptedDispatcher:
+    """Records every `send_raw_request` and plays back scripted answers in order.
+
+    A script entry that is an `Exception` is raised; a dict is returned."""
+
+    def __init__(self, *script: dict[str, Any] | Exception) -> None:
+        self.calls: list[tuple[str, Mapping[str, Any] | None]] = []
+        self.notifies: list[str] = []
+        self._script: list[dict[str, Any] | Exception] = list(script)
+
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        task_status.started()
+        await anyio.sleep_forever()
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((method, params))
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        self.notifies.append(method)
+
+
+def _discover_result_dict() -> dict[str, Any]:
+    return types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="stub", version="0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+def _initialize_result_dict() -> dict[str, Any]:
+    return InitializeResult(
+        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="stub", version="0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+@pytest.mark.anyio
+async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp() -> None:
+    """SDK-defined: a successful `server/discover` is adopted and subsequent requests
+    carry the modern `_meta` envelope (protocol version + client info + capabilities)."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), {})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            assert session.protocol_version == "2026-07-28"
+            await session.send_ping()
+    ping_method, ping_params = dispatcher.calls[-1]
+    assert ping_method == "ping"
+    assert ping_params is not None
+    assert ping_params["_meta"][PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+
+
+@pytest.mark.anyio
+async def test_discover_retries_once_on_unsupported_version_then_adopts() -> None:
+    """Spec SHOULD: a -32022 reply that names a mutually-supported version
+    triggers exactly one retry at that version, and the retry's result is adopted."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(
+            UNSUPPORTED_PROTOCOL_VERSION,
+            "unsupported",
+            data={"supported": ["2026-07-28"], "requested": "2026-07-28"},
+        ),
+        _discover_result_dict(),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert [m for m, _ in dispatcher.calls] == ["server/discover", "server/discover"]
+
+
+@pytest.mark.anyio
+async def test_discover_raises_when_retry_intersection_is_empty() -> None:
+    """Spec SHOULD: a -32022 reply whose `supported` list shares nothing with the
+    client's modern versions is unrecoverable — the original error is re-raised
+    without a second probe."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(
+            UNSUPPORTED_PROTOCOL_VERSION,
+            "unsupported",
+            data={"supported": ["1999-01-01"], "requested": "2026-07-28"},
+        ),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+@pytest.mark.anyio
+async def test_discover_falls_back_to_initialize_on_method_not_found() -> None:
+    """Spec SHOULD: a legacy server that answers -32601 to `server/discover` is
+    transparently driven through the handshake instead."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(METHOD_NOT_FOUND, "Method not found"),
+        _initialize_result_dict(),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+    assert [m for m, _ in dispatcher.calls] == ["server/discover", "initialize"]
+    assert dispatcher.notifies == ["notifications/initialized"]
+
+
+@pytest.mark.anyio
+async def test_discover_falls_back_to_initialize_on_timeout() -> None:
+    """Spec SHOULD: a `REQUEST_TIMEOUT` from the dispatcher is treated the same as
+    method-not-found — the server is presumed legacy and `initialize()` runs."""
+    dispatcher = _ScriptedDispatcher(
+        MCPError(REQUEST_TIMEOUT, "timed out"),
+        _initialize_result_dict(),
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
+    assert [m for m, _ in dispatcher.calls] == ["server/discover", "initialize"]
+
+
+@pytest.mark.anyio
+async def test_discover_reraises_on_other_errors() -> None:
+    """SDK-defined: any error outside the retry/fallback ladder propagates verbatim
+    — `discover()` does not mask server failures by falling back to `initialize()`."""
+    dispatcher = _ScriptedDispatcher(MCPError(INTERNAL_ERROR, "boom"))
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == INTERNAL_ERROR
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+@pytest.mark.anyio
+async def test_discover_validates_the_response_shape_before_adopting() -> None:
+    """SDK-defined: the raw response is run through `DiscoverResult` validation
+    before any state is installed, so a malformed reply leaves the session
+    un-adopted rather than half-configured."""
+    dispatcher = _ScriptedDispatcher({"supportedVersions": ["2026-07-28"]})
+    session = ClientSession(dispatcher=dispatcher)
+    with anyio.fail_after(5):
+        async with session:
+            with pytest.raises(ValidationError):
+                await session.discover()
+            assert session.protocol_version is None
+
+
+@pytest.mark.anyio
+async def test_discover_is_idempotent_and_returns_the_cached_result() -> None:
+    """SDK-defined: a second `discover()` returns the already-adopted result without
+    re-probing — the script holds exactly one entry, so a second wire call would
+    `IndexError` on the empty script."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict())
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            first = await session.discover()
+            assert await session.discover() is first
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+@pytest.mark.anyio
+async def test_discover_reraises_unsupported_version_with_malformed_error_data() -> None:
+    """SDK-defined: a -32022 reply whose `data` is not a valid
+    `UnsupportedProtocolVersionErrorData` payload is unrecoverable — the original
+    error is re-raised without a retry probe."""
+    dispatcher = _ScriptedDispatcher(MCPError(UNSUPPORTED_PROTOCOL_VERSION, "unsupported", data="not-an-object"))
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            with pytest.raises(MCPError) as exc:
+                await session.discover()
+            assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert [m for m, _ in dispatcher.calls] == ["server/discover"]

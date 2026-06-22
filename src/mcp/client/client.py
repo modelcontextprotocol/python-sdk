@@ -107,10 +107,10 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    mode: Literal["legacy"] | str = "legacy"
-    """'legacy' performs the initialize handshake. A protocol-version string (e.g. '2026-07-28') adopts that
-    version directly without a handshake — supply prior_discover to reuse a known DiscoverResult, or omit it
-    to synthesize a minimal one."""
+    mode: Literal["legacy", "auto"] | str = "legacy"
+    """'legacy' performs the initialize handshake. 'auto' probes server/discover and falls back to initialize()
+    on legacy servers. A protocol-version string (e.g. '2026-07-28') adopts that version directly without a
+    handshake — supply prior_discover to reuse a known DiscoverResult, or omit it to synthesize a minimal one."""
 
     prior_discover: types.DiscoverResult | None = None
     """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
@@ -155,6 +155,8 @@ class Client:
 
             if self.mode == "legacy":
                 await self._session.initialize()
+            elif self.mode == "auto":
+                await self._session.discover()
             else:
                 self._session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 

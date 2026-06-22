@@ -14,6 +14,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.types import (
@@ -37,6 +38,7 @@ from mcp.types import (
     Tool,
     ToolsCapability,
 )
+from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
 
@@ -359,3 +361,17 @@ async def test_context_propagation():
     assert result.content[0].text == "client_value", (  # type: ignore[union-attr]
         "Server handler did not see the sender's contextvars.Context"
     )
+
+
+async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Server) -> None:
+    """`mode='auto'` over an in-process HTTP transport: the `server/discover` probe
+    reaches the modern entry and the negotiated protocol version is adopted without
+    an `initialize` handshake. Runs over HTTP because the in-memory runner gates
+    `server/discover` behind the init handshake."""
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(simple_server) as (http, _),
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
+        ):
+            assert client.initialize_result.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
