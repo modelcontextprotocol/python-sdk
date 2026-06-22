@@ -643,12 +643,15 @@ class OAuthClientProvider(httpx.Auth):
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
-                        # SEP-2352: bind the credentials to the issuing AS. Prefer the PRM-advertised
-                        # authorization server; on the legacy no-PRM path fall back to the issuer from
-                        # the discovered metadata so the binding is still recorded.
-                        bound_issuer = self.context.auth_server_url
-                        if bound_issuer is None and self.context.oauth_metadata is not None:
-                            bound_issuer = str(self.context.oauth_metadata.issuer)
+                        # SEP-2352: bind the credentials to the issuing AS — but only when ASM
+                        # discovery succeeded, so the registration request below actually targets
+                        # that issuer's registration_endpoint. With no metadata (discovery failed),
+                        # DCR falls back to the resource-server origin's /register; recording that
+                        # as bound to a PRM-advertised AS we never reached would persist a
+                        # mis-bound record that the binding check then accepts indefinitely.
+                        bound_issuer: str | None = None
+                        if self.context.oauth_metadata is not None:
+                            bound_issuer = self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
 
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url

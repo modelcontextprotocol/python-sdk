@@ -57,7 +57,7 @@ class MockTokenStorage:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info  # pragma: no cover
+        return self._client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -2933,3 +2933,95 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
     assert next_req.method == "POST"
     assert str(next_req.url) == "https://api.example.com/register"
     await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_issuer_is_not_stamped_when_registration_falls_back_after_asm_discovery_fails(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """SEP-2352: a fallback registration is not recorded as bound to an undiscovered AS.
+
+    PRM advertises a new authorization server, so the stored credentials (bound to the old
+    issuer) are discarded. ASM discovery for the new server then fails, so DCR falls back to
+    the resource-server origin's ``/register``. That registration was not derived from the new
+    AS's metadata, so persisting it as bound to the new AS would wedge the binding check on
+    later flows; instead the issuer is left unset.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://api.example.com/",
+    )
+
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            )
+        },
+        request=request,
+    )
+
+    # PRM succeeds and advertises a new AS — the discard block fires.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+    prm_response = httpx.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}'
+        ),
+        request=prm_req,
+    )
+
+    # ASM discovery for the new AS fails on every well-known URL.
+    asm_req = await auth_flow.asend(prm_response)
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.oauth_metadata is None
+    assert str(asm_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    asm_req = await auth_flow.asend(httpx.Response(404, request=asm_req))
+    assert str(asm_req.url) == "https://new-as.example.com/.well-known/openid-configuration"
+
+    # Step 4 falls back to the resource-server origin's /register.
+    dcr_req = await auth_flow.asend(httpx.Response(404, request=asm_req))
+    assert dcr_req.method == "POST"
+    assert str(dcr_req.url) == "https://api.example.com/register"
+    dcr_response = httpx.Response(
+        201,
+        json={"client_id": "fallback-client", "redirect_uris": ["http://localhost:3030/callback"]},
+        request=dcr_req,
+    )
+    token_req = await auth_flow.asend(dcr_response)
+
+    # The persisted record carries no issuer binding — not the PRM-advertised AS we never reached.
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fallback-client"
+    assert stored.issuer is None
+
+    # Drive the flow to completion so the context lock is released cleanly.
+    token_response = httpx.Response(
+        200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
+    )
+    final_req = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass
