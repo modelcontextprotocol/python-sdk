@@ -2,21 +2,13 @@
 
 WARNING: These APIs are experimental and may change without notice.
 
-A server author advertises their MCP server by serving an AI Catalog from the
-well-known path, with an entry pointing at the server's Server Card::
+A server advertises its MCP server(s) by serving an AI Catalog from the
+well-known path, with one entry per Server Card::
 
-    from mcp.server.experimental.ai_catalog import mount_ai_catalog, server_card_entry
-    from mcp.server.experimental.server_card import build_server_card, mount_server_card
-    from mcp.shared.experimental.ai_catalog import AICatalog
+    catalog = AICatalog(entries=[server_card_entry(card, "https://example.com/server-card")])
+    mount_ai_catalog(server.streamable_http_app(), catalog)   # GET /.well-known/ai-catalog.json
 
-    card = build_server_card(server, name="io.modelcontextprotocol.examples/dice-roller")
-
-    app = server.streamable_http_app()
-    mount_server_card(app, card, path="/server-card.json")
-    catalog = AICatalog(entries=[server_card_entry(card, "https://dice.example.com/server-card.json")])
-    mount_ai_catalog(app, catalog)          # GET /.well-known/ai-catalog.json
-
-To write a catalog to a file instead, serialize it with
+To write a catalog to a file instead, use
 ``catalog.model_dump_json(by_alias=True, exclude_none=True)``.
 """
 
@@ -29,9 +21,9 @@ from starlette.routing import Route
 
 from mcp.shared.experimental.ai_catalog.types import (
     AI_CATALOG_MEDIA_TYPE,
+    AI_CATALOG_URN_PREFIX,
     AI_CATALOG_WELL_KNOWN_PATH,
     MCP_SERVER_CARD_MEDIA_TYPE,
-    MCP_SERVER_URN_PREFIX,
     AICatalog,
     CatalogEntry,
 )
@@ -40,8 +32,8 @@ from mcp.shared.experimental.server_card.types import ServerCard
 __all__ = ["DISCOVERY_HEADERS", "server_card_entry", "ai_catalog_route", "mount_ai_catalog"]
 
 #: Response headers for discovery endpoints (catalogs and the artifacts they
-#: reference). Browser-based clients must be able to read them: the discovery
-#: spec makes the CORS headers a MUST and the caching header a SHOULD.
+#: reference): CORS headers so browser clients can read them, plus a caching
+#: hint.
 DISCOVERY_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET",
@@ -50,16 +42,29 @@ DISCOVERY_HEADERS = {
 }
 
 
+def _air_identifier(card_name: str) -> str:
+    """Derive an AI Catalog ``urn:air:`` identifier from a Server Card name.
+
+    The card ``name`` is ``namespace/suffix`` in reverse-DNS form
+    (``com.example/weather``); the namespace labels are reversed to forward-DNS
+    (``com.example`` -> ``example.com``) and the suffix appended:
+    ``urn:air:example.com:weather``.
+    """
+    namespace, _, suffix = card_name.partition("/")
+    publisher = ".".join(reversed(namespace.split(".")))
+    return f"{AI_CATALOG_URN_PREFIX}{publisher}:{suffix}"
+
+
 def server_card_entry(card: ServerCard, url: str) -> CatalogEntry:
     """Build the catalog entry advertising ``card``, served at ``url``.
 
-    The entry's identifier is derived from the card's ``name`` per the MCP
-    discovery extension (``urn:mcp:server:<name>``); display name, description
-    and version are taken from the card. ``url`` should be the absolute URL
-    the card is retrievable from, since catalogs may be fetched cross-domain.
+    The entry's identifier is derived from the card's ``name``
+    (``urn:air:{publisher}:{name}``); display name, description and version are
+    taken from the card. ``url`` should be the absolute URL the card is
+    retrievable from, since catalogs may be fetched cross-domain.
     """
     return CatalogEntry(
-        identifier=f"{MCP_SERVER_URN_PREFIX}{card.name}",
+        identifier=_air_identifier(card.name),
         display_name=card.title or card.name,
         media_type=MCP_SERVER_CARD_MEDIA_TYPE,
         url=url,

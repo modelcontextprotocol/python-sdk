@@ -13,9 +13,9 @@ from mcp.shared.experimental.ai_catalog import (
 )
 
 MINIMAL_ENTRY = {
-    "identifier": "urn:mcp:server:com.example/weather",
+    "identifier": "urn:air:example.com:weather",
     "displayName": "Weather Service",
-    "mediaType": "application/mcp-server+json",
+    "mediaType": "application/mcp-server-card+json",
     "url": "https://example.com/server-card.json",
 }
 
@@ -78,24 +78,24 @@ FULL_CATALOG = {
             "metadata": {"com.acme.deploymentRegion": "eu-west-1"},
         },
         {
-            "identifier": "urn:mcp:server:com.acme/weather",
+            "identifier": "urn:air:acme.com:weather",
             "displayName": "Weather Service",
-            "mediaType": "application/mcp-server+json",
+            "mediaType": "application/mcp-server-card+json",
             "data": {"name": "com.acme/weather", "version": "1.0.0", "description": "Weather lookups."},
         },
     ],
     "metadata": {"com.acme.catalogOwner": "platform-team"},
 }
 
-# The transitional MCP Catalog from the MCP discovery extension is a
-# structural subset of an AI Catalog and must parse with the same models.
+# The MCP Catalog from the MCP discovery extension is a structural subset of
+# an AI Catalog and must parse with the same models.
 MCP_CATALOG = {
     "specVersion": "draft",
     "entries": [
         {
-            "identifier": "urn:mcp:server:com.example/weather",
+            "identifier": "urn:air:example.com:weather",
             "displayName": "Weather Service",
-            "mediaType": "application/mcp-server+json",
+            "mediaType": "application/mcp-server-card+json",
             "url": "https://example.com/.well-known/mcp-server-card",
         }
     ],
@@ -131,7 +131,7 @@ def test_entry_rejects_url_and_data_together() -> None:
 def test_entry_rejects_mismatched_trust_manifest_identity() -> None:
     """The spec requires rejecting trust manifests bound to a different identifier."""
     with pytest.raises(ValidationError) as excinfo:
-        CatalogEntry.model_validate({**MINIMAL_ENTRY, "trustManifest": {"identity": "urn:mcp:server:other/name"}})
+        CatalogEntry.model_validate({**MINIMAL_ENTRY, "trustManifest": {"identity": "urn:air:other.example:name"}})
     assert "does not match entry identifier" in str(excinfo.value)
 
 

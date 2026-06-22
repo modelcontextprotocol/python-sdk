@@ -2,24 +2,21 @@
 
 WARNING: These APIs are experimental and may change without notice.
 
-A server author builds a card from the server's identity and serves it at a
-path of their choosing, advertised through an AI Catalog (see
-``mcp.server.experimental.ai_catalog``)::
+A server author builds a card from the server's identity and serves it. The
+recommended location is ``<streamable-http-url>/server-card`` — pass ``path`` to
+match the MCP endpoint (e.g. ``/mcp/server-card`` when the server is mounted at
+``/mcp``)::
 
-    from mcp.server.experimental.server_card import build_server_card, mount_server_card
-    from mcp.shared.experimental.server_card import Remote
+    card = build_server_card(server, name="com.example/dice-roller", remotes=[...])
+    mount_server_card(server.streamable_http_app(), card, path="/mcp/server-card")
 
-    card = build_server_card(
-        server,
-        name="io.modelcontextprotocol.examples/dice-roller",
-        remotes=[Remote(type="streamable-http", url="https://dice.example.com/mcp")],
-    )
+Clients learn the card's URL from a catalog entry, so any reachable path works;
+the convention only matters for fallback probing.
 
-    app = server.streamable_http_app()
-    mount_server_card(app, card, path="/server-card.json")
-
-To write a card to a file instead, serialize it with
-``card.model_dump_json(by_alias=True, exclude_none=True)``.
+A hosted card is only discoverable once it is registered in an AI Catalog (see
+``mcp.server.experimental.ai_catalog``); clients learn a card's URL from a
+catalog entry rather than guessing it. To write a card to a file instead of
+serving it, use ``card.model_dump_json(by_alias=True, exclude_none=True)``.
 """
 
 from __future__ import annotations
@@ -102,14 +99,16 @@ def build_server_card(
     )
 
 
-def server_card_route(card: ServerCard, *, path: str) -> Route:
+def server_card_route(card: ServerCard, *, path: str = "/server-card") -> Route:
     """Build a Starlette GET route that serves ``card`` at ``path``.
 
-    Add it to a new app — ``Starlette(routes=[server_card_route(card, path=...)])``
-    — or an existing one via :func:`mount_server_card`, and advertise the
-    resulting URL in an AI Catalog entry. The payload is serialized once and
-    served as ``application/mcp-server+json`` with the CORS and caching
-    headers discovery requires.
+    ``path`` defaults to ``/server-card``, the recommended location
+    (``<streamable-http-url>/server-card``). Add the route to
+    a new app — ``Starlette(routes=[server_card_route(card)])`` — or an existing
+    one via :func:`mount_server_card`, and advertise the resulting URL in an AI
+    Catalog entry. The payload is serialized once and served as
+    ``application/mcp-server-card+json`` with the CORS and caching headers
+    discovery requires.
     """
     body = card.model_dump_json(by_alias=True, exclude_none=True).encode()
 
@@ -119,10 +118,11 @@ def server_card_route(card: ServerCard, *, path: str) -> Route:
     return Route(path, endpoint=endpoint, methods=["GET"], name="mcp_server_card")
 
 
-def mount_server_card(app: Starlette, card: ServerCard, *, path: str) -> None:
+def mount_server_card(app: Starlette, card: ServerCard, *, path: str = "/server-card") -> None:
     """Attach a Server Card route to an existing Starlette application.
 
-    Pre-connection discovery expects the card to be reachable without
-    authentication; mount it outside any auth middleware.
+    ``path`` defaults to ``/server-card``, the reserved location. Pre-connection
+    discovery expects the card to be reachable without authentication; mount it
+    outside any auth middleware.
     """
     app.router.routes.append(server_card_route(card, path=path))

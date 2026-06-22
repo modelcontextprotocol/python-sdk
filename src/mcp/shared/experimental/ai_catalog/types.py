@@ -32,14 +32,16 @@ from mcp.types._types import MCPModel
 AI_CATALOG_MEDIA_TYPE = "application/ai-catalog+json"
 #: Media type identifying an MCP Server Card artifact in a catalog entry,
 #: per the MCP discovery extension.
-MCP_SERVER_CARD_MEDIA_TYPE = "application/mcp-server+json"
+MCP_SERVER_CARD_MEDIA_TYPE = "application/mcp-server-card+json"
 #: Well-known path an AI Catalog is published at, relative to the host root.
 AI_CATALOG_WELL_KNOWN_PATH = "/.well-known/ai-catalog.json"
-#: Well-known path of the transitional MCP-scoped catalog defined by the MCP
-#: discovery extension. Structurally compatible with an AI Catalog.
+#: Well-known path of the MCP-scoped catalog defined by the MCP discovery
+#: extension. A structural subset of an AI Catalog, so it parses with these models.
 MCP_CATALOG_WELL_KNOWN_PATH = "/.well-known/mcp/catalog.json"
-#: URN prefix for MCP server entry identifiers (``urn:mcp:server:<name>``).
-MCP_SERVER_URN_PREFIX = "urn:mcp:server:"
+#: URN prefix for AI Catalog entry identifiers. MCP server entries use
+#: ``urn:air:{publisher}:{name}`` where ``publisher`` is the forward-DNS form of
+#: the card name's namespace (``com.example/weather`` -> ``urn:air:example.com:weather``).
+AI_CATALOG_URN_PREFIX = "urn:air:"
 
 
 class TrustSchema(MCPModel):
@@ -179,15 +181,16 @@ class CatalogEntry(MCPModel):
     identifier: str
     """Identifier for the artifact; SHOULD be a URN or URI.
 
-    MCP server entries use ``urn:mcp:server:<name>`` where ``<name>`` is the
-    referenced Server Card's ``name``.
+    MCP server entries use ``urn:air:{publisher}:{name}``, where ``publisher`` is
+    the forward-DNS form of the referenced Server Card's namespace and ``name``
+    is its name suffix.
     """
 
     display_name: str
     """Human-readable name for the artifact."""
 
     media_type: str
-    """Media type identifying the artifact type (e.g. ``"application/mcp-server+json"``)."""
+    """Media type identifying the artifact type (e.g. ``"application/mcp-server-card+json"``)."""
 
     url: str | None = None
     """URL where the full artifact document can be retrieved."""
@@ -241,8 +244,7 @@ class AICatalog(MCPModel):
     spec_version: str = "1.0"
     """The AI Catalog specification version, in ``"Major.Minor"`` format.
 
-    The specification marks ``specVersion`` as required; ingestion here is
-    deliberately lenient and defaults it for documents that omit the key.
+    Required by the specification; defaulted here for documents that omit it.
     """
 
     entries: list[CatalogEntry]

@@ -105,9 +105,9 @@ async def test_discover_server_cards_resolves_relative_entry_url() -> None:
 
 async def test_discover_server_cards_reads_inline_data_entries() -> None:
     entry = CatalogEntry(
-        identifier="urn:mcp:server:example/dice",
+        identifier="urn:air:example:dice",
         display_name="Dice",
-        media_type="application/mcp-server+json",
+        media_type="application/mcp-server-card+json",
         data=CARD.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
     transport = httpx.ASGITransport(app=make_discovery_app(entry))
@@ -116,9 +116,16 @@ async def test_discover_server_cards_reads_inline_data_entries() -> None:
     assert cards == [CARD]
 
 
-async def test_discover_server_cards_accepts_ai_catalog_spec_media_type() -> None:
-    entry = server_card_entry(CARD, CARD_URL).model_copy(update={"media_type": "application/mcp-server-card+json"})
-    transport = httpx.ASGITransport(app=make_discovery_app(entry))
+async def test_discover_server_cards_ignores_non_card_entries() -> None:
+    """Catalog entries that are not Server Cards are skipped."""
+    other = CatalogEntry(
+        identifier="urn:air:example.com:agent",
+        display_name="Some Agent",
+        media_type="application/a2a-agent-card+json",
+        url="https://example.com/agent.json",
+    )
+    app = make_discovery_app(server_card_entry(CARD, CARD_URL), other)
+    transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
