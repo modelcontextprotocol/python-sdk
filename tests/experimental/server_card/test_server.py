@@ -33,12 +33,12 @@ def make_server() -> Server:
 def test_build_server_card_from_server_identity() -> None:
     card = build_server_card(
         make_server(),
-        name="io.modelcontextprotocol.examples/dice-roller",
+        name="com.example/dice-roller",
         remotes=[Remote(type="streamable-http", url="https://dice.example.com/mcp")],
         repository=Repository(url="https://github.com/example/dice", source="github"),
         meta={"com.example/x": 1},
     )
-    assert card.name == "io.modelcontextprotocol.examples/dice-roller"
+    assert card.name == "com.example/dice-roller"
     assert card.version == "1.0.0"
     assert card.title == "Dice Roller"
     assert card.description == "Rolls dice for tabletop games."
@@ -70,7 +70,7 @@ async def test_server_card_route_serves_card_with_discovery_headers() -> None:
     app = Starlette(routes=[server_card_route(card, path=CARD_PATH)])
     response = await _get(app, CARD_PATH)
     assert response.status_code == 200
-    assert response.headers["content-type"] == "application/mcp-server+json"
+    assert response.headers["content-type"] == "application/mcp-server-card+json"
     # Discovery requires CORS headers (MUST) and caching headers (SHOULD).
     assert response.headers["access-control-allow-origin"] == "*"
     assert response.headers["access-control-allow-methods"] == "GET"

@@ -12,10 +12,10 @@ published at ``/.well-known/ai-catalog.json`` for domain-level discovery. See
 
 from mcp.shared.experimental.ai_catalog.types import (
     AI_CATALOG_MEDIA_TYPE,
+    AI_CATALOG_URN_PREFIX,
     AI_CATALOG_WELL_KNOWN_PATH,
     MCP_CATALOG_WELL_KNOWN_PATH,
     MCP_SERVER_CARD_MEDIA_TYPE,
-    MCP_SERVER_URN_PREFIX,
     AICatalog,
     Attestation,
     CatalogEntry,
@@ -28,10 +28,10 @@ from mcp.shared.experimental.ai_catalog.types import (
 
 __all__ = [
     "AI_CATALOG_MEDIA_TYPE",
+    "AI_CATALOG_URN_PREFIX",
     "AI_CATALOG_WELL_KNOWN_PATH",
     "MCP_CATALOG_WELL_KNOWN_PATH",
     "MCP_SERVER_CARD_MEDIA_TYPE",
-    "MCP_SERVER_URN_PREFIX",
     "AICatalog",
     "Attestation",
     "CatalogEntry",
