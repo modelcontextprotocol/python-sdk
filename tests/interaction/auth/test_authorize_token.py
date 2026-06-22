@@ -187,6 +187,24 @@ async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
             await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
 
 
+@requirement("client-auth:authorization-response:iss-verify")
+async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
+    """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
+
+    `iss_override` makes the headless callback return an issuer the AS never advertised; the SDK
+    compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth(iss_override="https://attacker.example.com")
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(OAuthFlowError, match="^Authorization response iss mismatch:"), flatten_subgroups=True
+        ):
+            await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
+
+
 @requirement("client-auth:resource-parameter")
 async def test_the_authorization_code_token_request_carries_grant_type_code_redirect_and_resource(
     recorded_oauth_flow: RecordedFlow,

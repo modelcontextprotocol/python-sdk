@@ -14,9 +14,15 @@ from inline_snapshot import snapshot
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INVALID_PARAMS,
     INVALID_REQUEST,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -52,7 +58,7 @@ def _server() -> Server:
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "narrate"
-        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)
+        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="done")])
 
@@ -155,7 +161,12 @@ async def test_malformed_and_batched_bodies_return_400() -> None:
 @requirement("hosting:http:protocol-version-400")
 @requirement("hosting:http:protocol-version-default")
 async def test_protocol_version_header_is_validated() -> None:
-    """An unsupported MCP-Protocol-Version header returns 400; an absent header is accepted as the default."""
+    """An unsupported MCP-Protocol-Version header returns 400; an absent header is accepted as the default.
+
+    An unrecognised header value routes to the modern entry (which owns rejection of unknown
+    versions), and a request without the per-request envelope is rejected at the first ladder
+    rung. Only known initialize-handshake versions and an absent header reach the legacy path.
+    """
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
 
@@ -172,11 +183,38 @@ async def test_protocol_version_header_is_validated() -> None:
         )
 
     assert bad.status_code == 400
-    assert JSONRPCError.model_validate_json(bad.text).error.message.startswith(
-        "Bad Request: Unsupported protocol version: 1991-01-01."
-    )
+    assert JSONRPCError.model_validate_json(bad.text).error.code == INVALID_PARAMS
     # 202 proves the request was accepted under the assumed default version (2025-03-26).
     assert defaulted.status_code == 202
+
+
+@requirement("hosting:http:protocol-version-rejection-literal")
+async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_literal() -> None:
+    """The 400 body for an unsupported MCP-Protocol-Version contains the substring peer SDKs sniff.
+
+    SDK-defined: other SDKs detect this rejection by substring-matching ``Unsupported protocol
+    version`` in the response body, so the literal must survive any rewording of the surrounding
+    message. The unsupported value must appear in both the header and the envelope so the
+    classifier reaches its version-supported rung rather than reporting a header mismatch first.
+    """
+    bad = "1991-01-01"
+    meta = {
+        PROTOCOL_VERSION_META_KEY: bad,
+        CLIENT_INFO_META_KEY: {"name": "t", "version": "0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    async with mounted_app(_server()) as (http, _):
+        response = await http.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": meta}},
+            headers=base_headers() | {"mcp-protocol-version": bad},
+        )
+
+    assert response.status_code == 400
+    error = JSONRPCError.model_validate_json(response.text).error
+    assert error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert "Unsupported protocol version" in response.text
+    assert error.data == {"supported": list(MODERN_PROTOCOL_VERSIONS), "requested": bad}
 
 
 @requirement("hosting:http:json-response-mode")

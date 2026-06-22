@@ -5,6 +5,17 @@ from typing import Any, cast
 from mcp.types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
+class MCPDeprecationWarning(UserWarning):
+    """A custom deprecation warning for the MCP SDK.
+
+    Unlike the built-in `DeprecationWarning`, this inherits from `UserWarning` so
+    it is shown by default, helping users discover deprecated features without
+    enabling warnings explicitly.
+
+    Reference: https://sethmlarson.dev/deprecations-via-warnings-dont-work-for-python-libraries
+    """
+
+
 class MCPError(Exception):
     """Exception type raised when an error arrives over an MCP connection."""
 
@@ -56,23 +67,6 @@ class NoBackChannelError(MCPError):
             message=(
                 f"Cannot send {method!r}: this transport context has no back-channel for server-initiated requests."
             ),
-        )
-        self.method = method
-
-
-class StatelessModeNotSupported(RuntimeError):
-    """Raised when attempting to use a method that is not supported in stateless mode.
-
-    Server-to-client requests (sampling, elicitation, list_roots) are not
-    supported in stateless HTTP mode because there is no persistent connection
-    for bidirectional communication.
-    """
-
-    def __init__(self, method: str):
-        super().__init__(
-            f"Cannot use {method} in stateless HTTP mode. "
-            "Stateless mode does not support server-to-client requests. "
-            "Use stateful mode (stateless_http=False) to enable this feature."
         )
         self.method = method
 

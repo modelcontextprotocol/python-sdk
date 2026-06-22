@@ -13,37 +13,96 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Pinned conformance harness package spec (passed verbatim to `npx --yes`).
+  # Use a published version, e.g. @modelcontextprotocol/conformance@0.2.0-alpha.5.
+  # Bump deliberately and reconcile both
+  # .github/actions/conformance/expected-failures*.yml files in the same change.
+  #
+  # TODO: replace with @modelcontextprotocol/conformance@0.2.0-alpha.5 once
+  # https://github.com/modelcontextprotocol/conformance/pull/357 publishes, and
+  # drop CONFORMANCE_PKG_SHA256 plus the fetch-and-verify step below.
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@65fcd39"
+  CONFORMANCE_PKG_SHA256: "9a381d7083f8be2fe7ae44efeca54530f18c61425805ddaf9cd88915efcc1574"
+
 jobs:
   server-conformance:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           version: 0.9.5
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp-everything-server
-      - run: ./.github/actions/conformance/run-server.sh
+      - name: Run server conformance (active suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite active
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run server conformance (draft suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite draft
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run server conformance (2026-07-28 wire, all suite)
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite all
+          --spec-version 2026-07-28
+          --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
 
   client-conformance:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           version: 0.9.5
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp
-      - run: npx @modelcontextprotocol/conformance@0.1.13 client --command 'uv run --frozen python .github/actions/conformance/client.py' --suite all
+      - name: Run client conformance (all suite)
+        run: >-
+          npx --yes "$CONFORMANCE_PKG" client
+          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          --suite all
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
+      - name: Run client conformance (2026-07-28 wire, all suite)
+        run: >-
+          npx --yes "$CONFORMANCE_PKG" client
+          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          --suite all
+          --spec-version 2026-07-28
+          --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml

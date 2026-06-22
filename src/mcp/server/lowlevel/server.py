@@ -58,14 +58,13 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_auth_rout
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, otel_middleware
+from mcp.server.runner import serve_loop
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
-from mcp.shared.transport_context import TransportContext
+from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +114,15 @@ async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
 
 async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
     return types.EmptyResult()
+
+
+def _package_version(package: str) -> str:
+    try:
+        return importlib_version(package)
+    except Exception:  # pragma: no cover
+        pass
+
+    return "unknown"  # pragma: no cover
 
 
 class Server(Generic[LifespanResultT]):
@@ -217,8 +225,8 @@ class Server(Generic[LifespanResultT]):
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
-        # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
-        # TODO(maxisbey): provisional - signature and semantics change with the
+        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
+        # TODO(L54): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.
         self.middleware: list[ServerMiddleware[LifespanResultT]] = []
@@ -226,6 +234,7 @@ class Server(Generic[LifespanResultT]):
 
         _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
             ("ping", types.RequestParams, on_ping),
+            ("server/discover", types.RequestParams, self._handle_discover),
             ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
             ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
             ("resources/list", types.PaginatedRequestParams, on_list_resources),
@@ -298,7 +307,7 @@ class Server(Generic[LifespanResultT]):
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
-    # TODO: Rethink capabilities API. Currently capabilities are derived from registered
+    # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
     # entirely from server state (e.g. constructor params for list_changed) instead of
@@ -309,18 +318,9 @@ class Server(Generic[LifespanResultT]):
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
-
-        def pkg_version(package: str) -> str:
-            try:
-                return importlib_version(package)
-            except Exception:  # pragma: no cover
-                pass
-
-            return "unknown"  # pragma: no cover
-
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else pkg_version("mcp"),
+            server_version=self.version if self.version else _package_version("mcp"),
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -334,10 +334,11 @@ class Server(Generic[LifespanResultT]):
 
     def get_capabilities(
         self,
-        notification_options: NotificationOptions,
-        experimental_capabilities: dict[str, dict[str, Any]],
+        notification_options: NotificationOptions | None = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object."""
+        notification_options = notification_options or NotificationOptions()
         prompts_capability = None
         resources_capability = None
         tools_capability = None
@@ -378,6 +379,40 @@ class Server(Generic[LifespanResultT]):
         return capabilities
 
     @property
+    def server_info(self) -> types.Implementation:
+        """The `serverInfo` block describing this implementation.
+
+        Derived from the constructor's identity fields. `version` falls back to
+        the installed `mcp` package version when not supplied explicitly.
+        """
+        return types.Implementation(
+            name=self.name,
+            version=self.version if self.version else _package_version("mcp"),
+            title=self.title,
+            description=self.description,
+            website_url=self.website_url,
+            icons=self.icons,
+        )
+
+    async def _handle_discover(
+        self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
+    ) -> types.DiscoverResult:
+        """Default `server/discover` handler.
+
+        Auto-derived from server state at call time, so capabilities reflect
+        whatever has been registered (constructor `on_*` kwargs and later
+        `add_request_handler` calls). Operators can replace it wholesale via
+        `add_request_handler("server/discover", ...)`. Reachability for legacy
+        peers is decided at the boundary (`types.methods`), not here.
+        """
+        return types.DiscoverResult(
+            supported_versions=list(MODERN_PROTOCOL_VERSIONS),
+            capabilities=self.get_capabilities(),
+            server_info=self.server_info,
+            instructions=self.instructions,
+        )
+
+    @property
     def session_manager(self) -> StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
@@ -401,36 +436,22 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
-        # When True, the server is stateless and
-        # clients can perform initialization with any node. The client must still follow
-        # the initialization lifecycle, but can do so with any available node
-        # rather than requiring initialization for each connection.
-        stateless: bool = False,
     ) -> None:
+        """Serve a single connection over the given streams until the read side closes.
+
+        Thin wrapper over `serve_loop`: enters the server lifespan,
+        then drives the loop. Transports with their own lifespan owner
+        (the streamable-HTTP manager) call `serve_loop` directly instead.
+        """
         async with self.lifespan(self) as lifespan_context:
-            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+            await serve_loop(
+                self,
                 read_stream,
                 write_stream,
-                raise_handler_exceptions=raise_exceptions,
-                # Handle `initialize` inline so a client that pipelines it with
-                # the next request (spec says SHOULD NOT, not MUST NOT) sees
-                # the initialized state instead of failing the init-gate.
-                inline_methods=frozenset({"initialize"}),
-            )
-            runner = ServerRunner(
-                server=self,
-                dispatcher=dispatcher,
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
-                # Stateless HTTP has no standalone GET stream, so server-initiated
-                # requests on `runner.connection` must fail fast with
-                # `NoBackChannelError` rather than write to a channel that will
-                # never deliver a response.
-                has_standalone_channel=not stateless,
-                stateless=stateless,
-                dispatch_middleware=[otel_middleware],
+                raise_exceptions=raise_exceptions,
             )
-            await runner.run()
 
     def streamable_http_app(
         self,

@@ -111,7 +111,9 @@ async def test_list_tools_with_lowlevel_server():
     ) -> ListToolsResult:
         # Echo back what cursor we received in the tool description
         cursor = params.cursor if params else None
-        return ListToolsResult(tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={})])
+        return ListToolsResult(
+            tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={"type": "object"})]
+        )
 
     server = Server("test-lowlevel", on_list_tools=handle_list_tools)
 

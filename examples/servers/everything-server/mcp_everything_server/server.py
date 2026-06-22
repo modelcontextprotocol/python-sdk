@@ -14,6 +14,7 @@ from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     Completion,
@@ -32,6 +33,7 @@ from mcp.types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
+from mcp.types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -143,13 +145,13 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
 @mcp.tool()
 async def test_tool_with_logging(ctx: Context) -> str:
     """Tests tool that emits log messages during execution"""
-    await ctx.info("Tool execution started")
+    await ctx.info("Tool execution started")  # pyright: ignore[reportDeprecated]
     await asyncio.sleep(0.05)
 
-    await ctx.info("Tool processing data")
+    await ctx.info("Tool processing data")  # pyright: ignore[reportDeprecated]
     await asyncio.sleep(0.05)
 
-    await ctx.info("Tool execution completed")
+    await ctx.info("Tool execution completed")  # pyright: ignore[reportDeprecated]
     return "Tool with logging executed successfully"
 
 
@@ -176,7 +178,7 @@ async def test_sampling(prompt: str, ctx: Context) -> str:
     """Tests server-initiated sampling (LLM completion request)"""
     try:
         # Request sampling from client
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
             max_tokens=100,
         )
@@ -312,15 +314,35 @@ def test_error_handling() -> str:
 
 
 @mcp.tool()
+async def test_missing_capability(ctx: Context) -> str:
+    """Tests that a handler-raised MISSING_REQUIRED_CLIENT_CAPABILITY surfaces as a top-level JSON-RPC error.
+
+    Requires the client to declare the ``sampling`` capability. When absent, raises
+    `MCPError` (which the tool dispatch re-raises rather than wrapping in
+    ``CallToolResult.isError``) so the conformance harness observes a protocol-level
+    error response with ``data.requiredCapabilities``.
+    """
+    client_params = ctx.session.client_params
+    sampling_declared = client_params is not None and client_params.capabilities.sampling is not None
+    if not sampling_declared:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="This tool requires the client 'sampling' capability",
+            data={"requiredCapabilities": ["sampling"]},
+        )
+    return "Client declared sampling capability; proceeding."
+
+
+@mcp.tool()
 async def test_reconnection(ctx: Context) -> str:
     """Tests SSE polling by closing stream mid-call (SEP-1699)"""
-    await ctx.info("Before disconnect")
+    await ctx.info("Before disconnect")  # pyright: ignore[reportDeprecated]
 
     await ctx.close_sse_stream()
 
     await asyncio.sleep(0.2)  # Wait for client to reconnect
 
-    await ctx.info("After reconnect")
+    await ctx.info("After reconnect")  # pyright: ignore[reportDeprecated]
     return "Reconnection test completed"
 
 

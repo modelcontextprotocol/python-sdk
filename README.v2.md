@@ -360,7 +360,7 @@ mcp = MCPServer(name="Progress Example")
 @mcp.tool()
 async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
-    await ctx.info(f"Starting: {task_name}")
+    await ctx.info(f"Starting: {task_name}")  # pyright: ignore[reportDeprecated]
 
     for i in range(steps):
         progress = (i + 1) / steps
@@ -369,7 +369,7 @@ async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str
             total=1.0,
             message=f"Step {i + 1}/{steps}",
         )
-        await ctx.debug(f"Completed step {i + 1}")
+        await ctx.debug(f"Completed step {i + 1}")  # pyright: ignore[reportDeprecated]
 
     return f"Task '{task_name}' completed"
 ```
@@ -707,7 +707,7 @@ mcp = MCPServer(name="Progress Example")
 @mcp.tool()
 async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str:
     """Execute a task with progress updates."""
-    await ctx.info(f"Starting: {task_name}")
+    await ctx.info(f"Starting: {task_name}")  # pyright: ignore[reportDeprecated]
 
     for i in range(steps):
         progress = (i + 1) / steps
@@ -716,7 +716,7 @@ async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str
             total=1.0,
             message=f"Step {i + 1}/{steps}",
         )
-        await ctx.debug(f"Completed step {i + 1}")
+        await ctx.debug(f"Completed step {i + 1}")  # pyright: ignore[reportDeprecated]
 
     return f"Task '{task_name}' completed"
 ```
@@ -948,7 +948,7 @@ async def generate_poem(topic: str, ctx: Context) -> str:
     """Generate a poem using LLM sampling."""
     prompt = f"Write a short poem about {topic}"
 
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
         messages=[
             SamplingMessage(
                 role="user",
@@ -982,10 +982,10 @@ mcp = MCPServer(name="Notifications Example")
 async def process_data(data: str, ctx: Context) -> str:
     """Process data with logging."""
     # Different log levels
-    await ctx.debug(f"Debug: Processing '{data}'")
-    await ctx.info("Info: Starting processing")
-    await ctx.warning("Warning: This is experimental")
-    await ctx.error("Error: (This is just a demo)")
+    await ctx.debug(f"Debug: Processing '{data}'")  # pyright: ignore[reportDeprecated]
+    await ctx.info("Info: Starting processing")  # pyright: ignore[reportDeprecated]
+    await ctx.warning("Warning: This is experimental")  # pyright: ignore[reportDeprecated]
+    await ctx.error("Error: (This is just a demo)")  # pyright: ignore[reportDeprecated]
 
     # Notify about resource changes
     await ctx.session.send_resource_list_changed()
@@ -2323,7 +2323,7 @@ import httpx
 from pydantic import AnyUrl
 
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
@@ -2356,10 +2356,14 @@ async def handle_redirect(auth_url: str) -> None:
     print(f"Visit: {auth_url}")
 
 
-async def handle_callback() -> tuple[str, str | None]:
+async def handle_callback() -> AuthorizationCodeResult:
     callback_url = input("Paste callback URL: ")
     params = parse_qs(urlparse(callback_url).query)
-    return params["code"][0], params.get("state", [None])[0]
+    return AuthorizationCodeResult(
+        code=params["code"][0],
+        state=params.get("state", [None])[0],
+        iss=params.get("iss", [None])[0],
+    )
 
 
 async def main():

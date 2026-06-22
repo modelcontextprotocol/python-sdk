@@ -1,0 +1,56 @@
+# Conformance scenarios not yet passing against the Python SDK on main.
+# CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
+#
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.2026-07-28.yml in the same change.
+#
+# Entries are grouped by SEP. As each SEP lands in the SDK the corresponding
+# scenarios start passing and MUST be removed from this list (the runner fails
+# on stale entries), so the baseline burns down per milestone.
+
+client:
+  # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
+  # SEP-2575 (request metadata / _meta envelope): client does not populate the
+  # _meta envelope or the MCP-Protocol-Version header semantics yet.
+  - request-metadata
+  # SEP-2322 (multi-round-trip requests): client does not echo requestState /
+  # handle IncompleteResult yet.
+  - sep-2322-client-request-state
+  # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+  - http-custom-headers
+  - http-invalid-tool-headers
+  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
+  # AS credentials, but this 2026-introduced scenario runs at 2026-07-28, where client.py's 2025
+  # stateful lifecycle is rejected (400 on initialize) before the migration 401 fires, so the
+  # re-register check is never reached. Unblocks with the 2026 stateless client lifecycle.
+  - auth/authorization-server-migration
+
+  # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
+  # SEP-990 (enterprise-managed authorization extension): no fixture handler /
+  # client support for the token-exchange + JWT bearer flow.
+  - auth/enterprise-managed-authorization
+
+server:
+  # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
+  # against the request body is not implemented.
+  - http-header-validation
+  # WARNING-only entries: these scenarios emit no FAILURE checks but the
+  # expected-failures evaluator counts WARNINGs as failures (the summary line
+  # only shows passed/failed, not warnings, so a local re-probe can mis-read
+  # these as stale).
+  - input-required-result-missing-input-response
+  - input-required-result-validate-input

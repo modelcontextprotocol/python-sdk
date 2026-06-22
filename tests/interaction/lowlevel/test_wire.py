@@ -61,7 +61,7 @@ def _echo_server() -> Server:
 async def test_request_ids_are_unique_and_never_null() -> None:
     """Every request the client sends carries a distinct, non-null id.
 
-    The id sequence is pinned: sequential integers from zero, in send order.
+    The id sequence is pinned: sequential integers from one, in send order.
     """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
@@ -77,7 +77,7 @@ async def test_request_ids_are_unique_and_never_null() -> None:
     assert len(request_ids) == len(set(request_ids))
     # initialize, tools/list, tools/call, tools/call, ping -- the client does not issue a
     # schema-cache refresh here because the explicit tools/list already populated the cache.
-    assert request_ids == snapshot([0, 1, 2, 3, 4])
+    assert request_ids == snapshot([1, 2, 3, 4, 5])
 
 
 @requirement("protocol:notifications:no-response")
@@ -96,7 +96,7 @@ async def test_notifications_are_never_answered() -> None:
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
     async with Client(recording, list_roots_callback=list_roots) as client:
-        await client.send_roots_list_changed()
+        await client.send_roots_list_changed()  # pyright: ignore[reportDeprecated]
         await client.send_ping()
 
     sent = [message.message for message in recording.sent]

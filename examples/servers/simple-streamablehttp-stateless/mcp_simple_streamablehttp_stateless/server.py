@@ -49,7 +49,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
 
     # Send the specified number of notifications with the given interval
     for i in range(count):
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data=f"Notification {i + 1}/{count} from caller: {caller}",
             logger="notification_stream",

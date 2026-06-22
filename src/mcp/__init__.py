@@ -4,7 +4,7 @@ from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
-from .shared.exceptions import MCPError, UrlElicitationRequiredError
+from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
 from .types import (
     CallToolRequest,
     ClientCapabilities,
@@ -96,6 +96,7 @@ __all__ = [
     "ListToolsResult",
     "LoggingLevel",
     "LoggingMessageNotification",
+    "MCPDeprecationWarning",
     "MCPError",
     "Notification",
     "PingRequest",

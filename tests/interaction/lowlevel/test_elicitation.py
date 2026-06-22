@@ -309,7 +309,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
     returns; the same ordering already holds on in-memory and SSE transports.
     """
     elicitation_id = "auth-001"
-    elicited_ids: list[str] = []
+    elicited_ids: list[str | None] = []
     received: list[IncomingMessage] = []
 
     async def collect(message: IncomingMessage) -> None:
@@ -415,6 +415,7 @@ async def test_elicit_form_schema_with_every_primitive_and_enum_type_reaches_the
             "subscribe": {"type": "boolean", "default": False},
             "tier": {"type": "string", "enum": ["free", "pro", "team"]},
             "region": {
+                "type": "string",
                 "oneOf": [
                     {"const": "eu", "title": "Europe"},
                     {"const": "na", "title": "North America"},
@@ -459,7 +460,8 @@ async def test_elicit_form_with_a_nested_schema_is_forwarded_unchanged(connect: 
 
     The spec restricts form-mode requested schemas to flat objects with primitive-typed properties;
     this test pins that the SDK does not enforce that restriction on either side (see the
-    divergence on the requirement).
+    divergence on the requirement). The inbound surface gate is deliberately relaxed here so older
+    servers that emit `anyOf` for `Optional` form fields still reach the elicitation callback.
     """
     schema: ElicitRequestedSchema = {
         "type": "object",

@@ -9,6 +9,7 @@ server's real Starlette app through the in-process streaming bridge, so the full
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from functools import partial
 from typing import Any, Protocol
 
 import httpx
@@ -69,6 +70,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
+        protocol_version: str = LATEST_PROTOCOL_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -83,6 +85,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport."""
     async with Client(
@@ -94,6 +97,7 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
+        protocol_version=protocol_version,
     ) as client:
         yield client
 
@@ -113,13 +117,15 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
-    With the defaults this is the matrix leg (stateful sessions, SSE responses); the
-    transport-specific tests pass `stateless_http` or `json_response` to select the other
-    server modes, and the resumability tests pass an `event_store` (with `retry_interval=0` so
-    the client's reconnection wait is a no-op).
+    With the defaults this is the matrix leg (stateful sessions, SSE responses); the stateless
+    matrix arm binds `stateless_http=True` (see `connect_over_streamable_http_stateless`);
+    transport-specific tests pass `json_response` to select the other server mode, and the
+    resumability tests pass an `event_store` (with `retry_interval=0` so the client's
+    reconnection wait is a no-op).
     """
     app = server.streamable_http_app(
         stateless_http=stateless_http,
@@ -132,7 +138,7 @@ async def connect_over_streamable_http(
         server.session_manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
         Client(
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client, protocol_version=protocol_version),
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=sampling_callback,
             list_roots_callback=list_roots_callback,
@@ -140,9 +146,16 @@ async def connect_over_streamable_http(
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
+            protocol_version=protocol_version,
         ) as client,
     ):
         yield client
+
+
+connect_over_streamable_http_stateless: Connect = partial(connect_over_streamable_http, stateless_http=True)
+"""The streamable-http matrix arm with the server in stateless mode (fresh transport per request,
+no session id, no standalone GET stream). The same shared Server instance backs every request --
+stateless mode does not require a server factory."""
 
 
 @asynccontextmanager
@@ -155,6 +168,7 @@ async def mounted_app(
     retry_interval: int | None = None,
     transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
     on_request: Callable[[httpx.Request], Awaitable[None]] | None = None,
+    on_response: Callable[[httpx.Response], Awaitable[None]] | None = None,
     headers: dict[str, str] | None = None,
     auth: AuthSettings | None = None,
     token_verifier: TokenVerifier | None = None,
@@ -166,8 +180,9 @@ async def mounted_app(
     use this in two ways: for raw-httpx assertions (status codes, headers, SSE bytes) the test
     speaks HTTP through the yielded client directly; for client-driven assertions the test wraps
     that client in `client_via_http(http)`, which lets several `Client`s share the one mounted
-    session manager. `on_request` records every outgoing HTTP request before it leaves the
-    yielded client.
+    session manager. `on_request` observes every outgoing HTTP request before it leaves the
+    yielded client; `on_response` observes every HTTP response as its headers arrive (response
+    bodies of SSE streams are not yet read at that point).
 
     DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
     localhost auto-enable behaviour) to test the protection itself.
@@ -183,7 +198,11 @@ async def mounted_app(
         token_verifier=token_verifier,
         auth_server_provider=auth_server_provider,
     )
-    event_hooks = {"request": [on_request]} if on_request is not None else None
+    event_hooks: dict[str, list[Callable[..., Awaitable[None]]]] = {}
+    if on_request is not None:
+        event_hooks["request"] = [on_request]
+    if on_response is not None:
+        event_hooks["response"] = [on_response]
     async with (
         server.session_manager.run(),
         httpx.AsyncClient(
@@ -326,6 +345,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    protocol_version: str = LATEST_PROTOCOL_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)

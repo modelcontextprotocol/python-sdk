@@ -87,8 +87,8 @@ async def test_progress_token_visible_to_handler(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("inspect", {}, progress_callback=ignore)
 
-    # The token is the request id of the tools/call request itself (initialize is request 0).
-    assert result == snapshot(CallToolResult(content=[TextContent(text="1")]))
+    # The token is the request id of the tools/call request itself (initialize is request 1).
+    assert result == snapshot(CallToolResult(content=[TextContent(text="2")]))
 
 
 @requirement("protocol:progress:no-token")

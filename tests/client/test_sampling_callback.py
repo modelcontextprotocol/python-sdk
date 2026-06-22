@@ -1,10 +1,11 @@
 import pytest
 
 from mcp import Client
-from mcp.client.session import ClientSession
+from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared._context import RequestContext
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_REQUEST,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -26,14 +27,14 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
 
     @server.tool("test_sampling")
     async def test_sampling_tool(message: str, ctx: Context) -> bool:
-        value = await ctx.session.create_message(
+        value = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )
@@ -48,13 +49,13 @@ async def test_sampling_callback():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
-    # Test without sampling callback
+    # Without a sampling callback the client responds with an MCPError, which the
+    # tool body doesn't catch — the wrapper re-raises it as a top-level JSON-RPC
+    # error rather than wrapping it as an isError result.
     async with Client(server) as client:
-        # Make a request to trigger sampling callback
-        result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
-        assert result.is_error is True
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("test_sampling", {"message": "Test message for sampling"})
+    assert exc_info.value.error.code == INVALID_REQUEST
 
 
 @pytest.mark.anyio
@@ -71,7 +72,7 @@ async def test_create_message_backwards_compat_single_content():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
@@ -79,7 +80,7 @@ async def test_create_message_backwards_compat_single_content():
     @server.tool("test_backwards_compat")
     async def test_tool(message: str, ctx: Context) -> bool:
         # Call create_message WITHOUT tools
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

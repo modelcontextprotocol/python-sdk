@@ -88,14 +88,10 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> Any:
-        """Convert a function call result to the format for the lowlevel tool call handler.
+    def convert_result(self, result: Any) -> CallToolResult:
+        """Convert a function call result into a `CallToolResult`.
 
-        - If output_model is None, return the unstructured content directly.
-        - If output_model is not None, convert the result to structured output format
-            (dict[str, Any]) and return both unstructured and structured content.
-
-        Note: we return unstructured content here **even though the lowlevel server
+        Note: we build unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of
         structured content**. This is for MCPServer backwards compatibility: we need to
         retain MCPServer's ad hoc conversion logic for constructing unstructured output
@@ -111,16 +107,16 @@ class FuncMetadata(BaseModel):
         unstructured_content = _convert_to_content(result)
 
         if self.output_schema is None:
-            return unstructured_content
-        else:
-            if self.wrap_output:
-                result = {"result": result}
+            return CallToolResult(content=unstructured_content)
 
-            assert self.output_model is not None, "Output model must be set if output schema is defined"
-            validated = self.output_model.model_validate(result)
-            structured_content = validated.model_dump(mode="json", by_alias=True)
+        if self.wrap_output:
+            result = {"result": result}
 
-            return (unstructured_content, structured_content)
+        assert self.output_model is not None, "Output model must be set if output schema is defined"
+        validated = self.output_model.model_validate(result)
+        structured_content = validated.model_dump(mode="json", by_alias=True)
+
+        return CallToolResult(content=unstructured_content, structured_content=structured_content)
 
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
@@ -496,7 +492,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     return DictModel
 
 
-def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
+def _convert_to_content(result: Any) -> list[ContentBlock]:
     """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of MCPServer and is being

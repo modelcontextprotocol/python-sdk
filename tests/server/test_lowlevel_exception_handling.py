@@ -39,7 +39,7 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
     with anyio.fail_after(5):
         # stateless=True so server.run doesn't wait for initialize handshake.
         # Before the fix, this raised ExceptionGroup(ClosedResourceError).
-        await server.run(read_recv, write_send, server.create_initialization_options(), stateless=True)
+        await server.run(read_recv, write_send, server.create_initialization_options())
 
     # write_send was closed inside run's `async with`; receive_nowait raises
     # EndOfStream iff the buffer is empty (i.e., server wrote nothing).

@@ -74,7 +74,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
                 content=[types.TextContent(type="text", text="Error: checkpoint_every must be between 1 and 20")]
             )
 
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data=f"Starting batch processing of {items} items...",
             logger="process_batch",
@@ -86,7 +86,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
             await anyio.sleep(0.5)
 
             # Report progress
-            await ctx.session.send_log_message(
+            await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level="info",
                 data=f"[{i}/{items}] Processing item {i}",
                 logger="process_batch",
@@ -95,7 +95,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
 
             # Checkpoint: close stream to trigger client reconnect
             if i % checkpoint_every == 0 and i < items:
-                await ctx.session.send_log_message(
+                await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                     level="info",
                     data=f"Checkpoint at item {i} - closing SSE stream for polling",
                     logger="process_batch",

@@ -6,6 +6,10 @@ It handles all conformance test scenarios via environment variables and CLI argu
 Contract:
     - MCP_CONFORMANCE_SCENARIO env var -> scenario name
     - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
+    - MCP_CONFORMANCE_PROTOCOL_VERSION env var -> spec version the harness mock
+      server is speaking (e.g. "2025-11-25", "2026-07-28"). Always set; when
+      --spec-version is omitted the harness picks per-scenario (LATEST_SPEC_VERSION
+      for active scenarios, DRAFT_PROTOCOL_VERSION for draft-only ones).
     - Server URL as last CLI argument (sys.argv[1])
     - Must exit 0 within 30 seconds
 
@@ -40,7 +44,7 @@ from mcp.client.auth.extensions.client_credentials import (
 )
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -49,6 +53,14 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 logger = logging.getLogger(__name__)
+
+#: Spec version the harness is running this scenario at (e.g. "2025-11-25",
+#: "2026-07-28"). The harness always sets this (when --spec-version is omitted
+#: it picks per-scenario: LATEST_SPEC_VERSION for active scenarios,
+#: DRAFT_PROTOCOL_VERSION for draft-only ones), so None means we were invoked
+#: outside the harness. Handlers that need to take the stateless 2026 path will
+#: branch on this once the SDK has one; today it is logged only.
+PROTOCOL_VERSION: str | None = os.environ.get("MCP_CONFORMANCE_PROTOCOL_VERSION")
 
 # Type for async scenario handler functions
 ScenarioHandler = Callable[[str], Coroutine[Any, None, None]]
@@ -109,6 +121,7 @@ class ConformanceOAuthCallbackHandler:
     def __init__(self) -> None:
         self._auth_code: str | None = None
         self._state: str | None = None
+        self._iss: str | None = None
 
     async def handle_redirect(self, authorization_url: str) -> None:
         """Fetch the authorization URL and extract the auth code from the redirect."""
@@ -130,6 +143,8 @@ class ConformanceOAuthCallbackHandler:
                         self._auth_code = query_params["code"][0]
                         state_values = query_params.get("state")
                         self._state = state_values[0] if state_values else None
+                        iss_values = query_params.get("iss")
+                        self._iss = iss_values[0] if iss_values else None
                         logger.debug(f"Got auth code from redirect: {self._auth_code[:10]}...")
                         return
                     else:
@@ -139,15 +154,15 @@ class ConformanceOAuthCallbackHandler:
             else:
                 raise RuntimeError(f"Expected redirect response, got {response.status_code} from {authorization_url}")
 
-    async def handle_callback(self) -> tuple[str, str | None]:
-        """Return the captured auth code and state."""
+    async def handle_callback(self) -> AuthorizationCodeResult:
+        """Return the captured auth code, state, and iss."""
         if self._auth_code is None:
             raise RuntimeError("No authorization code available - was handle_redirect called?")
-        auth_code = self._auth_code
-        state = self._state
+        result = AuthorizationCodeResult(code=self._auth_code, state=self._state, iss=self._iss)
         self._auth_code = None
         self._state = None
-        return auth_code, state
+        self._iss = None
+        return result
 
 
 # --- Scenario Handlers ---
@@ -162,6 +177,18 @@ async def run_initialize(server_url: str) -> None:
             logger.debug("Initialized successfully")
             await session.list_tools()
             logger.debug("Listed tools successfully")
+
+
+@register("json-schema-ref-no-deref")
+async def run_json_schema_ref_no_deref(server_url: str) -> None:
+    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
+
+    ClientSession never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
+    """
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            await session.list_tools()
 
 
 @register("tools_call")
@@ -347,6 +374,7 @@ def main() -> None:
 
     server_url = sys.argv[1]
     scenario = os.environ.get("MCP_CONFORMANCE_SCENARIO")
+    logger.debug(f"Conformance protocol version: {PROTOCOL_VERSION!r}")
 
     if scenario:
         logger.debug(f"Running explicit scenario '{scenario}' against {server_url}")

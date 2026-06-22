@@ -19,8 +19,10 @@ async def test_progress_token_zero_first_call():
     request_context = ServerRequestContext(
         request_id="test-request",
         session=mock_session,
+        method="tools/call",
         meta={"progress_token": 0},
         lifespan_context=None,
+        protocol_version="2025-11-25",
     )
 
     # Create context with our mocks

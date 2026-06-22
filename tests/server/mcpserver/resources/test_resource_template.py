@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.types import Annotations
 
@@ -87,7 +88,7 @@ class TestResourceTemplate:
             name="fail",
         )
 
-        with pytest.raises(ValueError, match="Error creating resource from template"):
+        with pytest.raises(ResourceError, match="Error creating resource from template"):
             await template.create_resource("fail://test", {"x": "test"}, Context())
 
     @pytest.mark.anyio

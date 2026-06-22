@@ -1,0 +1,91 @@
+# Expected failures for the carried-forward 2026-07-28 legs
+# (`--suite all --spec-version 2026-07-28` for both server and client).
+#
+# This baseline is separate from expected-failures.yml because entries are
+# keyed by scenario name only: a scenario that passes at its default version
+# in the 2025 legs but fails when forced to 2026-07-28 (or vice versa) cannot
+# be expressed in a shared file (the passing leg would flag the entry as
+# stale). Like expected-failures.yml, this single file covers both
+# directions: the client 2026 leg reads the `client:` section and the server
+# 2026 leg reads the `server:` section. Both burn down independently of the
+# 2025 legs.
+#
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.yml in the same change.
+#
+# Entries are grouped by what unblocks them. As each gap closes the
+# corresponding scenarios start passing and MUST be removed from this list
+# (the runner fails on stale entries), so the baseline burns down per
+# milestone.
+
+client:
+  # --- No stateless client path on main yet ---
+  # client.py drives the 2025 stateful lifecycle (initialize handshake +
+  # session). The 2026-mode mock server is stateless, so the call sequence
+  # never reaches the assertion. Unblocks when client.py's is_modern_protocol()
+  # branch takes the per-request _meta path.
+  - tools_call
+
+  # --- Auth scenarios cut short by the 2026 connection lifecycle ---
+  # The auth fixture flow drives the 2025 stateful lifecycle; the 2026-mode
+  # mock rejects the MCP POST before the scope-escalation behaviour these
+  # scenarios measure, so no authorization requests are observed. Unblocks
+  # when client.py's auth flow speaks the 2026 per-request lifecycle.
+  - auth/scope-step-up
+  - auth/scope-retry-limit
+
+  # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
+  # SEP-2575 (request metadata / _meta envelope): client does not populate the
+  # _meta envelope or the MCP-Protocol-Version header semantics yet.
+  - request-metadata
+  # SEP-2322 (multi-round-trip requests): client does not echo requestState /
+  # handle IncompleteResult yet.
+  - sep-2322-client-request-state
+  # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+  - http-custom-headers
+  - http-invalid-tool-headers
+  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
+  # AS credentials, but the 2026-mode mock rejects the MCP POST before the migration 401 fires
+  # (client.py drives the 2025 stateful lifecycle), so the re-register check is never reached.
+  # Unblocks with the 2026 stateless client lifecycle.
+  - auth/authorization-server-migration
+  # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
+  # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
+  # (it is an extension scenario not carried into the 2026 wire), so it is
+  # neither run nor evaluated on this leg.
+
+server:
+  # --- Carried-forward 2025-era scenarios still failing on the 2026 wire ---
+  # The stateless 2026 path now reaches handlers for plain request/response
+  # scenarios; tools-call-with-progress still fails because the stateless
+  # server has no channel for server→client progress notifications.
+  - tools-call-with-progress
+  # SEP-2106 (JSON Schema 2020-12 in tool inputSchema): the fixture tool's
+  # schema has none of the 2020-12 keywords the scenario checks. The scenario
+  # is in `--suite all` but not `--suite active`, so this is the only leg that
+  # runs it; it fails identically at 2025-11-25 (not a 2026-path regression).
+  - json-schema-2020-12
+
+  # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-sampling
+  - input-required-result-basic-list-roots
+  - input-required-result-request-state
+  - input-required-result-multiple-input-requests
+  - input-required-result-multi-round
+  - input-required-result-non-tool-request
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-capability-check
+  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
+  # against the request body is not implemented.
+  - http-header-validation
+  # WARNING-only entries: these scenarios emit no FAILURE checks but the
+  # expected-failures evaluator counts WARNINGs as failures (the summary line
+  # only shows passed/failed, not warnings, so a local re-probe can mis-read
+  # these as stale).
+  - input-required-result-missing-input-response
+  - input-required-result-validate-input
