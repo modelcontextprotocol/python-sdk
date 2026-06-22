@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import anyio
 import pytest
@@ -10,11 +11,13 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
+    ClientResult,
     EmptyResult,
     ErrorData,
     JSONRPCError,
@@ -28,6 +31,20 @@ from mcp.types import (
 @pytest.fixture
 def mcp_server() -> Server:
     return Server(name="test server")
+
+
+def make_request_responder() -> tuple[RequestResponder[ClientRequest, ClientResult], MagicMock]:
+    mock_session = MagicMock()
+    mock_session._send_response = AsyncMock()
+    request = ClientRequest(types.PingRequest())
+    responder: RequestResponder[ClientRequest, ClientResult] = RequestResponder(
+        request_id=1,
+        request_meta=None,
+        request=request,
+        session=mock_session,
+        on_complete=lambda responder: None,
+    )
+    return responder, mock_session
 
 
 @pytest.fixture
@@ -126,6 +143,33 @@ async def test_request_cancellation():
             # Give cancellation time to process
             with anyio.fail_after(1):  # pragma: no cover
                 await ev_cancelled.wait()
+
+
+@pytest.mark.anyio
+async def test_request_responder_respond_after_cancel_does_not_raise():
+    responder, mock_session = make_request_responder()
+
+    with responder:
+        await responder.cancel()
+        await responder.respond(ClientResult(root=EmptyResult()))
+
+    mock_session._send_response.assert_awaited_once()
+    assert mock_session._send_response.await_args.kwargs["response"] == ErrorData(
+        code=0, message="Request cancelled", data=None
+    )
+
+
+@pytest.mark.anyio
+async def test_request_responder_cancel_after_respond_does_not_send_error():
+    responder, mock_session = make_request_responder()
+    response = ClientResult(root=EmptyResult())
+
+    with responder:
+        await responder.respond(response)
+        await responder.cancel()
+
+    mock_session._send_response.assert_awaited_once()
+    assert mock_session._send_response.await_args.kwargs["response"] == response
 
 
 @pytest.mark.anyio

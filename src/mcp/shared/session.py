@@ -122,11 +122,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         Must be called within a context manager block.
         Raises:
             RuntimeError: If not used within a context manager
-            AssertionError: If request was already responded to
         """
         if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
-        assert not self._completed, "Request already responded to"
+        if self._completed:
+            return
 
         if not self.cancelled:  # pragma: no branch
             self._completed = True
@@ -143,6 +143,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             raise RuntimeError("No active cancel scope")
 
         self._cancel_scope.cancel()
+        if self._completed:
+            return
+
         self._completed = True  # Mark as completed so it's removed from in_flight
         # Send an error response to indicate cancellation
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
