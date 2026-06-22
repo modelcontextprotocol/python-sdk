@@ -96,6 +96,34 @@ async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans:
 
 
 @pytest.mark.anyio
+async def test_nests_under_ambient_span_when_meta_lacks_traceparent(server: SrvT, spans: SpanCapture):
+    """`_meta` is present but carries no `traceparent` (e.g. only a
+    `progressToken`). `extract()` would yield an empty Context here, which
+    would orphan the span; the middleware must fall through to ambient
+    parenting just as if `_meta` were absent."""
+
+    def replace_meta(call_next: Any) -> Any:
+        async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
+            rewritten = {**(params or {}), "_meta": {"progressToken": "tok"}}
+            return await call_next(dctx, method, rewritten)
+
+        return wrapped
+
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server, dispatch_middleware=[replace_meta, otel_middleware]) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/list", None)
+    server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert len(server_spans) == 2
+    [outer] = [s for s in server_spans if s.parent is None]
+    [inner] = [s for s in server_spans if s.parent is not None]
+    assert inner.context is not None and outer.context is not None
+    assert inner.parent is not None
+    assert inner.context.trace_id == outer.context.trace_id
+    assert inner.parent.span_id == outer.context.span_id
+
+
+@pytest.mark.anyio
 async def test_extracts_trace_context_from_meta(server: SrvT, spans: SpanCapture):
     meta: dict[str, Any] = {}
     inject_trace_context(meta)

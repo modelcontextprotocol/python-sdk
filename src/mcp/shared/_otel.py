@@ -8,7 +8,7 @@ from typing import Any
 
 from opentelemetry.context import Context
 from opentelemetry.propagate import extract, inject
-from opentelemetry.trace import SpanKind, get_tracer
+from opentelemetry.trace import SpanKind, get_current_span, get_tracer
 from opentelemetry.trace.span import Span
 
 _tracer = get_tracer("mcp-python-sdk")
@@ -44,13 +44,17 @@ def inject_trace_context(meta: dict[str, Any]) -> None:
 def extract_trace_context(meta: Mapping[str, Any] | None) -> Context | None:
     """Extract W3C trace context from a `_meta` dict.
 
-    Returns `None` when the carrier is absent or malformed so callers fall
-    through to ambient parenting; an explicit empty `Context` would orphan
-    the span instead of nesting under the current one.
+    Returns `None` when the carrier is absent, malformed, or carries no
+    valid `traceparent`, so callers fall through to ambient parenting; an
+    explicit empty `Context` would orphan the span instead of nesting under
+    the current one.
     """
     if not meta:
         return None
     try:
-        return extract(meta)
+        ctx = extract(meta)
     except (ValueError, TypeError):
         return None
+    if not get_current_span(ctx).get_span_context().is_valid:
+        return None
+    return ctx
