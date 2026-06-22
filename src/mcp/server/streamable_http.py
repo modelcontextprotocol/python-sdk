@@ -889,28 +889,32 @@ class StreamableHTTPServerTransport:
 
                         # If stream ID not in mapping, create it
                         if stream_id and stream_id not in self._request_streams:  # pragma: no branch
-                            # Register SSE writer so close_sse_stream() can close it
-                            self._sse_stream_writers[stream_id] = sse_stream_writer
+                            try:
+                                # Register SSE writer so close_sse_stream() can close it
+                                self._sse_stream_writers[stream_id] = sse_stream_writer
 
-                            # Prime the resumed connection so the client sees the stream
-                            # is re-registered. The replay→live-tail ordering window here
-                            # is pre-existing and tracked separately.
-                            priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
-                            if priming_event is not None:
-                                await sse_stream_writer.send(priming_event)
+                                # Prime the resumed connection so the client sees the stream
+                                # is re-registered. The replay→live-tail ordering window here
+                                # is pre-existing and tracked separately.
+                                priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
+                                if priming_event is not None:
+                                    await sse_stream_writer.send(priming_event)
 
-                            # Create new request streams for this connection
-                            self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](
-                                REQUEST_STREAM_BUFFER_SIZE
-                            )
-                            msg_reader = self._request_streams[stream_id][1]
+                                # Create new request streams for this connection
+                                self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](
+                                    REQUEST_STREAM_BUFFER_SIZE
+                                )
+                                msg_reader = self._request_streams[stream_id][1]
 
-                            # Forward messages to SSE
-                            async with msg_reader:
-                                async for event_message in msg_reader:
-                                    event_data = self._create_event_data(event_message)
+                                # Forward messages to SSE
+                                async with msg_reader:
+                                    async for event_message in msg_reader:
+                                        event_data = self._create_event_data(event_message)
 
-                                    await sse_stream_writer.send(event_data)
+                                        await sse_stream_writer.send(event_data)
+                            finally:
+                                self._sse_stream_writers.pop(stream_id, None)
+                                await self._clean_up_memory_streams(stream_id)
                 except anyio.ClosedResourceError:  # pragma: lax no cover
                     # Expected when close_sse_stream() is called
                     logger.debug("Replay SSE stream closed by close_sse_stream()")
