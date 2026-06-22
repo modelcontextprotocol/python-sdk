@@ -641,7 +641,7 @@ class StreamableHTTPServerTransport:
         except Exception as err:
             logger.exception("Error handling POST request")
             response = self._create_error_response(
-                f"Error handling POST request: {err}",
+                "Error handling POST request",
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 INTERNAL_ERROR,
             )

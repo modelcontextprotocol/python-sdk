@@ -151,8 +151,12 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
             with anyio.fail_after(5):
                 forwarded = await read_stream.receive()
             assert isinstance(forwarded, Exception)
+        # handle_request has returned; connect()'s finally (which clears
+        # _request_streams unconditionally) has not yet run.
+        assert transport._request_streams == {}
+        assert transport._sse_stream_writers == {}
 
-    assert transport._request_streams == {}
-    assert transport._sse_stream_writers == {}
     assert sent[0]["type"] == "http.response.start"
     assert sent[0]["status"] == 500
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert b"backend unavailable" not in body
