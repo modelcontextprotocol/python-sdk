@@ -250,6 +250,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="The client's name, version, and title are visible to server handlers after initialization.",
         removed_in="2026-07-28",
+        superseded_by="lifecycle:envelope:stamped-on-every-request",
         note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
@@ -260,6 +261,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(sampling, elicitation, roots)."
         ),
         removed_in="2026-07-28",
+        superseded_by="lifecycle:envelope:stamped-on-every-request",
         note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
@@ -392,6 +394,80 @@ REQUIREMENTS: dict[str, Requirement] = {
             "bare-ClientSession seam; the high-level Client + HTTP-seam scan in "
             "hosting:http:legacy-no-modern-vocabulary covers the same vocabulary set"
         ),
+    ),
+    "lifecycle:envelope:stamped-on-every-request": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#_meta",
+        behavior=(
+            "Every client→server request on a modern-negotiated session carries "
+            "_meta.{protocolVersion,clientInfo,clientCapabilities}; notifications do not."
+        ),
+        added_in="2026-07-28",
+        supersedes=("lifecycle:initialize:client-info", "lifecycle:initialize:client-capabilities"),
+    ),
+    "lifecycle:envelope:header-matches-meta": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#headers",
+        behavior="On HTTP, the MCP-Protocol-Version header on every POST matches _meta.protocolVersion in the body.",
+        transports=("streamable-http", "streamable-http-stateless"),
+        added_in="2026-07-28",
+        note="HTTP-only: the header is a streamable-http transport concern; stdio and in-memory carry no headers.",
+    ),
+    "lifecycle:discover:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#discover",
+        behavior=(
+            "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
+            "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:discover:retry-on-32022": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#version-errors",
+        behavior=(
+            "When server/discover returns -32022 UnsupportedProtocolVersion, the client retries once with "
+            "the intersection of error.data.supported and its own modern versions; an empty intersection raises."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:discover:fallback-method-not-found": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "When server/discover returns -32601 (or HTTP 404), an auto-negotiating client falls back to "
+            "the legacy initialize handshake and the connection succeeds at a handshake-era version."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:discover:network-error-raises": Requirement(
+        source="sdk",
+        behavior=(
+            "An HTTP timeout, connection error, or non-404 4xx/5xx during server/discover raises to the "
+            "caller without falling back to initialize."
+        ),
+        transports=("streamable-http", "streamable-http-stateless"),
+        added_in="2026-07-28",
+        note="HTTP-only: distinguishes transport-level failures from the -32601 fallback signal.",
+    ),
+    "lifecycle:mode:legacy-never-probes": Requirement(
+        source="sdk",
+        behavior=(
+            "A Client constructed with mode='legacy' (the default) sends initialize as its first request "
+            "and never sends server/discover."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:mode:pin-never-handshakes": Requirement(
+        source="sdk",
+        behavior=(
+            "A Client constructed with mode='2026-07-28' sends no initialize and no server/discover; its "
+            "first wire request is the caller's first call, carrying the full _meta envelope."
+        ),
+        added_in="2026-07-28",
+    ),
+    "lifecycle:mode:prior-discover-zero-rtt": Requirement(
+        source="sdk",
+        behavior=(
+            "A Client constructed with prior_discover=<DiscoverResult> sends no negotiation traffic; "
+            "server_info and capabilities are populated from the prior result."
+        ),
+        added_in="2026-07-28",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
