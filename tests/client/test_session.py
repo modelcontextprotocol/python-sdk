@@ -1476,3 +1476,14 @@ async def test_send_notification_after_close_is_dropped_silently():
     finally:
         for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
             s.close()
+
+
+@pytest.mark.anyio
+async def test_default_message_handler():
+    from mcp.client.session import _default_message_handler
+
+    with pytest.raises(ValueError, match="test error"):
+        await _default_message_handler(ValueError("test error"))
+
+    # Should not raise for non-exception
+    await _default_message_handler(types.ToolListChangedNotification())

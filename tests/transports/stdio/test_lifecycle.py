@@ -228,7 +228,7 @@ def test_fallback_process_reports_death_through_returncode_without_a_wait_call()
     try:
         process = FallbackProcess(popen)
 
-        os.waitid(os.P_PID, popen.pid, os.WEXITED | os.WNOWAIT)
+        os.waitid(os.P_PID, popen.pid, os.WEXITED | os.WNOWAIT)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
         assert process.returncode == 0
     finally:
         popen.stdin.close()
