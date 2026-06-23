@@ -39,7 +39,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, OLDEST_SUPPORTED_VERSION
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -70,7 +70,7 @@ Ctx = ServerRequestContext[dict[str, Any], Any]
 
 def _initialize_params() -> dict[str, Any]:
     return InitializeRequestParams(
-        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+        protocol_version=LATEST_HANDSHAKE_VERSION,
         capabilities=ClientCapabilities(),
         client_info=Implementation(name="test-client", version="1.0"),
     ).model_dump(by_alias=True, exclude_none=True)
@@ -167,7 +167,7 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
     assert "tools" in result["capabilities"]
     assert runner.connection.client_params is not None
     assert runner.connection.client_params.client_info.name == "test-client"
-    assert runner.connection.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert runner.connection.protocol_version == LATEST_HANDSHAKE_VERSION
     assert runner.connection.initialize_accepted is True
 
 
@@ -244,7 +244,7 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
     assert isinstance(ctx.session, ServerSession)
     assert ctx.session.protocol_version == runner.connection.protocol_version
     assert ctx.request_id is not None
-    assert ctx.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert ctx.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio
@@ -289,7 +289,7 @@ async def test_runner_rejects_snake_case_initialize_params(server: SrvT):
     """Inbound wire payloads validate alias-only; Python field names are not
     accepted (`protocol_version` must arrive as `protocolVersion`)."""
     snake = {
-        "protocol_version": LATEST_PROTOCOL_VERSION,
+        "protocol_version": LATEST_HANDSHAKE_VERSION,
         "capabilities": {},
         "client_info": {"name": "c", "version": "0"},
     }
@@ -814,7 +814,7 @@ async def test_runner_with_born_ready_connection_skips_init_gate(server: SrvT):
     """A `Connection.from_envelope` connection is born ready: the kernel's
     init-gate is open without any handshake. The kernel is mode-agnostic - the
     same `on_request` reads `connection.initialize_accepted` as a fact."""
-    born_ready = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
+    born_ready = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
         assert runner.connection.initialize_accepted is True
         assert runner.connection.initialized.is_set()
@@ -847,7 +847,7 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
 @pytest.mark.anyio
 async def test_runner_spec_method_with_invalid_params_is_invalid_params_at_the_negotiated_version(server: SrvT):
     async with connected_runner(server) as (client, runner):
-        assert runner.connection.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+        assert runner.connection.protocol_version == LATEST_HANDSHAKE_VERSION
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/call", {"name": 42})
     assert exc.value.error.code == INVALID_PARAMS
@@ -926,9 +926,9 @@ async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not
 async def test_on_request_rejects_initialize_at_modern_version_with_method_not_found(server: SrvT):
     """Spec-mandated: `initialize` has no `CLIENT_REQUESTS` row at the modern
     version; kernel dispatch (not the inbound classifier) rejects it."""
-    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
-        assert runner.connection.protocol_version == MODERN_PROTOCOL_VERSIONS[0]
+        assert runner.connection.protocol_version == LATEST_MODERN_VERSION
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("initialize", _initialize_params())
     assert exc.value.error.code == METHOD_NOT_FOUND
@@ -943,7 +943,7 @@ async def test_on_request_dispatches_custom_method_registered_via_add_request_ha
         return {"echoed": True}
 
     server.add_request_handler("myorg/echo", RequestParams, echo)
-    born_ready = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/echo", None)
     assert result == {"echoed": True}
@@ -997,7 +997,7 @@ async def test_runner_initialize_result_reflects_init_options():
 
 @pytest.mark.anyio
 async def test_runner_initialize_echoes_supported_version_and_falls_back_to_latest(server: SrvT):
-    oldest = HANDSHAKE_PROTOCOL_VERSIONS[0]
+    oldest = OLDEST_SUPPORTED_VERSION
     async with connected_runner(server, initialized=False) as (client, _):
         params = {**_initialize_params(), "protocolVersion": oldest}
         result = await client.send_raw_request("initialize", params)
@@ -1005,7 +1005,7 @@ async def test_runner_initialize_echoes_supported_version_and_falls_back_to_late
     async with connected_runner(server, initialized=False) as (client, _):
         params = {**_initialize_params(), "protocolVersion": "1999-01-01"}
         result = await client.send_raw_request("initialize", params)
-        assert result["protocolVersion"] == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+        assert result["protocolVersion"] == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio
@@ -1351,36 +1351,34 @@ _LIFESPAN: dict[str, Any] = {}
 
 
 @pytest.mark.anyio
-async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT):
+async def test_serve_one_runs_handler_and_returns_result_dict(server: SrvT):
     """The single-exchange driver: builds the kernel, runs `on_request` once,
-    wraps via `to_jsonrpc_response`, and tears down `connection.exit_stack`."""
-    conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
+    returns the agnostic result dict, and tears down `connection.exit_stack`."""
+    conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
-    reply = await serve_one(
+    result = await serve_one(
         server, _StubDispatchContext(9), "tools/list", None, connection=conn, lifespan_state=_LIFESPAN
     )
-    assert isinstance(reply, JSONRPCResponse)
-    assert reply.id == 9
-    assert reply.result["tools"][0]["name"] == "t"
+    assert result["tools"][0]["name"] == "t"
     assert cleaned == [1]
     ctx = _seen_ctx[0]
-    assert ctx.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert ctx.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio
-async def test_serve_one_maps_error_to_jsonrpc_error_and_still_closes_exit_stack(server: SrvT):
+async def test_serve_one_propagates_error_and_still_closes_exit_stack(server: SrvT):
     """SDK-defined: a kernel-produced error (here `METHOD_NOT_FOUND` for an
-    unregistered method) is wrapped as a `JSONRPCError`, and the per-request
-    exit stack is closed on the error path too."""
-    conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
+    unregistered method) propagates as `MCPError`, and the per-request exit
+    stack is closed on the error path too."""
+    conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
-    reply = await serve_one(
-        server, _StubDispatchContext(2), "resources/list", None, connection=conn, lifespan_state=_LIFESPAN
-    )
-    assert isinstance(reply, JSONRPCError)
-    assert reply.error.code == METHOD_NOT_FOUND
+    with pytest.raises(MCPError) as exc_info:
+        await serve_one(
+            server, _StubDispatchContext(2), "resources/list", None, connection=conn, lifespan_state=_LIFESPAN
+        )
+    assert exc_info.value.error.code == METHOD_NOT_FOUND
     assert cleaned == [1]
 
 
@@ -1389,17 +1387,17 @@ async def test_serve_one_reads_connection_protocol_version_as_a_fact(server: Srv
     """`serve_one` builds the kernel over the entry's `Connection`; the kernel
     reads `connection.protocol_version` for the version gate. A `from_envelope`
     connection at a modern version rejects a method absent there."""
-    conn = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
-    reply = await serve_one(
-        server,
-        _StubDispatchContext(1),
-        "logging/setLevel",
-        {"level": "info"},
-        connection=conn,
-        lifespan_state=_LIFESPAN,
-    )
-    assert isinstance(reply, JSONRPCError)
-    assert reply.error.code == METHOD_NOT_FOUND
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    with pytest.raises(MCPError) as exc_info:
+        await serve_one(
+            server,
+            _StubDispatchContext(1),
+            "logging/setLevel",
+            {"level": "info"},
+            connection=conn,
+            lifespan_state=_LIFESPAN,
+        )
+    assert exc_info.value.error.code == METHOD_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -1423,5 +1421,5 @@ async def test_serve_connection_drives_dispatcher_loop_and_tears_down(server: Sr
             assert cleaned == []
         close()
     assert cleaned == [1]
-    assert conn.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     assert conn.client_params is not None

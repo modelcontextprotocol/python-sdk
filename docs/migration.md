@@ -161,7 +161,7 @@ Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `au
 
 ### `StreamableHTTPTransport.protocol_version` attribute removed
 
-The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are now supplied per-message by the session. If you were reading `transport.protocol_version` to learn the negotiated version, read it from `session.initialize_result.protocol_version` instead.
+The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are now supplied per-message by the session. If you were reading `transport.protocol_version` to learn the negotiated version, read `session.protocol_version` (or `client.protocol_version` on the high-level `Client`) instead.
 
 ### `terminate_windows_process` removed
 
@@ -330,9 +330,9 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
-### `ClientSession.get_server_capabilities()` replaced by `initialize_result` property
+### `ClientSession.get_server_capabilities()` replaced by era-neutral accessors
 
-`ClientSession` now stores the full `InitializeResult` via an `initialize_result` property. This provides access to `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` through a single property. The `get_server_capabilities()` method has been removed.
+`ClientSession` now exposes the negotiated server metadata as properties: `server_capabilities`, `server_info`, `instructions`, and `protocol_version`. These are populated by whichever connection step ran (`initialize()` for ≤2025-11-25 servers, `discover()` for 2026-07-28+). The `get_server_capabilities()` method has been removed.
 
 **Before (v1):**
 
@@ -344,15 +344,15 @@ capabilities = session.get_server_capabilities()
 **After (v2):**
 
 ```python
-result = session.initialize_result
-if result is not None:
-    capabilities = result.capabilities
-    server_info = result.server_info
-    instructions = result.instructions
-    version = result.protocol_version
+capabilities = session.server_capabilities
+server_info = session.server_info
+instructions = session.instructions
+version = session.protocol_version
 ```
 
-The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. Like `session.initialize_result`, this replaces v1's `ClientSession.get_server_capabilities()`; use `client.initialize_result.capabilities` instead.
+The raw handshake result is also retained as `session.initialize_result` (legacy path) or `session.discover_result` (modern path) — exactly one is non-`None`.
+
+On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it.
 
 ### `McpError` renamed to `MCPError`
 
@@ -770,9 +770,9 @@ async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 
 ### Version constants
 
-`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`.
+`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly.
 
-`LATEST_PROTOCOL_VERSION` now reflects the newest protocol revision the SDK supports (`2026-07-28`). Code that used it to mean "the version `.initialize()` offers" should switch to `HANDSHAKE_PROTOCOL_VERSIONS[-1]`.
+`LATEST_PROTOCOL_VERSION` now reflects the newest protocol revision the SDK supports (`2026-07-28`). Code that used it to mean "the version `.initialize()` offers" should switch to `LATEST_HANDSHAKE_VERSION`.
 
 ### `ProgressContext` and `progress()` context manager removed
 

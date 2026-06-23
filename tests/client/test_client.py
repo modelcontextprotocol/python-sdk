@@ -20,7 +20,7 @@ from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -122,7 +122,7 @@ async def test_client_is_initialized(app: MCPServer):
 async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
     """The negotiated protocol version is readable after initialization."""
     async with Client(app) as client:
-        assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+        assert client.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -221,6 +221,23 @@ async def test_raise_exceptions_propagates_handler_error_on_modern_inproc_path()
     # The original exception is chained — not swallowed into a generic "Internal server error".
     assert isinstance(exc_info.value.__cause__, ValueError)
     assert str(exc_info.value.__cause__) == "boom"
+
+
+async def test_raise_exceptions_false_sanitizes_handler_error_on_modern_inproc_path():
+    """`raise_exceptions=False` (the default) on the modern in-process path: an
+    unmapped handler exception is sanitized to an opaque `INTERNAL_ERROR` so the
+    in-process path matches the wire path's leak guard."""
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        raise ValueError("boom")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+    async with Client(server, mode="2026-07-28", raise_exceptions=False) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("explode", {})
+    assert exc_info.value.error.code == types.INTERNAL_ERROR
+    assert exc_info.value.error.message == "Internal server error"
+    assert exc_info.value.__cause__ is None
 
 
 async def test_get_prompt(app: MCPServer):
@@ -421,7 +438,7 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
                 await server_write.send(SessionMessage(types.JSONRPCError(jsonrpc="2.0", id=frame.id, error=error)))
             elif frame.method == "initialize":  # pragma: no branch
                 result = types.InitializeResult(
-                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+                    protocol_version=LATEST_HANDSHAKE_VERSION,
                     capabilities=ServerCapabilities(),
                     server_info=types.Implementation(name="legacy-only", version="0.0.1"),
                 )
@@ -447,7 +464,7 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
 
     with anyio.fail_after(5):
         async with Client(scripted_transport(), mode="auto") as client:
-            assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert client.server_info.name == "legacy-only"
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
 

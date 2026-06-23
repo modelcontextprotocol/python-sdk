@@ -27,7 +27,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -51,7 +51,7 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-MODERN_VERSION = "2026-07-28"
+MODERN_VERSION = LATEST_MODERN_VERSION
 
 
 def _tools_server(name: str = "negotiator") -> Server:
@@ -77,15 +77,15 @@ def _request_recorder() -> tuple[list[httpx.Request], Callable[[httpx.Request], 
 
 @requirement("lifecycle:mode:legacy-never-probes")
 async def test_legacy_mode_sends_initialize_and_never_probes_discover() -> None:
-    """`Client(server)` (mode defaults to 'legacy') opens with `initialize` and never sends `server/discover`.
+    """`Client(server, mode='legacy')` opens with `initialize` and never sends `server/discover`.
 
-    Requirement `lifecycle:mode:legacy-never-probes` (sdk-defined): the default mode must remain
+    Requirement `lifecycle:mode:legacy-never-probes` (sdk-defined): ``mode='legacy'`` must remain
     byte-identical to the pre-2026 client so a 2025-era server never observes modern vocabulary.
     """
     recording = RecordingTransport(InMemoryTransport(_tools_server()))
 
     with anyio.fail_after(5):
-        async with Client(recording) as client:
+        async with Client(recording, mode="legacy") as client:
             await client.list_tools()
 
     sent = [m.message for m in recording.sent]
@@ -273,7 +273,7 @@ async def test_auto_mode_falls_back_to_initialize_when_discover_is_method_not_fo
                 await server_write.send(SessionMessage(JSONRPCError(jsonrpc="2.0", id=frame.id, error=error)))
             elif isinstance(frame, JSONRPCRequest) and frame.method == "initialize":
                 result = InitializeResult(
-                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+                    protocol_version=LATEST_HANDSHAKE_VERSION,
                     capabilities=ServerCapabilities(),
                     server_info=Implementation(name="legacy-only", version="0.0.1"),
                 )
@@ -300,7 +300,7 @@ async def test_auto_mode_falls_back_to_initialize_when_discover_is_method_not_fo
 
     with anyio.fail_after(5):
         async with Client(scripted_transport(), mode="auto") as client:
-            assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert client.server_info.name == "legacy-only"
 
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]

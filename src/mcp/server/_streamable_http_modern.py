@@ -25,7 +25,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.connection import Connection
-from mcp.server.runner import serve_one
+from mcp.server.runner import serve_one, to_jsonrpc_response
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
@@ -193,5 +193,7 @@ async def handle_modern_request(
         request_id=req.id,
         message_metadata=ServerMessageMetadata(request_context=request),
     )
-    msg = await serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
+    msg = await to_jsonrpc_response(
+        req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
+    )
     await _write(msg, scope, receive, send)

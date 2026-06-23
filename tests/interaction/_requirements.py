@@ -448,7 +448,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:mode:legacy-never-probes": Requirement(
         source="sdk",
         behavior=(
-            "A Client constructed with mode='legacy' (the default) sends initialize as its first request "
+            "A Client constructed with mode='legacy' sends initialize as its first request "
             "and never sends server/discover."
         ),
         added_in="2026-07-28",

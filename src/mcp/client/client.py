@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 import anyio
 from typing_extensions import deprecated
@@ -48,6 +48,20 @@ ConnectMode = Literal["legacy", "auto"] | str
 initialize), or a modern protocol-version string (adopt directly). The ``str`` arm is for
 forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
 
+_T = TypeVar("_T")
+
+
+def _connected(value: _T | None) -> _T:
+    """Narrow a post-handshake session attribute from ``T | None`` to ``T``.
+
+    ``Client.__aenter__`` only assigns ``_session`` after the handshake succeeds, so inside
+    ``async with Client(...)`` these attributes are always populated; the ``.session`` gate
+    raises before this is reached otherwise. The guard exists for pyright, not runtime.
+    """
+    if value is None:  # pragma: no cover
+        raise RuntimeError("Client must be used within an async context manager")
+    return value
+
 
 def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
     return types.DiscoverResult(
@@ -60,11 +74,14 @@ def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
     )
 
 
-async def _drop_notify(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
-    """Server-side ``OnNotify`` for the modern in-process path: client→server notifications are dropped.
+async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
+    """Server-side inbound ``OnNotify`` for the modern in-process path — receives nothing.
 
-    The per-request driver (`serve_one`) has no notification dispatch table; progress and
-    cancellation travel via `CallOptions` on the `DirectDispatcher`, not as JSON-RPC notifies.
+    At 2026-07-28 the spec defines no client→server notifications: ``initialized`` and
+    ``roots/list_changed`` are removed, and cancellation is structural (anyio scope cancel
+    through the direct await, not a notify). Server→client notifications (progress, log
+    messages) flow the other way via the per-request ``DispatchContext`` into the client's
+    callbacks, and are not seen here.
     """
 
 
@@ -127,6 +144,8 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
+    # TODO(maxisbey): flip default to 'auto' once the in-proc test suite is era-decoupled
+    # and the probe-timeout fallback is transport-aware (stdio→fallback / HTTP→reject).
     mode: ConnectMode = "legacy"
     """'legacy' performs the initialize handshake. 'auto' probes server/discover and falls back to initialize()
     on legacy servers. A modern protocol-version string (e.g. '2026-07-28') adopts that version directly without
@@ -139,6 +158,7 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport | None = field(init=False, default=None)
@@ -175,7 +195,7 @@ class Client:
             tg = await exit_stack.enter_async_context(anyio.create_task_group())
             exit_stack.callback(server_disp.close)
             on_request = modern_on_request(self._inproc_server, lifespan_state, raise_exceptions=self.raise_exceptions)
-            await tg.start(server_disp.run, on_request, _drop_notify)
+            await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
             dispatcher = client_disp
             read_stream = write_stream = None
         else:
@@ -201,27 +221,31 @@ class Client:
 
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
-        if self._session is not None:
+        if self._entered:
             raise RuntimeError("Client is already entered; cannot reenter")
+        self._entered = True
 
         async with AsyncExitStack() as exit_stack:
             session = await self._build_session(exit_stack)
-            self._session = await exit_stack.enter_async_context(session)
+            session = await exit_stack.enter_async_context(session)
 
             if self.mode == "legacy":
-                await self._session.initialize()
+                await session.initialize()
             elif self.mode == "auto":
                 try:
-                    await self._session.discover()
+                    await session.discover()
                 except MCPError as e:
                     if e.code in (METHOD_NOT_FOUND, REQUEST_TIMEOUT):
-                        await self._session.initialize()
+                        await session.initialize()
                     else:
                         raise
             else:
-                self._session.adopt(self.prior_discover or _synthesize_discover(self.mode))
+                session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
-            # Transfer ownership to self for __aexit__ to handle
+            # Only publish the session after the handshake succeeds, so `_session is not None`
+            # implies the protocol_version/server_info/server_capabilities are populated. If the
+            # handshake raised above, the local exit_stack unwinds the transport for us.
+            self._session = session
             self._exit_stack = exit_stack.pop_all()
             return self
 
@@ -244,26 +268,24 @@ class Client:
             raise RuntimeError("Client must be used within an async context manager")
         return self._session
 
+    # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
+    # type whose protocol_version/server_info/server_capabilities are non-Optional fields,
+    # eliminating these guards (and the one in .session). Same family as resolving the
+    # transport/connector at __post_init__ so the Optional internal fields disappear.
     @property
     def protocol_version(self) -> str:
         """Negotiated protocol version (set by initialize/discover/adopt during ``__aenter__``)."""
-        version = self.session.protocol_version
-        assert version is not None
-        return version
+        return _connected(self.session.protocol_version)
 
     @property
     def server_info(self) -> Implementation:
         """Server name/version (set by initialize/discover/adopt during ``__aenter__``)."""
-        info = self.session.server_info
-        assert info is not None
-        return info
+        return _connected(self.session.server_info)
 
     @property
     def server_capabilities(self) -> ServerCapabilities:
         """Server capabilities (set by initialize/discover/adopt during ``__aenter__``)."""
-        caps = self.session.server_capabilities
-        assert caps is not None
-        return caps
+        return _connected(self.session.server_capabilities)
 
     @property
     def instructions(self) -> str | None:
