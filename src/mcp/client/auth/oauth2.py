@@ -25,6 +25,7 @@ from mcp.client.auth.utils import (
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    create_token_request_headers,
     credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
@@ -409,7 +410,7 @@ class OAuthClientProvider(httpx.Auth):
             token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = create_token_request_headers()
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
@@ -461,7 +462,7 @@ class OAuthClientProvider(httpx.Auth):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = create_token_request_headers()
         refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)

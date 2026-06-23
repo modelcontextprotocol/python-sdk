@@ -16,6 +16,13 @@ from mcp.shared.auth import (
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 
+def create_token_request_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 

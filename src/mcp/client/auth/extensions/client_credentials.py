@@ -18,6 +18,7 @@ import jwt
 from pydantic import BaseModel, Field
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
+from mcp.client.auth.utils import create_token_request_headers
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata
 
 
@@ -92,7 +93,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = create_token_request_headers()
 
         # Use standard auth methods (client_secret_basic, client_secret_post, none)
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
@@ -320,7 +321,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = create_token_request_headers()
 
         # Add JWT client authentication (RFC 7523 Section 2.2)
         await self._add_client_authentication_jwt(token_data=token_data)
@@ -480,6 +481,4 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
+        return httpx.Request("POST", token_url, data=token_data, headers=create_token_request_headers())

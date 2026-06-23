@@ -108,6 +108,7 @@ class TestOAuthFlowClientCredentials:
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Accept"] == "application/json"
         assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
 
         # Check form data
@@ -252,6 +253,7 @@ class TestClientCredentialsOAuthProvider:
 
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
+        assert request.headers["Accept"] == "application/json"
 
         content = urllib.parse.unquote_plus(request.content.decode())
         assert "grant_type=client_credentials" in content
@@ -398,6 +400,7 @@ class TestPrivateKeyJWTOAuthProvider:
 
         assert request.method == "POST"
         assert str(request.url) == "https://auth.example.com/token"
+        assert request.headers["Accept"] == "application/json"
 
         content = urllib.parse.unquote_plus(request.content.decode())
         assert "grant_type=client_credentials" in content
