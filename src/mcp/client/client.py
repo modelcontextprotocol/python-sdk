@@ -19,15 +19,17 @@ from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-from mcp.shared.dispatcher import ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.dispatcher import Dispatcher, ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
+    METHOD_NOT_FOUND,
+    REQUEST_TIMEOUT,
     CallToolResult,
     CompleteResult,
     EmptyResult,
     GetPromptResult,
     Implementation,
-    InitializeResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -38,7 +40,13 @@ from mcp.types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
+    ServerCapabilities,
 )
+
+ConnectMode = Literal["legacy", "auto"] | str
+"""``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to
+initialize), or a modern protocol-version string (adopt directly). The ``str`` arm is for
+forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
 
 
 def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
@@ -119,10 +127,10 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    mode: Literal["legacy", "auto"] | str = "legacy"
+    mode: ConnectMode = "legacy"
     """'legacy' performs the initialize handshake. 'auto' probes server/discover and falls back to initialize()
-    on legacy servers. A protocol-version string (e.g. '2026-07-28') adopts that version directly without a
-    handshake — supply prior_discover to reuse a known DiscoverResult, or omit it to synthesize a minimal one."""
+    on legacy servers. A modern protocol-version string (e.g. '2026-07-28') adopts that version directly without
+    a handshake — supply prior_discover to reuse a known DiscoverResult, or omit it to synthesize a minimal one."""
 
     prior_discover: types.DiscoverResult | None = None
     """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
@@ -146,60 +154,70 @@ class Client:
         else:
             self._transport = self.server
 
+        if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
+            hint = (
+                f" ({self.mode!r} is a handshake-era version — use mode='legacy')"
+                if self.mode in HANDSHAKE_PROTOCOL_VERSIONS
+                else ""
+            )
+            raise ValueError(
+                f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
+            )
+
+    async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
+        """Set up the dispatcher/transport and return an un-entered ClientSession."""
+        dispatcher: Dispatcher[Any] | None
+        if self._inproc_server is not None and self.mode != "legacy":
+            # Modern in-process path: drive the server through a DirectDispatcher peer-pair
+            # with one `serve_one` per request — no streams, no initialize handshake.
+            lifespan_state = await exit_stack.enter_async_context(self._inproc_server.lifespan(self._inproc_server))
+            client_disp, server_disp = create_direct_dispatcher_pair()
+            tg = await exit_stack.enter_async_context(anyio.create_task_group())
+            exit_stack.callback(server_disp.close)
+            on_request = modern_on_request(self._inproc_server, lifespan_state, raise_exceptions=self.raise_exceptions)
+            await tg.start(server_disp.run, on_request, _drop_notify)
+            dispatcher = client_disp
+            read_stream = write_stream = None
+        else:
+            if self._inproc_server is not None:
+                transport: Transport = InMemoryTransport(self._inproc_server, raise_exceptions=self.raise_exceptions)
+            else:
+                assert self._transport is not None
+                transport = self._transport
+            read_stream, write_stream = await exit_stack.enter_async_context(transport)
+            dispatcher = None
+        return ClientSession(
+            read_stream=read_stream,
+            write_stream=write_stream,
+            dispatcher=dispatcher,
+            read_timeout_seconds=self.read_timeout_seconds,
+            sampling_callback=self.sampling_callback,
+            list_roots_callback=self.list_roots_callback,
+            logging_callback=self.logging_callback,
+            message_handler=self.message_handler,
+            client_info=self.client_info,
+            elicitation_callback=self.elicitation_callback,
+        )
+
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
         if self._session is not None:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            if self._inproc_server is not None and self.mode != "legacy":
-                # Modern in-process path: drive the server through a DirectDispatcher peer-pair
-                # with one `serve_one` per request — no streams, no initialize handshake.
-                lifespan_state = await exit_stack.enter_async_context(self._inproc_server.lifespan(self._inproc_server))
-                client_disp, server_disp = create_direct_dispatcher_pair()
-                tg = await exit_stack.enter_async_context(anyio.create_task_group())
-                exit_stack.callback(server_disp.close)
-                on_request = modern_on_request(
-                    self._inproc_server, lifespan_state, raise_exceptions=self.raise_exceptions
-                )
-                await tg.start(server_disp.run, on_request, _drop_notify)
-                session = ClientSession(
-                    dispatcher=client_disp,
-                    read_timeout_seconds=self.read_timeout_seconds,
-                    sampling_callback=self.sampling_callback,
-                    list_roots_callback=self.list_roots_callback,
-                    logging_callback=self.logging_callback,
-                    message_handler=self.message_handler,
-                    client_info=self.client_info,
-                    elicitation_callback=self.elicitation_callback,
-                )
-            else:
-                if self._inproc_server is not None:
-                    transport: Transport = InMemoryTransport(
-                        self._inproc_server, raise_exceptions=self.raise_exceptions
-                    )
-                else:
-                    assert self._transport is not None
-                    transport = self._transport
-                read_stream, write_stream = await exit_stack.enter_async_context(transport)
-                session = ClientSession(
-                    read_stream=read_stream,
-                    write_stream=write_stream,
-                    read_timeout_seconds=self.read_timeout_seconds,
-                    sampling_callback=self.sampling_callback,
-                    list_roots_callback=self.list_roots_callback,
-                    logging_callback=self.logging_callback,
-                    message_handler=self.message_handler,
-                    client_info=self.client_info,
-                    elicitation_callback=self.elicitation_callback,
-                )
-
+            session = await self._build_session(exit_stack)
             self._session = await exit_stack.enter_async_context(session)
 
             if self.mode == "legacy":
                 await self._session.initialize()
             elif self.mode == "auto":
-                await self._session.discover()
+                try:
+                    await self._session.discover()
+                except MCPError as e:
+                    if e.code in (METHOD_NOT_FOUND, REQUEST_TIMEOUT):
+                        await self._session.initialize()
+                    else:
+                        raise
             else:
                 self._session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
@@ -227,16 +245,30 @@ class Client:
         return self._session
 
     @property
-    def initialize_result(self) -> InitializeResult:
-        """The server's InitializeResult.
+    def protocol_version(self) -> str:
+        """Negotiated protocol version (set by initialize/discover/adopt during ``__aenter__``)."""
+        version = self.session.protocol_version
+        assert version is not None
+        return version
 
-        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
-        Raises RuntimeError if accessed outside the context manager.
-        """
-        result = self.session.initialize_result
-        if result is None:  # pragma: no cover
-            raise RuntimeError("Client must be used within an async context manager")
-        return result
+    @property
+    def server_info(self) -> Implementation:
+        """Server name/version (set by initialize/discover/adopt during ``__aenter__``)."""
+        info = self.session.server_info
+        assert info is not None
+        return info
+
+    @property
+    def server_capabilities(self) -> ServerCapabilities:
+        """Server capabilities (set by initialize/discover/adopt during ``__aenter__``)."""
+        caps = self.session.server_capabilities
+        assert caps is not None
+        return caps
+
+    @property
+    def instructions(self) -> str | None:
+        """Server-provided instructions text, if any."""
+        return self.session.instructions
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""

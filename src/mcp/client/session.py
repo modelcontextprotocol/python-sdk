@@ -34,7 +34,6 @@ from mcp.types import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
-    REQUEST_TIMEOUT,
     UNSUPPORTED_PROTOCOL_VERSION,
     RequestId,
     RequestParamsMeta,
@@ -204,6 +203,8 @@ class ClientSession:
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
+        self._discover_result: types.DiscoverResult | None = None
+        self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
         if dispatcher is not None:
@@ -287,7 +288,7 @@ class ClientSession:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
@@ -350,48 +351,48 @@ class ClientSession:
         return result
 
     def adopt(self, result: types.InitializeResult | types.DiscoverResult) -> None:
-        """Install negotiated state from a result the caller already holds (no wire traffic)."""
+        """Install negotiated state from a result the caller already holds (no wire traffic).
+
+        Raises:
+            RuntimeError: `result` is a `DiscoverResult` whose `supported_versions`
+                shares nothing with this client's `MODERN_PROTOCOL_VERSIONS`.
+        """
         if isinstance(result, types.DiscoverResult):
+            # ordered oldest→newest via MODERN_PROTOCOL_VERSIONS
             mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in result.supported_versions]
             if not mutual:
                 raise RuntimeError(
                     f"No mutually supported modern protocol version "
                     f"(server: {result.supported_versions}, client: {list(MODERN_PROTOCOL_VERSIONS)})"
                 )
-            protocol_version = mutual[-1]
             client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
             capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
-            self._stamp = _make_modern_stamp(protocol_version, client_info, capabilities)
-            self._initialize_result = types.InitializeResult(
-                protocol_version=protocol_version,
-                capabilities=result.capabilities,
-                server_info=result.server_info,
-                instructions=result.instructions,
-            )
+            self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities)
+            self._discover_result = result
+            self._negotiated_version = mutual[-1]
         else:
             self._stamp = _make_handshake_stamp(result.protocol_version)
             self._initialize_result = result
+            self._negotiated_version = result.protocol_version
 
-    async def discover(self) -> types.InitializeResult:
-        """Probe `server/discover` and adopt the result, falling back to `initialize()`.
+    async def discover(self) -> types.DiscoverResult:
+        """Probe `server/discover` and adopt the result.
 
         Sends a single `server/discover` proposing the newest modern protocol
-        version. The error ladder, in order:
+        version. On `UNSUPPORTED_PROTOCOL_VERSION` (-32022) the server's
+        `supported` list is intersected with `MODERN_PROTOCOL_VERSIONS` and the
+        probe is retried once at the highest mutual version. Any other error —
+        including `METHOD_NOT_FOUND` (-32601) and `REQUEST_TIMEOUT` (-32001) —
+        propagates; the legacy `initialize()` fallback is the caller's policy.
 
-        - `UNSUPPORTED_PROTOCOL_VERSION` (-32022): the server's `supported`
-          list is intersected with `MODERN_PROTOCOL_VERSIONS` and the probe is
-          retried once at the highest mutual version. No mutual version, or a
-          second failure, raises the server's `MCPError`.
-        - `METHOD_NOT_FOUND` (-32601) or `REQUEST_TIMEOUT` (-32001): the server
-          is treated as legacy and `initialize()` runs instead — exactly as
-          ``mode='legacy'`` would.
-        - Any other error: re-raised.
-
-        Returns the synthesized `InitializeResult` (also available afterwards
-        via `initialize_result`).
+        Raises:
+            MCPError: The server rejected `server/discover`, the probe timed
+                out, or the -32022 retry found no mutual version / failed again.
+            RuntimeError: `adopt()` found no mutual version in the returned
+                `supported_versions`.
         """
-        if self._initialize_result is not None:
-            return self._initialize_result
+        if self._discover_result is not None:
+            return self._discover_result
 
         client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
         capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -414,39 +415,67 @@ class ClientSession:
         try:
             raw = await probe(MODERN_PROTOCOL_VERSIONS[-1])
         except MCPError as e:
-            if e.code == UNSUPPORTED_PROTOCOL_VERSION:
-                try:
-                    data = types.UnsupportedProtocolVersionErrorData.model_validate(e.error.data)
-                except ValidationError:
-                    raise e from None
-                mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in data.supported]
-                if not mutual:
-                    raise
-                raw = await probe(mutual[-1])
-            elif e.code in (METHOD_NOT_FOUND, REQUEST_TIMEOUT):
-                return await self.initialize()
-            else:
+            if e.code != UNSUPPORTED_PROTOCOL_VERSION:
                 raise
+            try:
+                data = types.UnsupportedProtocolVersionErrorData.model_validate(e.error.data)
+            except ValidationError:
+                raise e from None
+            # ordered oldest→newest via MODERN_PROTOCOL_VERSIONS
+            mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in data.supported]
+            if not mutual:
+                raise
+            raw = await probe(mutual[-1])
 
         result = types.DiscoverResult.model_validate(raw)
         self.adopt(result)
-        assert self._initialize_result is not None
-        return self._initialize_result
+        return result
 
     @property
     def initialize_result(self) -> types.InitializeResult | None:
-        """The server's InitializeResult. None until `initialize()` or `adopt()`.
-
-        Contains server_info, capabilities, instructions, and the negotiated
-        protocol_version. For a modern session adopted from a DiscoverResult,
-        this is synthesized locally with the chosen protocol version.
-        """
+        """The server's InitializeResult. None unless `initialize()` ran (or was adopted)."""
         return self._initialize_result
 
     @property
+    def discover_result(self) -> types.DiscoverResult | None:
+        """The server's DiscoverResult. None unless `discover()` ran (or was adopted).
+
+        Retained intact (supported_versions, ttl_ms, cache_scope) so callers
+        can round-trip it as ``prior_discover=``.
+        """
+        return self._discover_result
+
+    @property
     def protocol_version(self) -> str | None:
-        """Negotiated protocol version. None until `initialize()` or `adopt()`."""
-        return self._initialize_result.protocol_version if self._initialize_result is not None else None
+        """Negotiated protocol version. None until `initialize()`, `discover()`, or `adopt()`."""
+        return self._negotiated_version
+
+    @property
+    def server_info(self) -> types.Implementation | None:
+        """Server name/version. None until `initialize()`, `discover()`, or `adopt()`."""
+        if self._discover_result is not None:
+            return self._discover_result.server_info
+        if self._initialize_result is not None:
+            return self._initialize_result.server_info
+        return None
+
+    @property
+    def server_capabilities(self) -> types.ServerCapabilities | None:
+        """Server capabilities. None until `initialize()`, `discover()`, or `adopt()`."""
+        if self._discover_result is not None:
+            return self._discover_result.capabilities
+        if self._initialize_result is not None:
+            return self._initialize_result.capabilities
+        return None
+
+    @property
+    def instructions(self) -> str | None:
+        """Server-provided instructions text, if any."""
+        if self._discover_result is not None:
+            return self._discover_result.instructions
+        if self._initialize_result is not None:
+            return self._initialize_result.instructions
+        return None
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
@@ -655,7 +684,7 @@ class ClientSession:
         # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
         # handshake (which only exists at <=2025) and stateless until the header
         # is plumbed; its meaning is fixed regardless of LATEST bumps.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             request = cast(types.ServerRequest, _methods.parse_server_request(method, version, params))
         except KeyError:
@@ -693,7 +722,7 @@ class ClientSession:
     ) -> None:
         """Route a server notification: validate, run the typed callback, tee to message_handler."""
         # Same fallback as `_on_request`: covers pre-handshake and stateless.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
         except KeyError:

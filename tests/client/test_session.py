@@ -644,6 +644,11 @@ async def test_initialize_result():
         assert result.capabilities == expected_capabilities
         assert result.instructions == expected_instructions
         assert result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+        # Era-neutral accessors are populated from the InitializeResult.
+        assert session.server_info == expected_server_info
+        assert session.server_capabilities == expected_capabilities
+        assert session.instructions == expected_instructions
+        assert session.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 @pytest.mark.anyio
@@ -785,10 +790,12 @@ async def test_receive_loop_drops_unknown_notification_method_without_response()
 
 def _set_negotiated_version(session: ClientSession, version: str) -> None:
     """Force `session.protocol_version` without running the handshake."""
-    session._initialize_result = InitializeResult(
-        protocol_version=version,
-        capabilities=ServerCapabilities(),
-        server_info=Implementation(name="mock-server", version="0.1.0"),
+    session.adopt(
+        InitializeResult(
+            protocol_version=version,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
     )
 
 
@@ -1471,20 +1478,14 @@ class _ScriptedDispatcher:
         return item
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-        self.notifies.append(method)
+        self.notifies.append(
+            method
+        )  # pragma: no cover — recorded so a wrongly-sent notification fails the == [] assert
 
 
 def _discover_result_dict() -> dict[str, Any]:
     return types.DiscoverResult(
         supported_versions=["2026-07-28"],
-        capabilities=ServerCapabilities(),
-        server_info=Implementation(name="stub", version="0"),
-    ).model_dump(by_alias=True, mode="json", exclude_none=True)
-
-
-def _initialize_result_dict() -> dict[str, Any]:
-    return InitializeResult(
-        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
         capabilities=ServerCapabilities(),
         server_info=Implementation(name="stub", version="0"),
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -1497,7 +1498,8 @@ async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp
     dispatcher = _ScriptedDispatcher(_discover_result_dict(), {})
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
-            await session.discover()
+            result = await session.discover()
+            assert isinstance(result, types.DiscoverResult)
             assert session.protocol_version == "2026-07-28"
             await session.send_ping()
     ping_method, ping_params = dispatcher.calls[-1]
@@ -1546,47 +1548,20 @@ async def test_discover_raises_when_retry_intersection_is_empty() -> None:
 
 
 @pytest.mark.anyio
-async def test_discover_falls_back_to_initialize_on_method_not_found() -> None:
-    """Spec SHOULD: a legacy server that answers -32601 to `server/discover` is
-    transparently driven through the handshake instead."""
-    dispatcher = _ScriptedDispatcher(
-        MCPError(METHOD_NOT_FOUND, "Method not found"),
-        _initialize_result_dict(),
-    )
-    with anyio.fail_after(5):
-        async with ClientSession(dispatcher=dispatcher) as session:
-            await session.discover()
-    assert session.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
-    assert [m for m, _ in dispatcher.calls] == ["server/discover", "initialize"]
-    assert dispatcher.notifies == ["notifications/initialized"]
-
-
-@pytest.mark.anyio
-async def test_discover_falls_back_to_initialize_on_timeout() -> None:
-    """Spec SHOULD: a `REQUEST_TIMEOUT` from the dispatcher is treated the same as
-    method-not-found — the server is presumed legacy and `initialize()` runs."""
-    dispatcher = _ScriptedDispatcher(
-        MCPError(REQUEST_TIMEOUT, "timed out"),
-        _initialize_result_dict(),
-    )
-    with anyio.fail_after(5):
-        async with ClientSession(dispatcher=dispatcher) as session:
-            await session.discover()
-    assert session.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
-    assert [m for m, _ in dispatcher.calls] == ["server/discover", "initialize"]
-
-
-@pytest.mark.anyio
-async def test_discover_reraises_on_other_errors() -> None:
-    """SDK-defined: any error outside the retry/fallback ladder propagates verbatim
-    — `discover()` does not mask server failures by falling back to `initialize()`."""
-    dispatcher = _ScriptedDispatcher(MCPError(INTERNAL_ERROR, "boom"))
+@pytest.mark.parametrize("code", [METHOD_NOT_FOUND, REQUEST_TIMEOUT, INTERNAL_ERROR])
+async def test_discover_reraises_non_retry_errors_without_falling_back(code: int) -> None:
+    """SDK-defined: any error outside the -32022 retry rung propagates verbatim
+    — `discover()` does not fall back to `initialize()` itself; that is the
+    caller's policy (`Client.__aenter__`)."""
+    dispatcher = _ScriptedDispatcher(MCPError(code, "nope"))
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             with pytest.raises(MCPError) as exc:
                 await session.discover()
-            assert exc.value.error.code == INTERNAL_ERROR
+            assert exc.value.error.code == code
+            assert session.protocol_version is None
     assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+    assert dispatcher.notifies == []
 
 
 @pytest.mark.anyio
@@ -1612,8 +1587,44 @@ async def test_discover_is_idempotent_and_returns_the_cached_result() -> None:
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             first = await session.discover()
+            assert isinstance(first, types.DiscoverResult)
             assert await session.discover() is first
+            assert session.discover_result is first
     assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+def test_era_neutral_properties_are_none_before_any_handshake() -> None:
+    """SDK-defined: the era-neutral accessors all read as None on a fresh session."""
+    client_d, _ = create_direct_dispatcher_pair()
+    session = ClientSession(dispatcher=client_d)
+    assert session.protocol_version is None
+    assert session.server_info is None
+    assert session.server_capabilities is None
+    assert session.instructions is None
+    assert session.discover_result is None
+    assert session.initialize_result is None
+
+
+@pytest.mark.anyio
+async def test_era_neutral_properties_after_discover() -> None:
+    """SDK-defined: after `discover()` the era-neutral accessors read from the
+    DiscoverResult; `initialize_result` stays None."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(tools=types.ToolsCapability(list_changed=True)),
+        server_info=Implementation(name="discovered", version="2.0"),
+        instructions="hello",
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert session.server_info == Implementation(name="discovered", version="2.0")
+    assert session.server_capabilities == ServerCapabilities(tools=types.ToolsCapability(list_changed=True))
+    assert session.instructions == "hello"
+    assert session.initialize_result is None
+    assert isinstance(session.discover_result, types.DiscoverResult)
 
 
 @pytest.mark.anyio

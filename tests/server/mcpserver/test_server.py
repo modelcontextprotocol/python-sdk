@@ -720,7 +720,7 @@ class TestServerResources:
         mcp = MCPServer(resources=[resource])
 
         async with Client(mcp) as client:
-            assert client.initialize_result.capabilities.resources is not None
+            assert client.server_capabilities.resources is not None
 
             resources = await client.list_resources()
             assert len(resources.resources) == 1

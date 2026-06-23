@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
 
 import anyio
@@ -13,10 +13,13 @@ from inline_snapshot import snapshot
 
 from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import (
     CallToolResult,
@@ -105,7 +108,7 @@ def app() -> MCPServer:
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
-        assert client.initialize_result.capabilities == snapshot(
+        assert client.server_capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
                 prompts=PromptsCapability(list_changed=False),
@@ -113,13 +116,13 @@ async def test_client_is_initialized(app: MCPServer):
                 tools=ToolsCapability(list_changed=False),
             )
         )
-        assert client.initialize_result.server_info.name == "test"
+        assert client.server_info.name == "test"
 
 
-async def test_client_initialize_result_exposes_negotiated_protocol_version(app: MCPServer):
+async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
     """The negotiated protocol version is readable after initialization."""
     async with Client(app) as client:
-        assert client.initialize_result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+        assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -391,5 +394,70 @@ async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Serve
             mounted_app(simple_server) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
-            assert client.initialize_result.protocol_version == "2026-07-28"
+            assert client.protocol_version == "2026-07-28"
             assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+@pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.REQUEST_TIMEOUT])
+async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: int) -> None:
+    """`mode='auto'`: when `server/discover` is rejected with -32601 or -32001,
+    `Client.__aenter__` runs the legacy `initialize()` handshake and lands at a
+    handshake-era protocol version. The session itself does not fall back —
+    that policy lives here. A real `Server` always implements `server/discover`,
+    so the server side is hand-played."""
+    methods_seen: list[str] = []
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        async for message in server_read:
+            assert isinstance(message, SessionMessage)
+            frame = message.message
+            assert isinstance(frame, types.JSONRPCRequest | types.JSONRPCNotification)
+            methods_seen.append(frame.method)
+            if isinstance(frame, types.JSONRPCNotification):
+                continue
+            if frame.method == "server/discover":
+                error = types.ErrorData(code=code, message="nope")
+                await server_write.send(SessionMessage(types.JSONRPCError(jsonrpc="2.0", id=frame.id, error=error)))
+            elif frame.method == "initialize":  # pragma: no branch
+                result = types.InitializeResult(
+                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+                    capabilities=ServerCapabilities(),
+                    server_info=types.Implementation(name="legacy-only", version="0.0.1"),
+                )
+                await server_write.send(
+                    SessionMessage(
+                        types.JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=frame.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+
+    @asynccontextmanager
+    async def scripted_transport() -> AsyncIterator[TransportStreams]:
+        async with (
+            create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(scripted_server, server_streams)
+            yield client_read, client_write
+            tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(scripted_transport(), mode="auto") as client:
+            assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+            assert client.server_info.name == "legacy-only"
+    assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
+
+
+def test_client_rejects_handshake_era_mode_at_construction() -> None:
+    """A handshake-era protocol-version string passed as `mode=` is rejected by
+    `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is
+    modern-only."""
+    server = MCPServer("test")
+    with pytest.raises(ValueError, match=r"handshake-era version — use mode='legacy'"):
+        Client(server, mode="2025-06-18")
+    with pytest.raises(ValueError, match=r"mode must be 'legacy', 'auto', or one of"):
+        Client(server, mode="not-a-version")

@@ -144,8 +144,8 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
             ) as client,
         ):
             assert requests == []
-            assert client.initialize_result.server_info == Implementation(name="cached-server", version="9.9.9")
-            assert client.initialize_result.capabilities.tools == ToolsCapability(list_changed=False)
+            assert client.server_info == Implementation(name="cached-server", version="9.9.9")
+            assert client.server_capabilities.tools == ToolsCapability(list_changed=False)
             await client.list_tools()
 
     assert [json.loads(r.content)["method"] for r in requests] == ["tools/list"]
@@ -167,8 +167,8 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
             mounted_app(server, on_request=on_request) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
-            assert client.initialize_result.protocol_version == MODERN_VERSION
-            assert client.initialize_result.server_info.name == "discoverable"
+            assert client.protocol_version == MODERN_VERSION
+            assert client.server_info.name == "discoverable"
             await client.list_tools()
 
     bodies = [json.loads(r.content) for r in requests]
@@ -211,7 +211,7 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
             mounted_app(server, on_request=on_request) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
-            assert client.initialize_result.protocol_version == MODERN_VERSION
+            assert client.protocol_version == MODERN_VERSION
 
     assert calls == [MODERN_VERSION, MODERN_VERSION]
     assert [json.loads(r.content)["method"] for r in requests][:2] == ["server/discover", "server/discover"]
@@ -300,8 +300,8 @@ async def test_auto_mode_falls_back_to_initialize_when_discover_is_method_not_fo
 
     with anyio.fail_after(5):
         async with Client(scripted_transport(), mode="auto") as client:
-            assert client.initialize_result.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
-            assert client.initialize_result.server_info.name == "legacy-only"
+            assert client.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+            assert client.server_info.name == "legacy-only"
 
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
 
