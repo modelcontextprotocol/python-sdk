@@ -561,7 +561,7 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-        if custom_starlette_routes:  # pragma: no cover
+        if custom_starlette_routes:
             routes.extend(custom_starlette_routes)
 
         return Starlette(
