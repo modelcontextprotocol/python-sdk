@@ -159,9 +159,9 @@ The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been re
 
 Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 
-### `protocol_version` removed from `StreamableHTTPTransport` and `streamable_http_client`
+### `StreamableHTTPTransport.protocol_version` attribute removed
 
-The `protocol_version` attribute on `StreamableHTTPTransport` and the `protocol_version` parameter on `streamable_http_client` have been removed. The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are supplied per-message by the session, so the transport never needs to know the negotiated version.
+The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are now supplied per-message by the session. If you were reading `transport.protocol_version` to learn the negotiated version, read it from `session.initialize_result.protocol_version` instead.
 
 ### `terminate_windows_process` removed
 
@@ -352,11 +352,7 @@ if result is not None:
     version = result.protocol_version
 ```
 
-The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. This replaces v1's `Client.server_capabilities`; use `client.initialize_result.capabilities` instead.
-
-### `ClientSession(protocol_version=)` removed
-
-The `protocol_version` constructor parameter on `ClientSession` has been removed. To install a known protocol version without performing the `initialize` handshake (e.g. when reconnecting to an existing session), call `session.adopt(result)` after construction with a stored `InitializeResult`.
+The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. Like `session.initialize_result`, this replaces v1's `ClientSession.get_server_capabilities()`; use `client.initialize_result.capabilities` instead.
 
 ### `McpError` renamed to `MCPError`
 
@@ -809,6 +805,12 @@ await session.send_progress_notification(
     total=100,
 )
 ```
+
+### Handler progress reporting: prefer `ctx.report_progress()` over manual `progress_token`
+
+Reading `ctx.meta["progress_token"]` and calling `session.send_progress_notification(token, ...)` is specific to the JSON-RPC transport path. On the in-process modern path (`DirectDispatcher` / `Client(server)`), there is no wire token in `_meta`, so handlers that gate progress on the token's presence go silent.
+
+`ctx.report_progress(progress, total, message)` works on every dispatcher: it sends a progress notification when a token is present and routes the update through the dispatcher's progress channel otherwise, no-opping only when the caller did not request progress at all. `session.send_progress_notification(progress_token, ...)` is unchanged and still works on JSON-RPC transports for code that already holds a token.
 
 ### `create_connected_server_and_client_session` removed
 

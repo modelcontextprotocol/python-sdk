@@ -244,7 +244,7 @@ async def test_auto_mode_reraises_a_non_fallback_discover_error_without_initiali
                 pytest.RaisesExc(MCPError, check=is_internal_error), flatten_subgroups=True
             ):  # pragma: no branch
                 async with Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto"):
-                    pytest.fail("entering the Client should have raised")  # pragma: no cover
+                    raise NotImplementedError("entering the Client should have raised")  # pragma: no cover
 
     assert [json.loads(r.content)["method"] for r in requests] == ["server/discover"]
 
