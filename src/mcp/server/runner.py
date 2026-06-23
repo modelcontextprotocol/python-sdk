@@ -33,7 +33,7 @@ from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
@@ -48,9 +48,6 @@ from mcp.types import (
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    JSONRPCError,
-    JSONRPCResponse,
-    RequestId,
     RequestParams,
     RequestParamsMeta,
 )
@@ -69,7 +66,6 @@ __all__ = [
     "serve_connection",
     "serve_loop",
     "serve_one",
-    "to_jsonrpc_response",
 ]
 
 logger = logging.getLogger(__name__)
@@ -180,31 +176,6 @@ async def aclose_shielded(connection: Connection) -> None:
             "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
             _EXIT_STACK_CLOSE_TIMEOUT,
         )
-
-
-async def to_jsonrpc_response(
-    request_id: RequestId, coro: Awaitable[dict[str, Any]], *, raise_unhandled: bool = False
-) -> JSONRPCResponse | JSONRPCError:
-    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
-
-    The exception-to-wire boundary for the modern HTTP entry, which composes
-    this around `serve_one` directly. `MCPError` and `ValidationError`
-    map via the shared `handler_exception_to_error_data` ladder; any other
-    exception is logged and surfaced as `INTERNAL_ERROR` so handler internals
-    never reach the wire. Set ``raise_unhandled`` to let unmapped exceptions
-    propagate instead of being sanitized.
-    """
-    try:
-        result = await coro
-    except Exception as exc:
-        error = handler_exception_to_error_data(exc)
-        if error is None:
-            if raise_unhandled:
-                raise
-            logger.exception("request handler raised")
-            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
-        return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
-    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
 def _apply_middleware(
@@ -516,8 +487,7 @@ async def serve_one(
     only consumes them.
 
     Raises whatever the handler chain raises (`MCPError` / `ValidationError` /
-    unmapped); callers own the exception-to-wire mapping. The HTTP entry
-    composes this with `to_jsonrpc_response`.
+    unmapped); callers own the exception-to-wire mapping.
     """
     runner = ServerRunner(server, connection, lifespan_state)
     try:

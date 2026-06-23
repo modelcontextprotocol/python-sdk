@@ -4,12 +4,13 @@ Check the latest schema at:
 https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.json
 """
 
+from mcp.shared.version import LATEST_PROTOCOL_VERSION
+
 # Re-export everything from _types for backward compatibility
 from mcp.types._types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     DEFAULT_NEGOTIATED_VERSION,
-    LATEST_PROTOCOL_VERSION,
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     Annotations,

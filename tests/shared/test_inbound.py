@@ -33,9 +33,6 @@ from mcp.types.jsonrpc import (
     UNSUPPORTED_PROTOCOL_VERSION,
 )
 
-MODERN = LATEST_MODERN_VERSION
-"""The modern protocol-version string, read from the registry — never inlined here."""
-
 CLIENT_INFO = {"name": "t", "version": "0"}
 CLIENT_CAPS: dict[str, Any] = {}
 
@@ -43,7 +40,7 @@ CLIENT_CAPS: dict[str, Any] = {}
 def envelope(
     method: str = "tools/list",
     *,
-    version: str = MODERN,
+    version: str = LATEST_MODERN_VERSION,
     drop: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Build a JSON-RPC body carrying a complete modern ``_meta`` envelope.
@@ -123,7 +120,7 @@ def test_version_rung_data_reflects_supplied_supported_list() -> None:
         classify_inbound_request(envelope(), supported_modern_versions=custom),
         UNSUPPORTED_PROTOCOL_VERSION,
     )
-    assert rejection.data == {"supported": list(custom), "requested": MODERN}
+    assert rejection.data == {"supported": list(custom), "requested": LATEST_MODERN_VERSION}
 
 
 # --- rung 3: header ↔ envelope agreement ---------------------------------------
@@ -137,7 +134,7 @@ def test_header_rung_does_not_reject_when_headers_arg_is_none() -> None:
 
 def test_header_rung_passes_when_header_matches_envelope() -> None:
     """Spec-mandated: an HTTP version header equal to the envelope version passes rung 3."""
-    result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION})
     assert isinstance(result, InboundModernRoute)
 
 
@@ -158,9 +155,9 @@ def test_header_rung_rejects_on_disagreement(headers: dict[str, str]) -> None:
 
 def test_all_rungs_pass_yields_route() -> None:
     """Spec-mandated: a complete envelope at a supported version with agreeing header routes, surfacing the envelope."""
-    result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    result = classify_inbound_request(envelope(), headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION})
     assert isinstance(result, InboundModernRoute)
-    assert result.protocol_version == MODERN
+    assert result.protocol_version == LATEST_MODERN_VERSION
     assert result.client_info == CLIENT_INFO
     assert result.client_capabilities == CLIENT_CAPS
 
@@ -168,7 +165,7 @@ def test_all_rungs_pass_yields_route() -> None:
 @pytest.mark.parametrize("method", ["initialize", "myorg/custom", "does/not/exist"])
 def test_classifier_passes_unknown_method_through_to_route(method: str) -> None:
     """SDK-defined: the classifier does not gate on method — kernel dispatch is the single owner of that decision."""
-    result = classify_inbound_request(envelope(method), headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    result = classify_inbound_request(envelope(method), headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION})
     assert isinstance(result, InboundModernRoute)
 
 
@@ -177,7 +174,7 @@ def test_ladder_first_failure_wins() -> None:
     would both fail; the header rung fires first so an inconsistent client is told it
     disagrees with itself rather than that its body version is unsupported."""
     body = envelope(version=LATEST_HANDSHAKE_VERSION)
-    result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: MODERN})
+    result = classify_inbound_request(body, headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION})
     assert_rejected(result, HEADER_MISMATCH)
 
 

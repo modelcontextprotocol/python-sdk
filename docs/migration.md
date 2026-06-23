@@ -332,7 +332,7 @@ result = await session.list_tools(params=PaginatedRequestParams(cursor="next_pag
 
 ### `ClientSession.get_server_capabilities()` replaced by era-neutral accessors
 
-`ClientSession` now exposes the negotiated server metadata as properties: `server_capabilities`, `server_info`, `instructions`, and `protocol_version`. These are populated by whichever connection step ran (`initialize()` for ≤2025-11-25 servers, `discover()` for 2026-07-28+). The `get_server_capabilities()` method has been removed.
+`ClientSession` now exposes the negotiated server metadata as properties: `server_capabilities`, `server_info`, `instructions`, and `protocol_version`. These are populated by whichever connection step ran (`initialize()` for ≤2025-11-25 servers, `discover()` for 2026-07-28+), and are `None` if none has — matching v1's `get_server_capabilities()`. The `get_server_capabilities()` method has been removed.
 
 **Before (v1):**
 
@@ -350,9 +350,9 @@ instructions = session.instructions
 version = session.protocol_version
 ```
 
-The raw handshake result is also retained as `session.initialize_result` (legacy path) or `session.discover_result` (modern path) — exactly one is non-`None`.
+The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it.
+On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always handshakes on enter.)
 
 ### `McpError` renamed to `MCPError`
 
@@ -771,8 +771,6 @@ async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ### Version constants
 
 `SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly.
-
-`LATEST_PROTOCOL_VERSION` now reflects the newest protocol revision the SDK supports (`2026-07-28`). Code that used it to mean "the version `.initialize()` offers" should switch to `LATEST_HANDSHAKE_VERSION`.
 
 ### `ProgressContext` and `progress()` context manager removed
 

@@ -4,7 +4,7 @@ The kernel tests run end-to-end over `JSONRPCDispatcher` with a real lowlevel
 `Server` as the registry. The `connected_runner` helper starts both sides and
 (by default) performs the initialize handshake, so each test exercises only the
 behaviour under test. Driver tests (`serve_connection`, `serve_one`,
-`to_jsonrpc_response`, `aclose_shielded`) follow at the bottom.
+`aclose_shielded`) follow at the bottom.
 """
 
 from collections.abc import AsyncIterator, Mapping
@@ -30,7 +30,6 @@ from mcp.server.runner import (
     otel_middleware,
     serve_connection,
     serve_one,
-    to_jsonrpc_response,
 )
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions, DispatchContext, DispatchMiddleware, OnRequest
@@ -50,8 +49,6 @@ from mcp.types import (
     ErrorData,
     Implementation,
     InitializeRequestParams,
-    JSONRPCError,
-    JSONRPCResponse,
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
@@ -1199,98 +1196,6 @@ async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
         await client.send_raw_request("tools/list", None)
     assert cleaned == [2, 1]
     assert "abandoning remaining callbacks" not in caplog.text
-
-
-# --- to_jsonrpc_response -------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response():
-    """SDK-defined: a handler coroutine resolving to a result dict is wrapped as a
-    `JSONRPCResponse` carrying the supplied id and the dict verbatim as `result`."""
-
-    async def ok() -> dict[str, Any]:
-        return {"k": "v"}
-
-    reply = await to_jsonrpc_response(7, ok())
-    assert isinstance(reply, JSONRPCResponse)
-    assert reply.id == 7
-    assert reply.result == {"k": "v"}
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error():
-    """SDK-defined: an `MCPError` raised by the handler coroutine is wrapped as a
-    `JSONRPCError` whose `error` carries the same code, message, and data."""
-
-    async def fail() -> dict[str, Any]:
-        raise MCPError(code=METHOD_NOT_FOUND, message="nope", data="x")
-
-    reply = await to_jsonrpc_response("rid", fail())
-    assert isinstance(reply, JSONRPCError)
-    assert reply.id == "rid"
-    assert reply.error == ErrorData(code=METHOD_NOT_FOUND, message="nope", data="x")
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params():
-    """SDK-defined: a pydantic `ValidationError` escaping the handler coroutine is
-    mapped to `INVALID_PARAMS` with a generic message (validator detail does not
-    reach the wire)."""
-
-    async def fail() -> dict[str, Any]:
-        Tool.model_validate({"name": 123})  # raises ValidationError
-        raise NotImplementedError
-
-    reply = await to_jsonrpc_response(1, fail())
-    assert isinstance(reply, JSONRPCError)
-    assert reply.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and_logs(
-    caplog: pytest.LogCaptureFixture,
-):
-    """SDK-defined: an unmapped exception is logged server-side and surfaced as
-    `INTERNAL_ERROR` with a generic message; the exception text never reaches the
-    wire."""
-
-    async def fail() -> dict[str, Any]:
-        raise RuntimeError("boom")
-
-    reply = await to_jsonrpc_response(1, fail())
-    assert isinstance(reply, JSONRPCError)
-    assert reply.error.code == INTERNAL_ERROR
-    # Handler internals never reach the wire.
-    assert "boom" not in reply.error.message
-    assert "request handler raised" in caplog.text
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_raise_unhandled_propagates_unmapped_exception():
-    """SDK-defined: ``raise_unhandled=True`` lets an unmapped exception escape
-    instead of being sanitized to `INTERNAL_ERROR` — used by the in-process test
-    path so the original traceback reaches the caller."""
-
-    async def fail() -> dict[str, Any]:
-        raise RuntimeError("boom")
-
-    with pytest.raises(RuntimeError, match="boom"):
-        await to_jsonrpc_response(1, fail(), raise_unhandled=True)
-
-
-@pytest.mark.anyio
-async def test_to_jsonrpc_response_raise_unhandled_still_maps_mcp_error():
-    """SDK-defined: ``raise_unhandled`` only affects unmapped exceptions; an
-    `MCPError` is still converted to a `JSONRPCError` (it is protocol-level, not
-    a crash)."""
-
-    async def fail() -> dict[str, Any]:
-        raise MCPError(code=METHOD_NOT_FOUND, message="nope")
-
-    reply = await to_jsonrpc_response(1, fail(), raise_unhandled=True)
-    assert isinstance(reply, JSONRPCError)
-    assert reply.error.code == METHOD_NOT_FOUND
 
 
 # --- aclose_shielded -----------------------------------------------------------

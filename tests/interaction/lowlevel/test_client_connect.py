@@ -51,8 +51,6 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-MODERN_VERSION = LATEST_MODERN_VERSION
-
 
 def _tools_server(name: str = "negotiator") -> Server:
     """A low-level server with one list-tools handler, so a feature request has something to reach."""
@@ -108,7 +106,7 @@ async def test_pinned_mode_sends_no_connect_time_traffic() -> None:
     with anyio.fail_after(5):
         async with (
             mounted_app(_tools_server(), on_request=on_request) as (http, _),
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode=MODERN_VERSION) as client,
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode=LATEST_MODERN_VERSION) as client,
         ):
             assert requests == []  # entering the Client produced zero HTTP traffic
             result = await client.list_tools()
@@ -128,7 +126,7 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
     immediately with zero round trips.
     """
     prior = DiscoverResult(
-        supported_versions=[MODERN_VERSION],
+        supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(tools=ToolsCapability(list_changed=False)),
         server_info=Implementation(name="cached-server", version="9.9.9"),
     )
@@ -139,7 +137,7 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
             mounted_app(_tools_server(), on_request=on_request) as (http, _),
             Client(
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
-                mode=MODERN_VERSION,
+                mode=LATEST_MODERN_VERSION,
                 prior_discover=prior,
             ) as client,
         ):
@@ -167,7 +165,7 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
             mounted_app(server, on_request=on_request) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
-            assert client.protocol_version == MODERN_VERSION
+            assert client.protocol_version == LATEST_MODERN_VERSION
             assert client.server_info.name == "discoverable"
             await client.list_tools()
 
@@ -211,9 +209,9 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
             mounted_app(server, on_request=on_request) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
-            assert client.protocol_version == MODERN_VERSION
+            assert client.protocol_version == LATEST_MODERN_VERSION
 
-    assert calls == [MODERN_VERSION, MODERN_VERSION]
+    assert calls == [LATEST_MODERN_VERSION, LATEST_MODERN_VERSION]
     assert [json.loads(r.content)["method"] for r in requests][:2] == ["server/discover", "server/discover"]
 
 
@@ -332,7 +330,7 @@ async def test_every_request_on_a_modern_session_carries_the_three_key_meta_enve
 
     assert len(observed) == 2
     for meta in observed:
-        assert meta[PROTOCOL_VERSION_META_KEY] == MODERN_VERSION
+        assert meta[PROTOCOL_VERSION_META_KEY] == LATEST_MODERN_VERSION
         assert meta[CLIENT_INFO_META_KEY] == {"name": "enveloper", "version": "1.2.3"}
         assert CLIENT_CAPABILITIES_META_KEY in meta
 
@@ -350,7 +348,7 @@ async def test_http_protocol_version_header_matches_meta_protocol_version_on_eve
     with anyio.fail_after(5):
         async with (
             mounted_app(_tools_server(), on_request=on_request) as (http, _),
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode=MODERN_VERSION) as client,
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode=LATEST_MODERN_VERSION) as client,
         ):
             await client.list_tools()
             await client.list_tools()
@@ -359,4 +357,4 @@ async def test_http_protocol_version_header_matches_meta_protocol_version_on_eve
     for request in requests:
         body = json.loads(request.content)
         assert request.headers["mcp-protocol-version"] == body["params"]["_meta"][PROTOCOL_VERSION_META_KEY]
-        assert request.headers["mcp-protocol-version"] == MODERN_VERSION
+        assert request.headers["mcp-protocol-version"] == LATEST_MODERN_VERSION
