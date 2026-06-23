@@ -1786,81 +1786,40 @@ async def test_handle_sse_event_skips_empty_data():
 
 
 @pytest.mark.anyio
-async def test_priming_event_not_sent_for_old_protocol_version():
-    """Test that _maybe_send_priming_event skips for old protocol versions (backwards compat)."""
-    # Create a transport with an event store
+async def test_priming_event_not_minted_for_old_protocol_version():
+    """`_mint_priming_event` returns None for pre-2025-11-25 clients (backwards compat)."""
     transport = StreamableHTTPServerTransport(
         "/mcp",
         event_store=SimpleEventStore(),
     )
 
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event with OLD protocol version - should NOT send
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-06-18")
-
-        # Nothing should have been written to the stream
-        assert write_stream.statistics().current_buffer_used == 0
-
-        # Now test with NEW protocol version - should send
-        await transport._maybe_send_priming_event("test-request-id-2", write_stream, "2025-11-25")
-
-        # Should have written a priming event
-        assert write_stream.statistics().current_buffer_used == 1
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
+    assert await transport._mint_priming_event("test-request-id", "2025-06-18") is None
+    event = await transport._mint_priming_event("test-request-id-2", "2025-11-25")
+    assert event is not None
+    assert event["data"] == ""
+    assert "retry" not in event
 
 
 @pytest.mark.anyio
-async def test_priming_event_not_sent_without_event_store():
-    """Test that _maybe_send_priming_event returns early when no event_store is configured."""
-    # Create a transport WITHOUT an event store
+async def test_priming_event_not_minted_without_event_store():
+    """`_mint_priming_event` returns None when no event store is configured."""
     transport = StreamableHTTPServerTransport("/mcp")
 
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event - should return early without sending
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
-
-        # Nothing should have been written to the stream
-        assert write_stream.statistics().current_buffer_used == 0
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
+    assert await transport._mint_priming_event("test-request-id", "2025-11-25") is None
 
 
 @pytest.mark.anyio
 async def test_priming_event_includes_retry_interval():
-    """Test that _maybe_send_priming_event includes retry field when retry_interval is set."""
-    # Create a transport with an event store AND retry_interval
+    """`_mint_priming_event` carries the configured `retry` field."""
     transport = StreamableHTTPServerTransport(
         "/mcp",
         event_store=SimpleEventStore(),
         retry_interval=5000,
     )
 
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event with new protocol version
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
-
-        # Should have written a priming event with retry field
-        assert write_stream.statistics().current_buffer_used == 1
-
-        # Read the event and verify it has retry field
-        event = await read_stream.receive()
-        assert "retry" in event
-        assert event["retry"] == 5000
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
+    event = await transport._mint_priming_event("test-request-id", "2025-11-25")
+    assert event is not None
+    assert event["retry"] == 5000
 
 
 @pytest.mark.anyio
