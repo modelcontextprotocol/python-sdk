@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
@@ -83,6 +83,14 @@ class OAuthClientMetadata(BaseModel):
     jwks: Any | None = None
     software_id: str | None = None
     software_version: str | None = None
+
+    @field_validator("redirect_uris", mode="before")
+    @classmethod
+    def _coerce_redirect_uris_to_any_url(cls, v: object) -> object:
+        if isinstance(v, list):
+            redirect_uris = cast(list[object], v)
+            return [str(item) if isinstance(item, AnyUrl) else item for item in redirect_uris]
+        return v
 
     @field_validator(
         "client_uri",

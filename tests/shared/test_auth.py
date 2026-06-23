@@ -1,9 +1,9 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -107,6 +107,21 @@ def test_valid_url_passes_through_unchanged():
     }
     metadata = OAuthClientMetadata.model_validate(data)
     assert str(metadata.client_uri) == "https://udemy.com/"
+
+
+def test_redirect_uri_url_subtypes_are_normalized_for_validation():
+    client = OAuthClientInformationFull(
+        client_id="abc123",
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+
+    redirect_uri = AnyUrl("https://example.com/callback")
+    assert redirect_uri in (client.redirect_uris or [])
+    assert client.validate_redirect_uri(redirect_uri) == redirect_uri
+    assert client.model_dump(mode="json")["redirect_uris"] == ["https://example.com/callback"]
+
+    with pytest.raises(InvalidRedirectUriError):
+        client.validate_redirect_uri(AnyUrl("https://example.com/other"))
 
 
 def test_information_full_inherits_coercion():
