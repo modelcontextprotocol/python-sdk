@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
@@ -83,6 +83,14 @@ class OAuthClientMetadata(BaseModel):
     jwks: Any | None = None
     software_id: str | None = None
     software_version: str | None = None
+
+    @field_validator("redirect_uris", mode="before")
+    @classmethod
+    def _normalize_redirect_uri_subtypes(cls, v: object) -> object:
+        if isinstance(v, list):
+            # Pydantic URL equality is type-strict, so store redirect URIs as the declared AnyUrl type.
+            return [str(item) if isinstance(item, AnyUrl) else item for item in cast(list[object], v)]
+        return v
 
     @field_validator(
         "client_uri",
