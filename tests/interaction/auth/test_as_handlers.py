@@ -279,22 +279,49 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 
 
 @requirement("hosting:auth:as:redirect-uri-scheme")
-async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "http://evil.example/callback",
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "https://client.example.com/callback#fragment",
+    ],
+)
+async def test_registration_rejects_redirect_uris_without_https_or_loopback(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    redirect_uri: str,
 ) -> None:
-    """A registration carrying a non-HTTPS, non-loopback redirect URI is accepted.
-
-    The spec requires every redirect URI to be either HTTPS or a loopback host; the bundled
-    registration handler does not enforce this and registers `http://evil.example/callback`
-    successfully. See the divergence on the requirement.
-    """
+    """The registration endpoint rejects redirect URIs without HTTPS or a loopback host."""
     http, provider = as_app
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
-    body["redirect_uris"] = ["http://evil.example/callback"]
+    body["redirect_uris"] = [redirect_uri]
+
+    response = await http.post("/register", json=body)
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_redirect_uri"
+    assert provider.clients == {}
+
+
+@requirement("hosting:auth:as:redirect-uri-scheme")
+async def test_registration_allows_https_and_loopback_redirect_uris(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+) -> None:
+    """HTTPS redirect URIs and loopback HTTP redirect URIs remain valid."""
+    http, provider = as_app
+    body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
+    body["redirect_uris"] = [
+        "https://client.example.com/callback?next=%2Fhome",
+        "http://localhost:3000/callback",
+        "http://127.0.0.1:3000/callback",
+        "http://[::1]:3000/callback",
+    ]
 
     response = await http.post("/register", json=body)
 
     assert response.status_code == 201
     info = OAuthClientInformationFull.model_validate_json(response.content)
-    assert [str(u) for u in (info.redirect_uris or [])] == ["http://evil.example/callback"]
+    assert [str(u) for u in (info.redirect_uris or [])] == body["redirect_uris"]
     assert info.client_id in provider.clients

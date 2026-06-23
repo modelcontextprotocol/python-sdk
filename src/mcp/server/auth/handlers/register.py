@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import AnyUrl, BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -18,10 +18,27 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 # provider from what we use in the HTTP handler
 RegistrationRequest = OAuthClientMetadata
 
+LOOPBACK_REDIRECT_HOSTS = ("localhost", "127.0.0.1", "[::1]")
+
 
 class RegistrationErrorResponse(BaseModel):
     error: RegistrationErrorCode
     error_description: str | None
+
+
+def validate_redirect_uri(uri: AnyUrl) -> None:
+    """Validate a dynamic client registration redirect URI."""
+    if uri.scheme != "https" and uri.host not in LOOPBACK_REDIRECT_HOSTS:
+        raise RegistrationError(
+            error="invalid_redirect_uri",
+            error_description="redirect_uris must use HTTPS or target a loopback host",
+        )
+
+    if uri.fragment:
+        raise RegistrationError(
+            error="invalid_redirect_uri",
+            error_description="redirect_uris must not include a fragment",
+        )
 
 
 @dataclass
@@ -35,12 +52,23 @@ class RegistrationHandler:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
 
+            for redirect_uri in client_metadata.redirect_uris or ():
+                validate_redirect_uri(redirect_uri)
+
             # Scope validation is handled below
         except ValidationError as validation_error:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
                     error_description=stringify_pydantic_error(validation_error),
+                ),
+                status_code=400,
+            )
+        except RegistrationError as registration_error:
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error=registration_error.error,
+                    error_description=registration_error.error_description,
                 ),
                 status_code=400,
             )
