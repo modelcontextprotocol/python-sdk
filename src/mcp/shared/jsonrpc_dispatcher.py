@@ -75,7 +75,7 @@ def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
     with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
     any other exception so each caller applies its own catch-all -
     `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
-    `to_jsonrpc_response` uses `INTERNAL_ERROR`.
+    the modern HTTP entry uses `INTERNAL_ERROR`.
     """
     if isinstance(exc, MCPError):
         return exc.error
@@ -268,7 +268,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
         self._inline_methods = inline_methods
-        self._on_stream_exception = on_stream_exception
+        self.on_stream_exception = on_stream_exception
+        """Observer for ``Exception`` items on the read stream. Mutable so a session can
+        bind it after the dispatcher is built (e.g. ``ClientSession`` routing into
+        ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -484,11 +487,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         are awaited; any other `await` would head-of-line block the read loop.
         """
         if isinstance(item, Exception):
-            if self._on_stream_exception is None:
+            if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
                 return
             try:
-                await self._on_stream_exception(item)
+                await self.on_stream_exception(item)
             except Exception:
                 logger.exception("on_stream_exception observer raised")
             return

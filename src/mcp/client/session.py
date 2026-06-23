@@ -216,6 +216,14 @@ class ClientSession:
             if read_stream is not None or write_stream is not None:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
             self._dispatcher: Dispatcher[Any] = dispatcher
+            if isinstance(dispatcher, JSONRPCDispatcher) and dispatcher.on_stream_exception is None:
+                # Route transport-level Exception items into message_handler — only
+                # stream-backed dispatchers carry these; DirectDispatcher has none.
+                # Don't clobber a caller-supplied hook.
+                # TODO(maxisbey): this leaves a bound-method ref on the dispatcher after
+                # the session exits (memory pin) and a second wrap of the same dispatcher
+                # would skip install. The Transport-as-Dispatcher rework removes this seam.
+                dispatcher.on_stream_exception = self._on_stream_exception
         else:
             if read_stream is None or write_stream is None:
                 raise ValueError("read_stream and write_stream are required when no dispatcher is given")
@@ -358,6 +366,9 @@ class ClientSession:
     def adopt(self, result: types.InitializeResult | types.DiscoverResult) -> None:
         """Install negotiated state from a result the caller already holds (no wire traffic).
 
+        Clears the opposite slot, so at most one of `initialize_result` /
+        `discover_result` is ever non-None.
+
         Raises:
             RuntimeError: `result` is a `DiscoverResult` whose `supported_versions`
                 shares nothing with this client's `MODERN_PROTOCOL_VERSIONS`.
@@ -374,10 +385,12 @@ class ClientSession:
             capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
             self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities)
             self._discover_result = result
+            self._initialize_result = None
             self._negotiated_version = mutual[-1]
         else:
             self._stamp = _make_handshake_stamp(result.protocol_version)
             self._initialize_result = result
+            self._discover_result = None
             self._negotiated_version = result.protocol_version
 
     async def discover(self) -> types.DiscoverResult:

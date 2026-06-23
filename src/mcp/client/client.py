@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar
@@ -21,6 +21,7 @@ from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     METHOD_NOT_FOUND,
@@ -49,6 +50,43 @@ initialize), or a modern protocol-version string (adopt directly). The ``str`` a
 forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
 
 _T = TypeVar("_T")
+
+_Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
+"""Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
+are needed onto the exit stack and hand back the ``Dispatcher`` ``ClientSession`` will drive.
+``mode`` and ``raise_exceptions`` are passed at call time so they're read at the same moment
+``__aenter__`` reads them for the handshake step."""
+
+
+def _connect_transport(transport: Transport) -> _Connector:
+    """Connector for the stream-backed paths (URL, user-supplied ``Transport``)."""
+
+    async def connect(exit_stack: AsyncExitStack, _mode: ConnectMode, _raise_exceptions: bool) -> Dispatcher[Any]:
+        read_stream, write_stream = await exit_stack.enter_async_context(transport)
+        return JSONRPCDispatcher(read_stream, write_stream)
+
+    return connect
+
+
+def _connect_inproc(server: Server[Any]) -> _Connector:
+    """Connector for an in-process ``Server``: legacy mode drives the stream loop via
+    ``InMemoryTransport``; any other mode drives the modern per-request path through a
+    ``DirectDispatcher`` peer pair (no streams, no JSON-RPC framing, no initialize handshake)."""
+
+    async def connect(exit_stack: AsyncExitStack, mode: ConnectMode, raise_exceptions: bool) -> Dispatcher[Any]:
+        if mode == "legacy":
+            transport = InMemoryTransport(server, raise_exceptions=raise_exceptions)
+            read_stream, write_stream = await exit_stack.enter_async_context(transport)
+            return JSONRPCDispatcher(read_stream, write_stream)
+        lifespan_state = await exit_stack.enter_async_context(server.lifespan(server))
+        client_disp, server_disp = create_direct_dispatcher_pair()
+        tg = await exit_stack.enter_async_context(anyio.create_task_group())
+        exit_stack.callback(server_disp.close)
+        on_request = modern_on_request(server, lifespan_state, raise_exceptions=raise_exceptions)
+        await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
+        return client_disp
+
+    return connect
 
 
 def _connected(value: _T | None) -> _T:
@@ -161,19 +199,9 @@ class Client:
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
-    _transport: Transport | None = field(init=False, default=None)
-    _inproc_server: Server[Any] | None = field(init=False, default=None)
+    _connect: _Connector = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if isinstance(self.server, MCPServer):
-            self._inproc_server = self.server._lowlevel_server  # pyright: ignore[reportPrivateUsage]
-        elif isinstance(self.server, Server):
-            self._inproc_server = self.server
-        elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
-        else:
-            self._transport = self.server
-
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
             hint = (
                 f" ({self.mode!r} is a handshake-era version — use mode='legacy')"
@@ -184,31 +212,20 @@ class Client:
                 f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
             )
 
-    async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
-        """Set up the dispatcher/transport and return an un-entered ClientSession."""
-        dispatcher: Dispatcher[Any] | None
-        if self._inproc_server is not None and self.mode != "legacy":
-            # Modern in-process path: drive the server through a DirectDispatcher peer-pair
-            # with one `serve_one` per request — no streams, no initialize handshake.
-            lifespan_state = await exit_stack.enter_async_context(self._inproc_server.lifespan(self._inproc_server))
-            client_disp, server_disp = create_direct_dispatcher_pair()
-            tg = await exit_stack.enter_async_context(anyio.create_task_group())
-            exit_stack.callback(server_disp.close)
-            on_request = modern_on_request(self._inproc_server, lifespan_state, raise_exceptions=self.raise_exceptions)
-            await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
-            dispatcher = client_disp
-            read_stream = write_stream = None
+        srv = self.server
+        if isinstance(srv, MCPServer):
+            srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
+        if isinstance(srv, Server):
+            self._connect = _connect_inproc(srv)
+        elif isinstance(srv, str):
+            self._connect = _connect_transport(streamable_http_client(srv))
         else:
-            if self._inproc_server is not None:
-                transport: Transport = InMemoryTransport(self._inproc_server, raise_exceptions=self.raise_exceptions)
-            else:
-                assert self._transport is not None
-                transport = self._transport
-            read_stream, write_stream = await exit_stack.enter_async_context(transport)
-            dispatcher = None
+            self._connect = _connect_transport(srv)
+
+    async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
+        """Enter the resolved connector and return an un-entered ClientSession."""
+        dispatcher = await self._connect(exit_stack, self.mode, self.raise_exceptions)
         return ClientSession(
-            read_stream=read_stream,
-            write_stream=write_stream,
             dispatcher=dispatcher,
             read_timeout_seconds=self.read_timeout_seconds,
             sampling_callback=self.sampling_callback,
