@@ -35,6 +35,18 @@ SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (*HANDSHAKE_PROTOCOL_VERSIONS, *M
 Kept as the union for v1.x compatibility.
 """
 
+LATEST_PROTOCOL_VERSION: Final[str] = KNOWN_PROTOCOL_VERSIONS[-1]
+"""Newest protocol revision this SDK speaks (any era)."""
+
+LATEST_HANDSHAKE_VERSION: Final[str] = HANDSHAKE_PROTOCOL_VERSIONS[-1]
+"""Newest revision reachable via the ``initialize`` handshake; the client's offer and server's counter-offer default."""
+
+LATEST_MODERN_VERSION: Final[str] = MODERN_PROTOCOL_VERSIONS[-1]
+"""Newest per-request-envelope revision; the ``server/discover`` probe default."""
+
+OLDEST_SUPPORTED_VERSION: Final[str] = HANDSHAKE_PROTOCOL_VERSIONS[0]
+"""Oldest revision this SDK still negotiates via the ``initialize`` handshake."""
+
 
 def is_version_at_least(version: str, minimum: str) -> bool:
     """Return True if `version` is a known revision at least as new as `minimum`.

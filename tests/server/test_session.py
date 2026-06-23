@@ -17,9 +17,8 @@ from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.message import ServerMessageMetadata
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     SamplingCapability,
@@ -65,7 +64,7 @@ def _make_session(
     outbound: StubOutbound,
     *,
     capabilities: ClientCapabilities | None = None,
-    protocol_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
+    protocol_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> ServerSession:
     """Single-channel session: the stub is both request and standalone outbound."""
     client_info = Implementation(name="c", version="0") if capabilities is not None else None
@@ -75,7 +74,7 @@ def _make_session(
 
 def _two_channel_session(request_ch: StubOutbound, standalone_ch: StubOutbound) -> ServerSession:
     """Distinct request/standalone outbounds so routing assertions can tell the channels apart."""
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None, outbound=standalone_ch)
+    conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None, outbound=standalone_ch)
     return ServerSession(request_ch, conn)
 
 
@@ -193,7 +192,7 @@ async def test_send_request_passes_a_spec_valid_client_result():
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
     """Surface row absent for the connection's version: gate is bypassed and only
     `result_type` validates."""
-    session = _make_session(StubOutbound(result={}), protocol_version=MODERN_PROTOCOL_VERSIONS[0])
+    session = _make_session(StubOutbound(result={}), protocol_version=LATEST_MODERN_VERSION)
     result = await session.send_request(types.PingRequest(), types.EmptyResult)
     assert isinstance(result, types.EmptyResult)
 

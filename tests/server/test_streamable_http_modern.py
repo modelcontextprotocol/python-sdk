@@ -20,7 +20,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_MODERN_VERSION
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -56,7 +56,7 @@ def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettin
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
-        headers={MCP_PROTOCOL_VERSION_HEADER: MODERN_PROTOCOL_VERSIONS[0]},
+        headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION},
     )
 
 
@@ -114,7 +114,7 @@ async def test_handle_modern_request_returns_transport_security_error_response()
 def _list_tools_body() -> dict[str, Any]:
     """A minimal valid 2026-07-28 ``tools/list`` request body, including the required ``_meta`` envelope."""
     meta = {
-        PROTOCOL_VERSION_META_KEY: MODERN_PROTOCOL_VERSIONS[0],
+        PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
         CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
         CLIENT_CAPABILITIES_META_KEY: {},
     }

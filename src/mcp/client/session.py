@@ -27,7 +27,12 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -333,7 +338,7 @@ class ClientSession:
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+                    protocol_version=LATEST_HANDSHAKE_VERSION,
                     capabilities=self._build_capabilities(),
                     client_info=self._client_info,
                 ),
@@ -413,7 +418,7 @@ class ClientSession:
             return await self._dispatcher.send_raw_request("server/discover", params, opts)
 
         try:
-            raw = await probe(MODERN_PROTOCOL_VERSIONS[-1])
+            raw = await probe(LATEST_MODERN_VERSION)
         except MCPError as e:
             if e.code != UNSUPPORTED_PROTOCOL_VERSION:
                 raise

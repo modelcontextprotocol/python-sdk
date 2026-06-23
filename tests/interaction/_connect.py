@@ -31,7 +31,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     ClientCapabilities,
     Implementation,
@@ -70,7 +70,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
+        spec_version: str = LATEST_HANDSHAKE_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -85,7 +85,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport.
 
@@ -122,7 +122,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
@@ -276,7 +276,7 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
-        "mcp-protocol-version": HANDSHAKE_PROTOCOL_VERSIONS[-1],
+        "mcp-protocol-version": LATEST_HANDSHAKE_VERSION,
     }
     if session_id is not None:
         headers["mcp-session-id"] = session_id
@@ -286,7 +286,7 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
 def initialize_body(request_id: int = 1) -> dict[str, object]:
     """A wire-level initialize JSON-RPC request body, exactly as an SDK client would send it."""
     params = InitializeRequestParams(
-        protocol_version=HANDSHAKE_PROTOCOL_VERSIONS[-1],
+        protocol_version=LATEST_HANDSHAKE_VERSION,
         capabilities=ClientCapabilities(),
         client_info=Implementation(name="raw", version="0.0.0"),
     )
@@ -354,7 +354,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    spec_version: str = HANDSHAKE_PROTOCOL_VERSIONS[-1],
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)

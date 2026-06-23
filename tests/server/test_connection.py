@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 from mcp.server.connection import Connection
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -40,7 +40,7 @@ from mcp.types import (
 )
 
 _CLIENT_INFO = Implementation(name="t", version="0")
-_MODERN = MODERN_PROTOCOL_VERSIONS[0]
+_MODERN = LATEST_MODERN_VERSION
 
 
 class StubOutbound:
@@ -115,10 +115,10 @@ def test_from_envelope_with_explicit_outbound_has_standalone_channel():
 
 def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
     """SDK-defined: `for_loop` seeds `protocol_version` from the hint when given,
-    else `HANDSHAKE_PROTOCOL_VERSIONS[-1]`; the connection awaits the initialize handshake."""
+    else `LATEST_HANDSHAKE_VERSION`; the connection awaits the initialize handshake."""
     out = StubOutbound()
     conn = Connection.for_loop(out)
-    assert conn.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     assert conn.has_standalone_channel is True
     assert not conn.initialized.is_set()
     assert conn.initialize_accepted is False
@@ -229,7 +229,7 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
 async def test_send_request_passes_a_spec_valid_client_result():
     """A spec-valid client result passes the surface gate and parses to the typed model."""
     conn = Connection.for_loop(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}))
-    assert conn.protocol_version == HANDSHAKE_PROTOCOL_VERSIONS[-1]
+    assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     result = await conn.send_request(ListRootsRequest())
     assert isinstance(result, ListRootsResult)
     assert str(result.roots[0].uri) == "file:///ws"

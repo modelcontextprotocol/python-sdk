@@ -20,13 +20,8 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, TypedDict
 
+from mcp.shared.version import LATEST_PROTOCOL_VERSION as LATEST_PROTOCOL_VERSION
 from mcp.types.jsonrpc import RequestId
-
-LATEST_PROTOCOL_VERSION: Final[str] = "2026-07-28"
-"""The newest protocol version this SDK can negotiate.
-
-See https://modelcontextprotocol.io/specification/latest.
-"""
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
 """The default negotiated version of the Model Context Protocol when no version is specified.

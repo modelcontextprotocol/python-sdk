@@ -9,7 +9,7 @@ import pytest
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION
 from mcp.types import InitializeResult
 
 
@@ -33,7 +33,7 @@ async def test_initialize_succeeds_and_shutdown_returns_after_the_server_exits_m
             "jsonrpc": "2.0",
             "id": request["id"],
             "result": {{
-                "protocolVersion": {json.dumps(HANDSHAKE_PROTOCOL_VERSIONS[-1])},
+                "protocolVersion": {json.dumps(LATEST_HANDSHAKE_VERSION)},
                 "capabilities": {{}},
                 "serverInfo": {{"name": "test-server", "version": "1.0"}}
             }}
