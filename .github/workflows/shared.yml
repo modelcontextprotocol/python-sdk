@@ -79,6 +79,10 @@ jobs:
 
       - name: Run pytest with coverage
         shell: bash
+        env:
+          # tests/examples/test_stories_smoke.py is gated on this var; it spawns real
+          # stdio + uvicorn subprocesses, so run it on exactly one matrix cell.
+          MCP_EXAMPLES_SMOKE: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.dep-resolution.name == 'locked' && '1' || '' }}
         run: |
           uv run --frozen --no-sync coverage erase
           uv run --frozen --no-sync coverage run -m pytest -n auto
