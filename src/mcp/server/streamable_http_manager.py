@@ -145,6 +145,11 @@ class StreamableHTTPSessionManager:
                 yield  # Let the application run
             finally:
                 logger.info("StreamableHTTP session manager shutting down")
+                for transport in list(self._server_instances.values()):
+                    try:
+                        await transport.terminate()
+                    except Exception:  # pragma: no cover
+                        logger.debug("Error terminating StreamableHTTP transport during shutdown", exc_info=True)
                 # Cancel task group to stop all spawned tasks
                 tg.cancel_scope.cancel()
                 self._task_group = None

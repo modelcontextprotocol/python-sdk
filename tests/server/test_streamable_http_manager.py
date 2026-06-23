@@ -65,6 +65,19 @@ async def test_run_prevents_concurrent_calls():
 
 
 @pytest.mark.anyio
+async def test_run_terminates_active_transports_before_shutdown():
+    app = Server("test-server")
+    manager = StreamableHTTPSessionManager(app=app)
+    transport = AsyncMock()
+
+    async with manager.run():
+        manager._server_instances["session-id"] = transport
+
+    transport.terminate.assert_awaited_once_with()
+    assert not manager._server_instances
+
+
+@pytest.mark.anyio
 async def test_handle_request_without_run_raises_error():
     """Test that handle_request raises error if run() hasn't been called."""
     app = Server("test-server")
@@ -267,6 +280,22 @@ async def test_stateless_requests_memory_cleanup():
 
             # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+
+
+@pytest.mark.anyio
+async def test_transport_terminate_closes_active_sse_writers():
+    transport = StreamableHTTPServerTransport(mcp_session_id="session-id")
+    writer, reader = anyio.create_memory_object_stream[dict[str, str]](1)
+    transport._sse_stream_writers["request-id"] = writer
+
+    await transport.terminate()
+
+    assert transport.is_terminated
+    assert not transport._sse_stream_writers
+    with pytest.raises(anyio.ClosedResourceError):
+        writer.send_nowait({"event": "message", "data": "{}"})
+
+    await reader.aclose()
 
 
 @pytest.mark.anyio
