@@ -1058,7 +1058,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
 <!-- /snippet-source -->
 
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-auth/).
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/stories/oauth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/oauth/) (and [`examples/stories/bearer_auth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/bearer_auth/) for static-token auth).
 
 **Architecture:**
 
@@ -1343,10 +1343,7 @@ app = Starlette(
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
 <!-- /snippet-source -->
 
-For low level server with Streamable HTTP implementations, see:
-
-- Stateful server: [`examples/servers/simple-streamablehttp/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp-stateless/)
+For low level server with Streamable HTTP implementations, see [`examples/stories/stateless_legacy/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/stateless_legacy/).
 
 The streamable HTTP transport supports:
 
@@ -2100,7 +2097,7 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
 
-See the [simple-pagination example](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-pagination) for a complete implementation.
+See the [pagination example](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/pagination) for a complete implementation.
 
 ### Writing MCP Clients
 
@@ -2320,7 +2317,7 @@ The SDK includes [authorization support](https://modelcontextprotocol.io/specifi
 ```python
 """Before running, specify running MCP RS server URL.
 To spin up RS server locally, see
-    examples/servers/simple-auth/README.md
+    examples/stories/oauth/README.md
 
 cd to the `examples/snippets` directory and run:
     uv run oauth-client
@@ -2415,7 +2412,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
 <!-- /snippet-source -->
 
-For a complete working example, see [`examples/clients/simple-auth-client/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/clients/simple-auth-client/).
+For a complete working example, see [`examples/stories/oauth/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/stories/oauth/).
 
 ### Parsing Tool Results
 

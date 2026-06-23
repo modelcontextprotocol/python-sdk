@@ -1,3 +1,4 @@
+# TODO: superseded by examples/stories/schema_validators/; remove once tests/test_examples.py is migrated.
 """MCPServer Complex inputs Example
 
 Demonstrates validation via pydantic with complex models.

@@ -1,3 +1,4 @@
+# TODO: superseded by examples/stories/tools/; remove once tests/test_examples.py is migrated.
 """MCPServer Echo Server with direct CallToolResult return"""
 
 from typing import Annotated

@@ -1,3 +1,4 @@
+# TODO: superseded by examples/stories/resources/; remove once tests/test_examples.py is migrated.
 """MCPServer Desktop Example
 
 A simple example that exposes the desktop directory as a resource.
