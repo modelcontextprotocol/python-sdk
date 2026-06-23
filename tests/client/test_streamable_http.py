@@ -15,9 +15,9 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.inbound import encode_header_value
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.types import JSONRPCRequest
+from mcp.types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCRequest
 
 
 @pytest.mark.parametrize(
@@ -78,3 +78,61 @@ async def test_post_request_merges_per_message_metadata_headers() -> None:
     assert isinstance(reply, SessionMessage)
     assert [r.method for r in recorded] == ["POST"]
     assert recorded[0].headers["x-test"] == "v"
+
+
+@pytest.mark.anyio
+async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
+    """A bare HTTP 404 (no JSON-RPC body) before any session-id is held maps to METHOD_NOT_FOUND.
+
+    Gateways and legacy servers 404 at the HTTP layer for unknown methods; with no session yet,
+    "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_post_does_not_read_cached_protocol_version_header() -> None:
+    """A POST's protocol-version header comes only from its own ``metadata.headers``.
+
+    The first POST carries (and caches) a pv header; the second POST sends no metadata
+    and must therefore carry no pv header — a stale cached value would poison the
+    fallback ``initialize`` after a failed discover probe. The cache exists for
+    transport-internal GET/DELETE only.
+    """
+    recorded: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={}),
+                    metadata=ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: "2026-07-28"}),
+                )
+            )
+            await read.receive()
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="initialize", params={})))
+            await read.receive()
+    assert [r.method for r in recorded] == ["POST", "POST"]
+    assert recorded[0].headers[MCP_PROTOCOL_VERSION_HEADER] == "2026-07-28"
+    assert MCP_PROTOCOL_VERSION_HEADER not in recorded[1].headers

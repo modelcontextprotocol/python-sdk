@@ -23,6 +23,7 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     ErrorData,
     JSONRPCError,
@@ -84,19 +85,29 @@ class StreamableHTTPTransport:
         # GET/DELETE that don't carry per-message metadata.
         self._protocol_version_header: str | None = None
 
-    def _prepare_headers(self) -> dict[str, str]:
-        """Build MCP-specific request headers.
+    def _base_headers(self) -> dict[str, str]:
+        """Build MCP-specific request headers (accept / content-type / session-id).
 
         These headers will be merged with the httpx.AsyncClient's default headers,
-        with these MCP-specific headers taking precedence.
+        with these MCP-specific headers taking precedence. POSTs use this directly:
+        their protocol-version header arrives per-message via ``metadata.headers``,
+        so they must never read the cached value.
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
-        # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
+        return headers
+
+    def _prepare_headers(self) -> dict[str, str]:
+        """Base headers plus the cached protocol-version header.
+
+        Used by transport-internal GET/DELETE (listen stream, resumption,
+        reconnect, terminate) which don't carry per-message metadata.
+        """
+        headers = self._base_headers()
         if self._protocol_version_header:
             headers[MCP_PROTOCOL_VERSION_HEADER] = self._protocol_version_header
         return headers
@@ -238,7 +249,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_headers()
+        headers = self._base_headers()
         message = ctx.session_message.message
         if ctx.metadata is not None and ctx.metadata.headers is not None:
             headers.update(ctx.metadata.headers)
@@ -276,7 +287,13 @@ class StreamableHTTPTransport:
                             pass
                         logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
                     if response.status_code == 404:
-                        error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                        if self.session_id is None:
+                            # No session yet → 404 is the HTTP-level spelling of
+                            # METHOD_NOT_FOUND (gateway / legacy server doesn't know
+                            # this method); "Session terminated" would be a lie here.
+                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
+                        else:
+                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     else:
                         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))

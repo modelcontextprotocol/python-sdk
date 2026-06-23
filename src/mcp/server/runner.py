@@ -49,7 +49,6 @@ from mcp.types import (
     InitializeRequestParams,
     InitializeResult,
     JSONRPCError,
-    JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
     RequestParams,
@@ -183,20 +182,26 @@ async def aclose_shielded(connection: Connection) -> None:
         )
 
 
-async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, Any]]) -> JSONRPCResponse | JSONRPCError:
+async def to_jsonrpc_response(
+    request_id: RequestId, coro: Awaitable[dict[str, Any]], *, raise_unhandled: bool = False
+) -> JSONRPCResponse | JSONRPCError:
     """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
 
     The exception-to-wire boundary for the request-per-call drivers
     (`serve_one`, the modern HTTP entry). `MCPError` and `ValidationError`
     map via the shared `handler_exception_to_error_data` ladder; any other
     exception is logged and surfaced as `INTERNAL_ERROR` so handler internals
-    never reach the wire.
+    never reach the wire. Set ``raise_unhandled`` to let unmapped exceptions
+    propagate instead of being sanitized — used by the in-process test path so
+    handler tracebacks reach the caller.
     """
     try:
         result = await coro
     except Exception as exc:
         error = handler_exception_to_error_data(exc)
         if error is None:
+            if raise_unhandled:
+                raise
             logger.exception("request handler raised")
             error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
         return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
@@ -497,34 +502,45 @@ async def serve_loop(
 
 async def serve_one(
     server: Server[LifespanT],
-    request: JSONRPCRequest,
+    dctx: DispatchContext[TransportContext],
+    method: str,
+    params: Mapping[str, Any] | None,
     *,
     connection: Connection,
-    dctx: DispatchContext[TransportContext],
     lifespan_state: LifespanT,
+    raise_exceptions: bool = False,
 ) -> JSONRPCResponse | JSONRPCError:
-    """Handle a single ``request`` and return its JSON-RPC reply.
+    """Handle a single request ``(method, params)`` and return its JSON-RPC reply.
 
-    The single-exchange driver: builds the kernel, runs `on_request` once for
-    `request` under `dctx`, maps the outcome to a `JSONRPCResponse` /
-    `JSONRPCError` via `to_jsonrpc_response`, and tears down
-    `connection.exit_stack` (shielded) on the way out. The entry constructs
-    the (born-ready) `Connection` and the `dctx`; this only consumes them.
+    The single-exchange driver: builds the kernel, runs `on_request` once under
+    `dctx`, maps the outcome to a `JSONRPCResponse` / `JSONRPCError` via
+    `to_jsonrpc_response`, and tears down `connection.exit_stack` (shielded) on
+    the way out. The entry constructs the (born-ready) `Connection` and the
+    `dctx`; this only consumes them. ``raise_exceptions`` lets unmapped handler
+    exceptions propagate instead of being sanitized to `INTERNAL_ERROR`.
     """
     runner = ServerRunner(server, connection, lifespan_state)
     try:
-        return await to_jsonrpc_response(request.id, runner.on_request(dctx, request.method, request.params))
+        # Single-exchange driver only handles requests; both entries populate `request_id`.
+        # TODO(L54): drop once `DispatchContext` is split so `OnRequest` carries a non-Optional id.
+        assert dctx.request_id is not None
+        return await to_jsonrpc_response(
+            dctx.request_id, runner.on_request(dctx, method, params), raise_unhandled=raise_exceptions
+        )
     finally:
         await aclose_shielded(connection)
 
 
-def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> OnRequest:
+def modern_on_request(
+    server: Server[LifespanT], lifespan_state: LifespanT, *, raise_exceptions: bool = False
+) -> OnRequest:
     """Return an `OnRequest` callback that serves each call via `serve_one` with a fresh per-request `Connection`.
 
     Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
     in-process server on the modern per-request-envelope path (each request
     carries protocol version, client info, and capabilities in `params._meta`;
-    no `initialize` handshake).
+    no `initialize` handshake). ``raise_exceptions`` lets unmapped handler
+    exceptions propagate to the caller for debuggable in-process testing.
     """
 
     async def handle(
@@ -536,12 +552,15 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
             meta.get(CLIENT_INFO_META_KEY),
             meta.get(CLIENT_CAPABILITIES_META_KEY),
         )
-        # `OnRequest` is invoked for requests only, so `request_id` is always set.
-        assert dctx.request_id is not None
-        req = JSONRPCRequest(
-            jsonrpc="2.0", id=dctx.request_id, method=method, params=dict(params) if params is not None else None
+        msg = await serve_one(
+            server,
+            dctx,
+            method,
+            params,
+            connection=connection,
+            lifespan_state=lifespan_state,
+            raise_exceptions=raise_exceptions,
         )
-        msg = await serve_one(server, req, connection=connection, dctx=dctx, lifespan_state=lifespan_state)
         if isinstance(msg, JSONRPCError):
             raise MCPError(code=msg.error.code, message=msg.error.message, data=msg.error.data)
         return msg.result

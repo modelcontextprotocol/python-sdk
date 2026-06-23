@@ -193,5 +193,5 @@ async def handle_modern_request(
         request_id=req.id,
         message_metadata=ServerMessageMetadata(request_context=request),
     )
-    msg = await serve_one(app, req, connection=connection, dctx=dctx, lifespan_state=lifespan_state)
+    msg = await serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
     await _write(msg, scope, receive, send)

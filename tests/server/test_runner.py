@@ -51,7 +51,6 @@ from mcp.types import (
     Implementation,
     InitializeRequestParams,
     JSONRPCError,
-    JSONRPCRequest,
     JSONRPCResponse,
     ListToolsResult,
     NotificationParams,
@@ -1267,6 +1266,33 @@ async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and
     assert "request handler raised" in caplog.text
 
 
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_raise_unhandled_propagates_unmapped_exception():
+    """SDK-defined: ``raise_unhandled=True`` lets an unmapped exception escape
+    instead of being sanitized to `INTERNAL_ERROR` — used by the in-process test
+    path so the original traceback reaches the caller."""
+
+    async def fail() -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await to_jsonrpc_response(1, fail(), raise_unhandled=True)
+
+
+@pytest.mark.anyio
+async def test_to_jsonrpc_response_raise_unhandled_still_maps_mcp_error():
+    """SDK-defined: ``raise_unhandled`` only affects unmapped exceptions; an
+    `MCPError` is still converted to a `JSONRPCError` (it is protocol-level, not
+    a crash)."""
+
+    async def fail() -> dict[str, Any]:
+        raise MCPError(code=METHOD_NOT_FOUND, message="nope")
+
+    reply = await to_jsonrpc_response(1, fail(), raise_unhandled=True)
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error.code == METHOD_NOT_FOUND
+
+
 # --- aclose_shielded -----------------------------------------------------------
 
 
@@ -1331,8 +1357,9 @@ async def test_serve_one_runs_handler_and_returns_jsonrpc_response(server: SrvT)
     conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
-    request = JSONRPCRequest(jsonrpc="2.0", id=9, method="tools/list", params=None)
-    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(9), lifespan_state=_LIFESPAN)
+    reply = await serve_one(
+        server, _StubDispatchContext(9), "tools/list", None, connection=conn, lifespan_state=_LIFESPAN
+    )
     assert isinstance(reply, JSONRPCResponse)
     assert reply.id == 9
     assert reply.result["tools"][0]["name"] == "t"
@@ -1349,8 +1376,9 @@ async def test_serve_one_maps_error_to_jsonrpc_error_and_still_closes_exit_stack
     conn = Connection.from_envelope(HANDSHAKE_PROTOCOL_VERSIONS[-1], None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
-    request = JSONRPCRequest(jsonrpc="2.0", id=2, method="resources/list", params=None)
-    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(2), lifespan_state=_LIFESPAN)
+    reply = await serve_one(
+        server, _StubDispatchContext(2), "resources/list", None, connection=conn, lifespan_state=_LIFESPAN
+    )
     assert isinstance(reply, JSONRPCError)
     assert reply.error.code == METHOD_NOT_FOUND
     assert cleaned == [1]
@@ -1362,8 +1390,14 @@ async def test_serve_one_reads_connection_protocol_version_as_a_fact(server: Srv
     reads `connection.protocol_version` for the version gate. A `from_envelope`
     connection at a modern version rejects a method absent there."""
     conn = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
-    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="logging/setLevel", params={"level": "info"})
-    reply = await serve_one(server, request, connection=conn, dctx=_StubDispatchContext(1), lifespan_state=_LIFESPAN)
+    reply = await serve_one(
+        server,
+        _StubDispatchContext(1),
+        "logging/setLevel",
+        {"level": "info"},
+        connection=conn,
+        lifespan_state=_LIFESPAN,
+    )
     assert isinstance(reply, JSONRPCError)
     assert reply.error.code == METHOD_NOT_FOUND
 

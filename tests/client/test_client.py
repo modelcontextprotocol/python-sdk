@@ -203,6 +203,23 @@ async def test_read_resource_error_propagates():
         assert exc_info.value.error.code == 404
 
 
+async def test_raise_exceptions_propagates_handler_error_on_modern_inproc_path():
+    """`raise_exceptions=True` on the modern in-process path: an unmapped handler
+    exception reaches the client with its original type chained, instead of being
+    sanitized to an opaque `INTERNAL_ERROR`."""
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        raise ValueError("boom")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+    async with Client(server, mode="2026-07-28", raise_exceptions=True) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("explode", {})
+    # The original exception is chained — not swallowed into a generic "Internal server error".
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert str(exc_info.value.__cause__) == "boom"
+
+
 async def test_get_prompt(app: MCPServer):
     """Test getting a prompt."""
     async with Client(app) as client:

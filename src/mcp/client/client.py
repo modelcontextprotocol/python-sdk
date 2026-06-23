@@ -159,7 +159,10 @@ class Client:
                 client_disp, server_disp = create_direct_dispatcher_pair()
                 tg = await exit_stack.enter_async_context(anyio.create_task_group())
                 exit_stack.callback(server_disp.close)
-                await tg.start(server_disp.run, modern_on_request(self._inproc_server, lifespan_state), _drop_notify)
+                on_request = modern_on_request(
+                    self._inproc_server, lifespan_state, raise_exceptions=self.raise_exceptions
+                )
+                await tg.start(server_disp.run, on_request, _drop_notify)
                 session = ClientSession(
                     dispatcher=client_disp,
                     read_timeout_seconds=self.read_timeout_seconds,
