@@ -122,7 +122,7 @@ def _client_kw(client_module: Any) -> dict[str, Any]:
 
 
 def _http_client_kw(client_module: Any) -> dict[str, Any]:
-    """``httpx.AsyncClient(...)`` kwargs the story's client module wants threaded (G-http-kw)."""
+    """``httpx.AsyncClient(...)`` kwargs the story's client module wants threaded through."""
     return dict(getattr(client_module, "http_client_kw", None) or {})
 
 
@@ -131,9 +131,9 @@ class Hosted:
     """One server/app instance hosted for the leg's whole duration.
 
     ``connect`` opens a fresh ``Client`` against that single instance on every
-    call (G-connect-shared-server / G-event-store-per-app: state observed by one
-    client is visible to the next). ``http`` is the shared raw ``httpx.AsyncClient``
-    bound to the same ASGI app, or ``None`` on the in-memory leg.
+    call, so state observed by one client is visible to the next. ``http`` is
+    the shared raw ``httpx.AsyncClient`` bound to the same ASGI app, or ``None``
+    on the in-memory leg.
     """
 
     connect: Connect
@@ -149,7 +149,7 @@ async def hosted(
     The leg's era pre-seeds ``mode=``; a scenario may override it per-call (R6
     ``dual-in-body`` opens both eras from the same body). Auth stories thread an
     ``httpx.Auth`` onto the bridge client via a module-level ``build_auth(http)``
-    export and/or extra ``httpx.AsyncClient`` kwargs via ``http_client_kw`` (G3).
+    export and/or extra ``httpx.AsyncClient`` kwargs via ``http_client_kw``.
     """
     for key, value in cfg["env"].items():
         monkeypatch.setenv(key, value)
@@ -171,8 +171,8 @@ async def hosted(
 
     # http-asgi: one Starlette app per leg. ``server_export="app"`` stories hand us the
     # app directly; ``"factory"`` stories are wrapped via ``asgi_from``. Either way the
-    # app's own lifespan is what brings the session manager up (G-app-lifespan), and the
-    # in-process bridge never fires ASGI lifespan events itself, so enter it explicitly.
+    # app's own lifespan is what brings the session manager up, and the in-process
+    # bridge never fires ASGI lifespan events itself, so enter it explicitly.
     if cfg["server_export"] == "app":
         app: Starlette = server_module.build_app()
     else:
