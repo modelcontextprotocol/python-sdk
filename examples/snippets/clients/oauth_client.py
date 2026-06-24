@@ -1,6 +1,6 @@
 """Before running, specify running MCP RS server URL.
 To spin up RS server locally, see
-    examples/stories/oauth/README.md
+    examples/servers/simple-auth/README.md
 
 cd to the `examples/snippets` directory and run:
     uv run oauth-client

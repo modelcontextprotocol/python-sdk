@@ -31,8 +31,9 @@ def authorization_context(user: AuthenticatedUser) -> AuthorizationContext:
     verifier does not supply are `None`, so the comparison degrades to the
     remaining components.
 
-    See `examples/stories/bearer_auth/server.py` for a verifier that
-    populates `subject` and `client_id`."""
+    See `examples/servers/simple-auth/mcp_simple_auth/token_verifier.py` for
+    a verifier that populates `subject` and `claims` from an introspection
+    response."""
     token = user.access_token
     issuer = (token.claims or {}).get("iss")
     return AuthorizationContext(

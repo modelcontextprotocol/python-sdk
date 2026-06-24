@@ -1,4 +1,3 @@
-# TODO: superseded by examples/stories/tools/; remove once tests/test_examples.py is migrated.
 """MCPServer Echo Server"""
 
 from mcp.server.mcpserver import MCPServer
