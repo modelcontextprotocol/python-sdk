@@ -32,7 +32,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.version import LATEST_MODERN_VERSION
 from tests.interaction.transports._bridge import StreamingASGITransport
 
-if sys.version_info >= (3, 11):
+if sys.version_info >= (3, 11):  # pragma: lax no cover
     import tomllib
 else:  # pragma: lax no cover
     import tomli as tomllib
