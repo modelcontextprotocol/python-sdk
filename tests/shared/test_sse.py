@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.parse import urlparse
 
@@ -19,12 +19,13 @@ from starlette.routing import Mount, Route
 import mcp.client.sse
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, _resolve_endpoint_url, sse_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import McpHttpClientFactory
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -171,6 +172,100 @@ async def test_sse_client_on_session_created() -> None:
 def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
     """The session ID is read from the endpoint URL's sessionId/session_id query parameters."""
     assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.parametrize(
+    ("sse_url", "endpoint", "expected_url"),
+    [
+        (
+            "https://example.com/gateway/deployment/v1/sse",
+            "/v1/messages/?session_id=abc123",
+            "https://example.com/gateway/deployment/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/gateway/deployment/v1/sse",
+            "/gateway/deployment/v1/messages/?session_id=abc123",
+            "https://example.com/gateway/deployment/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/gateway/deployment/sse",
+            "/messages/?session_id=abc123",
+            "https://example.com/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/sse",
+            "/messages/?session_id=abc123",
+            "https://example.com/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/gateway/sse",
+            "/",
+            "https://example.com/",
+        ),
+        (
+            "https://example.com/gateway/deployment/v1/sse",
+            "messages/?session_id=abc123",
+            "https://example.com/gateway/deployment/v1/messages/?session_id=abc123",
+        ),
+        (
+            "https://example.com/gateway/deployment/v1/sse",
+            "https://example.com/messages/?session_id=abc123",
+            "https://example.com/messages/?session_id=abc123",
+        ),
+    ],
+)
+def test_resolve_endpoint_url_preserves_gateway_path_prefix(sse_url: str, endpoint: str, expected_url: str) -> None:
+    assert _resolve_endpoint_url(sse_url, endpoint) == expected_url
+
+
+@pytest.mark.anyio
+async def test_sse_client_posts_to_endpoint_with_gateway_path_prefix() -> None:
+    """A gateway prefix on the public SSE URL is preserved for absolute-path endpoint events."""
+    posted = anyio.Event()
+    posted_urls: list[str] = []
+
+    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="endpoint", data="/v1/messages/?session_id=abc123")
+        await anyio.sleep_forever()
+
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
+    mock_event_source.response = MagicMock()
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    async def mock_post(url: str, **kwargs: Any) -> MagicMock:
+        posted_urls.append(url)
+        posted.set()
+        return MagicMock(status_code=200, raise_for_status=MagicMock())
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(side_effect=mock_post)
+
+    def mock_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return cast(httpx.AsyncClient, mock_client)
+
+    with patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse):
+        async with sse_client(
+            "http://test/gateway/deployment/v1/sse",
+            httpx_client_factory=mock_factory,
+        ) as (_, write_stream):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+            await write_stream.send(SessionMessage(request))
+
+            with anyio.fail_after(5):  # pragma: no branch
+                await posted.wait()
+
+    assert posted_urls == ["http://test/gateway/deployment/v1/messages/?session_id=abc123"]
 
 
 @pytest.mark.anyio

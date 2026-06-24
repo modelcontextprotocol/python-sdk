@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -25,6 +25,60 @@ def remove_request_params(url: str) -> str:
 def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
     query_params = parse_qs(urlparse(endpoint_url).query)
     return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
+
+
+def _path_segments(path: str) -> list[str]:
+    return [segment for segment in path.split("/") if segment]
+
+
+def _resolve_prefixed_path(sse_path: str, endpoint_path: str) -> str:
+    sse_dir = sse_path.rstrip("/").rsplit("/", 1)[0]
+    if not sse_dir:
+        return endpoint_path
+
+    sse_segments = _path_segments(sse_dir)
+    endpoint_segments = _path_segments(endpoint_path)
+
+    # The backend may emit its route path (for example /v1/messages) while the
+    # public SSE URL includes a gateway prefix (/gateway/deployment/v1/sse).
+    # Only infer a prefix when the paths overlap; no-overlap absolute paths are
+    # ambiguous and retain normal origin-rooted URL semantics.
+    overlap = 0
+    for overlap_size in range(min(len(sse_segments), len(endpoint_segments)), 0, -1):
+        if sse_segments[-overlap_size:] == endpoint_segments[:overlap_size]:
+            overlap = overlap_size
+            break
+
+    if overlap == 0:
+        return endpoint_path
+
+    prefix_segments = sse_segments[: len(sse_segments) - overlap]
+    if not prefix_segments:
+        return endpoint_path
+
+    return f"/{'/'.join(prefix_segments)}{endpoint_path}"
+
+
+def _resolve_endpoint_url(url: str, endpoint: str) -> str:
+    endpoint_parsed = urlparse(endpoint)
+    if endpoint_parsed.scheme or endpoint_parsed.netloc:
+        return urljoin(url, endpoint)
+
+    if not endpoint_parsed.path.startswith("/"):
+        return urljoin(url, endpoint)
+
+    url_parsed = urlparse(url)
+    endpoint_path = _resolve_prefixed_path(url_parsed.path, endpoint_parsed.path)
+    return urlunparse(
+        (
+            url_parsed.scheme,
+            url_parsed.netloc,
+            endpoint_path,
+            endpoint_parsed.params,
+            endpoint_parsed.query,
+            endpoint_parsed.fragment,
+        )
+    )
 
 
 @asynccontextmanager
@@ -68,7 +122,7 @@ async def sse_client(
                         logger.debug(f"Received SSE event: {sse.event}")
                         match sse.event:
                             case "endpoint":
-                                endpoint_url = urljoin(url, sse.data)
+                                endpoint_url = _resolve_endpoint_url(url, sse.data)
                                 logger.debug(f"Received endpoint URL: {endpoint_url}")
 
                                 url_parsed = urlparse(url)
