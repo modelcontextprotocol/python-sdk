@@ -140,6 +140,7 @@ include = [
     "examples/stories",
     "examples/servers",
     "examples/snippets",
+    "examples/clients",
 ]
 venvPath = "."
 venv = ".venv"
@@ -159,7 +160,12 @@ executionEnvironments = [
     { root = "examples/stories", extraPaths = [
         "examples",
     ], reportUnusedFunction = false },
-    { root = "examples/servers", reportUnusedFunction = false },
+    # The `mcp-example-stories` editable install puts `examples/` on sys.path,
+    # which defeats pyright's auto-detection of `simple-auth/` as a package
+    # root (it's the one server example that imports itself by absolute name).
+    { root = "examples/servers", extraPaths = [
+        "examples/servers/simple-auth",
+    ], reportUnusedFunction = false },
 ]
 
 [tool.ruff]
@@ -203,7 +209,7 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["src/mcp-types", "examples", "examples/servers/*", "examples/snippets"]
+members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }

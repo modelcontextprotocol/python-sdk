@@ -1,9 +1,13 @@
 """Four ways to type a tool parameter so MCPServer derives and enforces inputSchema."""
 
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any
 
 from pydantic import BaseModel
+
+# pydantic requires typing_extensions.TypedDict (not typing.TypedDict) on Python < 3.12
+# when a TypedDict is used as a field/parameter type.
+from typing_extensions import TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from stories._hosting import run_server_from_args
