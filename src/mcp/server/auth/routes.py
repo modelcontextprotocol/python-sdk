@@ -9,6 +9,7 @@ from starlette.responses import Response
 from starlette.routing import Route, request_response  # type: ignore
 from starlette.types import ASGIApp
 
+from mcp.server.auth._redirect_uri import validate_registered_redirect_uri
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
@@ -19,6 +20,11 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+
+# Re-exported from ._redirect_uri to avoid a circular import with
+# .handlers.register, which also needs this validator. External callers and
+# tests should keep importing it from this module.
+__all__ = ["validate_registered_redirect_uri"]
 
 
 def validate_issuer_url(url: AnyHttpUrl):

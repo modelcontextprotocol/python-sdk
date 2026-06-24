@@ -288,3 +288,89 @@ async def test_token_error_handling_refresh_token(
         data = refresh_response.json()
         assert data["error"] == "invalid_scope"
         assert data["error_description"] == "The requested scope is invalid"
+
+
+@pytest.mark.anyio
+async def test_register_rejects_javascript_scheme(client: httpx.AsyncClient):
+    """Registration must reject ``javascript:`` redirect URIs per RFC 9700 §4.1.1."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["javascript:alert(1)"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_redirect_uri"
+    assert "https" in data["error_description"]
+
+
+@pytest.mark.anyio
+async def test_register_rejects_cleartext_http_non_loopback(client: httpx.AsyncClient):
+    """Registration must reject cleartext http for non-loopback hosts per RFC 8252 §7.3."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["http://attacker.example/cb"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_redirect_uri"
+    assert "non-loopback" in data["error_description"]
+
+
+@pytest.mark.anyio
+async def test_register_rejects_fragment(client: httpx.AsyncClient):
+    """Registration must reject redirect URIs that include a fragment per RFC 7591 §2."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["https://example.com/cb#frag"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_redirect_uri"
+    assert "fragment" in data["error_description"]
+
+
+@pytest.mark.anyio
+async def test_register_accepts_https_redirect_uri(client: httpx.AsyncClient):
+    """Registration must accept https redirect URIs."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["https://example.com/cb"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 201, response.content
+    data = response.json()
+    assert "client_id" in data
+
+
+@pytest.mark.anyio
+async def test_register_accepts_loopback_redirect_uri(client: httpx.AsyncClient):
+    """Registration must accept http://localhost loopback redirect URIs per RFC 8252 §7.3."""
+    response = await client.post(
+        "/register",
+        json={
+            "redirect_uris": ["http://localhost:8080/cb"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        },
+    )
+    assert response.status_code == 201, response.content
