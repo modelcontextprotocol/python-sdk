@@ -2,7 +2,7 @@
 
 Some MCP servers are protected. Send them a request without a token and they answer `401 Unauthorized`.
 
-**`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth` — the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
+**`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth`, the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
 
 This chapter is the client side. Making your own server demand a token is **Authorization**.
 
@@ -14,10 +14,10 @@ This chapter is the client side. Making your own server demand a token is **Auth
 
 You give it four things:
 
-* `server_url` — the MCP endpoint you are connecting to. The provider discovers everything else from it.
-* `client_metadata` — what you would type into an authorization server's "register an application" form.
-* `storage` — where tokens live between runs.
-* `redirect_handler` and `callback_handler` — the two moments a human is involved.
+* `server_url`: the MCP endpoint you are connecting to. The provider discovers everything else from it.
+* `client_metadata`: what you would type into an authorization server's "register an application" form.
+* `storage`: where tokens live between runs.
+* `redirect_handler` and `callback_handler`: the two moments a human is involved.
 
 Nothing else in the file mentions OAuth. `main()` never sees a token.
 
@@ -25,7 +25,7 @@ Nothing else in the file mentions OAuth. `main()` never sees a token.
 
 `OAuthClientMetadata` is the real RFC 7591 registration document, as a Pydantic model.
 
-You set three fields. The defaults fill in the rest — `grant_types` is already `["authorization_code", "refresh_token"]` and `response_types` is already `["code"]`, which is exactly the flow this provider runs.
+You set three fields. The defaults fill in the rest: `grant_types` is already `["authorization_code", "refresh_token"]` and `response_types` is already `["code"]`, which is exactly the flow this provider runs.
 
 !!! check
     Because it is a Pydantic model, it validates **before a single byte goes over the network**.
@@ -41,16 +41,16 @@ You set three fields. The defaults fill in the rest — `grant_types` is already
 
 ### Token storage
 
-**`TokenStorage`** is a `Protocol` with four async methods. You don't inherit from anything — write the methods and any class is a token store:
+**`TokenStorage`** is a `Protocol` with four async methods. You don't inherit from anything; write the methods and any class is a token store:
 
 * `get_tokens` / `set_tokens` hold the `OAuthToken`: access token, refresh token, expiry, scope.
-* `get_client_info` / `set_client_info` hold the `OAuthClientInformationFull` the authorization server issued when the provider registered you — including your `client_id`.
+* `get_client_info` / `set_client_info` hold the `OAuthClientInformationFull` the authorization server issued when the provider registered you, including your `client_id`.
 
 The in-memory version above works. It also forgets everything when the process exits, so the next run does the whole dance again. Persist it to a file or your platform's keyring and the next run is silent.
 
 !!! tip
     Store `client_info`, not only the tokens. The provider registers dynamically the first time it
-    finds no stored `client_info` — throw it away and you mint a fresh registration on every run.
+    finds no stored `client_info`. Throw it away and you mint a fresh registration on every run.
 
 ### The two handlers
 
@@ -63,14 +63,14 @@ A real client runs a small local HTTP server on the redirect URI instead of call
 
 !!! warning
     Pass `state` and `iss` through exactly as they arrived. The provider compares `state` to the one
-    it generated and `iss` to the issuer it discovered, and refuses a mismatch. They are not
-    decoration — they are the CSRF and server-mix-up defences.
+    it generated and `iss` to the issuer it discovered, and refuses a mismatch. They are the CSRF
+    and server-mix-up defences.
 
 ### Into the `Client`
 
 Look at `main()`. The provider goes on the **httpx client**, the httpx client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
 
-`streamable_http_client` has no `auth=` keyword. Anything HTTP-level — auth, headers, timeouts, proxies — belongs on the `httpx.AsyncClient` you bring. That layering is **Client transports**.
+`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **Client transports**.
 
 ## What the provider does for you
 
@@ -83,13 +83,13 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 
 After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.
 
-You wrote none of it. Three keyword arguments remain — `timeout`, `client_metadata_url` and `validate_resource_url` — and this file needs none of them.
+You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadata_url` and `validate_resource_url`), and this file needs none of them.
 
-### Check it
+### Try it
 
-Everything else in these docs you have checked with an in-memory `Client(server)`. Not this — the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
+Everything else in these docs you have checked with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
-The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this chapter's client grown into a small CLI. Its README has the two commands — start the servers, run the client against them, and you watch the four steps go by.
+The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this chapter's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
 
 ## Machine to machine
 
@@ -107,7 +107,7 @@ What changed:
 * `scopes` is a space-separated string, the OAuth wire format.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
-By default the secret travels as HTTP Basic auth on the token request (`client_secret_basic`). Pass `token_endpoint_auth_method="client_secret_post"` to put it in the form body instead — some authorization servers only accept one of the two.
+By default the secret travels as HTTP Basic auth on the token request (`client_secret_basic`). Pass `token_endpoint_auth_method="client_secret_post"` to put it in the form body instead. Some authorization servers only accept one of the two.
 
 !!! tip
     Read `client_secret` from the environment or a secret manager, never from source control.
@@ -115,7 +115,7 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
 !!! info
     One more provider lives in `mcp.client.auth.extensions.client_credentials`:
     **`PrivateKeyJWTOAuthProvider`**, for clients that authenticate with a JWT instead of a
-    shared secret (`private_key_jwt` — the key-pair and workload-identity flavour). It follows
+    shared secret (`private_key_jwt`, the key-pair and workload-identity flavour). It follows
     the same pattern: construct one, put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
@@ -123,15 +123,15 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
 
 When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means the authorization server refused to register you. `OAuthTokenError` means the token endpoint said no. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.
 
-Not everything is a flow error. The network can still fail — those are ordinary `httpx` exceptions and pass through untouched.
+Not everything is a flow error. The network can still fail; those are ordinary `httpx` exceptions and pass through untouched.
 
 ## Recap
 
 * `OAuthClientProvider` is an `httpx.Auth`. Put it on an `httpx.AsyncClient`, pass that to `streamable_http_client(url, http_client=...)`, and `Client` never knows OAuth happened.
 * You supply four things: the server URL, an `OAuthClientMetadata`, a `TokenStorage`, and the redirect/callback handler pair.
-* `TokenStorage` is a `Protocol` — four async methods, no base class. Persist `client_info` as well as the tokens.
+* `TokenStorage` is a `Protocol`: four async methods, no base class. Persist `client_info` as well as the tokens.
 * Discovery, dynamic registration, PKCE, the `state` and `iss` checks, and token refresh are the provider's job, not yours.
 * `ClientCredentialsOAuthProvider` is the no-human version: `client_id` + `client_secret`, no handlers, no browser.
 * Every OAuth failure is an `OAuthFlowError`; `OAuthRegistrationError` and `OAuthTokenError` are its subclasses.
 
-The other half of this handshake — making your *server* demand the token — is **Authorization**.
+The other half of this handshake, making your *server* demand the token, is **Authorization**.

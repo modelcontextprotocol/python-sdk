@@ -19,7 +19,7 @@
 >
 > v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for what's changed. We're targeting a beta on 2026-06-30 and a stable v2 on 2026-07-27, alongside the spec release. Before stable, we plan to add a significant set of backwards compatibility shims so the final upgrade is much smaller than today's diff.
 >
-> **v1.x is the only stable release line and remains recommended for production.** It is in maintenance mode and continues to receive critical bug fixes and security patches. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0aN`), so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
+> **v1.x is the only stable release line and remains recommended for production.** It is in maintenance mode and continues to receive critical bug fixes and security patches. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0a2`), so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
 >
 > Try the alpha and tell us what breaks: [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX). For v1 documentation, see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md).
 
@@ -27,7 +27,7 @@
 
 **The documentation lives at <https://py.sdk.modelcontextprotocol.io/v2/>.**
 
-This README is just the pitch. The site has the full [tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+It has the full [tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
 
 ## What is MCP?
 
@@ -47,7 +47,7 @@ Python 3.10+.
 uv add "mcp[cli]"          # or: pip install "mcp[cli]"
 ```
 
-While v2 is in pre-release you must pin the version explicitly — an unpinned install resolves to the latest stable v1.x, which this README does not describe. Use `uv add "mcp[cli]==2.0.0aN"` (check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release), and `uv run --with "mcp==2.0.0aN"` for one-off commands.
+While v2 is in pre-release you must pin the version explicitly: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Use `uv add "mcp[cli]==2.0.0a2"` (check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release), and `uv run --with "mcp==2.0.0a2"` for one-off commands.
 
 ## A server in 15 lines
 
@@ -89,7 +89,7 @@ Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the sch
 
 ## A client in 10 lines
 
-The same package is a full MCP **client**. `Client` connects to a URL, a stdio subprocess, a custom transport — or, for tests, straight to a server object in memory, with no transport at all:
+The same package is a full MCP **client**. `Client` connects to a URL, a stdio subprocess, a custom transport, or (for tests) straight to a server object in memory with no transport at all:
 
 ```python
 import asyncio
@@ -116,7 +116,7 @@ We are passionate about supporting contributors of all levels of experience and 
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE) file for details.
 
 [pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
 [pypi-url]: https://pypi.org/project/mcp/

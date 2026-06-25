@@ -2,7 +2,7 @@
 
 A **resource** is data you expose for the application to read.
 
-That's the split. A tool is something the **model** decides to call. A resource is something the **application** decides to load — a config file, a record, a document — and put in front of the model as context.
+That's the split. A tool is something the **model** decides to call. A resource is something the **application** decides to load (a config file, a record, a document) and put in front of the model as context.
 
 You declare one by putting `@mcp.resource(uri)` on a plain Python function.
 
@@ -38,11 +38,11 @@ result.contents  # [TextResourceContents(uri="config://app", mime_type="text/pla
 ```
 
 !!! tip
-    Listing is cheap. Your function is **not** called during `resources/list` — only during
+    Listing is cheap. Your function is **not** called during `resources/list`, only during
     `resources/read`, and only for the URI that was asked for. Expose a thousand resources
     and you pay for the ones somebody opens.
 
-### Check it
+### Try it
 
 Run the server with the MCP Inspector:
 
@@ -50,7 +50,7 @@ Run the server with the MCP Inspector:
 uv run mcp dev server.py
 ```
 
-Open the URL it prints and go to the **Resources** tab. `config://app` is in the list with its description. Click it and the Inspector reads it — there are your two lines of config.
+Open the URL it prints and go to the **Resources** tab. `config://app` is in the list with its description. Click it and the Inspector reads it: there are your two lines of config.
 
 ## Resource templates
 
@@ -73,7 +73,7 @@ This is now a **resource template**, and it moves house: it leaves `resources/li
 }
 ```
 
-The client fills in the placeholder and reads a concrete URI. `users://42/profile`, `users://ada/profile` — one function answers all of them, with the matched value passed in as `user_id`:
+The client fills in the placeholder and reads a concrete URI: `users://42/profile`, `users://ada/profile`. One function answers all of them, with the matched value passed in as `user_id`:
 
 ```python
 result.contents  # [TextResourceContents(uri="users://42/profile", text="User 42: 12 orders since 2021.")]
@@ -92,7 +92,7 @@ Notice the `uri` in the result. It is the **concrete** URI the client asked for,
 
     A mismatch can only ever be a bug, so the SDK makes it impossible to start the server with one.
 
-`get_user_profile` can also take a parameter annotated `Context` — the SDK injects it without ever treating it as a URI parameter, and **The Context** chapter covers what it gives you.
+`get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **The Context** chapter covers what it gives you.
 
 ## What you return
 
@@ -102,8 +102,8 @@ You're not limited to `str`. Give each resource a `mime_type` and return whateve
 --8<-- "docs_src/resources/tutorial003.py"
 ```
 
-* `readme` returns a `str` → it's sent as-is. This is the common case.
-* `catalog_stats` returns a `dict` → the SDK serialises it to **JSON text** for you:
+* `readme` returns a `str`, so it's sent as-is. This is the common case.
+* `catalog_stats` returns a `dict`, so the SDK serialises it to **JSON text** for you:
 
     ```json
     {
@@ -112,17 +112,17 @@ You're not limited to `str`. Give each resource a `mime_type` and return whateve
     }
     ```
 
-* `placeholder_cover` returns `bytes` → the client gets a `BlobResourceContents` instead of a `TextResourceContents`, with your bytes base64-encoded in its `blob` field.
+* `placeholder_cover` returns `bytes`, so the client gets a `BlobResourceContents` instead of a `TextResourceContents`, with your bytes base64-encoded in its `blob` field.
 
-The same rule applies to anything else JSON-serialisable — a list, a Pydantic model, a dataclass. If it isn't a `str` and isn't `bytes`, it becomes JSON.
+The same rule applies to anything else JSON-serialisable: a list, a Pydantic model, a dataclass. If it isn't a `str` and isn't `bytes`, it becomes JSON.
 
 `mime_type` is yours to declare, and it defaults to `text/plain`. The SDK never inspects what you return to guess it, so a `dict` resource you don't label is still advertised as plain text.
 
 !!! tip
     `name=`, `title=` and `description=` are also accepted by `@mcp.resource()` when you don't
     want to derive them from the function. And when there's no function to write at all,
-    `mcp.server.mcpserver.resources` has ready-made `Resource` classes — `TextResource`,
-    `BinaryResource`, `FileResource`, `HttpResource`, `DirectoryResource` — that you register
+    `mcp.server.mcpserver.resources` has ready-made `Resource` classes (`TextResource`,
+    `BinaryResource`, `FileResource`, `HttpResource`, `DirectoryResource`) that you register
     with `mcp.add_resource(...)`.
 
 A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **The Client**.
@@ -133,7 +133,7 @@ A client can also **subscribe** to a resource and be notified when it changes; t
 * A `{placeholder}` in the URI makes it a **template**: it's listed under `resources/templates/list` and one function serves every URI that matches.
 * Placeholder names must equal the function's parameter names. Get it wrong and you find out at import time, not in production.
 * Your function runs when the resource is **read**, not when it's listed.
-* `str` → text, `bytes` → a base64 blob, anything else → JSON text. `mime_type=` is how you label it.
+* `str` becomes text, `bytes` becomes a base64 blob, anything else becomes JSON text. `mime_type=` is how you label it.
 * Tools are for the model to act. Resources are for the application to read.
 
-Next: the third primitive, the one a person picks from a menu — **Prompts**.
+Next: the third primitive, the one a person picks from a menu, **Prompts**.

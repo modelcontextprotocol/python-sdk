@@ -23,30 +23,30 @@ What you do instead is what you do in every other Python program: the standard l
     result.structured_content  # {'result': "Found 3 books matching 'dune'."}
     ```
 
-    The log line is nowhere in it. Logging is for **you**, the person operating the server — the model
+    The log line is nowhere in it. Logging is for **you**, the person operating the server. The model
     never sees it. If the model should read something, `return` it.
 
 ## Where it goes
 
 For a **stdio** server this question matters more than usual. The host launched your server as a subprocess and is reading MCP messages from its **stdout**. Standard error is yours.
 
-The standard library already does the right thing: log output goes to `sys.stderr` by default. Your `logger.info(...)` lines land in the terminal — or wherever the host collects the subprocess's stderr — and the protocol stream stays clean.
+The standard library already does the right thing: log output goes to `sys.stderr` by default. Your `logger.info(...)` lines land in the terminal (or wherever the host collects the subprocess's stderr), and the protocol stream stays clean.
 
 !!! tip
-    Never `print()` in a stdio server. `print` writes to **stdout**, and stdout *is* the wire — one stray
+    Never `print()` in a stdio server. `print` writes to **stdout**, and stdout *is* the wire: one stray
     line and the client is trying to parse it as JSON-RPC.
 
     `logger.debug("got here")` is the same one line of effort and goes to the right place.
 
 ## The level
 
-You don't have to call `logging.basicConfig()` yourself. Constructing an `MCPServer` already did, with a handler pointed at standard error, at the level you pass as `log_level=` — so `MCPServer("Bookshop", log_level="DEBUG")` is all it takes to see your `logger.debug(...)` lines.
+You don't have to call `logging.basicConfig()` yourself. Constructing an `MCPServer` already did, with a handler pointed at standard error, at the level you pass as `log_level=`, so `MCPServer("Bookshop", log_level="DEBUG")` is all it takes to see your `logger.debug(...)` lines.
 
 The default is `"INFO"`.
 
 `logging.basicConfig()` never replaces handlers that already exist. If you configure logging yourself before creating the server, your configuration wins.
 
-## Check it
+## Try it
 
 Run the server with the MCP Inspector:
 
@@ -54,7 +54,7 @@ Run the server with the MCP Inspector:
 uv run mcp dev server.py
 ```
 
-Call `search_books` from the **Tools** tab. The Inspector shows you the result — only the return value. The line
+Call `search_books` from the **Tools** tab. The Inspector shows you the result: only the return value. The line
 
 ```text
 Searching for 'dune'
@@ -63,7 +63,7 @@ Searching for 'dune'
 went to standard error: the terminal, not the wire.
 
 !!! info
-    If what you actually want is *tracing* — every request, how long it took, whether it failed — you
+    If what you actually want is *tracing* (every request, how long it took, whether it failed), you
     don't want log lines, you want spans. The SDK ships an `OpenTelemetryMiddleware` for exactly that.
     See **Middleware**.
 
@@ -75,4 +75,4 @@ went to standard error: the terminal, not the wire.
 * Standard error is yours; stdout belongs to the protocol. Never `print()` in a stdio server.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
-Next: every request your server handles, traced and timed — **Middleware**.
+Next: every request your server handles, traced and timed, in **Middleware**.

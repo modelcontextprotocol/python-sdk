@@ -2,7 +2,7 @@
 
 So far every request has gone one way: client to server.
 
-A server can also ask the **client** for things — to put a question to the user, to sample the user's model, to list the user's workspace folders. You answer those requests by passing **callbacks** to `Client(...)`.
+A server can also ask the **client** for things: to put a question to the user, to sample the user's model, to list the user's workspace folders. You answer those requests by passing **callbacks** to `Client(...)`.
 
 ## A server that asks
 
@@ -13,7 +13,7 @@ Here is a server whose tool can't finish on its own:
 ```
 
 * `ctx.elicit(...)` sends an `elicitation/create` request **to the client** and waits.
-* The tool doesn't return until somebody — a person in a form, or your code — supplies a `name`.
+* The tool doesn't return until somebody (a person in a form, or your code) supplies a `name`.
 
 That is the server half, and the **Elicitation** chapter owns it. This chapter is the other end of the wire.
 
@@ -24,16 +24,16 @@ That is the server half, and the **Elicitation** chapter owns it. This chapter i
 ```
 
 * An elicitation callback is `async (context, params) -> ElicitResult`.
-* `params.message` is the question. `params.requested_schema` is the JSON Schema of the answer the server wants — a real client renders a form from it; this one auto-fills.
+* `params.message` is the question. `params.requested_schema` is the JSON Schema of the answer the server wants. A real client renders a form from it; this one auto-fills.
 * You return `ElicitResult(action="accept", content={...})`, or `action="decline"`, or `action="cancel"`. The only other option is `ErrorData(...)`, which refuses the request and fails the whole call.
 * `context` is a `ClientRequestContext`: the live `session`, the server's `request_id`, and any `meta` it attached.
 
 !!! tip
     `params` is a union of the two elicitation modes. Here `params.mode` is `"form"`; a `"url"` request
-    carries `params.url` instead of a schema. One callback handles both — branch on `params.mode`.
+    carries `params.url` instead of a schema. One callback handles both; branch on `params.mode`.
     **Elicitation** shows the full pattern.
 
-### Check it
+### Try it
 
 Call `issue_card` and watch both ends.
 
@@ -52,11 +52,11 @@ It answers, `ctx.elicit(...)` resumes inside the tool, and the tool finishes:
 result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')]
 ```
 
-One `tools/call` from you, one `elicitation/create` back from the server, answered by your function — all inside a single tool call.
+One `tools/call` from you, one `elicitation/create` back from the server, answered by your function, all inside a single tool call.
 
 !!! info
     `mode="legacy"` on line 17 is doing real work. By default `Client(...)` negotiates the modern
-    protocol path, and that path has no back-channel for server-to-client requests — `ctx.elicit`
+    protocol path, and that path has no back-channel for server-to-client requests: `ctx.elicit`
     fails before your callback ever runs. The transport doesn't decide that; the negotiated
     protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
     to answer one; every test behind this page does. **Protocol versions** has the whole story.
@@ -65,7 +65,7 @@ One `tools/call` from you, one `elicitation/create` back from the server, answer
 
 You never told the server that your client can answer elicitation requests. The SDK did.
 
-When a client connects it declares its `capabilities` — the mirror image of the server's. You don't write that object. **Registering a callback is the declaration.**
+When a client connects it declares its `capabilities`, the mirror image of the server's. You don't write that object. **Registering a callback is the declaration.**
 
 | you pass | the client declares |
 | --- | --- |
@@ -93,7 +93,7 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
 !!! check
     Now do the wrong thing: connect **without** `elicitation_callback` and call `issue_card` anyway.
 
-    The server's `elicitation/create` request still reaches your client — and the SDK answers it for
+    The server's `elicitation/create` request still reaches your client, and the SDK answers it for
     you, with an error, because you never said you could handle it. That error sinks the whole call.
     `call_tool` doesn't return an `is_error` result; it raises:
 
@@ -101,13 +101,13 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
     MCPError: Elicitation not supported
     ```
 
-    That is a protocol error (`-32600`, *invalid request*), not a tool error — there is nothing for
+    That is a protocol error (`-32600`, *invalid request*), not a tool error: there is nothing for
     the model to read and retry. It's why `client_features` is worth having: a well-behaved server
     checks before it asks.
 
 ## The deprecated pair
 
-`sampling_callback` answers `sampling/createMessage` — the server asking *your* model to complete something. `list_roots_callback` answers `roots/list` — the server asking which directories it may work in.
+`sampling_callback` answers `sampling/createMessage`: the server asking *your* model to complete something. `list_roots_callback` answers `roots/list`: the server asking which directories it may work in.
 
 Both work. Both follow the rule above. And both serve features the **2026-07-28 spec deprecates**: a modern server doesn't call back into your model mid-request, it hands the request back to you as part of the tool result (**Multi-round-trip requests**), and roots give way to plain tool arguments and resource URIs. The whole list is in **Deprecated features**.
 
@@ -117,7 +117,7 @@ You still need the callbacks to talk to servers that haven't moved. The signatur
 --8<-- "docs_src/client_callbacks/tutorial004.py"
 ```
 
-* A sampling callback receives the full `CreateMessageRequestParams` — `messages`, `model_preferences`, `max_tokens` — and returns a `CreateMessageResult`. *You* run the model, however you like; the SDK only carries the request.
+* A sampling callback receives the full `CreateMessageRequestParams` (`messages`, `model_preferences`, `max_tokens`) and returns a `CreateMessageResult`. *You* run the model, however you like; the SDK only carries the request.
 * A roots callback takes no params at all and returns a `ListRootsResult`.
 * Either one may return `ErrorData(...)` instead, to refuse.
 
@@ -127,7 +127,7 @@ Pass them to `Client(...)` exactly like `elicitation_callback`.
 
 Two more. Neither declares anything.
 
-`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec — **Logging** has what to do instead — so this callback exists for the servers that still emit it.
+`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**Logging** has what to do instead), so this callback exists for the servers that still emit it.
 
 `message_handler` is the catch-all: every server notification reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 
@@ -140,4 +140,4 @@ Two more. Neither declares anything.
 * `sampling_callback` and `list_roots_callback` work the same way but serve deprecated features; modern servers use multi-round-trip requests instead.
 * `logging_callback` and `message_handler` receive notifications. They declare nothing.
 
-Next: the first argument you've been passing to `Client(...)` all along — **Client transports**.
+Next: the first argument you've been passing to `Client(...)` all along, **Client transports**.

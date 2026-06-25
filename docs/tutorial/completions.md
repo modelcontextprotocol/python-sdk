@@ -1,6 +1,6 @@
 # Completions
 
-A client building a UI on top of your server wants to autocomplete argument values as the user types — language names, repository names, file paths.
+A client building a UI on top of your server wants to autocomplete argument values as the user types: language names, repository names, file paths.
 
 **Completions** are how your server supplies those suggestions.
 
@@ -26,20 +26,20 @@ Add **one** function decorated with `@mcp.completion()`:
 ```
 
 * There is one handler per server. Every completion request lands here, and you branch on what's being completed.
-* It must be `async def` — the SDK awaits it.
+* It must be `async def`: the SDK awaits it.
 * It receives three arguments:
-  * `ref` — *which* prompt or resource template, as a `PromptReference` or a `ResourceTemplateReference`. `isinstance` is how you tell them apart.
-  * `argument` — `argument.name` is the argument being completed, `argument.value` is what the user has typed so far.
-  * `context` — the arguments already resolved. Ignore it for now.
+  * `ref`: *which* prompt or resource template, as a `PromptReference` or a `ResourceTemplateReference`. `isinstance` is how you tell them apart.
+  * `argument`: `argument.name` is the argument being completed, `argument.value` is what the user has typed so far.
+  * `context`: the arguments already resolved. Ignore it for now.
 * You return a `Completion(values=[...])`, or `None` when you have nothing to offer.
 
 !!! tip
-    `argument.value` is the prefix the user has typed. The SDK does **not** filter for you — whatever
+    `argument.value` is the prefix the user has typed. The SDK does **not** filter for you: whatever
     you put in `values` is what the UI shows. The `startswith` is yours to write.
 
-### Check it
+### Try it
 
-Drive it with the in-memory `Client` — the same one you use in **Testing**. Call
+Drive it with the in-memory `Client`, the same one you use in **Testing**. Call
 `client.complete()` with `ref=PromptReference(name="review_code")` and
 `argument={"name": "language", "value": "py"}`:
 
@@ -50,13 +50,13 @@ result.completion.values  # ['python']
 * `ref` is the same reference type your handler receives.
 * `argument` is a plain dict with exactly two keys, `name` and `value`.
 
-Send an empty `value` and you get the whole list back — `lang.startswith("")` is true for every language:
+Send an empty `value` and you get the whole list back. `lang.startswith("")` is true for every language:
 
 ```python
 result.completion.values  # ['go', 'javascript', 'python', 'rust', 'typescript']
 ```
 
-Ask about `code` — an argument your handler doesn't recognise — and it returns `None`, which the SDK turns into an empty list:
+Ask about `code` (an argument your handler doesn't recognise) and it returns `None`, which the SDK turns into an empty list:
 
 ```python
 result.completion.values  # []
@@ -72,10 +72,10 @@ Registering the handler is the declaration. Connect a client and look:
 client.server_capabilities.completions  # CompletionsCapability()
 ```
 
-You didn't list `completions` anywhere. The SDK saw the handler and advertised it during the handshake. Every *optional* capability works this way — the handler is the declaration. (The three primitives are not optional: `MCPServer` always declares those, handlers or not.)
+You didn't list `completions` anywhere. The SDK saw the handler and advertised it during the handshake. Every *optional* capability works this way: the handler is the declaration. (The three primitives are not optional: `MCPServer` always declares those, handlers or not.)
 
 !!! check
-    Go back to the first `server.py` — the one with no handler — and ask it anyway. The call fails
+    Go back to the first `server.py` (the one with no handler) and ask it anyway. The call fails
     with a JSON-RPC error:
 
     ```text
@@ -96,7 +96,7 @@ That's what `context` is for. It carries the arguments the user has **already re
 ```
 
 * The new branch fires for the template's `repo` parameter.
-* `context.arguments` is a `dict[str, str] | None` of the values picked so far — here, `owner`.
+* `context.arguments` is a `dict[str, str] | None` of the values picked so far (here, `owner`).
 * No `owner` yet means no sensible suggestions, so the handler returns `None`.
 
 The client sends those resolved values with `context_arguments=`. This time `ref` is a

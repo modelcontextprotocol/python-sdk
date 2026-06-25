@@ -10,7 +10,7 @@ You declare one by putting `@mcp.tool()` on a plain Python function. That's the 
 --8<-- "docs_src/tools/tutorial001.py"
 ```
 
-Look at what you wrote. There are no schemas, no JSON, no protocol — just a function. The SDK reads three things from it:
+Look at what you wrote. There are no schemas, no JSON, no protocol, just a function. The SDK reads three things from it:
 
 * The **name** of the tool is the name of the function: `search_books`.
 * The **description** the model sees is the docstring: `Search the catalog by title or author.`
@@ -46,11 +46,11 @@ result.content             # [TextContent(text="Found 3 books matching 'dune' (s
 result.structured_content  # {'result': "Found 3 books matching 'dune' (showing up to 5)."}
 ```
 
-`content` is the text the **model** reads. `structured_content` is typed data for the **client application** — it's there because you declared the return type as `-> str`.
+`content` is the text the **model** reads. `structured_content` is typed data for the **client application**. It's there because you declared the return type as `-> str`.
 
 Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **Structured Output** chapter is all about it.
 
-### Check it
+### Try it
 
 Run the server with the MCP Inspector:
 
@@ -64,7 +64,7 @@ The Inspector renders a form with a required `query` text field and a required `
 
 ## Optional arguments
 
-Give a parameter a default value and it stops being required. That's it — it's just Python.
+Give a parameter a default value and it stops being required. That's it. It's just Python.
 
 ```python title="server.py" hl_lines="7"
 --8<-- "docs_src/tools/tutorial002.py"
@@ -96,9 +96,9 @@ Wrap the type in `Annotated` and add a Pydantic `Field`:
 
 Three new things, all on the parameters:
 
-* `Field(description=...)` — a per-argument description the model reads alongside the docstring.
-* `Field(ge=1, le=50)` — numeric bounds. They land in the schema as `"minimum": 1, "maximum": 50`.
-* `Literal["fiction", "non-fiction", "poetry"]` — an enum. The model can only pick one of those.
+* `Field(description=...)`: a per-argument description the model reads alongside the docstring.
+* `Field(ge=1, le=50)`: numeric bounds. They land in the schema as `"minimum": 1, "maximum": 50`.
+* `Literal["fiction", "non-fiction", "poetry"]`: an enum. The model can only pick one of those.
 
 !!! check
     Constraints are not decoration. Call the tool with `limit=999` and the SDK answers with a
@@ -123,13 +123,13 @@ When a tool takes more than a couple of arguments, group them into a Pydantic mo
 --8<-- "docs_src/tools/tutorial004.py"
 ```
 
-The `Book` schema is nested inside the tool's input schema (as a `$defs` reference), the model fills it in as a JSON object, and your function receives a **real `Book` instance** — already validated, with `.title`, `.author` and `.year` attributes.
+The `Book` schema is nested inside the tool's input schema (as a `$defs` reference), the model fills it in as a JSON object, and your function receives a **real `Book` instance**, already validated, with `.title`, `.author` and `.year` attributes.
 
 You can mix and match: plain parameters next to model parameters, nested models, lists of models. It's Pydantic all the way down.
 
 ## `async def`
 
-If a tool does I/O — calls an API, reads a file, queries a database — declare it `async def` and `await` inside it. The SDK awaits it.
+If a tool does I/O (calls an API, reads a file, queries a database), declare it `async def` and `await` inside it. The SDK awaits it.
 
 A plain `def` tool works too: the SDK runs it in a thread so it never blocks the server.
 
@@ -145,11 +145,11 @@ Everything the SDK infers, you can override in the decorator:
 
 * `title` is a human-readable name for UIs. Clients show *"Search the catalog"* instead of `search_books`.
 * `annotations` are behavioural **hints** for the client:
-  * `read_only_hint=True` — this tool doesn't change anything.
-  * `idempotent_hint=True` — calling it twice is the same as calling it once.
-  * `destructive_hint=True` — this tool deletes or overwrites something.
+  * `read_only_hint=True`: this tool doesn't change anything.
+  * `idempotent_hint=True`: calling it twice is the same as calling it once.
+  * `destructive_hint=True`: this tool deletes or overwrites something.
 
-A well-behaved client uses them to decide things like *"do I need to ask the user before running this?"*. They are hints, not security — never rely on a client honouring them.
+A well-behaved client uses them to decide things like *"do I need to ask the user before running this?"*. They are hints, not security. Never rely on a client honouring them.
 
 !!! tip
     `name=` and `description=` are also accepted by `@mcp.tool()` if you don't want to derive them
@@ -164,4 +164,4 @@ A well-behaved client uses them to decide things like *"do I need to ask the use
 * Bad arguments are rejected for you, with an error the model can read and recover from.
 * `async def` for I/O, plain `def` for everything else.
 
-Next up: what happens to the value you `return` — **Structured Output**.
+Next up, **Structured Output**: what happens to the value you `return`.

@@ -2,7 +2,7 @@
 
 A **prompt** is a message template the user picks.
 
-Tools are for the model. A prompt is the opposite: the user chooses one from a menu in their client — a slash command, a button — fills in its arguments, and the rendered messages go into the conversation as if they had typed them.
+Tools are for the model. A prompt is the opposite: the user chooses one from a menu in their client (a slash command, a button), fills in its arguments, and the rendered messages go into the conversation as if they had typed them.
 
 You declare one by putting `@mcp.prompt()` on a function that returns the text.
 
@@ -30,7 +30,7 @@ That is what a client gets back from `prompts/list`:
 }
 ```
 
-There is no JSON Schema here. Prompt arguments are a flat list of **named string values** — a form a person fills in, not a payload a model constructs.
+There is no JSON Schema here. Prompt arguments are a flat list of **named string values**: a form a person fills in, not a payload a model constructs.
 
 ### Rendering it
 
@@ -56,16 +56,16 @@ That is the entire life of a prompt: listed by name, rendered on demand, dropped
 
 !!! check
     `required` is enforced before your function runs. Render `review_code` without `code` and the
-    request itself fails with a JSON-RPC error — code `-32603`:
+    request itself fails with a JSON-RPC error (code `-32603`):
 
     ```text
     mcp.shared.exceptions.MCPError: Internal server error
     ```
 
-    There is no tool-style error result to hand back to a model, because no model is in the loop —
+    There is no tool-style error result to hand back to a model, because no model is in the loop:
     the call raises. The reason (`Missing required arguments: {'code'}`) lands in your server's log.
 
-### Check it
+### Try it
 
 Run the server with the MCP Inspector:
 
@@ -77,7 +77,7 @@ Open the **Prompts** tab and select `review_code`. The Inspector draws a form wi
 
 ## More than one message
 
-A code review is one message. A debugging session is a conversation — and a prompt can seed the whole thing.
+A code review is one message. A debugging session is a conversation, and a prompt can seed the whole thing.
 
 Return a list of messages instead of a `str`:
 
@@ -86,7 +86,7 @@ Return a list of messages instead of a `str`:
 ```
 
 * `UserMessage` and `AssistantMessage` come from `mcp.server.mcpserver.prompts.base`. Hand them a `str` and they wrap it in `TextContent` for you. The role is the class name.
-* `Message` is their common base — use it as the return annotation.
+* `Message` is their common base. Use it as the return annotation.
 
 Rendering `debug_error` now produces three messages, in order:
 
@@ -116,7 +116,7 @@ Notice the last one. Pre-filling an `assistant` turn is how you steer the model'
 ```
 
 * `title="Code review"` is the human-readable name, exactly like a tool's `title`.
-* `Annotated[str, Field(description=...)]` is the same pattern you used in **Tools** — here the description lands on the argument instead of in a schema.
+* `Annotated[str, Field(description=...)]` is the same pattern you used in **Tools**. Here the description lands on the argument instead of in a schema.
 * `language` has a default, so it stops being required.
 
 The `prompts/list` entry now carries everything a client needs to draw a good form:
@@ -142,9 +142,9 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 
 * `@mcp.prompt()` on a function makes it a prompt. Name from the function, description from the docstring.
 * Prompts are **user-controlled**: the client lists them, the user picks one and fills in the arguments.
-* Arguments are a flat list of named strings — no schema. A parameter with a default is optional.
+* Arguments are a flat list of named strings (no schema). A parameter with a default is optional.
 * Return a `str` and it becomes one user message. Return a list of `UserMessage` / `AssistantMessage` to seed a multi-turn conversation.
 * `title=` and `Field(description=...)` are what a client puts in its UI.
-* A missing required argument fails the whole request — there is no per-prompt error result.
+* A missing required argument fails the whole request. There is no per-prompt error result.
 
-Next up: the one extra parameter a tool, resource or prompt can ask the SDK for — **The Context**.
+Next up: the one extra parameter a tool, resource or prompt can ask the SDK for, **The Context**.

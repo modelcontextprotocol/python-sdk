@@ -77,12 +77,12 @@ There you go! You can now extend your tests to cover more scenarios.
 Two different things can go wrong, and this flag only touches one of them.
 
 An exception inside one of **your tools** is not a protocol failure. It becomes a normal result with
-`is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that — with or
+`is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that: with or
 without it, `call_tool` returns the same `is_error=True` result. There's a whole chapter on it:
 **Handling errors**.
 
 A failure **outside** a tool body is different. On the connection `Client(mcp)` gives you, the
-server sanitises it into a generic `"Internal server error"` before the client sees it — you should
+server sanitises it into a generic `"Internal server error"` before the client sees it. You should
 never leak the details of an unexpected crash to a remote caller. In a test that is exactly what
 you *don't* want, and it is what `raise_exceptions=True` changes: your test sees the real message
 instead of the sanitised one.
@@ -92,9 +92,9 @@ Leave it on in tests. It has no meaning in production code.
 ## In-process by default
 
 !!! note
-    `Client(mcp)` connects in-process and is **era-neutral** by default — it probes the server and
+    `Client(mcp)` connects in-process and is **era-neutral** by default: it probes the server and
     picks the appropriate protocol path. Pin `mode="legacy"` if your test exercises legacy-specific
-    semantics (sampling or elicitation push, `message_handler`) — and drop `raise_exceptions=True`
+    semantics (sampling or elicitation push, `message_handler`), and drop `raise_exceptions=True`
     there: a legacy connection never sanitises in the first place, and the flag re-raises the
     failure inside the server task instead of in your test.
 

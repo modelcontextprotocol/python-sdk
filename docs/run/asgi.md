@@ -4,7 +4,7 @@
 
 For that, `mcp.streamable_http_app()` returns a **Starlette application**.
 
-This one method is the whole chapter. A Starlette app is an ASGI app, so anything that hosts ASGI — uvicorn, Hypercorn, another Starlette, FastAPI — can host your MCP server.
+A Starlette app is an ASGI app, so anything that hosts ASGI (uvicorn, Hypercorn, another Starlette, FastAPI) can host your MCP server.
 
 ## The app
 
@@ -22,14 +22,14 @@ The MCP endpoint is at `/mcp`, so a client connects to `http://127.0.0.1:8000/mc
 
 The app already carries two things:
 
-* One route, `/mcp` — the Streamable HTTP endpoint.
-* A **lifespan** that starts `mcp.session_manager` — the object that owns every live session's background work.
+* One route, `/mcp`: the Streamable HTTP endpoint.
+* A **lifespan** that starts `mcp.session_manager`, the object that owns every live session's background work.
 
-Run the app on its own — `uvicorn server:app` — and you never think about either.
+Run the app on its own (`uvicorn server:app`) and you never think about either.
 
 !!! tip
     `streamable_http_app()` takes the same keyword arguments as `mcp.run("streamable-http", ...)`,
-    minus `port` — the port belongs to whatever serves the app. `host` is still there, but it binds
+    minus `port`: the port belongs to whatever serves the app. `host` is still there, but it binds
     nothing here; it only sets the DNS-rebinding-protection default. **Running your server** covers
     the options themselves.
 
@@ -43,15 +43,15 @@ The moment the MCP server is *part* of a bigger application, you put the app ins
 --8<-- "docs_src/asgi/tutorial002.py"
 ```
 
-* `Mount("/", ...)` plus the default `/mcp` path keeps the endpoint at `/mcp`. Starlette tries routes in order and `Mount("/")` matches **every** path, so your own routes go *before* it in the list — anything after it is unreachable.
+* `Mount("/", ...)` plus the default `/mcp` path keeps the endpoint at `/mcp`. Starlette tries routes in order and `Mount("/")` matches **every** path, so your own routes go *before* it in the list. Anything after it is unreachable.
 * The `lifespan` function enters `mcp.session_manager.run()` for the lifetime of the **host** app. This is the line everyone forgets.
 * `mcp.session_manager` only exists *after* `streamable_http_app()` has been called. That is why the routes are built at module level and the manager is only touched inside the lifespan.
 
-Starlette's `Host` route works the same way — swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change.
+Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change.
 
 !!! warning "The host app owns the lifespan"
     `streamable_http_app()` wires `session_manager.run()` into the lifespan of the Starlette it
-    returns — but **a mounted sub-application's lifespan never runs**. Mount the app and that
+    returns, but **a mounted sub-application's lifespan never runs**. Mount the app and that
     built-in lifespan is dead code. Whichever app sits at the top of your ASGI stack must enter
     `mcp.session_manager.run()` in its own lifespan.
 
@@ -74,7 +74,7 @@ Each `MCPServer` is its own app with its own session manager. Mount as many as y
 ```
 
 * `AsyncExitStack` enters both managers; they start together and shut down in reverse order.
-* The endpoints are `/notes/mcp` and `/tasks/mcp` — the mount prefix plus the default path.
+* The endpoints are `/notes/mcp` and `/tasks/mcp`: the mount prefix plus the default path.
 
 ## Changing the path
 
@@ -102,7 +102,7 @@ Wrap the host app in Starlette's `CORSMiddleware`:
 
 ## Custom routes
 
-`@mcp.custom_route()` registers a plain HTTP endpoint on the same app — for the things every deployed service needs that have nothing to do with MCP: a health check, an OAuth callback.
+`@mcp.custom_route()` registers a plain HTTP endpoint on the same app, for the things every deployed service needs that have nothing to do with MCP: a health check, an OAuth callback.
 
 ```python title="server.py" hl_lines="15-17"
 --8<-- "docs_src/asgi/tutorial006.py"
@@ -110,7 +110,7 @@ Wrap the host app in Starlette's `CORSMiddleware`:
 
 * The handler is plain Starlette: an `async` function from `Request` to `Response`.
 * `streamable_http_app()` picks up every custom route. `app.routes` is now `/mcp` and `/health`.
-* `GET /health` answers `{"status": "ok"}` with no MCP in sight — no session, no handshake.
+* `GET /health` answers `{"status": "ok"}` with no MCP in sight: no session, no handshake.
 
 !!! warning
     Custom routes are **never authenticated**, even when the rest of the server is. That is

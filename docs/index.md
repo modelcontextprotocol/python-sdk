@@ -29,11 +29,11 @@ Python 3.10+.
     pip install "mcp[cli]"
     ```
 
-The `[cli]` extra gives you the `mcp` command — you'll want it for development.
+The `[cli]` extra gives you the `mcp` command; you'll want it for development.
 
 !!! warning "Pin the version while v2 is in alpha"
     Until v2 is stable, installers resolve `mcp` to the latest **v1.x** release, which this
-    documentation does not describe. Pin an alpha explicitly (`uv add "mcp[cli]==2.0.0aN"` —
+    documentation does not describe. Pin an alpha explicitly (`uv add "mcp[cli]==2.0.0a2"`;
     check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release).
     See [Installation](installation.md) for the details.
 
@@ -57,18 +57,18 @@ It exposes one **tool**, `add`, and one templated **resource**, `greeting://{nam
 uv run mcp dev server.py
 ```
 
-This starts your server and opens the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) — an interactive UI for poking at it. Open the URL it prints.
+This starts your server and opens the [MCP Inspector](https://github.com/modelcontextprotocol/inspector), an interactive UI for poking at it. Open the URL it prints.
 
 !!! note
     The Inspector is a Node.js app, so `mcp dev` needs `npx` on your `PATH`.
 
-### Check it
+### Try it
 
 In the Inspector, go to **Tools** and call `add` with `a=1`, `b=2`.
 
 You get `3` back. ✨
 
-The Inspector built that form — a required integer field for `a`, another for `b` — from your type hints. So will Claude, and every other MCP host.
+The Inspector built that form (a required integer field for `a`, another for `b`) from your type hints. So will Claude, and every other MCP host.
 
 Now go to **Resources** and read `greeting://World`:
 

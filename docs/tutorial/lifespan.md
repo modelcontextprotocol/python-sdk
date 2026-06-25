@@ -15,11 +15,11 @@ A lifespan is an `@asynccontextmanager` that receives the server and `yield`s **
 Read it bottom-up:
 
 * `app_lifespan` connects the `Database` **before** the `yield` and disconnects it **after**, in a `finally`. That's startup and shutdown.
-* It yields an `AppContext` — a plain dataclass holding the things you set up. One field today, ten tomorrow.
+* It yields an `AppContext`, a plain dataclass holding the things you set up. One field today, ten tomorrow.
 * `MCPServer("Bookshop", lifespan=app_lifespan)` is the whole wiring.
 * Inside the tool, the yielded object is `ctx.request_context.lifespan_context`.
 
-The lifespan runs **once**. It is entered when the server starts — before the first request — and exited when the server stops. Every request in between shares the same `AppContext`.
+The lifespan runs **once**. It is entered when the server starts (before the first request) and exited when the server stops. Every request in between shares the same `AppContext`.
 
 !!! info
     If you've written a FastAPI `lifespan`, you already know this. Same decorator, same `yield`, same `finally`.
@@ -41,7 +41,7 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 
 `genre` is the only argument the model can pass. The lifespan is your server's business.
 
-`@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too — written as a bare `Context`, for a reason the next section gets to. Everything `ctx` carries is in **The Context**.
+`@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too, written as a bare `Context` for a reason the next section gets to. Everything `ctx` carries is in **The Context**.
 
 ### It really is typed
 
@@ -49,11 +49,11 @@ Look at the annotation again: `ctx: Context[AppContext]`.
 
 That one type parameter is why `ctx.request_context.lifespan_context` **is** an `AppContext` to your type checker. `.db` autocompletes; `.dbb` is an error before you ever run the server.
 
-Write a bare `Context` instead and `lifespan_context` is typed as `dict[str, Any]` — the type checker has no way to know what your lifespan yielded. The object is still there at runtime; you've lost the help.
+Write a bare `Context` instead and `lifespan_context` is typed as `dict[str, Any]`: the type checker has no way to know what your lifespan yielded. The object is still there at runtime; you've lost the help.
 
 !!! warning
     `Context[AppContext]` is a **tool-only** spelling. Put it on an `@mcp.resource()` or
-    `@mcp.prompt()` function and every call to that handler fails — the client gets an error back,
+    `@mcp.prompt()` function and every call to that handler fails. The client gets an error back,
     and the server log shows why:
 
     ```text
@@ -65,7 +65,7 @@ Write a bare `Context` instead and `lifespan_context` is typed as `dict[str, Any
     the object.
 
 !!! tip
-    There is always a lifespan. If you don't pass one, the SDK's default yields an empty `dict` —
+    There is always a lifespan. If you don't pass one, the SDK's default yields an empty `dict`,
     so `ctx.request_context.lifespan_context` is `{}`, never `None`. That default is also why a
     bare `Context` types it as `dict[str, Any]`.
 
@@ -88,15 +88,15 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
     * While it's running, call `database_status` and the result is `"connected"`.
     * Stop the server and the `finally` block runs: `database.connected` is `False` again.
 
-    The work happened exactly where you put it — around the `yield`, not at import time and not per request.
+    The work happened exactly where you put it: around the `yield`, not at import time and not per request.
 
 ## Recap
 
 * `lifespan=` takes an `@asynccontextmanager` that receives the server and `yield`s one object.
 * Code before the `yield` is startup. The `finally` after it is shutdown.
-* It runs once, around the whole life of the server — not per request.
+* It runs once, around the whole life of the server, not per request.
 * Whatever you `yield` is `ctx.request_context.lifespan_context` in every tool, resource, and prompt.
-* `ctx: Context[AppContext]` makes that access fully typed — in tools. Resources and prompts take the bare `Context`.
+* `ctx: Context[AppContext]` makes that access fully typed in tools. Resources and prompts take the bare `Context`.
 * No `lifespan=` means an empty `dict`, never `None`.
 
-Next: tools that return more than text — **Media**.
+Next: tools that return more than text, **Media**.

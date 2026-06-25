@@ -1,6 +1,6 @@
 # Session groups
 
-A `Client` connects to one server. Real applications often want several — a search server, a database server, an internal API — and end up juggling a connection and a tool list for each.
+A `Client` connects to one server. Real applications often want several (a search server, a database server, an internal API) and end up juggling a connection and a tool list for each.
 
 **`ClientSessionGroup`** is one object that holds many connections and merges everything they expose into a single view.
 
@@ -52,31 +52,31 @@ Run it again. `print(sorted(group.tools))` now shows both:
 ['Library.search', 'Web.search']
 ```
 
-* The **key** is yours. `by_server` built it from `server_info.name` — the name each `MCPServer(...)` was constructed with.
+* The **key** is yours. `by_server` built it from `server_info.name`, the name each `MCPServer(...)` was constructed with.
 * The `Tool` inside is untouched: `group.tools["Web.search"].name` is still `"search"`, and that is the name `call_tool` puts on the wire. The prefix never leaves your process.
 * It is not only tools. The library's `hours` resource is registered as `Library.hours`.
 
 !!! tip
-    The hook runs on **every** name from **every** server, not only on conflicts — there is no
+    The hook runs on **every** name from **every** server, not only on conflicts: there is no
     prefix-on-collision mode. Pick one scheme and let it apply everywhere.
 
 ## Adding and removing servers
 
 `connect_to_server` returns the `ClientSession` it opened. Keep it if you ever want that server gone: `await group.disconnect_from_server(session)` removes its tools, resources, and prompts from the group.
 
-If you already hold a connected `ClientSession` — `Client.session` is one — hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open.
+If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open.
 
 ## The classic handshake
 
-`ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake — it never sends the `server/discover` probe described in **Protocol versions**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
+`ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **Protocol versions**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
 
 ## Recap
 
 * `ClientSessionGroup` holds many server connections and merges their tools, resources, and prompts into one `dict` each.
-* `connect_to_server(params)` per server. It takes transport parameters — never the server object or URL a `Client` takes.
+* `connect_to_server(params)` per server. It takes transport parameters, never the server object or URL a `Client` takes.
 * `group.call_tool(name, arguments)` routes to the owning server for you.
 * Names must be unique across the whole group; two servers with a `search` tool cannot coexist on their own.
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.
 * `connect_with_session` adds a session you already hold; `disconnect_from_server` removes one.
 
-The handshake a group speaks — and the faster one a `Client` prefers — is the subject of **Protocol versions**.
+The handshake a group speaks (and the faster one a `Client` prefers) is the subject of **Protocol versions**.
