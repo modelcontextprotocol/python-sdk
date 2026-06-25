@@ -1,7 +1,6 @@
 # examples/stories/manifest.toml
 #
-# Drives tests/examples/ axis expansion. test_manifest_matches_filesystem
-# asserts [story.*] keys == story dirs with a client.py.
+# test_manifest_matches_filesystem asserts [story.*] keys == story dirs with a client.py.
 
 [defaults]
 transports       = ["in-memory", "http-asgi"]   # in-memory = Client(server); http-asgi = StreamingASGITransport
@@ -12,7 +11,6 @@ server_export    = "factory"                    # "factory" -> build_server() | 
 multi_connection = false                        # main(target, ...) vs main(targets, ...); targets() -> fresh target per call
 needs_http       = false                        # main(..., http=) gets the raw httpx.AsyncClient (http-asgi only)
 timeout_s        = 30
-smoke            = false
 mcp_path         = "/mcp"
 xfail            = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
 env              = {}                           # env vars set for the leg via monkeypatch
@@ -20,7 +18,6 @@ env              = {}                           # env vars set for the leg via m
 # ───────────────────────────── start here ─────────────────────────────
 
 [story.tools]
-smoke = true
 
 [story.prompts]
 
@@ -80,7 +77,6 @@ transports       = ["http-asgi"]
 server_export    = "app"
 era              = "dual-in-body"
 multi_connection = true
-smoke            = true
 
 [story.json_response]
 transports    = ["http-asgi"]

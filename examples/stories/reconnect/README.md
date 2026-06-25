@@ -13,7 +13,8 @@ traffic and has `server_info` / `server_capabilities` available immediately.
 uv run python -m stories.reconnect.server --http --port 8000 &
 uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
 
-# lowlevel server variant
+# lowlevel server variant — same port, so stop the first server
+kill %1
 uv run python -m stories.reconnect.server_lowlevel --http --port 8000 &
 uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
 ```

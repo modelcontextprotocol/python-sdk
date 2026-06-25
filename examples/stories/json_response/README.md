@@ -59,5 +59,6 @@ curl -s http://127.0.0.1:8000/mcp \
 
 ## See also
 
-`stateless_legacy/` (the default posture), `legacy_routing/` (route by era at
-the entry), `streaming/` (progress that *is* delivered — over stdio/SSE).
+`stateless_legacy/` (the one-liner `stateless_http=True` deploy),
+`legacy_routing/` (route by era at the entry), `streaming/` (progress that *is*
+delivered — over stdio/SSE).

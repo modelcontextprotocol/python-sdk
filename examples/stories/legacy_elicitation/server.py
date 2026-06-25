@@ -24,7 +24,8 @@ def build_server() -> MCPServer:
 
     @mcp.tool(description="Link a third-party account by directing the user to a sign-in URL.")
     async def link_account(provider: str, ctx: Context) -> str:
-        elicitation_id = f"link-{provider}"
+        # elicitation_id must be unique per elicitation, not per provider — scope it to this request.
+        elicitation_id = f"link-{provider}-{ctx.request_context.request_id}"
         answer = await ctx.elicit_url(
             f"Sign in to {provider} to link your account",
             url=f"https://example.com/oauth/{provider}/authorize",

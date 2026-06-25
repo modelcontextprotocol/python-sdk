@@ -9,7 +9,8 @@ ASGI/ingress layer. Unlike most SDKs, the Python SDK's built-in
 arms (per-era auth, separate ports, an existing v1 deployment to keep), not to
 make dual-era work at all.
 
-Also shown: the CORS `expose_headers` recipe browser-based MCP clients need.
+Also shown: the CORS recipe (methods, request headers, and `expose_headers`)
+browser-based MCP clients need.
 
 ## Run it
 
@@ -18,7 +19,8 @@ Also shown: the CORS `expose_headers` recipe browser-based MCP clients need.
 uv run python -m stories.legacy_routing.server --port 8000 &
 uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 
-# lowlevel server variant
+# lowlevel server variant — same port, so stop the first server
+kill %1
 uv run python -m stories.legacy_routing.server_lowlevel --port 8000 &
 uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 ```
@@ -43,9 +45,10 @@ uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 - `server.py` `build_app` — `streamable_http_app()` + `CORSMiddleware`. The
   `which_arm` tool reads `ctx.request_context.protocol_version` to prove which
   path the built-in router took.
-- `server_lowlevel.py` — same `classify_era` and CORS recipe (re-used from
-  `server.py`); `build_app` wires `lowlevel.Server` instead of `MCPServer` and
-  reads `ctx.protocol_version` directly.
+- `server_lowlevel.py` — the CORS recipe re-used from `server.py` (the
+  `MCP_*` header and method constants); `build_app` wires `lowlevel.Server`
+  instead of `MCPServer` and reads `ctx.protocol_version` directly. The
+  predicate is tier-agnostic, so `classify_era` lives only in `server.py`.
 
 ## User-land composition (when you need different backends)
 

@@ -3,7 +3,10 @@ name = "mcp-example-stories"
 version = "0.0.0"
 description = "Self-verifying example suite for the MCP Python SDK (dev-only, not published)"
 requires-python = ">=3.10"
-dependencies = ["mcp"]
+dependencies = [
+    "mcp",
+    "tomli>=2.0; python_version < '3.11'",
+]
 
 [build-system]
 requires = ["hatchling"]

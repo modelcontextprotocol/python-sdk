@@ -35,9 +35,12 @@ uv run python -m stories.lifespan.client --http http://127.0.0.1:8000/mcp
 - `ctx.request_context.lifespan_context` is the interim path; a later release
   will shorten this to `ctx.state.*`. The lowlevel `ctx.lifespan_context` path
   is unaffected.
-- **v1 → v2 scope change** — in v1.x, `lifespan` was entered once *per
-  connection*; in v2 it is entered once *per process*. See `docs/migration.md`
-  ("lifespan now per-process").
+- **v1 → v2 scope change** — in v1.x, `lifespan` was entered once per
+  `Server.run()` call: once per *session* for stateful streamable HTTP and once
+  per *request* under `stateless_http=True` (stdio was already per-process). In
+  v2 it is entered once per process regardless of transport. See
+  `docs/migration.md` ("Streamable HTTP: lifespan now entered once at manager
+  startup").
 
 ## Spec
 

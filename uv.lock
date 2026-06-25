@@ -1067,10 +1067,14 @@ version = "0.0.0"
 source = { editable = "examples" }
 dependencies = [
     { name = "mcp" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", editable = "." }]
+requires-dist = [
+    { name = "mcp", editable = "." },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
+]
 
 [[package]]
 name = "mcp-simple-auth"

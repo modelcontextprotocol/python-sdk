@@ -39,7 +39,9 @@ def build_server() -> Server[Any]:
 
     async def call_tool(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
         if params.name == "register_user":
-            answer = await ctx.session.elicit_form("Please provide your registration details:", REGISTRATION_SCHEMA)
+            answer = await ctx.session.elicit_form(
+                "Please provide your registration details:", REGISTRATION_SCHEMA, related_request_id=ctx.request_id
+            )
             if answer.action != "accept" or answer.content is None:
                 return types.CallToolResult(content=[types.TextContent(text=f"registration {answer.action}")])
             text = f"registered {answer.content['username']} (plan: {answer.content.get('plan') or 'free'})"
@@ -47,11 +49,13 @@ def build_server() -> Server[Any]:
 
         assert params.name == "link_account" and params.arguments is not None
         provider = params.arguments["provider"]
-        elicitation_id = f"link-{provider}"
+        # elicitation_id must be unique per elicitation, not per provider — scope it to this request.
+        elicitation_id = f"link-{provider}-{ctx.request_id}"
         answer = await ctx.session.elicit_url(
             f"Sign in to {provider} to link your account",
             url=f"https://example.com/oauth/{provider}/authorize",
             elicitation_id=elicitation_id,
+            related_request_id=ctx.request_id,
         )
         if answer.action != "accept":
             return types.CallToolResult(content=[types.TextContent(text=f"link {answer.action}")])

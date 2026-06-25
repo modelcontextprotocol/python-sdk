@@ -14,6 +14,10 @@ from stories._hosting import NO_DNS_REBIND, run_app_from_args
 
 #: Response headers a browser-based MCP client must be able to read.
 MCP_EXPOSED_HEADERS = ["Mcp-Session-Id", "WWW-Authenticate", "Last-Event-Id", "Mcp-Protocol-Version"]
+#: Request headers a browser-based MCP client must be allowed to send.
+MCP_ALLOWED_HEADERS = ["Authorization", "Content-Type", "Mcp-Protocol-Version", "Mcp-Session-Id", "Last-Event-Id"]
+#: Streamable HTTP verbs: POST requests, the standalone GET stream, DELETE session end.
+MCP_ALLOWED_METHODS = ["GET", "POST", "DELETE"]
 
 
 def classify_era(
@@ -47,7 +51,13 @@ def build_app() -> Starlette:
     app = mcp.streamable_http_app(transport_security=NO_DNS_REBIND)
 
     # CORS for browser-based clients. DEMO ONLY — restrict allow_origins in production.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], expose_headers=MCP_EXPOSED_HEADERS)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=MCP_ALLOWED_METHODS,
+        allow_headers=MCP_ALLOWED_HEADERS,
+        expose_headers=MCP_EXPOSED_HEADERS,
+    )
     return app
 
 

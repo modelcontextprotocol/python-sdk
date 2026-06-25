@@ -7,8 +7,9 @@ from stories._harness import Target, run_client
 
 async def on_elicit(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
     if isinstance(params, types.ElicitRequestURLParams):
-        # A real client would open params.url in a browser, then wait for the matching
-        # notifications/elicitation/complete before resolving.
+        # A real client would ask consent and open params.url in a browser, returning
+        # `accept` right away; the server's notifications/elicitation/complete arrives
+        # afterward (once the out-of-band flow finishes) for the client to correlate.
         assert params.url.startswith("https://example.com/")
         return types.ElicitResult(action="accept")
     assert "username" in params.requested_schema["properties"]

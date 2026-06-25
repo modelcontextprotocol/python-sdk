@@ -19,9 +19,10 @@ uv run python -m stories.bearer_auth.server --port 8000 &
 # connect with the demo bearer token
 uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 
-# lowlevel-API variant of the same app
-uv run python -m stories.bearer_auth.server_lowlevel --port 8001 &
-uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8001/mcp
+# lowlevel server variant — same port, so stop the first server
+kill %1
+uv run python -m stories.bearer_auth.server_lowlevel --port 8000 &
+uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 ```
 
 `Client(url)` has no `auth=` passthrough, so a target built from a bare URL

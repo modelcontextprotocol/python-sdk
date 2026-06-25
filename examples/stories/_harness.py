@@ -92,6 +92,11 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     targets = target_from_args(file)
     build_auth: AuthBuilder | None = globals_.get("build_auth")
     transport = "http" if "--http" in sys.argv else "stdio"
+    if cfg["server_export"] == "app" and transport != "http":
+        raise SystemExit(
+            f"{name} exports an ASGI app (no stdio entry point); start its server, then run:\n"
+            f"  python -m stories.{name}.client --http http://127.0.0.1:8000{cfg['mcp_path']}"
+        )
     # The era is an axis of the story matrix, so ``mode=`` is always passed explicitly
     # even though it often matches the ``Client`` default of "auto". stdio is legacy-only
     # until the SDK's stdio entry can negotiate the era, so only --http gets a modern arm.

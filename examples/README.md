@@ -13,6 +13,10 @@
   Exercises every server capability in one process.
 - [`mcpserver/`](mcpserver/) — single-file v1-era examples retained for the
   migration guide; superseded by `stories/` and slated for removal.
+- [`clients/`](clients/) and the remaining [`servers/`](servers/) directories
+  (`simple-*`, `sse-polling-demo`, `structured-output-lowlevel`) — standalone
+  v1-era projects still linked from `README.v2.md`; retained pending
+  consolidation into `stories/`.
 
 For real-world servers see the
 [servers repository](https://github.com/modelcontextprotocol/servers).

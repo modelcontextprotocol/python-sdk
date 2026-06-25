@@ -13,7 +13,8 @@ discovery → token POST → Bearer attachment automatically.
 uv run python -m stories.oauth_client_credentials.server --port 8000 &
 uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
 
-# lowlevel-API variant of the same app
+# lowlevel server variant — same port, so stop the first server
+kill %1
 uv run python -m stories.oauth_client_credentials.server_lowlevel --port 8000 &
 uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
 ```

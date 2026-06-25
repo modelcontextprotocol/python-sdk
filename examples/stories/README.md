@@ -120,7 +120,7 @@ opens with a banner saying what replaces it.
 | [`error_handling`](error_handling/) | `is_error` results vs `MCPError`; `ToolError` | current |
 | [`serve_one`](serve_one/) | building a `Connection` by hand and calling `serve_one` directly | current |
 | **— HTTP hosting —** | | |
-| [`stateless_legacy`](stateless_legacy/) | `streamable_http_app()` default posture; the one-liner deploy | current |
+| [`stateless_legacy`](stateless_legacy/) | `streamable_http_app(stateless_http=True)`; the one-liner deploy | current |
 | [`json_response`](json_response/) | `json_response=True` mode; raw 2026 POST envelope on the wire | current |
 | [`legacy_routing`](legacy_routing/) | `classify_inbound_request()` era routing in front of a sessionful 1.x deploy | current |
 | [`starlette_mount`](starlette_mount/) | mounting `streamable_http_app()` under a Starlette/FastAPI sub-path | current |

@@ -42,6 +42,9 @@ uv run python -m stories.middleware.client --http http://127.0.0.1:8000/mcp
   `mcp.server.context` (helper tier); not re-exported at `mcp.server.lowlevel`.
 - Do **not** `await ctx.session.send_request(...)` while wrapping `initialize`
   — `initialize` is dispatched inline and the outbound channel isn't open yet.
+- To rewrite `ctx.method` / `ctx.params` before the handler runs, pass an
+  adjusted context through: `await call_next(dataclasses.replace(ctx, ...))`.
+  `docs/migration.md` shows the full recipe.
 
 ## Spec
 
@@ -49,6 +52,6 @@ Middleware is SDK architecture, not an MCP spec feature.
 
 ## See also
 
-`custom_methods/` (rewrite `ctx.method` / `ctx.params` via
-`dataclasses.replace(ctx, ...)` before `call_next`),
+`custom_methods/` (a vendor `acme/search` handler registered with
+`add_request_handler` — middleware wraps it like any spec method),
 `src/mcp/server/_otel.py` (`OpenTelemetryMiddleware`, the SDK's own consumer).

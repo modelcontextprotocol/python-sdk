@@ -17,9 +17,10 @@ uv run python -m stories.stateless_legacy.server --port 8000 &
 # connect once as a modern client and once as a legacy client
 uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8000/mcp
 
-# lowlevel-API variant of the same app
-uv run python -m stories.stateless_legacy.server_lowlevel --port 8001 &
-uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8001/mcp
+# lowlevel server variant — same port, so stop the first server
+kill %1
+uv run python -m stories.stateless_legacy.server_lowlevel --port 8000 &
+uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8000/mcp
 ```
 
 ## What to look at
@@ -52,6 +53,6 @@ uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8001/mc
 ## See also
 
 `dual_era/` (era branching inside a tool handler) · `legacy_routing/`
-(`is_legacy_request()` for sessionful-2025 + modern on one mount) ·
+(`classify_inbound_request()` for sessionful-2025 + modern on one mount) ·
 `starlette_mount/` (mounting under FastAPI/Starlette with parent lifespan) ·
 `json_response/` (`json_response=True` and what it drops).
