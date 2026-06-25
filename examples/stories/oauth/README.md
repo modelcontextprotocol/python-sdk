@@ -14,14 +14,19 @@ bearer retry — all inside the first awaited request, with no user-visible
 ## Run it
 
 ```bash
-# terminal 1 — co-hosted AS + bearer-gated /mcp on :8000
-OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.server --port 8000
+# HTTP — the client self-hosts the co-hosted AS + bearer-gated /mcp, runs the
+# authorization-code flow (headless: redirect followed in-process), then tears
+# it down. Self-hosting uses this story's fixed :8000 (the AS metadata pins
+# it), so :8000 must be free.
+OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.client --http
+# same, against the lowlevel-API server variant
+OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.client --http --server server_lowlevel
 
-# terminal 2 — authorization-code flow (headless: redirect followed in-process)
+# against a server you run yourself (real uvicorn on :8000)
+OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.server --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.oauth.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel-API variant of the same app
-OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.server_lowlevel --port 8000
+kill "$SERVER_PID"
 ```
 
 The port must be **8000**: the demo AS metadata (`_shared/auth.py` `BASE_URL`)
@@ -34,7 +39,7 @@ straight back with `?code=...`; without it the authorize step returns
 
 `Client(url)` has no `auth=` passthrough, so a target built from a bare URL
 can't carry the flow. Both runners close that gap the same way: `run_client`
-(terminal 2) and the pytest harness build an authed `httpx.AsyncClient` from
+(above) and the pytest harness build an authed `httpx.AsyncClient` from
 this module's `build_auth` export and hand `main` targets that are already
 routed through it.
 

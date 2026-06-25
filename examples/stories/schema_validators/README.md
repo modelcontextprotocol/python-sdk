@@ -11,9 +11,10 @@ client lists the tools, resolves each `who` schema, and round-trips a call.
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.schema_validators.client
 
-# against a running HTTP server
-uv run python -m stories.schema_validators.server --http --port 8000 &
-uv run python -m stories.schema_validators.client --http http://127.0.0.1:8000/mcp
+# HTTP — the client self-hosts the server on a free port, runs, then tears it down
+uv run python -m stories.schema_validators.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.schema_validators.client --http --server server_lowlevel
 ```
 
 ## What to look at

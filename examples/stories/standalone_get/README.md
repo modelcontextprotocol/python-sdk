@@ -15,10 +15,17 @@ awaits it on an `anyio.Event`, then re-lists to observe the change.
 ## Run it
 
 ```bash
-# server (HTTP-only — the standalone GET stream is a Streamable-HTTP feature)
+# HTTP only — the standalone GET stream is a Streamable-HTTP feature. The
+# client self-hosts the server on a free port, runs, then tears it down.
+uv run python -m stories.standalone_get.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.standalone_get.client --http --legacy --server server_lowlevel
+
+# against a server you run yourself
 uv run python -m stories.standalone_get.server --http --port 8000 &
-# client
+SERVER_PID=$!
 uv run python -m stories.standalone_get.client --http http://127.0.0.1:8000/mcp --legacy
+kill "$SERVER_PID"
 ```
 
 ## What to look at

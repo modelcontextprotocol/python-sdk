@@ -11,9 +11,10 @@ the injected `Context` — no module-level globals.
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.lifespan.client
 
-# against a running HTTP server
-uv run python -m stories.lifespan.server --http --port 8000 &
-uv run python -m stories.lifespan.client --http http://127.0.0.1:8000/mcp
+# HTTP — the client self-hosts the server on a free port, runs, then tears it down
+uv run python -m stories.lifespan.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.lifespan.client --http --server server_lowlevel
 ```
 
 ## What to look at

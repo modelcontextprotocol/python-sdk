@@ -64,10 +64,29 @@ From the repository root:
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.tools.client
 
-# against a running HTTP server
-uv run python -m stories.tools.server --http --port 8000 &
+# HTTP, self-hosted — the client spawns the server on a real uvicorn socket on a
+# port it owns, waits for it, runs, then terminates it. Nothing to background or kill.
+uv run python -m stories.tools.client --http
+
+# the same self-hosted run against the story's lowlevel-API server variant
+uv run python -m stories.tools.client --http --server server_lowlevel
+
+# HTTP against a server you run yourself
+uv run python -m stories.tools.server --http --port 8000    # separate terminal
 uv run python -m stories.tools.client --http http://127.0.0.1:8000/mcp
 ```
+
+`--http` takes two forms. Bare `--http` is the canonical HTTP run — it is
+complete on its own, and it is what every per-story README shows. `--http
+<url>` connects to a server you started yourself; the per-story READMEs spell
+that out only where hosting is the lesson (the HTTP-hosting and auth stories).
+`--server <stem>` swaps in a sibling server module on stdio and on the
+self-hosted `--http` run; with `--http <url>` you already picked the server
+when you started it. The auth stories (`bearer_auth/`, `oauth/`,
+`oauth_client_credentials/`) self-host on their fixed `:8000` instead of a
+free port because their issuer/PRM metadata bake it in — `:8000` must be
+free, and the run refuses to start (rather than silently testing whatever is
+there) if it is not.
 
 The full matrix (every story × transport × era × server-variant) runs under
 pytest:
@@ -84,8 +103,9 @@ and variants; `tests/examples/` expands it.
 
 `_hosting.py` adapts a story's `build_server()` / `build_app()` to argv (stdio
 vs `--http` serving); `_harness.py` is the client-side mirror — it picks the
-`target` that `main()` connects to (a stdio subprocess by default, a URL under
-`--http`). They isolate the parts of the SDK's hosting surface
+`target` that `main()` connects to (a stdio subprocess by default, a self-hosted
+HTTP subprocess under bare `--http`, your URL under `--http <url>`). They
+isolate the parts of the SDK's hosting surface
 that are still moving — **don't copy them into your own project**; copy the
 `server.py` / `client.py` bodies instead. `_shared/` holds an in-process OAuth
 authorization server reused by the auth stories.

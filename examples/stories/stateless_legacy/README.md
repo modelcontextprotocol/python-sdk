@@ -11,17 +11,17 @@ wiring, no era flag. The client connects once per era and asserts the same
 ## Run it
 
 ```bash
-# start the server (real uvicorn on :8000)
+# HTTP — the client self-hosts the app on a free port, connects once as a
+# modern client and once as a legacy client, then tears it down
+uv run python -m stories.stateless_legacy.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.stateless_legacy.client --http --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000)
 uv run python -m stories.stateless_legacy.server --port 8000 &
 SERVER_PID=$!
-
-# connect once as a modern client and once as a legacy client
 uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel server variant — same port, so stop the first server
 kill "$SERVER_PID"
-uv run python -m stories.stateless_legacy.server_lowlevel --port 8000 &
-uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8000/mcp
 ```
 
 ## What to look at

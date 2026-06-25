@@ -3,20 +3,20 @@
 The in-process matrix in ``test_stories.py`` never executes a story's
 ``if __name__ == "__main__"`` block, so ``run_client`` / ``run_server_from_args`` /
 ``run_app_from_args`` and the real stdio + uvicorn entries are unverified by
-construction. This file proves that plumbing once over real subprocesses for two
-stories (``tools`` over stdio, ``tools`` + ``bearer_auth`` over a real uvicorn
-socket).
+construction. This file proves that plumbing by running the literal commands the
+story READMEs print: stdio (``run_client`` spawns the server over stdio) and bare
+``--http`` (``run_client`` self-hosts the server on a real uvicorn socket on a
+port it owns, then terminates it).
 
 lax no cover: gated on ``MCP_EXAMPLES_SMOKE=1``, which CI sets on exactly one
 matrix cell (ubuntu / 3.12 / locked — see ``shared.yml``). Every other cell
-skips at collection, so the test bodies and the helpers they call are uncovered
-there and the per-job 100% gate would otherwise fail.
+skips at collection, so the test body is uncovered there and the per-job 100%
+gate would otherwise fail.
 """
 
 from __future__ import annotations
 
 import os
-import socket
 import sys
 from pathlib import Path
 
@@ -38,71 +38,20 @@ _PROXY_VARS = {v for base in ("all_proxy", "http_proxy", "https_proxy", "ftp_pro
 _ENV = {k: v for k, v in os.environ.items() if k not in _PROXY_VARS}
 
 
-def _free_port() -> int:  # pragma: lax no cover
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-async def _wait_listening(port: int) -> None:  # pragma: lax no cover
-    """Connect-retry until ``127.0.0.1:port`` accepts.
-
-    Deliberate exception to the no-``sleep`` rule: readiness lives in a uvicorn
-    *subprocess*, so there is no in-process ``anyio.Event`` to await — accepting a
-    TCP connect IS the readiness signal. Both callers bound this with
-    ``anyio.fail_after``, and the retry interval only paces the probe; it never
-    decides when the wait ends.
-    """
-    while True:
-        try:
-            stream = await anyio.connect_tcp("127.0.0.1", port)
-        except OSError:
-            await anyio.sleep(0.05)
-        else:
-            await stream.aclose()
-            return
-
-
-async def _run_module(*argv: str) -> int:  # pragma: lax no cover
-    async with await anyio.open_process(
-        [sys.executable, "-m", *argv], cwd=_REPO_ROOT, env=_ENV, stdout=None, stderr=None
-    ) as proc:
-        await proc.wait()
-        assert proc.returncode is not None
-        return proc.returncode
-
-
-async def test_tools_stdio_main_runs_end_to_end() -> None:  # pragma: lax no cover
-    """``python -m stories.tools.client`` spawns the sibling server over real stdio and exits 0."""
-    with anyio.fail_after(30):
-        assert await _run_module("stories.tools.client") == 0
-
-
 @pytest.mark.parametrize(
-    ("story", "server_argv"),
+    "argv",
     [
-        ("tools", ("stories.tools.server", "--http")),
-        ("bearer_auth", ("stories.bearer_auth.server",)),
+        ("stories.tools.client",),
+        ("stories.tools.client", "--http"),
+        ("stories.bearer_auth.client", "--http"),
     ],
-    ids=["tools", "bearer_auth"],
+    ids=["tools-stdio", "tools-http", "bearer_auth-http"],
 )
-async def test_http_main_runs_end_to_end(story: str, server_argv: tuple[str, ...]) -> None:  # pragma: lax no cover
-    """Spawn the story's server on a real uvicorn socket, drive its client at it, assert exit 0."""
-    port = _free_port()
-    with anyio.fail_after(30):
+async def test_story_main_runs_end_to_end(argv: tuple[str, ...]) -> None:  # pragma: lax no cover
+    """``python -m <story>.client [--http]`` (the README command) exits 0 over a real subprocess."""
+    with anyio.fail_after(60):
         async with await anyio.open_process(
-            [sys.executable, "-m", *server_argv, "--port", str(port)],
-            cwd=_REPO_ROOT,
-            env=_ENV,
-            stdout=None,
-            stderr=None,
-        ) as server:
-            try:
-                await _wait_listening(port)
-                assert await _run_module(f"stories.{story}.client", "--http", f"http://127.0.0.1:{port}/mcp") == 0
-            finally:
-                server.terminate()
-                with anyio.move_on_after(5):
-                    await server.wait()
-                if server.returncode is None:
-                    server.kill()
+            [sys.executable, "-m", *argv], cwd=_REPO_ROOT, env=_ENV, stdout=None, stderr=None
+        ) as proc:
+            await proc.wait()
+            assert proc.returncode == 0

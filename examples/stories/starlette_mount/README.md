@@ -10,9 +10,16 @@ parent must enter `mcp.session_manager.run()`).
 ## Run it
 
 ```bash
+# HTTP — the client self-hosts the mounted app on a free port at /api/, runs,
+# then tears it down
+uv run python -m stories.starlette_mount.client --http
+
+# against a server you run yourself (real uvicorn on :8000)
 uv run python -m stories.starlette_mount.server --port 8000 &
+SERVER_PID=$!
 curl http://127.0.0.1:8000/health        # → {"status":"ok"}
 uv run python -m stories.starlette_mount.client --http http://127.0.0.1:8000/api/
+kill "$SERVER_PID"
 ```
 
 ## What to look at

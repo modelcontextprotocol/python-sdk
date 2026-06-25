@@ -9,15 +9,18 @@ discovery → token POST → Bearer attachment automatically.
 ## Run it
 
 ```bash
-# start the server (real uvicorn on :8000 — auth is HTTP-only)
+# HTTP — the client self-hosts the server, runs the grant, then tears it down.
+# Self-hosting uses this story's fixed :8000 (the AS metadata pins it), so
+# :8000 must be free.
+uv run python -m stories.oauth_client_credentials.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.oauth_client_credentials.client --http --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000 — auth is HTTP-only)
 uv run python -m stories.oauth_client_credentials.server --port 8000 &
 SERVER_PID=$!
 uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel server variant — same port, so stop the first server
 kill "$SERVER_PID"
-uv run python -m stories.oauth_client_credentials.server_lowlevel --port 8000 &
-uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
 ```
 
 OAuth is an HTTP-layer concern; stdio servers receive credentials via the

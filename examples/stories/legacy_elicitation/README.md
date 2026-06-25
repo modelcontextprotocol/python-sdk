@@ -24,9 +24,11 @@ flow finishes).
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.legacy_elicitation.client
 
-# against a running HTTP server (--legacy: the push request needs the handshake era)
-uv run python -m stories.legacy_elicitation.server --http --port 8000 &
-uv run python -m stories.legacy_elicitation.client --http http://127.0.0.1:8000/mcp --legacy
+# HTTP — the client self-hosts the server on a free port, runs, then tears it
+# down (--legacy: the push request needs the handshake era)
+uv run python -m stories.legacy_elicitation.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.legacy_elicitation.client --http --legacy --server server_lowlevel
 ```
 
 ## What to look at

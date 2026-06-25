@@ -13,16 +13,18 @@ authorization server; see `../oauth/` for the full grant flow.
 ## Run it
 
 ```bash
-# start the bearer-gated server (real uvicorn on :8000)
+# HTTP — the client self-hosts the bearer-gated app, connects with the demo
+# bearer token, then tears it down. Self-hosting uses this story's fixed :8000
+# (the issuer/PRM metadata pin it), so :8000 must be free.
+uv run python -m stories.bearer_auth.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.bearer_auth.client --http --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000). The next section's
+# curl probes use it too and `kill` it when done. While it is up it owns :8000,
+# so the two self-host lines above refuse to run rather than test it by mistake.
 uv run python -m stories.bearer_auth.server --port 8000 &
 SERVER_PID=$!
-
-# connect with the demo bearer token
-uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel server variant — same port, so stop the first server
-kill "$SERVER_PID"
-uv run python -m stories.bearer_auth.server_lowlevel --port 8000 &
 uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 ```
 
@@ -42,6 +44,9 @@ curl -i -X POST http://127.0.0.1:8000/mcp \
 
 # the RFC 9728 protected-resource-metadata document
 curl -s http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp | jq
+
+# done with the server you started in "Run it"
+kill "$SERVER_PID"
 ```
 
 ## What to look at

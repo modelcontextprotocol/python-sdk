@@ -13,9 +13,10 @@ asserts structured output.
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.tools.client
 
-# against a running HTTP server
-uv run python -m stories.tools.server --http --port 8000 &
-uv run python -m stories.tools.client --http http://127.0.0.1:8000/mcp
+# HTTP — the client self-hosts the server on a free port, runs, then tears it down
+uv run python -m stories.tools.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.tools.client --http --server server_lowlevel
 ```
 
 ## What to look at

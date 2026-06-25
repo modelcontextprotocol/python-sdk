@@ -15,15 +15,17 @@ browser-based MCP clients need.
 ## Run it
 
 ```bash
-# HTTP only — the predicate is an HTTP-transport concern
+# HTTP only — the predicate is an HTTP-transport concern. The client
+# self-hosts the app on a free port, runs, then tears it down.
+uv run python -m stories.legacy_routing.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.legacy_routing.client --http --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000)
 uv run python -m stories.legacy_routing.server --port 8000 &
 SERVER_PID=$!
 uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel server variant — same port, so stop the first server
 kill "$SERVER_PID"
-uv run python -m stories.legacy_routing.server_lowlevel --port 8000 &
-uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 ```
 
 ## What to look at

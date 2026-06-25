@@ -10,14 +10,16 @@ demultiplexes by progress token, not by arrival order.
 ## Run it
 
 The tested legs run in-memory (`Client(server)`); the identical `main` body
-works unchanged against an HTTP URL — both clients just reach the same running
-server:
+works unchanged over HTTP — both clients just reach the same server. Under
+`--http` the client self-hosts that server on a free port, runs, then tears it
+down:
 
 ```bash
-uv run python -m stories.parallel_calls.server --http --port 8000 &
 # --legacy because handler-emitted progress is dropped on the modern
 # streamable-HTTP path today (see Caveats).
-uv run python -m stories.parallel_calls.client --http http://127.0.0.1:8000/mcp --legacy
+uv run python -m stories.parallel_calls.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.parallel_calls.client --http --legacy --server server_lowlevel
 ```
 
 There is no stdio run for this story: the stdio default spawns a fresh server

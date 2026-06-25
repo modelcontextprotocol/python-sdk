@@ -18,10 +18,16 @@ resolves as if the disconnect never happened.
 ## Run it
 
 ```bash
-# in one terminal
-uv run python -m stories.sse_polling.server --port 8000
-# in another
+# HTTP — the client self-hosts the app on a free port, runs, then tears it down
+uv run python -m stories.sse_polling.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.sse_polling.client --http --legacy --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000)
+uv run python -m stories.sse_polling.server --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.sse_polling.client --http http://127.0.0.1:8000/mcp --legacy
+kill "$SERVER_PID"
 ```
 
 ## What to look at

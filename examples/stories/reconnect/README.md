@@ -9,15 +9,11 @@ traffic and has `server_info` / `server_capabilities` available immediately.
 ## Run it
 
 ```bash
-# over HTTP — Streamable HTTP only; in-memory has no "round-trip" to skip
-uv run python -m stories.reconnect.server --http --port 8000 &
-SERVER_PID=$!
-uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
-
-# lowlevel server variant — same port, so stop the first server
-kill "$SERVER_PID"
-uv run python -m stories.reconnect.server_lowlevel --http --port 8000 &
-uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
+# over HTTP — Streamable HTTP only; in-memory has no "round-trip" to skip.
+# The client self-hosts the server on a free port, runs, then tears it down.
+uv run python -m stories.reconnect.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.reconnect.client --http --server server_lowlevel
 ```
 
 ## What to look at

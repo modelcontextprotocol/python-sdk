@@ -16,9 +16,10 @@ client advertise the `roots` capability — there is no separate flag.
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.roots.client
 
-# against a running HTTP server
-uv run python -m stories.roots.server --http --port 8000 &
-uv run python -m stories.roots.client --http http://127.0.0.1:8000/mcp --legacy
+# HTTP — the client self-hosts the server on a free port, runs, then tears it down
+uv run python -m stories.roots.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.roots.client --http --legacy --server server_lowlevel
 ```
 
 ## What to look at

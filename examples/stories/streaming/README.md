@@ -16,9 +16,11 @@ inside the progress callback (event-driven, no `sleep`).
 uv run python -m stories.streaming.client
 uv run python -m stories.streaming.client --server server_lowlevel
 
-# against a running HTTP server (--legacy: see the note below)
-uv run python -m stories.streaming.server --http --port 8000 &
-uv run python -m stories.streaming.client --http http://127.0.0.1:8000/mcp --legacy
+# HTTP — the client self-hosts the server on a free port, runs, then tears it
+# down (--legacy: see the note below)
+uv run python -m stories.streaming.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.streaming.client --http --legacy --server server_lowlevel
 ```
 
 The modern HTTP leg (drop `--legacy`) is `xfail` until the SSE wiring lands —

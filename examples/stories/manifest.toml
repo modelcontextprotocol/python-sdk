@@ -12,6 +12,7 @@ multi_connection = false                        # main(target, ...) vs main(targ
 needs_http       = false                        # main(..., http=) gets the raw httpx.AsyncClient (http-asgi only)
 timeout_s        = 30
 mcp_path         = "/mcp"
+fixed_port       = 0                            # `client --http` self-host port; 0 = an OS-assigned free port
 xfail            = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
 env              = {}                           # env vars set for the leg via monkeypatch
 
@@ -119,16 +120,19 @@ multi_connection = true
 [story.bearer_auth]
 transports    = ["http-asgi"]
 server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
 
 [story.oauth]
 transports       = ["http-asgi"]
 server_export    = "app"
 multi_connection = true
+fixed_port       = 8000                         # issuer/PRM metadata bake in :8000
 env              = { OAUTH_DEMO_AUTO_CONSENT = "1" }
 
 [story.oauth_client_credentials]
 transports    = ["http-asgi"]
 server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
 
 # ───────────────────────────── deferred ─────────────────────────────
 # README-only placeholders; no client.py, not expanded into legs.

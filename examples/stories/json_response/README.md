@@ -9,10 +9,15 @@ same endpoint behave the same way.
 ## Run it
 
 ```bash
-# start the server (real uvicorn)
-uv run python -m stories.json_response.server --port 8000 &
+# HTTP — the client self-hosts the app on a free port, runs the high-level
+# Client + raw-envelope probe, then tears it down
+uv run python -m stories.json_response.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.json_response.client --http --server server_lowlevel
 
-# high-level Client + raw-envelope probe against it
+# against a server you run yourself (real uvicorn on :8000)
+uv run python -m stories.json_response.server --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.json_response.client --http http://127.0.0.1:8000/mcp
 
 # or POST the raw envelope yourself
@@ -22,6 +27,7 @@ curl -s http://127.0.0.1:8000/mcp \
   -H 'mcp-protocol-version: 2026-07-28' \
   -H 'mcp-method: tools/list' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"curl","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+kill "$SERVER_PID"
 ```
 
 ## What to look at

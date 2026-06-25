@@ -11,13 +11,12 @@ check (an empty string is a valid cursor under the spec).
 # stdio (default — the client spawns the server as a subprocess)
 uv run python -m stories.pagination.client --server server_lowlevel
 
-# against a running HTTP server
-uv run python -m stories.pagination.server_lowlevel --http --port 8000 &
-uv run python -m stories.pagination.client --http http://127.0.0.1:8000/mcp
+# HTTP — the client self-hosts the server on a free port, runs, then tears it down
+uv run python -m stories.pagination.client --http --server server_lowlevel
 ```
 
-Swap `server_lowlevel` → `server` to run against the `MCPServer` variant
-(single page).
+Drop `--server server_lowlevel` (on either transport) to run against the
+`MCPServer` variant (single page).
 
 ## What to look at
 
