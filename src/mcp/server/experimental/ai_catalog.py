@@ -14,6 +14,8 @@ To write a catalog to a file instead, use
 
 from __future__ import annotations
 
+import hashlib
+
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -40,6 +42,37 @@ DISCOVERY_HEADERS = {
     "Access-Control-Allow-Headers": "Content-Type",
     "Cache-Control": "public, max-age=3600",
 }
+
+
+def _strong_etag(body: bytes) -> str:
+    return f'"{hashlib.sha256(body).hexdigest()}"'
+
+
+def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+    if if_none_match is None:
+        return False
+    for candidate in if_none_match.split(","):
+        candidate = candidate.strip()
+        if candidate == "*":
+            return True
+        if candidate.startswith(("W/", "w/")):
+            candidate = candidate[2:].strip()
+        if candidate == etag:
+            return True
+    return False
+
+
+def discovery_response(request: Request, body: bytes, media_type: str) -> Response:
+    etag = _strong_etag(body)
+    if _if_none_match_matches(request.headers.get("if-none-match"), etag):
+        return Response(
+            status_code=304,
+            headers={
+                "ETag": etag,
+                "Cache-Control": DISCOVERY_HEADERS["Cache-Control"],
+            },
+        )
+    return Response(body, media_type=media_type, headers={**DISCOVERY_HEADERS, "ETag": etag})
 
 
 def _air_identifier(card_name: str) -> str:
@@ -82,8 +115,8 @@ def ai_catalog_route(catalog: AICatalog, *, path: str = AI_CATALOG_WELL_KNOWN_PA
     """
     body = catalog.model_dump_json(by_alias=True, exclude_none=True).encode()
 
-    async def endpoint(_request: Request) -> Response:
-        return Response(body, media_type=AI_CATALOG_MEDIA_TYPE, headers=DISCOVERY_HEADERS)
+    async def endpoint(request: Request) -> Response:
+        return discovery_response(request, body, AI_CATALOG_MEDIA_TYPE)
 
     return Route(path, endpoint=endpoint, methods=["GET"], name="ai_catalog")
 
