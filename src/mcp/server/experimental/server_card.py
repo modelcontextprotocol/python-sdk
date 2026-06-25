@@ -28,7 +28,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from mcp.server.experimental.ai_catalog import DISCOVERY_HEADERS
+from mcp.server.experimental.ai_catalog import discovery_response
 from mcp.shared.experimental.ai_catalog.types import MCP_SERVER_CARD_MEDIA_TYPE
 from mcp.shared.experimental.server_card.types import (
     Icon,
@@ -112,8 +112,8 @@ def server_card_route(card: ServerCard, *, path: str = "/server-card") -> Route:
     """
     body = card.model_dump_json(by_alias=True, exclude_none=True).encode()
 
-    async def endpoint(_request: Request) -> Response:
-        return Response(body, media_type=MCP_SERVER_CARD_MEDIA_TYPE, headers=DISCOVERY_HEADERS)
+    async def endpoint(request: Request) -> Response:
+        return discovery_response(request, body, MCP_SERVER_CARD_MEDIA_TYPE)
 
     return Route(path, endpoint=endpoint, methods=["GET"], name="mcp_server_card")
 

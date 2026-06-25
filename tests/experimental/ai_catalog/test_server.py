@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 from starlette.applications import Starlette
@@ -39,10 +41,16 @@ def test_server_card_entry_falls_back_to_card_name_without_title() -> None:
     assert server_card_entry(make_card(), CARD_URL).display_name == "example/dice"
 
 
-async def _get(app: Starlette, path: str) -> httpx.Response:
+async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
-        return await client.get(path)
+        return await client.get(path, headers=headers)
+
+
+async def _head(app: Starlette, path: str) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+        return await client.head(path)
 
 
 async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
@@ -56,7 +64,31 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     assert response.headers["access-control-allow-methods"] == "GET"
     assert response.headers["access-control-allow-headers"] == "Content-Type"
     assert response.headers["cache-control"] == "public, max-age=3600"
+    etag = response.headers["etag"]
+    assert re.fullmatch(r'"[0-9a-f]{64}"', etag)
+    assert (await _get(app, "/.well-known/ai-catalog.json")).headers["etag"] == etag
+    assert (await _head(app, "/.well-known/ai-catalog.json")).headers["etag"] == etag
     assert response.text == catalog.model_dump_json(by_alias=True, exclude_none=True)
+
+    not_modified = await _get(app, "/.well-known/ai-catalog.json", headers={"If-None-Match": etag})
+    assert not_modified.status_code == 304
+    assert not_modified.headers["etag"] == etag
+    assert not_modified.headers["cache-control"] == "public, max-age=3600"
+    assert not_modified.content == b""
+
+    weak_match = await _get(app, "/.well-known/ai-catalog.json", headers={"If-None-Match": f'"not-it", W/{etag}'})
+    assert weak_match.status_code == 304
+    assert weak_match.content == b""
+
+    wildcard = await _get(app, "/.well-known/ai-catalog.json", headers={"If-None-Match": "*"})
+    assert wildcard.status_code == 304
+    assert wildcard.headers["etag"] == etag
+    assert wildcard.content == b""
+
+    non_matching = await _get(app, "/.well-known/ai-catalog.json", headers={"If-None-Match": '"not-it"'})
+    assert non_matching.status_code == 200
+    assert non_matching.headers["etag"] == etag
+    assert non_matching.text == catalog.model_dump_json(by_alias=True, exclude_none=True)
 
 
 async def test_mount_ai_catalog_on_existing_app() -> None:
