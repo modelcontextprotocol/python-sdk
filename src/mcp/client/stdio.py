@@ -10,6 +10,7 @@ process nor hang on one.
 
 import logging
 import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -181,6 +182,21 @@ async def stdio_client(
         finally:
             writer_done.set()
 
+    async def stderr_reader() -> None:
+        stderr = getattr(process, "stderr", None)
+        if stderr is None:
+            return
+
+        try:
+            async for chunk in TextReceiveStream(
+                stderr, encoding=server.encoding, errors=server.encoding_error_handler
+            ):
+                errlog.write(chunk)
+                errlog.flush()
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionError, OSError):
+            if not shutting_down:  # pragma: no branch
+                logger.exception("Reading from the MCP server's stderr failed mid-session")
+
     async def shutdown() -> None:
         """Winds the transport down: stop traffic, flush, stop the server, release the streams."""
         # Unblock the reader into its drain: a server stuck writing stdout cannot
@@ -200,6 +216,7 @@ async def stdio_client(
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -264,6 +281,9 @@ async def _stop_server_process(process: ServerProcess) -> None:
     close_process_job(process)
     # A kill survivor can hold the stdout pipe open; poison the reader anyway.
     await _close_pipe(process.stdout)
+    stderr = getattr(process, "stderr", None)
+    if stderr is not None:
+        await _close_pipe(stderr)
     _close_subprocess_transport(process)
 
 
@@ -342,7 +362,7 @@ async def _create_platform_compatible_process(
         return await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
             start_new_session=True,
         )

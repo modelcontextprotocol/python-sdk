@@ -9,6 +9,7 @@ client<->server round trip is pinned by tests/interaction/transports/test_stdio.
 
 import errno
 import gc
+import io
 import logging
 import math
 import os
@@ -25,7 +26,7 @@ import anyio.lowlevel
 import pytest
 import trio
 import trio.testing
-from anyio.streams.memory import MemoryObjectReceiveStream
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp.client import stdio
 from mcp.client._transport import ReadStream
@@ -136,7 +137,9 @@ class FakeProcess:
         stdin_send_gate: anyio.Event | None = None,
         stdout_eof_error: Exception | None = None,
         stdout_aclose_error: Exception | None = None,
+        stderr_eof_error: Exception | None = None,
         on_stdout_receive: Callable[[], None] | None = None,
+        with_stderr: bool = False,
     ) -> None:
         self._stdout_send, stdout_receive = anyio.create_memory_object_stream[bytes](math.inf)
         self.stdout = _FakeStdout(
@@ -145,6 +148,16 @@ class FakeProcess:
             aclose_error=stdout_aclose_error,
             on_receive=self._dispatch_stdout_receive,
         )
+        self._stderr_send: MemoryObjectSendStream[bytes] | None = None
+        self.stderr: _FakeStdout | None = None
+        if with_stderr:
+            self._stderr_send, stderr_receive = anyio.create_memory_object_stream[bytes](math.inf)
+            self.stderr = _FakeStdout(
+                stderr_receive,
+                eof_error=stderr_eof_error,
+                aclose_error=None,
+                on_receive=lambda: None,
+            )
         self.pid = 424242
         self.written: list[bytes] = []
         self.stdin_closed = anyio.Event()
@@ -170,10 +183,21 @@ class FakeProcess:
         """End the fake process's stdout, as the kernel does when it dies."""
         self._stdout_send.close()
 
+    async def feed_stderr(self, data: bytes) -> None:
+        """Make `data` readable on the fake process's stderr."""
+        assert self._stderr_send is not None
+        await self._stderr_send.send(data)
+
+    def close_stderr(self) -> None:
+        """End the fake process's stderr, as the kernel does when it dies."""
+        if self._stderr_send is not None:
+            self._stderr_send.close()
+
     def exit(self, code: int = 0) -> None:
         """Die: set the exit code and EOF stdout, as the kernel does."""
         self.returncode = code
         self.close_stdout()
+        self.close_stderr()
 
     def pending_stdout_chunks(self) -> int:
         """How many fed chunks the client has not yet pulled off the fake stdout."""
@@ -223,6 +247,42 @@ async def _next_message(read_stream: ReadStream[SessionMessage | Exception]) -> 
     received = await read_stream.receive()
     assert isinstance(received, SessionMessage)
     return received.message
+
+
+@pytest.mark.anyio
+async def test_server_stderr_is_forwarded_to_errlog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Server stderr is piped and forwarded, so notebook-like errlogs still see it."""
+    process = FakeProcess(with_stderr=True)
+    install_fake_process(monkeypatch, process)
+    errlog = io.StringIO()
+
+    async with stdio_client(FAKE_PARAMS, errlog=errlog):
+        await process.feed_stderr(b"starting server\n")
+        with anyio.fail_after(1):
+            while errlog.getvalue() != "starting server\n":
+                await anyio.sleep(0)
+        process.exit()
+
+
+@pytest.mark.anyio
+async def test_mid_session_stderr_failure_is_logged(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A broken stderr pipe is logged, but does not escape the client context."""
+    process = FakeProcess(
+        on_stdin_close=lambda: process.exit(0),
+        stderr_eof_error=ConnectionError("stderr pipe failed"),
+        with_stderr=True,
+    )
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS):
+            process.close_stderr()
+            with anyio.fail_after(1):  # pragma: no branch
+                while "stderr failed mid-session" not in caplog.text:
+                    await anyio.sleep(0)
 
 
 @pytest.mark.anyio
