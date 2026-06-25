@@ -45,7 +45,8 @@ STORIES: dict[str, dict[str, Any]] = MANIFEST["story"]
 _ERA_TO_MODE = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}
 """``Client`` rejects handshake-era version strings, so ``legacy`` resolves to
 ``mode='legacy'`` rather than ``LATEST_HANDSHAKE_VERSION``. ``in-body`` legs pin
-their connection modes inside ``main`` themselves, so they get the real-user default."""
+their connection modes inside ``main`` themselves, so they get ``"auto"`` — the
+``Client`` default; the era axis still passes every ``mode=`` explicitly."""
 
 
 def story_cfg(name: str) -> dict[str, Any]:

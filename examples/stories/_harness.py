@@ -92,12 +92,13 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     targets = target_from_args(file)
     build_auth: AuthBuilder | None = globals_.get("build_auth")
     transport = "http" if "--http" in sys.argv else "stdio"
-    # Never rely on the SDK's mode= default — be explicit. stdio is legacy-only until
-    # the SDK's stdio entry can negotiate the era, so only --http gets a modern arm.
+    # The era is an axis of the story matrix, so ``mode=`` is always passed explicitly
+    # even though it often matches the ``Client`` default of "auto". stdio is legacy-only
+    # until the SDK's stdio entry can negotiate the era, so only --http gets a modern arm.
     era = "modern" if transport == "http" and "--legacy" not in sys.argv else "legacy"
     if cfg["era"] == "dual-in-body":
-        # The story pins its connection modes inside ``main`` itself, so hand it the
-        # real-user "auto" default and let those in-body pins decide. A hard version pin
+        # The story pins its connection modes inside ``main`` itself, so hand it "auto"
+        # (the ``Client`` default) and let those in-body pins decide. A hard version pin
         # here would skip the discover probe and leave ``server_info`` blank.
         era = "in-body"
     mode = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}[era]

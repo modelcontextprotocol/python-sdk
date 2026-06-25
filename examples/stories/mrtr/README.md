@@ -7,11 +7,11 @@ the server resumes from the carried state. The story will show both the
 auto-fulfil helper and a manual resubmit loop.
 
 **Status: not yet implemented** ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)).
-The lowlevel registration surface exists on `main` as of
+The lowlevel registration surface is in this base —
 [#2967](https://github.com/modelcontextprotocol/python-sdk/pull/2967)
-(`ae13ede`), which widened the tool/prompt/resource handler return types to
-include `InputRequiredResult`. This story graduates from a README stub to a
-runnable example once this branch's base includes that commit.
+(`ae13ede`) widened the tool/prompt/resource handler return types to include
+`InputRequiredResult`. The runnable story is deliberately a follow-up PR to
+keep this one reviewable.
 
 ## Spec
 
