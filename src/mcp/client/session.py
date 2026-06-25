@@ -52,8 +52,10 @@ logger = logging.getLogger("client")
 
 
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
-    # Only initialize/discover go out before connect; both forbid cancellation.
-    opts["cancel_on_abandon"] = False
+    # initialize/discover forbid cancellation; other pre-handshake requests (lowlevel
+    # ClientSession callers may skip the handshake entirely) keep the courtesy cancel.
+    if data["method"] in ("initialize", "server/discover"):
+        opts["cancel_on_abandon"] = False
 
 
 def _make_handshake_stamp(protocol_version: str) -> Callable[[dict[str, Any], CallOptions], None]:
@@ -402,25 +404,28 @@ class ClientSession:
         the connect-time auto-negotiation policy.
 
         Raises:
-            MCPError: The server returned a JSON-RPC error.
-            ProbeNotRecognized: The transport bounced the request at its own
-                layer (HTTP 4xx without a JSON-RPC error body).
+            MCPError: The server returned a JSON-RPC error, or the transport
+                bounced the request at its own layer (a bare HTTP 4xx is
+                synthesized into a JSON-RPC error by the transport).
         """
         client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
         capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
-        params = {
-            "_meta": {
-                PROTOCOL_VERSION_META_KEY: version,
-                CLIENT_INFO_META_KEY: client_info,
-                CLIENT_CAPABILITIES_META_KEY: capabilities,
-            }
-        }
+        request = types.DiscoverRequest(
+            params=types.RequestParams(
+                _meta={
+                    PROTOCOL_VERSION_META_KEY: version,
+                    CLIENT_INFO_META_KEY: client_info,
+                    CLIENT_CAPABILITIES_META_KEY: capabilities,
+                }
+            )
+        )
+        data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {
             "timeout": DISCOVER_TIMEOUT_SECONDS,
             "cancel_on_abandon": False,
             "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
         }
-        return await self._dispatcher.send_raw_request("server/discover", params, opts)
+        return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
 
     async def discover(self) -> types.DiscoverResult:
         """Probe `server/discover` and adopt the result.

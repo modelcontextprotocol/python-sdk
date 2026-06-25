@@ -163,6 +163,8 @@ Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `au
 
 The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are now supplied per-message by the session. If you were reading `transport.protocol_version` to learn the negotiated version, read `session.protocol_version` (or `client.protocol_version` on the high-level `Client`) instead.
 
+The `MCP_PROTOCOL_VERSION` header-name constant has moved: import `MCP_PROTOCOL_VERSION_HEADER` from `mcp.shared.inbound` instead of `MCP_PROTOCOL_VERSION` from `mcp.client.streamable_http`.
+
 ### `terminate_windows_process` removed
 
 The deprecated `mcp.os.win32.utilities.terminate_windows_process` function has been
