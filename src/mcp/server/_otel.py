@@ -59,8 +59,9 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
                 span.set_status(StatusCode.ERROR, str(e))
                 raise
             if ctx.method == "tools/call":
+                # Only shapes that survive wire serialization (alias-only) are real tool errors.
                 match result:
-                    case CallToolResult(is_error=True) | {"isError": True} | {"is_error": True}:
+                    case CallToolResult(is_error=True) | {"isError": True}:
                         span.set_attribute("error.type", "tool_error")
                         span.set_status(StatusCode.ERROR)
                     case _:
