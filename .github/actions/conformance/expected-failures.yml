@@ -12,20 +12,12 @@
 
 client:
   # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-  # SEP-2575 (request metadata / _meta envelope): client does not populate the
-  # _meta envelope or the MCP-Protocol-Version header semantics yet.
-  - request-metadata
   # SEP-2322 (multi-round-trip requests): client does not echo requestState /
   # handle IncompleteResult yet.
   - sep-2322-client-request-state
-  # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+  # SEP-2243 (HTTP standardization): no fixture handler / client Mcp-Param-* support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
-  # AS credentials, but this 2026-introduced scenario runs at 2026-07-28, where client.py's 2025
-  # stateful lifecycle is rejected (400 on initialize) before the migration 401 fires, so the
-  # re-register check is never reached. Unblocks with the 2026 stateless client lifecycle.
-  - auth/authorization-server-migration
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /

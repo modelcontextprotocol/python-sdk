@@ -121,7 +121,7 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
             stop_reason="endTurn",
         )
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with Client(server, sampling_callback=sampling_callback, mode="legacy") as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:  # pragma: no branch
 

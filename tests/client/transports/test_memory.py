@@ -75,13 +75,13 @@ async def test_with_mcpserver(mcpserver_server: MCPServer):
 
 async def test_server_is_running(mcpserver_server: MCPServer):
     """Test that the server is running and responding to requests."""
-    async with Client(mcpserver_server) as client:
-        assert client.initialize_result.capabilities.tools is not None
+    async with Client(mcpserver_server, mode="legacy") as client:
+        assert client.server_capabilities.tools is not None
 
 
 async def test_list_tools(mcpserver_server: MCPServer):
     """Test listing tools through the transport."""
-    async with Client(mcpserver_server) as client:
+    async with Client(mcpserver_server, mode="legacy") as client:
         tools_result = await client.list_tools()
         assert len(tools_result.tools) > 0
         tool_names = [t.name for t in tools_result.tools]
@@ -90,7 +90,7 @@ async def test_list_tools(mcpserver_server: MCPServer):
 
 async def test_call_tool(mcpserver_server: MCPServer):
     """Test calling a tool through the transport."""
-    async with Client(mcpserver_server) as client:
+    async with Client(mcpserver_server, mode="legacy") as client:
         result = await client.call_tool("greet", {"name": "World"})
         assert result is not None
         assert len(result.content) > 0

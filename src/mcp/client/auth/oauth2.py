@@ -40,7 +40,6 @@ from mcp.client.auth.utils import (
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
-from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -54,6 +53,7 @@ from mcp.shared.auth_utils import (
     check_resource_allowed,
     resource_url_from_server_url,
 )
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.version import is_version_at_least
 
 logger = logging.getLogger(__name__)
@@ -534,7 +534,7 @@ class OAuthClientProvider(httpx.Auth):
                 await self._initialize()
 
             # Capture protocol version from request headers
-            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token

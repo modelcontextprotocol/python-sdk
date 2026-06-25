@@ -4,8 +4,8 @@ import pytest
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.shared.message import SessionMessage
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -59,7 +59,7 @@ async def test_request_id_match() -> None:
             id="init-1",
             method="initialize",
             params=InitializeRequestParams(
-                protocol_version=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_HANDSHAKE_VERSION,
                 capabilities=ClientCapabilities(),
                 client_info=Implementation(name="test-client", version="1.0.0"),
             ).model_dump(by_alias=True, exclude_none=True),

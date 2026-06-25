@@ -333,7 +333,7 @@ async def test_e2e_streamable_http_server_cleanup():
         mcp_app.router.lifespan_context(mcp_app),
         httpx.ASGITransport(mcp_app) as transport,
         httpx.AsyncClient(transport=transport) as http_client,
-        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client), mode="legacy") as client,
     ):
         await client.list_tools()
 

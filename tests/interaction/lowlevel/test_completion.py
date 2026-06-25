@@ -123,7 +123,7 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
     server = Server("incomplete")
 
     async with connect(server) as client:
-        assert client.initialize_result.capabilities.completions is None
+        assert client.server_capabilities.completions is None
 
         with pytest.raises(MCPError) as exc_info:
             await client.complete(PromptReference(name="anything"), argument={"name": "topic", "value": ""})

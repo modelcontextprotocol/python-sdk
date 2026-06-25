@@ -60,7 +60,7 @@ async def test_initialize_returns_server_info(connect: Connect) -> None:
     )
 
     async with connect(server) as client:
-        server_info = client.initialize_result.server_info
+        server_info = client.server_info
 
     assert server_info == snapshot(
         Implementation(
@@ -78,10 +78,10 @@ async def test_initialize_returns_server_info(connect: Connect) -> None:
 async def test_initialize_returns_instructions(connect: Connect) -> None:
     """Instructions are returned when the server declares them and omitted when it does not."""
     async with connect(Server("guided", instructions="Call the add tool.")) as client:
-        assert client.initialize_result.instructions == snapshot("Call the add tool.")
+        assert client.instructions == snapshot("Call the add tool.")
 
     async with connect(Server("unguided")) as client:
-        assert client.initialize_result.instructions is None
+        assert client.instructions is None
 
 
 @requirement("lifecycle:initialize:capabilities:from-handlers")
@@ -137,7 +137,7 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
     )
 
     async with connect(server) as client:
-        capabilities = client.initialize_result.capabilities
+        capabilities = client.server_capabilities
 
     assert capabilities == snapshot(
         ServerCapabilities(
@@ -155,7 +155,7 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
 async def test_initialize_minimal_server_advertises_no_capabilities(connect: Connect) -> None:
     """A server with no feature handlers advertises no feature capabilities."""
     async with connect(Server("bare")) as client:
-        capabilities = client.initialize_result.capabilities
+        capabilities = client.server_capabilities
 
     assert capabilities == snapshot(ServerCapabilities(experimental={}))
 

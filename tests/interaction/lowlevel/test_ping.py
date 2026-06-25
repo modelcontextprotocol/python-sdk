@@ -19,7 +19,7 @@ async def test_client_ping_returns_empty_result(connect: Connect) -> None:
     server = Server("silent")
 
     async with connect(server) as client:
-        result = await client.send_ping()
+        result = await client.send_ping()  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 

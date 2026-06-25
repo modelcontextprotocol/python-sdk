@@ -65,11 +65,11 @@ async def test_request_ids_are_unique_and_never_null() -> None:
     """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
-    async with Client(recording) as client:
+    async with Client(recording, mode="legacy") as client:
         await client.list_tools()
         await client.call_tool("echo", {})
         await client.call_tool("echo", {})
-        await client.send_ping()
+        await client.send_ping()  # pyright: ignore[reportDeprecated]
 
     sent = [message.message for message in recording.sent]
     request_ids = [message.id for message in sent if isinstance(message, JSONRPCRequest)]
@@ -95,9 +95,9 @@ async def test_notifications_are_never_answered() -> None:
 
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
-    async with Client(recording, list_roots_callback=list_roots) as client:
+    async with Client(recording, mode="legacy", list_roots_callback=list_roots) as client:
         await client.send_roots_list_changed()  # pyright: ignore[reportDeprecated]
-        await client.send_ping()
+        await client.send_ping()  # pyright: ignore[reportDeprecated]
 
     sent = [message.message for message in recording.sent]
     sent_request_ids = [message.id for message in sent if isinstance(message, JSONRPCRequest)]
@@ -134,7 +134,7 @@ async def test_exactly_one_initialized_notification_is_sent_after_the_handshake(
     """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
-    async with Client(recording) as client:
+    async with Client(recording, mode="legacy") as client:
         await client.list_tools()
 
     sent_methods = [

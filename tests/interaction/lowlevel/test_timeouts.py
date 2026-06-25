@@ -48,7 +48,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
@@ -106,7 +106,7 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
             await release.wait()
         return types.CreateMessageResult(role="assistant", content=TextContent(text="too late"), model="test-model")
 
-    async with Client(recording, sampling_callback=sampling_callback) as client:
+    async with Client(recording, mode="legacy", sampling_callback=sampling_callback) as client:
         result = await client.call_tool("impatient", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="gave up")]))
@@ -147,7 +147,7 @@ async def test_session_serves_requests_after_timeout() -> None:
 
     server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError):
             await client.call_tool("block", {}, read_timeout_seconds=0.000001)
 
@@ -179,7 +179,7 @@ async def test_session_level_timeout_applies_to_every_request() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
-    async with Client(server, read_timeout_seconds=0.05) as client:
+    async with Client(server, mode="legacy", read_timeout_seconds=0.05) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {})
 

@@ -23,12 +23,6 @@ from typing_extensions import NotRequired, Self, TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
-LATEST_PROTOCOL_VERSION: Final[str] = "2025-11-25"
-"""The newest protocol version this SDK can negotiate.
-
-See https://modelcontextprotocol.io/specification/latest.
-"""
-
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
 """The default negotiated version of the Model Context Protocol when no version is specified.
 

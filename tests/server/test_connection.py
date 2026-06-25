@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 from mcp.server.connection import Connection
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -40,7 +40,6 @@ from mcp.types import (
 )
 
 _CLIENT_INFO = Implementation(name="t", version="0")
-_MODERN = MODERN_PROTOCOL_VERSIONS[0]
 
 
 class StubOutbound:
@@ -58,7 +57,7 @@ class StubOutbound:
         self.requests.append((method, params))
         return self._result
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._raise_on_send is not None:
             raise self._raise_on_send()
         self.notifications.append((method, params))
@@ -70,8 +69,8 @@ class StubOutbound:
 def test_from_envelope_is_born_ready_with_no_back_channel():
     """SDK-defined: `from_envelope` populates `protocol_version`, sets `initialized`,
     and holds the no-channel sentinel so `has_standalone_channel` derives False."""
-    conn = Connection.from_envelope(_MODERN, None, None)
-    assert conn.protocol_version == _MODERN
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    assert conn.protocol_version == LATEST_MODERN_VERSION
     assert conn.initialized.is_set()
     assert conn.initialize_accepted is True
     assert conn.has_standalone_channel is False
@@ -83,11 +82,11 @@ def test_from_envelope_records_client_params_when_both_info_and_caps_supplied():
     """SDK-defined: when both client info and capabilities are supplied,
     `from_envelope` synthesizes `client_params` so capability checks can run."""
     caps = ClientCapabilities(sampling=SamplingCapability())
-    conn = Connection.from_envelope(_MODERN, _CLIENT_INFO, caps)
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, _CLIENT_INFO, caps)
     assert conn.client_params is not None
     assert conn.client_params.client_info.name == "t"
     assert conn.client_params.capabilities.sampling is not None
-    assert conn.client_params.protocol_version == _MODERN
+    assert conn.client_params.protocol_version == LATEST_MODERN_VERSION
 
 
 @pytest.mark.parametrize(
@@ -99,7 +98,7 @@ def test_from_envelope_leaves_client_params_none_when_either_is_missing(
 ):
     """SDK-defined: `client_params` is only synthesized when both info and
     caps are present; either missing leaves it `None`."""
-    conn = Connection.from_envelope(_MODERN, info, caps)
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, info, caps)
     assert conn.client_params is None
 
 
@@ -107,7 +106,7 @@ def test_from_envelope_with_explicit_outbound_has_standalone_channel():
     """SDK-defined: duplex modern transports pass an outbound; `has_standalone_channel`
     derives True since the held outbound is not the no-channel sentinel."""
     out = StubOutbound()
-    conn = Connection.from_envelope(_MODERN, None, None, outbound=out)
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=out)
     assert conn.has_standalone_channel is True
     assert conn.outbound is out
     assert conn.initialized.is_set()
@@ -115,17 +114,17 @@ def test_from_envelope_with_explicit_outbound_has_standalone_channel():
 
 def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
     """SDK-defined: `for_loop` seeds `protocol_version` from the hint when given,
-    else `LATEST_PROTOCOL_VERSION`; the connection awaits the initialize handshake."""
+    else `LATEST_HANDSHAKE_VERSION`; the connection awaits the initialize handshake."""
     out = StubOutbound()
     conn = Connection.for_loop(out)
-    assert conn.protocol_version == LATEST_PROTOCOL_VERSION
+    assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     assert conn.has_standalone_channel is True
     assert not conn.initialized.is_set()
     assert conn.initialize_accepted is False
     assert conn.client_params is None
 
-    hinted = Connection.for_loop(out, protocol_version_hint=_MODERN)
-    assert hinted.protocol_version == _MODERN
+    hinted = Connection.for_loop(out, protocol_version_hint=LATEST_MODERN_VERSION)
+    assert hinted.protocol_version == LATEST_MODERN_VERSION
 
 
 def test_for_loop_records_session_id_when_supplied():
@@ -229,7 +228,7 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
 async def test_send_request_passes_a_spec_valid_client_result():
     """A spec-valid client result passes the surface gate and parses to the typed model."""
     conn = Connection.for_loop(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}))
-    assert conn.protocol_version == LATEST_PROTOCOL_VERSION
+    assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     result = await conn.send_request(ListRootsRequest())
     assert isinstance(result, ListRootsResult)
     assert str(result.roots[0].uri) == "file:///ws"
@@ -248,7 +247,7 @@ class _CustomResult(BaseModel):
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
     """Surface row absent for the negotiated version: gate is bypassed and only
     the inferred result type validates."""
-    conn = Connection.for_loop(StubOutbound(result={}), protocol_version_hint=_MODERN)
+    conn = Connection.for_loop(StubOutbound(result={}), protocol_version_hint=LATEST_MODERN_VERSION)
     result = await conn.send_request(PingRequest())
     assert isinstance(result, EmptyResult)
 
@@ -328,7 +327,7 @@ def test_connection_check_capability_false_when_no_client_params_recorded():
     conn = Connection.for_loop(StubOutbound())
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is False
     # Same for a born-ready connection that supplied neither info nor caps.
-    assert Connection.from_envelope(_MODERN, None, None).check_capability(ClientCapabilities()) is False
+    assert Connection.from_envelope(LATEST_MODERN_VERSION, None, None).check_capability(ClientCapabilities()) is False
 
 
 @pytest.mark.parametrize(

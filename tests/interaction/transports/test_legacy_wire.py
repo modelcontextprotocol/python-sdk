@@ -66,7 +66,7 @@ async def test_legacy_streamable_http_exchange_carries_no_modern_protocol_vocabu
 
     async with mounted_app(_server(), on_request=on_request, on_response=on_response) as (http, _):
         recording = RecordingTransport(streamable_http_client(f"{BASE_URL}/mcp", http_client=http))
-        async with Client(recording) as client:
+        async with Client(recording, mode="legacy") as client:
             result = await client.call_tool("echo", {"text": "legacy"})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="legacy")]))

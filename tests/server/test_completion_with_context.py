@@ -137,7 +137,7 @@ async def test_completion_error_on_missing_context():
 
     server = Server("test-server", on_completion=handle_completion)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         # Try to complete table without database context - should raise error
         with pytest.raises(Exception) as exc_info:
             await client.complete(

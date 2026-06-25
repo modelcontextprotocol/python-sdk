@@ -2,10 +2,8 @@
 
 from __future__ import annotations as _annotations
 
-import base64
 import contextlib
 import logging
-import re
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -20,14 +18,14 @@ from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     ErrorData,
-    InitializeResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -46,24 +44,11 @@ StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
-MCP_PROTOCOL_VERSION = "mcp-protocol-version"
-MCP_METHOD = "mcp-method"
-MCP_NAME = "mcp-name"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
-
-_B64_SENTINEL = re.compile(r"^=\?base64\?.*\?=$")
-# RFC 7230 token chars minus DEL; visible ASCII 0x20-0x7E is the practical bound for a header value.
-_HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
-
-
-def _encode_header_value(value: str) -> str:
-    if _HEADER_SAFE.fullmatch(value) and value == value.strip() and not _B64_SENTINEL.fullmatch(value):
-        return value
-    return f"=?base64?{base64.b64encode(value.encode('utf-8')).decode('ascii')}?="
 
 
 class StreamableHTTPError(Exception):
@@ -88,57 +73,38 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str, protocol_version: str | None = None) -> None:
+    def __init__(self, url: str) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
-            protocol_version: Pin the MCP-Protocol-Version header from the first request.
-                Only honoured for stateless 2026-07-28+ sessions that never send
-                initialize; for earlier (stateful) versions the header is populated
-                from the negotiated InitializeResult, so a pre-2026 value is ignored.
         """
         self.url = url
         self.session_id: str | None = None
-        self.protocol_version: str | None = protocol_version if protocol_version in MODERN_PROTOCOL_VERSIONS else None
-
-    def _per_message_headers(self, message: JSONRPCMessage) -> dict[str, str]:
-        """Per-POST routing headers (Mcp-Method, Mcp-Name) for 2026-07-28+ pinned transports.
-
-        MCP-Protocol-Version is not emitted here — `_prepare_headers()` already adds it
-        from `self.protocol_version` for every request.
-        """
-        if self.protocol_version not in MODERN_PROTOCOL_VERSIONS:
-            return {}
-        if not isinstance(message, JSONRPCRequest | JSONRPCNotification):
-            return {}
-        headers: dict[str, str] = {MCP_METHOD: message.method}
-        # TODO: Mcp-Name is also REQUIRED for prompts/get (params.name) and resources/read
-        # (params.uri); a method->param-key map replaces this gate when those land.
-        if (
-            isinstance(message, JSONRPCRequest)
-            and message.method == "tools/call"
-            and message.params
-            and isinstance(name := message.params.get("name"), str)
-        ):
-            headers[MCP_NAME] = _encode_header_value(name)
-        return headers
+        # Captured from each stamped POST's metadata. Reused on outbound HTTP that carries
+        # no per-message header (transport-internal GET/DELETE, and dispatcher-written
+        # response/error/cancel POSTs that bypass the session's stamp). Cleared when an
+        # `initialize` POST goes out so a probe-stamped value cannot leak onto the handshake.
+        self._protocol_version_header: str | None = None
 
     def _prepare_headers(self) -> dict[str, str]:
-        """Build MCP-specific request headers.
+        """Build MCP-specific request headers for any outbound HTTP request.
 
-        These headers will be merged with the httpx.AsyncClient's default headers,
-        with these MCP-specific headers taking precedence.
+        These are merged with the ``httpx.AsyncClient`` defaults (these take
+        precedence). The cached ``MCP-Protocol-Version`` is included whenever
+        present so messages that don't pass through the session's stamp —
+        response/error/cancel POSTs, transport-internal GET/DELETE — still
+        carry the negotiated version. Per-message headers are layered on top
+        by the caller.
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
-        # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
-        if self.protocol_version:
-            headers[MCP_PROTOCOL_VERSION] = self.protocol_version
+        if self._protocol_version_header:
+            headers[MCP_PROTOCOL_VERSION_HEADER] = self._protocol_version_header
         return headers
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
@@ -156,29 +122,12 @@ class StreamableHTTPTransport:
             self.session_id = new_session_id
             logger.info(f"Received session ID: {self.session_id}")
 
-    def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
-        """Extract protocol version from initialization response message."""
-        if self.protocol_version is not None:
-            # Only a modern constructor pin reaches here (pre-2026 values are dropped
-            # in __init__), and a modern pin never sends initialize.
-            return
-        if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
-            try:
-                # Parse the result as InitializeResult for type safety
-                init_result = InitializeResult.model_validate(message.result, by_name=False)
-                self.protocol_version = init_result.protocol_version
-                logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            except Exception:  # pragma: no cover
-                logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
-                logger.warning(f"Raw result: {message.result}")
-
     async def _handle_sse_event(
         self,
         sse: ServerSentEvent,
         read_stream_writer: StreamWriter,
         original_request_id: RequestId | None = None,
         resumption_callback: Callable[[str], Awaitable[None]] | None = None,
-        is_initialization: bool = False,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
@@ -191,10 +140,6 @@ class StreamableHTTPTransport:
             try:
                 message = jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
                 logger.debug(f"SSE message: {message}")
-
-                # Extract protocol version from initialization response
-                if is_initialization:
-                    self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(message, JSONRPCResponse | JSONRPCError):
@@ -299,10 +244,17 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_headers()
         message = ctx.session_message.message
-        headers.update(self._per_message_headers(message))
         is_initialization = self._is_initialization_request(message)
+        if is_initialization:
+            # `initialize` is the negotiation, not a "subsequent request" — discard any
+            # probe-stamped value so the discover→fallback path can't leak it onto the handshake.
+            self._protocol_version_header = None
+        headers = self._prepare_headers()
+        if ctx.metadata is not None and ctx.metadata.headers is not None:
+            headers.update(ctx.metadata.headers)
+            if MCP_PROTOCOL_VERSION_HEADER in ctx.metadata.headers:
+                self._protocol_version_header = ctx.metadata.headers[MCP_PROTOCOL_VERSION_HEADER]
 
         async with ctx.client.stream(
             "POST",
@@ -334,7 +286,13 @@ class StreamableHTTPTransport:
                             pass
                         logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
                     if response.status_code == 404:
-                        error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                        if self.session_id is None:
+                            # No session yet → 404 is the HTTP-level spelling of
+                            # METHOD_NOT_FOUND (gateway / legacy server doesn't know
+                            # this method); "Session terminated" would be a lie here.
+                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
+                        else:
+                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     else:
                         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
@@ -349,11 +307,9 @@ class StreamableHTTPTransport:
             if isinstance(message, JSONRPCRequest):
                 content_type = response.headers.get("content-type", "").lower()
                 if content_type.startswith("application/json"):
-                    await self._handle_json_response(
-                        response, ctx.read_stream_writer, is_initialization, request_id=message.id
-                    )
+                    await self._handle_json_response(response, ctx.read_stream_writer, request_id=message.id)
                 elif content_type.startswith("text/event-stream"):
-                    await self._handle_sse_response(response, ctx, is_initialization)
+                    await self._handle_sse_response(response, ctx)
                 else:
                     logger.error(f"Unexpected content type: {content_type}")
                     error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
@@ -364,7 +320,6 @@ class StreamableHTTPTransport:
         self,
         response: httpx.Response,
         read_stream_writer: StreamWriter,
-        is_initialization: bool = False,
         *,
         request_id: RequestId,
     ) -> None:
@@ -372,11 +327,6 @@ class StreamableHTTPTransport:
         try:
             content = await response.aread()
             message = jsonrpc_message_adapter.validate_json(content, by_name=False)
-
-            # Extract protocol version from initialization response
-            if is_initialization:
-                self._maybe_extract_protocol_version_from_message(message)
-
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except (httpx.StreamError, ValidationError) as exc:
@@ -389,7 +339,6 @@ class StreamableHTTPTransport:
         self,
         response: httpx.Response,
         ctx: RequestContext,
-        is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
         last_event_id: str | None = None
@@ -416,7 +365,6 @@ class StreamableHTTPTransport:
                     ctx.read_stream_writer,
                     original_request_id=original_request_id,
                     resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                    is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning response/error
                 # break the loop
@@ -581,7 +529,6 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-    protocol_version: str | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -591,8 +538,6 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
-        protocol_version: Pin the MCP-Protocol-Version header for stateless 2026-07-28 sessions.
-            Tracer-bullet duplication — also pass to `ClientSession(protocol_version=...)`.
 
     Yields:
         Tuple containing:
@@ -610,7 +555,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url, protocol_version=protocol_version)
+    transport = StreamableHTTPTransport(url)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

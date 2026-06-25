@@ -19,16 +19,16 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, Authorizat
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_connection, serve_loop
 from mcp.server.streamable_http import (
-    MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     EventStore,
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
 from mcp.types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -169,7 +169,7 @@ class StreamableHTTPSessionManager:
         # and return a structured rejection. 2025 paths below remain unchanged.
         header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
-        if pv is not None and pv not in SUPPORTED_PROTOCOL_VERSIONS:
+        if pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS:
             await handle_modern_request(self.app, self.security_settings, self._lifespan_state, scope, receive, send)
             return
 

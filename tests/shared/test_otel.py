@@ -19,7 +19,7 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
         """Greet someone."""
         return f"Hello, {name}!"
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         result = await client.call_tool("greet", {"name": "World"})
 
     assert isinstance(result.content[0], types.TextContent)

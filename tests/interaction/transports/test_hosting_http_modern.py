@@ -20,6 +20,7 @@ from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.version import LATEST_MODERN_VERSION
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     INTERNAL_ERROR,
@@ -28,6 +29,7 @@ from mcp.types import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolRequestParams,
     CallToolResult,
+    DiscoverResult,
     EmptyResult,
     Implementation,
     JSONRPCError,
@@ -35,6 +37,7 @@ from mcp.types import (
     ListToolsResult,
     PaginatedRequestParams,
     RequestParams,
+    ServerCapabilities,
     TextContent,
     Tool,
 )
@@ -43,8 +46,6 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-MODERN_VERSION = "2026-07-28"
-
 
 def _modern_headers(*, method: str, name: str | None = None) -> dict[str, str]:
     """Request headers for a 2026-07-28 POST.
@@ -52,7 +53,7 @@ def _modern_headers(*, method: str, name: str | None = None) -> dict[str, str]:
     The Accept/Content-Type baseline plus the ``MCP-Protocol-Version`` routing header and the
     ``Mcp-Method`` / ``Mcp-Name`` advisory headers a 2026-era client always sends.
     """
-    headers = base_headers() | {"mcp-protocol-version": MODERN_VERSION, "mcp-method": method}
+    headers = base_headers() | {"mcp-protocol-version": LATEST_MODERN_VERSION, "mcp-method": method}
     if name is not None:
         headers["mcp-name"] = name
     return headers
@@ -65,7 +66,7 @@ def _meta_envelope() -> dict[str, object]:
     capabilities travel on each request instead of once per session.
     """
     return {
-        "io.modelcontextprotocol/protocolVersion": MODERN_VERSION,
+        "io.modelcontextprotocol/protocolVersion": LATEST_MODERN_VERSION,
         "io.modelcontextprotocol/clientInfo": {"name": "raw", "version": "0.0.0"},
         "io.modelcontextprotocol/clientCapabilities": {},
     }
@@ -328,12 +329,16 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     with anyio.fail_after(5):
         async with (
             mounted_app(server, on_request=on_request, on_response=on_response) as (http, _),
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http, protocol_version=MODERN_VERSION) as (
-                read,
-                write,
-            ),
-            ClientSession(read, write, client_info=client_info, protocol_version=MODERN_VERSION) as session,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            ClientSession(read, write, client_info=client_info) as session,
         ):
+            session.adopt(
+                DiscoverResult(
+                    supported_versions=[LATEST_MODERN_VERSION],
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="srv", version="0"),
+                )
+            )
             result = await session.call_tool(
                 "add",
                 {"a": 2, "b": 3},
