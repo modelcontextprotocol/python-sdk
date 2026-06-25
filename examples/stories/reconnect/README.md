@@ -15,23 +15,24 @@ uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant
 uv run python -m stories.reconnect.server_lowlevel --http --port 8000 &
-uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp --server server_lowlevel
+uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp
 ```
 
 ## What to look at
 
-- `client.py` — `client.session.discover_result`. The `mode="auto"` connect
-  ladder ran `server/discover` inside `__aenter__`; this property is the cached
-  result. Round-trip it through `model_dump_json()` /
-  `DiscoverResult.model_validate_json()` to model an on-disk cache.
-- `client.py` — `connect(mode=LATEST_MODERN_VERSION, prior_discover=...)`. A
-  version pin plus a prior `DiscoverResult` installs the cached state via
-  `ClientSession.adopt()` with no `initialize` and no `server/discover` on the
-  wire — the era-neutral `client.server_info` / `.server_capabilities`
-  accessors are populated before the first request.
-- `client.py` — the `connect: Connect` factory. A `Client` cannot be re-entered
-  after exit; build a fresh one via `connect()` for each attempt (see
-  `docs/migration.md`).
+- `client.py` — the first `Client(targets(), mode="auto")`. The `mode="auto"`
+  connect ladder runs `server/discover` inside `__aenter__`;
+  `client.session.discover_result` is the cached result. Round-trip it through
+  `model_dump_json()` / `DiscoverResult.model_validate_json()` to model an
+  on-disk cache.
+- `client.py` — `Client(targets(), mode=LATEST_MODERN_VERSION,
+  prior_discover=rehydrated)`. A version pin plus a prior `DiscoverResult`
+  installs the cached state via `ClientSession.adopt()` with no `initialize`
+  and no `server/discover` on the wire — the era-neutral `client.server_info` /
+  `.server_capabilities` accessors are populated before the first request.
+- `client.py` — `targets()`. A `Client` cannot be re-entered after exit; each
+  call yields a fresh target against the same server, so the reconnect is a
+  genuinely new connection.
 
 ## Caveats
 
@@ -53,6 +54,5 @@ uv run python -m stories.reconnect.client --http http://127.0.0.1:8000/mcp --ser
 
 ## See also
 
-`dual_era/` (auto-discover + era-neutral accessors), `client_session/` (the
-`initialize`/`discover`/`adopt` mechanics layer), `parallel_calls/` (the other
-`connect: Connect` consumer).
+`dual_era/` (auto-discover + era-neutral accessors), `parallel_calls/` (the
+other multi-connection client).

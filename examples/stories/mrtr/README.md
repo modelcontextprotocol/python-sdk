@@ -22,5 +22,5 @@ The TypeScript SDK ships a runnable `mrtr` story:
 
 ## See also
 
-`elicitation/` and `sampling/` — the handshake-era push equivalents that this
-mechanism replaces on the 2026 protocol.
+`legacy_elicitation/` and `sampling/` — the handshake-era push equivalents that
+this mechanism replaces on the 2026 protocol.

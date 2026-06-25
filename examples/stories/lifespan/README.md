@@ -18,6 +18,10 @@ uv run python -m stories.lifespan.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
+- `client.py` `main` — opens with `Client(target, mode=mode)`; the story owns
+  the construction, the harness only chooses the target and era. Lifespan is
+  invisible from here: the client speaks plain MCP, and the `lookup` results
+  are the only proof the yielded state was wired through.
 - `app_lifespan` in `server.py` — the `try / yield / finally` shape is the
   startup/shutdown contract; the `finally` block runs once on process exit, not
   per request.

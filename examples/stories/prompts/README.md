@@ -19,6 +19,9 @@ uv run python -m stories.prompts.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
+- `client.py` `main` — the body opens with `async with Client(target,
+  mode=mode) as client:`; `target` is anything `Client(...)` accepts (an
+  in-process server, a `Transport`, or an HTTP URL).
 - `server.py` `greet` vs `code_review` — return a bare `str` (wrapped as one
   user message) or a `list[Message]` for a multi-turn seed conversation.
 - `server.py` `complete()` — one global handler dispatches on `ref` +

@@ -13,7 +13,7 @@ same endpoint behave the same way.
 uv run python -m stories.json_response.server --port 8000 &
 
 # high-level Client + raw-envelope probe against it
-uv run python -m stories.json_response.client --http http://127.0.0.1:8000
+uv run python -m stories.json_response.client --http http://127.0.0.1:8000/mcp
 
 # or POST the raw envelope yourself
 curl -s http://127.0.0.1:8000/mcp \
@@ -26,12 +26,17 @@ curl -s http://127.0.0.1:8000/mcp \
 
 ## What to look at
 
+- `client.py` `main` — `async with Client(target, mode=mode) as client:` is an
+  ordinary high-level client; nothing about JSON mode is visible from this side.
+  The same `main` also takes the raw `httpx.AsyncClient` so it can prove what
+  the wire looks like underneath.
 - `client.py` `RAW_ENVELOPE_BODY` / `MODERN_HEADERS` — the exact 2026 wire
   shape: three `io.modelcontextprotocol/*` `_meta` keys replace the initialize
   handshake; `MCP-Protocol-Version` + `Mcp-Method` headers mirror the body so
-  gateways can route without parsing JSON.
-- `server.py` `greet` calls `ctx.report_progress(0.5)` — and `scenario` proves
-  the client's `progress_callback` is **never invoked**: JSON mode has no
+  gateways can route without parsing JSON. `main` posts it by hand and asserts
+  a single `application/json` response with no `Mcp-Session-Id`.
+- `server.py` `greet` calls `ctx.report_progress(0.5)` — and `main` proves the
+  client's `progress_callback` is **never invoked**: JSON mode has no
   back-channel for mid-call notifications (the `progress_seen == []` assertion
   flips to `== [0.5]` once SSE buffering lands for the modern path).
 - `server_lowlevel.py` — same ASGI app built from `lowlevel.Server`; the

@@ -7,7 +7,7 @@ from mcp.client import Client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, InboundLadderRejection
 from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
-from stories._harness import Connect, connect_from_args, run_client
+from stories._harness import TargetFactory, run_client
 
 from .server import classify_era
 
@@ -18,13 +18,15 @@ def _arm(result: types.CallToolResult) -> str:
     return first.text
 
 
-async def scenario(client: Client, connect: Connect) -> None:
-    # ── modern leg: harness-supplied client at mode="auto" probed server/discover.
-    assert client.protocol_version == LATEST_MODERN_VERSION
-    assert _arm(await client.call_tool("which_arm", {})) == "modern"
+async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
+    # ── modern arm: the caller's mode (the real-user "auto" default) probes
+    # ``server/discover`` → the stateless 2026 path.
+    async with Client(targets(), mode=mode) as modern:
+        assert modern.protocol_version == LATEST_MODERN_VERSION
+        assert _arm(await modern.call_tool("which_arm", {})) == "modern"
 
-    # ── legacy leg: same /mcp endpoint, initialize handshake → sessionful 2025 path.
-    async with connect(mode="legacy") as legacy:
+    # ── legacy arm: the SAME /mcp endpoint, ``initialize`` handshake → sessionful 2025 path.
+    async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
         assert _arm(await legacy.call_tool("which_arm", {})) == "legacy"
 
@@ -53,4 +55,4 @@ async def scenario(client: Client, connect: Connect) -> None:
 
 
 if __name__ == "__main__":
-    run_client(scenario, connect=connect_from_args(__file__), needs_connect=True, mode="auto")
+    run_client(main)

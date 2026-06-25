@@ -1,5 +1,11 @@
 # sse-polling
 
+> **Legacy mechanism (2025 handshake era).** `Last-Event-ID` resumability and
+> the sessionful transport are removed in the 2026-07-28 protocol (SEP-2575)
+> with no modern-era equivalent; the closest 2026-era pattern is client-side
+> reconnection over a persisted `DiscoverResult` —
+> [`reconnect/`](../reconnect/). TODO(maxisbey): revisit before beta.
+
 SEP-1699 server-initiated SSE disconnection with `Last-Event-ID` replay. The
 server's `EventStore` stamps every SSE event with an ID and opens each response
 stream with a priming event; mid-handler the tool calls
@@ -8,10 +14,6 @@ connection slot), keeps emitting progress into the event store, and returns.
 The client transport sees the stream end, reconnects with `Last-Event-ID`, and
 the event store replays everything it missed — `await client.call_tool(...)`
 resolves as if the disconnect never happened.
-
-**2025-era only.** `Last-Event-ID` resumability and the sessionful transport
-are removed in the 2026-07-28 spec (SEP-2575); there is no modern-era
-equivalent.
 
 ## Run it
 
@@ -24,6 +26,12 @@ uv run python -m stories.sse_polling.client --http http://127.0.0.1:8000/mcp --l
 
 ## What to look at
 
+- **`client.py` `main` — opens with `async with Client(target, mode=mode)`.**
+  There is no client-side resumability configuration: the `Client` and the
+  `streamable_http_client` transport handle the priming event, the SSE `retry:`
+  hint, and the `Last-Event-ID` reconnect automatically. The assertion that the
+  `"after-close"` progress message arrived is the proof — it was emitted while
+  no SSE stream was open.
 - **`server.py` — `streamable_http_app(event_store=..., retry_interval=0)`.**
   Passing an `EventStore` is what enables resumability: every SSE event gets an
   ID and the response opens with a priming event so the client always has a
@@ -36,10 +44,6 @@ uv run python -m stories.sse_polling.client --http http://127.0.0.1:8000/mcp --l
 - **`server_lowlevel.py` — `ctx.close_sse_stream`.** On the lowlevel API the
   callback is an optional field on `ServerRequestContext`; it is `None` unless
   an event store is wired and the negotiated version is in the 2025 era.
-- **`client.py` — nothing special.** The `Client` and `streamable_http_client`
-  transport handle the priming event, the `retry:` hint, and the
-  `Last-Event-ID` reconnect automatically. The assertion that `"after-close"`
-  arrived is the proof.
 
 ## Caveats
 

@@ -45,7 +45,14 @@ def _free_port() -> int:  # pragma: lax no cover
 
 
 async def _wait_listening(port: int) -> None:  # pragma: lax no cover
-    """Poll ``127.0.0.1:port`` until it accepts; condition-based, not a fixed-duration wait."""
+    """Connect-retry until ``127.0.0.1:port`` accepts.
+
+    Deliberate exception to the no-``sleep`` rule: readiness lives in a uvicorn
+    *subprocess*, so there is no in-process ``anyio.Event`` to await — accepting a
+    TCP connect IS the readiness signal. Both callers bound this with
+    ``anyio.fail_after``, and the retry interval only paces the probe; it never
+    decides when the wait ends.
+    """
     while True:
         try:
             stream = await anyio.connect_tcp("127.0.0.1", port)

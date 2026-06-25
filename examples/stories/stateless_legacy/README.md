@@ -24,14 +24,17 @@ uv run python -m stories.stateless_legacy.client --http http://127.0.0.1:8001/mc
 
 ## What to look at
 
+- `client.py` — two visible `Client(targets(), mode=...)` constructions against
+  the same URL. The first connects at the caller's `mode` (the real-user
+  `"auto"` default routes to the 2026 envelope path); the second pins
+  `mode="legacy"` and runs the `initialize` handshake. `client.protocol_version`
+  is the era-neutral accessor: two negotiated versions, identical tool result.
 - `server.py` — `stateless_http=True` is the only knob; era routing is automatic
   inside `StreamableHTTPSessionManager.handle_request`. The returned `Starlette`
   already wires `lifespan=session_manager.run()`, so `uvicorn.run(app, ...)`
   works with no parent-lifespan ceremony.
 - `server_lowlevel.py` — `lowlevel.Server.streamable_http_app()` is the same
   call; `MCPServer` delegates to it.
-- `client.py` — `client.protocol_version` is the era-neutral accessor; same
-  scenario body, two different negotiated versions, identical tool result.
 
 ## Caveats
 

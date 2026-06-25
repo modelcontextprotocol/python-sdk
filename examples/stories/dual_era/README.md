@@ -16,7 +16,7 @@ uv run python -m stories.dual_era.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant
 uv run python -m stories.dual_era.server_lowlevel --http --port 8000 &
-uv run python -m stories.dual_era.client --http http://127.0.0.1:8000/mcp --server server_lowlevel
+uv run python -m stories.dual_era.client --http http://127.0.0.1:8000/mcp
 ```
 
 The bare stdio invocation (`uv run python -m stories.dual_era.client`) is
@@ -25,14 +25,21 @@ leg fails there today — run over `--http`.
 
 ## What to look at
 
-- `server.py` — `ctx.request_context.protocol_version` is the era branch key
-  (lowlevel: `ctx.protocol_version` directly). Compare against
-  `MODERN_PROTOCOL_VERSIONS`, never a date literal.
+- `client.py` — both connections are visible, against the same `targets()`
+  factory: `Client(targets(), mode=mode)` (default `"auto"`, the
+  discover-then-fallback ladder) and `Client(targets(), mode="legacy")` (forces
+  the `initialize` handshake). The era decision is one explicit `mode=` argument
+  at construction; no date strings appear in the body.
 - `client.py` — `client.protocol_version` / `client.server_info` /
   `client.server_capabilities` are era-neutral: populated by `initialize` *or*
   `server/discover`, whichever ran.
-- `client.py` — `mode="auto"` is the discover-then-fallback ladder;
-  `mode="legacy"` forces the handshake. No date strings appear in the body.
+- `server.py` — `ctx.request_context.protocol_version` is the era branch key
+  (lowlevel: `ctx.protocol_version` directly). Compare against
+  `MODERN_PROTOCOL_VERSIONS`, never a date literal.
+- **Where to read the negotiated version.** One value, three read paths:
+  `client.protocol_version` on the client after connect; `ctx.protocol_version`
+  inside a lowlevel handler; `ctx.request_context.protocol_version` inside an
+  `MCPServer` handler.
 
 ## Caveats
 
@@ -49,5 +56,5 @@ leg fails there today — run over `--http`.
 
 ## See also
 
-`custom_version/` (pin the server to one era), `legacy_routing/` (route eras
-yourself), `reconnect/` (persist `DiscoverResult` for zero-RTT reconnect).
+`legacy_routing/` (route eras yourself), `reconnect/` (persist `DiscoverResult`
+for zero-RTT reconnect).

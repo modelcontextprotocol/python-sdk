@@ -19,6 +19,9 @@ uv run python -m stories.custom_methods.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
+- `client.py` `main` — the body opens with `Client(target, mode=mode)`. The
+  vendor request rides whichever protocol era `mode` selects; nothing else in
+  the story changes between eras.
 - `server.py` `SearchParams` — subclasses `types.RequestParams` so `_meta`
   (and on a 2026-07-28 connection, the reserved `io.modelcontextprotocol/*`
   envelope keys) parse uniformly without extra code.

@@ -19,10 +19,15 @@ uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1
 ```
 
 OAuth is an HTTP-layer concern; stdio servers receive credentials via the
-environment per the spec, so there is no stdio leg.
+environment per the spec, so there is no stdio leg. The port must be **8000**:
+the demo AS metadata (`_shared/auth.py` `BASE_URL`) is pinned to it on both
+the client and server side.
 
 ## What to look at
 
+- `client.py` `main` — opens with `async with Client(target, mode=mode) as
+  client:` and that's the whole program. `target` is a transport that already
+  carries the OAuth `httpx.Auth`; the body never touches a token.
 - `client.py` `build_auth` — five lines of `ClientCredentialsOAuthProvider`
   config is all the caller writes; the SDK does RFC 9728 PRM →
   RFC 8414 AS-metadata discovery and token exchange on the first 401.
@@ -38,9 +43,12 @@ environment per the spec, so there is no stdio leg.
 
 ## Caveats
 
-- `Client(url)` has no `auth=` passthrough — you build `httpx.AsyncClient` →
-  `streamable_http_client(url, http_client=hc)` → `Client(transport)` yourself.
-  The `__main__` block shows the chain.
+- `Client(url, auth=build_auth(http))` is the ergonomic the SDK is missing —
+  `Client(url)` has no `auth=` passthrough. Until it lands, the authed
+  `httpx.AsyncClient` → `streamable_http_client(url, http_client=hc)` chain has
+  to be built *outside* `main` and handed in as `target`; both `run_client`
+  (the standalone `--http` run) and the test harness do that from the
+  `build_auth` export.
 - `transport_security=NO_DNS_REBIND` — DNS-rebinding protection is on by
   default for localhost binds; the harness disables it because the in-process
   httpx client sends no `Origin` header. Drop the kwarg for a real deployment.

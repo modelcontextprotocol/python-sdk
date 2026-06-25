@@ -21,13 +21,15 @@ uv run python -m stories.error_handling.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
+- `client.py` `main` — opens with `async with Client(target, mode=mode) as
+  client:`. Inside it, `await` returns for `is_error` results and
+  `except MCPError` catches protocol errors; the client never auto-raises on
+  `is_error`.
 - `server.py` — `raise ToolError(...)` vs `raise MCPError(...)`: same `raise`
   keyword, opposite wire channel. The tool wrapper re-raises `MCPError`
   verbatim and wraps everything else as an `is_error` result.
 - `server_lowlevel.py` — no wrapper: you build `CallToolResult(is_error=True)`
   yourself, and `MCPError` is the only way to pick a JSON-RPC error code.
-- `client.py` — `await` returns for `is_error` results; `except MCPError`
-  catches protocol errors. The client never auto-raises on `is_error`.
 
 ## Caveats
 

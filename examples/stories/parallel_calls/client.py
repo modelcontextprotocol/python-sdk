@@ -1,40 +1,40 @@
-"""Issue concurrent `call_tool` requests on one `Client`; assert per-call progress demux."""
+"""Two concurrent `Client`s against one server; the rendezvous tool proves concurrent dispatch."""
 
 import anyio
 
 from mcp.client import Client
 from mcp.types import TextContent
-from stories._harness import connect_from_args, run_client
+from stories._harness import TargetFactory, run_client
 
 
-async def scenario(client: Client) -> None:
+async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
     party = ["a", "b"]
     results: dict[str, str] = {}
     received: dict[str, list[str | None]] = {tag: [] for tag in party}
 
-    def collector(tag: str):
+    async def attend(tag: str) -> None:
         async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             received[tag].append(message)
 
-        return on_progress
+        # targets() yields a fresh connection target on every call; both land on the SAME
+        # server instance, so the two `meet` handlers can observe each other's arrival.
+        async with Client(targets(), mode=mode) as client:
+            result = await client.call_tool("meet", {"tag": tag, "party": party}, progress_callback=on_progress)
+            assert not result.is_error, result
+            assert isinstance(result.content[0], TextContent)
+            results[tag] = result.content[0].text
 
-    async def call(tag: str) -> None:
-        result = await client.call_tool("meet", {"tag": tag, "party": party}, progress_callback=collector(tag))
-        assert not result.is_error, result
-        assert isinstance(result.content[0], TextContent)
-        results[tag] = result.content[0].text
-
-    # Neither call can return until both handlers are running concurrently; a server that
-    # processed requests one-at-a-time would never set the second event and we'd time out here.
+    # Neither call can return until both handlers are running at once; a server that processed
+    # requests one-at-a-time would never set the second event and we'd time out here.
     with anyio.fail_after(5):
         async with anyio.create_task_group() as tg:
-            tg.start_soon(call, "a")
-            tg.start_soon(call, "b")
+            tg.start_soon(attend, "a")
+            tg.start_soon(attend, "b")
 
     assert results == {"a": "a", "b": "b"}, results
-    # Progress is token-keyed per request: each callback saw only its own tag, never the sibling's.
+    # Progress is routed by progress token: each callback saw only its own tag, never the sibling's.
     assert received == {"a": ["a"], "b": ["b"]}, received
 
 
 if __name__ == "__main__":
-    run_client(scenario, connect=connect_from_args(__file__))
+    run_client(main)

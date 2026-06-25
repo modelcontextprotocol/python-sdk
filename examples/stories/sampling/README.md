@@ -1,14 +1,15 @@
 # sampling
 
+> **Deprecated** in the 2026-07-28 protocol (SEP-2577); functional through the
+> deprecation window. Migration: call your LLM provider directly from the
+> server instead of requesting completions through the client.
+> TODO(maxisbey): revisit before beta.
+
 A tool that asks the **client's** LLM for a completion mid-call — the inverted
 MCP direction. The server holds no model API key; it awaits
 `ctx.session.create_message(...)` and the client's `sampling_callback` answers.
 Registering the callback is what makes the client advertise the `sampling`
 capability — there is no separate flag.
-
-> **Deprecated.** The sampling capability is deprecated as of 2026-07-28
-> (SEP-2577). New servers should call an LLM provider directly instead of
-> requesting completions through the client.
 
 ## Run it
 
@@ -23,9 +24,13 @@ uv run python -m stories.sampling.client --http http://127.0.0.1:8000/mcp --lega
 
 ## What to look at
 
-- `client.py` `sampling_callback` — takes `(ClientRequestContext,
-  CreateMessageRequestParams)` and returns `CreateMessageResult`; passing it as
-  `sampling_callback=` is what advertises the capability.
+- `client.py` `main` — `async with Client(target, mode=mode,
+  sampling_callback=on_sample) as client:`. The callback is an ordinary
+  constructor kwarg; registering it is the whole opt-in.
+- `client.py` `on_sample` — takes `(ClientRequestContext,
+  CreateMessageRequestParams)` and returns a `CreateMessageResult`. A real
+  host calls its LLM provider here; the example returns a canned answer so the
+  round-trip is assertable.
 - `server.py` — `await ctx.session.create_message(...)` inside the tool body: a
   server→client request that blocks until the callback answers. There is no
   `Context.sample()` sugar; reaching `ctx.session` is the public path.
@@ -52,5 +57,5 @@ uv run python -m stories.sampling.client --http http://127.0.0.1:8000/mcp --lega
 
 ## See also
 
-`elicitation/`, `roots/` — sibling server→client requests on the same MRTR
-migration path.
+`legacy_elicitation/`, `roots/` — sibling server→client requests on the same
+MRTR migration path.

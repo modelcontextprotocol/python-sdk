@@ -1,14 +1,19 @@
-"""Dispatch-layer middleware: one function wraps every inbound MCP message."""
+"""Dispatch-layer middleware: `Server.middleware` is the public hook.
 
+A lowlevel-only story: `MCPServer` has no public middleware accessor yet, so the
+one supported registration point is the `middleware` list on `lowlevel.Server`.
+"""
+
+import json
 from typing import Any
 
+from mcp import types
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
+from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args
 
 
-def build_server() -> MCPServer:
-    mcp = MCPServer("middleware-example")
+def build_server() -> Server[Any]:
     log: list[str] = []
 
     async def record_calls(ctx: ServerRequestContext[Any], call_next: CallNext) -> HandlerResult:
@@ -18,17 +23,30 @@ def build_server() -> MCPServer:
         finally:
             log.append(f"{ctx.method}:done")
 
-    # MCPServer exposes no public middleware hook yet; the list lives on the wrapped
-    # lowlevel Server. DO NOT copy this private reach — see server_lowlevel.py for the
-    # public `server.middleware.append(...)` registration.
-    mcp._lowlevel_server.middleware.append(record_calls)  # pyright: ignore[reportPrivateUsage]
+    async def list_tools(
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="audit_log",
+                    description="Return every method the middleware has observed so far.",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
 
-    @mcp.tool()
-    def audit_log() -> list[str]:
-        """Return every method the middleware has observed so far."""
-        return list(log)
+    async def call_tool(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
+        assert params.name == "audit_log"
+        snapshot = list(log)
+        return types.CallToolResult(
+            content=[types.TextContent(text=json.dumps(snapshot))],
+            structured_content={"result": snapshot},
+        )
 
-    return mcp
+    server = Server("middleware-example", on_list_tools=list_tools, on_call_tool=call_tool)
+    server.middleware.append(record_calls)
+    return server
 
 
 if __name__ == "__main__":

@@ -1,30 +1,41 @@
 # parallel-calls
 
-One `Client`, two `call_tool` requests in flight at once. Each caller gets its
-own answer, and the per-call `progress_callback=` sees only the progress
-notifications for *that* request — the SDK demultiplexes by progress token, not
-by arrival order.
+Two `Client`s connected to the same server, each with a `call_tool` in flight
+at once. The `meet` tool is a rendezvous: a handler signals its own arrival,
+then blocks until every named peer has arrived too — so neither call can return
+unless the server runs both handlers concurrently. Each caller's
+`progress_callback=` sees only the notifications for *its* request — the SDK
+demultiplexes by progress token, not by arrival order.
 
 ## Run it
 
-```bash
-# stdio (default — the client spawns the server as a subprocess)
-uv run python -m stories.parallel_calls.client
+The tested legs run in-memory (`Client(server)`); the identical `main` body
+works unchanged against an HTTP URL — both clients just reach the same running
+server:
 
-# against a running HTTP server
+```bash
 uv run python -m stories.parallel_calls.server --http --port 8000 &
-uv run python -m stories.parallel_calls.client --http http://127.0.0.1:8000/mcp
+# --legacy because handler-emitted progress is dropped on the modern
+# streamable-HTTP path today (see Caveats).
+uv run python -m stories.parallel_calls.client --http http://127.0.0.1:8000/mcp --legacy
 ```
+
+There is no stdio run for this story: the stdio default spawns a fresh server
+subprocess per connection, so two clients there could never rendezvous.
 
 ## What to look at
 
+- **`client.py` — the two visible `Client(targets(), mode=...)` blocks.** Each
+  connection is constructed inside `attend(...)`; `targets()` yields a fresh
+  target on every call and both land on the same server instance. The two
+  blocks run in one `anyio` task group.
 - **`server.py` — the `arrivals` barrier.** Each handler sets its own
   `anyio.Event` then waits for every peer's. A server that processed requests
   sequentially would never set the second event, so the client would time out —
   the timeout *is* the concurrency assertion. No sleeps.
-- **`client.py` — `progress_callback=` per call.** Two concurrent calls each
-  pass a separate callback; `received == {"a": ["a"], "b": ["b"]}` proves the
-  SDK routes in-flight progress per request.
+- **`client.py` — `progress_callback=` per call.** Each call passes its own
+  callback; `received == {"a": ["a"], "b": ["b"]}` proves the SDK routes
+  in-flight progress per request.
 - **`server_lowlevel.py`** — same wire contract on the lowlevel `Server`,
   reporting via `ctx.session.report_progress(...)`.
 
@@ -32,12 +43,8 @@ uv run python -m stories.parallel_calls.client --http http://127.0.0.1:8000/mcp
 
 - Over Streamable HTTP in the modern (2026-07-28) era, handler-emitted progress
   is currently dropped (the single-exchange dispatch context no-ops `notify()`).
-  That cell is `xfail`; in-memory and legacy-era HTTP both deliver progress
-  correctly.
-- The N-clients × 1-server variant is omitted: the harness `connect()` factory
-  rebuilds the server per call, so a cross-client rendezvous would deadlock.
-  Over a long-running HTTP server it works exactly as the single-client case —
-  open a second `Client` against the same URL.
+  In-memory (both eras) and legacy-era HTTP deliver progress correctly — hence
+  the `--legacy` above.
 
 ## Spec
 
@@ -45,4 +52,5 @@ uv run python -m stories.parallel_calls.client --http http://127.0.0.1:8000/mcp
 
 ## See also
 
-`streaming/` (progress + cancellation on one call), `tools/` (basics).
+`streaming/` (progress + cancellation on one call), `reconnect/` (the other
+multi-connection client), `tools/` (basics).

@@ -24,6 +24,12 @@ uv run python -m stories.bearer_auth.server_lowlevel --port 8001 &
 uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8001/mcp
 ```
 
+`Client(url)` has no `auth=` passthrough, so a target built from a bare URL
+can't carry the token. Both runners close that gap the same way: `run_client`
+(above) and the pytest harness thread the module's `build_auth` export onto the
+`httpx.AsyncClient` underneath the transport and hand `main` a target that is
+already routed through it.
+
 ## Try it without the SDK client
 
 ```bash
@@ -38,6 +44,14 @@ curl -s http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp | jq
 
 ## What to look at
 
+- `client.py` `main` — opens with `async with Client(target, mode=mode) as
+  client:` and that is the whole program. The `target` it receives is a
+  transport that already carries the bearer token; nothing in the body knows
+  auth exists.
+- `client.py` `build_auth` / `StaticBearerAuth` — bearer auth client-side is
+  five lines of `httpx.Auth`. `Client(url, auth=...)` is the ergonomic the SDK
+  is missing; until it lands, the auth has to be threaded onto the
+  `httpx.AsyncClient` underneath the transport, outside `main`.
 - `server.py` — `MCPServer(token_verifier=..., auth=AuthSettings(...))` is the
   whole recipe; `streamable_http_app()` reads those constructor kwargs and
   mounts the bearer gate + PRM route.
@@ -48,11 +62,6 @@ curl -s http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp | jq
 - `whoami()` — `get_access_token()` returns the per-HTTP-request `AccessToken`.
   It is **not** on `Context` (unlike other SDKs' `ctx.authInfo`); a later
   release will namespace it as `ctx.transport.auth`.
-- `client.py` — `http_client_kw` carries the `Authorization` header at the
-  `httpx.AsyncClient` layer because `Client(url)` has no `auth=` passthrough
-  yet. The `__main__` block shows the hand-built
-  `httpx.AsyncClient → streamable_http_client → Client` chain a real caller
-  would write today.
 
 ## Caveats
 

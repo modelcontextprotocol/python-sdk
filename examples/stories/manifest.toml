@@ -4,17 +4,18 @@
 # asserts [story.*] keys == story dirs with a client.py.
 
 [defaults]
-transports    = ["in-memory", "http-asgi"]   # in-memory = Client(server); http-asgi = StreamingASGITransport
-era           = "dual"                       # "dual" | "modern" | "legacy" | "dual-in-body"
-lowlevel      = true                         # also run scenario against server_lowlevel.build_server()/build_app()
-server_export = "factory"                    # "factory" -> build_server() | "app" -> build_app()
-needs_connect = false                        # scenario(client) vs scenario(client, connect)
-needs_http    = false                        # scenario(..., http) gets the raw httpx.AsyncClient (http-asgi only)
-timeout_s     = 30
-smoke         = false
-mcp_path      = "/mcp"
-xfail         = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
-env           = {}                           # env vars set for the leg via monkeypatch
+transports       = ["in-memory", "http-asgi"]   # in-memory = Client(server); http-asgi = StreamingASGITransport
+era              = "dual"                       # "dual" | "modern" | "legacy" | "dual-in-body"
+status           = "current"                    # "current" | "legacy" | "deprecated" — the feature's future, not the transport
+lowlevel         = true                         # also run main against server_lowlevel.build_server()/build_app()
+server_export    = "factory"                    # "factory" -> build_server() | "app" -> build_app()
+multi_connection = false                        # main(target, ...) vs main(targets, ...); targets() -> fresh target per call
+needs_http       = false                        # main(..., http=) gets the raw httpx.AsyncClient (http-asgi only)
+timeout_s        = 30
+smoke            = false
+mcp_path         = "/mcp"
+xfail            = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
+env              = {}                           # env vars set for the leg via monkeypatch
 
 # ───────────────────────────── start here ─────────────────────────────
 
@@ -28,21 +29,20 @@ smoke = true
 [story.lifespan]
 
 [story.dual_era]
-era           = "dual-in-body"
-needs_connect = true
-
-[story.custom_version]
-era = "legacy"
+era              = "dual-in-body"
+multi_connection = true
 
 [story.streaming]
 # progress + log notifications dropped on the modern streamable-HTTP path pending SSE wiring
 xfail = ["http-asgi:modern"]
 
-[story.elicitation]
-era = "legacy"
+[story.legacy_elicitation]
+era    = "legacy"
+status = "legacy"
 
 [story.sampling]
-era = "legacy"
+era    = "legacy"
+status = "deprecated"
 
 [story.stickynotes]
 
@@ -52,30 +52,35 @@ lowlevel = false
 [story.schema_validators]
 
 [story.middleware]
+# Lowlevel-only: `Server.middleware` is the one public hook (no MCPServer accessor yet).
+lowlevel = false
 
 [story.parallel_calls]
-# modern single-exchange dispatch context no-ops notify() over streamable-http
-xfail = ["http-asgi:modern"]
+# A per-client fresh target over a real ASGI transport is harness machinery, not user
+# code; the same client body works unchanged over HTTP.
+transports       = ["in-memory"]
+multi_connection = true
 
 [story.roots]
-era = "legacy"
+era    = "legacy"
+status = "deprecated"
 
 [story.pagination]
 
 [story.error_handling]
 
-[story.client_session]
-lowlevel = false
-
 [story.serve_one]
+# Lowlevel-only: the kernel drivers take a `lowlevel.Server`; `MCPServer` has no public
+# accessor for its underlying one yet, so there is no MCPServer-tier variant to show.
 transports = ["in-memory"]
+lowlevel   = false
 
 [story.stateless_legacy]
-transports    = ["http-asgi"]
-server_export = "app"
-era           = "dual-in-body"
-needs_connect = true
-smoke         = true
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
+smoke            = true
 
 [story.json_response]
 transports    = ["http-asgi"]
@@ -84,10 +89,10 @@ era           = "modern"
 needs_http    = true
 
 [story.legacy_routing]
-transports    = ["http-asgi"]
-server_export = "app"
-era           = "dual-in-body"
-needs_connect = true
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
 
 [story.starlette_mount]
 transports    = ["http-asgi"]
@@ -99,27 +104,31 @@ mcp_path      = "/api/"
 transports    = ["http-asgi"]
 server_export = "app"
 era           = "legacy"
+status        = "legacy"
 timeout_s     = 20
 # event_store.py is local; example-grade only (sequential IDs, no eviction).
 
 [story.standalone_get]
 transports    = ["http-asgi"]
 era           = "legacy"
+status        = "legacy"
 
 [story.reconnect]
-transports    = ["http-asgi"]
-era           = "modern"
-needs_connect = true
+transports       = ["http-asgi"]
+# Both connection modes are pinned inside main itself ("auto" to populate the discover
+# cache, then a hard pin + prior_discover=); the leg hands it the real-user default.
+era              = "dual-in-body"
+multi_connection = true
 
 [story.bearer_auth]
 transports    = ["http-asgi"]
 server_export = "app"
 
 [story.oauth]
-transports    = ["http-asgi"]
-server_export = "app"
-needs_connect = true
-env           = { OAUTH_DEMO_AUTO_CONSENT = "1" }
+transports       = ["http-asgi"]
+server_export    = "app"
+multi_connection = true
+env              = { OAUTH_DEMO_AUTO_CONSENT = "1" }
 
 [story.oauth_client_credentials]
 transports    = ["http-asgi"]

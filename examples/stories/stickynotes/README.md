@@ -19,6 +19,11 @@ uv run python -m stories.stickynotes.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
+- **`client.py` `main` → `Client(target, mode=mode, elicitation_callback=...,
+  message_handler=...)`** — the construction is the example: callbacks are
+  plain constructor kwargs, and `mode=` is explicit. The scripted elicitation
+  answer and the `list_changed` event are locals of `main`, so every
+  connection starts clean.
 - **`server.py` `lifespan` → `Board`** — long-lived mutable state belongs in
   the lifespan context, never a module global. Tools reach it via
   `ctx.request_context.lifespan_context`; this 2-hop path is interim and will
@@ -41,10 +46,8 @@ uv run python -m stories.stickynotes.client --http http://127.0.0.1:8000/mcp
 
 - `list_changed` and `ctx.elicit()` are skipped on modern legs: the
   notification needs a standalone stream and `ctx.elicit()` would raise
-  `NoBackChannelError`. The scenario branches on
+  `NoBackChannelError`. `main` branches on
   `client.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS`.
-- `client_kw()` is callable so each test leg gets fresh callback state (the
-  scripted elicit answer and the `list_changed` event).
 
 ## Spec
 
@@ -54,5 +57,5 @@ uv run python -m stories.stickynotes.client --http http://127.0.0.1:8000/mcp
 
 ## See also
 
-`tools/`, `resources/`, `elicitation/`, `lifespan/`, `standalone_get/`
+`tools/`, `resources/`, `legacy_elicitation/`, `lifespan/`, `standalone_get/`
 (`list_changed` over the GET stream).

@@ -43,6 +43,14 @@ def build_server() -> MCPServer:
 
     mcp = MCPServer("stickynotes-example", lifespan=lifespan)
 
+    def unregister_note(note_id: str) -> None:
+        # DO NOT copy this line into your own server. `MCPServer` has no public
+        # `remove_resource()` yet (only `add_resource`), so unregistering a runtime-added
+        # resource has to reach a private attribute. `server_lowlevel.py` shows the clean
+        # shape: `on_list_resources` rebuilds the list from the board on every call, so
+        # removal never touches a registry at all.
+        mcp._resource_manager._resources.pop(f"note:///{note_id}", None)  # pyright: ignore[reportPrivateUsage]
+
     @mcp.tool()
     async def add_note(text: str, ctx: Context[Board]) -> AddResult:
         """Add a sticky note and register a `note:///{id}` resource for it."""
@@ -62,9 +70,7 @@ def build_server() -> MCPServer:
         board = ctx.request_context.lifespan_context
         removed = board.notes.pop(note_id, None) is not None
         if removed:
-            # MCPServer has no public remove_resource() yet — DO NOT copy this private
-            # reach; see server_lowlevel.py for the clean pattern (rebuild the list per call).
-            mcp._resource_manager._resources.pop(f"note:///{note_id}", None)  # pyright: ignore[reportPrivateUsage]
+            unregister_note(note_id)
             await ctx.session.send_resource_list_changed()
         return removed
 
@@ -81,7 +87,7 @@ def build_server() -> MCPServer:
             return ClearResult(status="declined", removed=0)
         count = len(board.notes)
         for nid in list(board.notes):
-            mcp._resource_manager._resources.pop(f"note:///{nid}", None)  # pyright: ignore[reportPrivateUsage]
+            unregister_note(nid)
         board.notes.clear()
         await ctx.session.send_resource_list_changed()
         return ClearResult(status="cleared", removed=count)

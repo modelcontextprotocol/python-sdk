@@ -20,17 +20,21 @@ uv run python -m stories.middleware.client --http http://127.0.0.1:8000/mcp
 
 ## What to look at
 
-- `server_lowlevel.py` — `server.middleware.append(record_calls)` is the public
+- `client.py` `main` — opens with `async with Client(target, mode=mode)`. The
+  story owns that construction; the harness only picks the target and era.
+  Middleware is invisible from this side — only the `audit_log` result proves
+  the wrap happened.
+- `server.py` — `server.middleware.append(record_calls)` is the public
   registration point on `mcp.server.lowlevel.Server`.
-- `server.py` — `MCPServer` has no public hook yet, so the example reaches
-  `mcp._lowlevel_server.middleware` (a public `MCPServer.middleware` accessor
-  is planned before beta — prefer the lowlevel variant until then).
 - `client.py` — the asserted log ends at `"tools/call"` without a `:done`
   suffix: `audit_log` runs *inside* `call_next(ctx)`, so the `finally` hasn't
   fired yet. That's the wrap.
 
 ## Caveats
 
+- **Lowlevel-only.** `Server.middleware` on `mcp.server.lowlevel.Server` is the
+  one public hook; `MCPServer` has no public accessor for it yet (a
+  `MCPServer.middleware` accessor is planned before beta).
 - The middleware signature is **provisional** (see the TODO in
   `src/mcp/server/lowlevel/server.py`): it tightens to a covariant `Context[L]`
   and gains an outbound seam before v2 final.

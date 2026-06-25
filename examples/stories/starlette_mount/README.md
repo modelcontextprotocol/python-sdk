@@ -17,6 +17,9 @@ uv run python -m stories.starlette_mount.client --http http://127.0.0.1:8000/api
 
 ## What to look at
 
+- `client.py` `main` — opens with `async with Client(target, mode=mode) as
+  client:`. Nothing on the client side knows about the mount: the `/api/` URL
+  handed in as `target` is just another streamable-HTTP endpoint.
 - `server.py` `streamable_http_path="/"` — without this the endpoint would be
   `/api/mcp`; with it, `Mount("/api", ...)` serves MCP at `/api/` (trailing
   slash required — Starlette's `Mount` forwards `/api` as an empty path that

@@ -3,27 +3,29 @@
 from mcp import types
 from mcp.client import Client
 from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from stories._harness import Connect, connect_from_args, run_client
+from stories._harness import TargetFactory, run_client
 
 
-async def scenario(client: Client, connect: Connect) -> None:
-    # ── modern leg: the harness-supplied client connected at mode="auto", so __aenter__
-    # sent server/discover and adopted the result — no initialize handshake ran.
-    assert client.protocol_version == LATEST_MODERN_VERSION
-    assert client.server_info.name == "dual-era-example"
-    assert client.server_capabilities.tools is not None
+async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
+    # ── modern arm: the caller's mode (the real-user "auto" default) probes
+    # ``server/discover`` and adopts the result — no ``initialize`` handshake runs.
+    # The version/info/capabilities accessors are era-neutral.
+    async with Client(targets(), mode=mode) as modern:
+        assert modern.protocol_version == LATEST_MODERN_VERSION
+        assert modern.server_info.name == "dual-era-example"
+        assert modern.server_capabilities.tools is not None
 
-    listed = await client.list_tools()
-    assert [t.name for t in listed.tools] == ["greet"]
+        listed = await modern.list_tools()
+        assert [t.name for t in listed.tools] == ["greet"]
 
-    result = await client.call_tool("greet", {"name": "2026 client"})
-    first = result.content[0]
-    assert isinstance(first, types.TextContent)
-    assert first.text == f"Hello, 2026 client! (served on the modern era at {LATEST_MODERN_VERSION})"
+        result = await modern.call_tool("greet", {"name": "2026 client"})
+        first = result.content[0]
+        assert isinstance(first, types.TextContent)
+        assert first.text == f"Hello, 2026 client! (served on the modern era at {LATEST_MODERN_VERSION})"
 
-    # ── legacy leg: a fresh client at mode="legacy" runs the initialize handshake against
-    # the SAME server factory. The era-neutral accessors are populated identically.
-    async with connect(mode="legacy") as legacy:
+    # ── legacy arm: a fresh connection to the SAME server, pinned to the handshake era.
+    # The same accessors are populated identically — here by ``initialize``.
+    async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
         assert legacy.server_info.name == "dual-era-example"
         assert legacy.server_capabilities.tools is not None
@@ -35,4 +37,4 @@ async def scenario(client: Client, connect: Connect) -> None:
 
 
 if __name__ == "__main__":
-    run_client(scenario, connect=connect_from_args(__file__), needs_connect=True, mode="auto")
+    run_client(main)

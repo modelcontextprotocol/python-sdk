@@ -1,14 +1,14 @@
 # roots
 
-The client registers a `list_roots_callback` returning the filesystem locations
-it is willing to expose; a server tool calls `ctx.session.list_roots()`
-mid-request and the client's callback answers it. Registering the callback is
-what makes the client advertise the `roots` capability — there is no separate
-flag.
+> **Deprecated** in the 2026-07-28 protocol (SEP-2577); functional through the
+> deprecation window. Migration: accept directory paths as ordinary tool
+> parameters or resource URIs instead of relying on `roots/list`.
+> TODO(maxisbey): revisit before beta.
 
-> **Deprecated.** The roots capability is deprecated as of 2026-07-28
-> (SEP-2577). New servers should accept directory paths as ordinary tool
-> parameters or resource URIs instead.
+The client passes a `list_roots_callback` returning the filesystem locations it
+is willing to expose; a server tool calls `ctx.session.list_roots()` mid-request
+and the client's callback answers it. Passing the callback is what makes the
+client advertise the `roots` capability — there is no separate flag.
 
 ## Run it
 
@@ -23,9 +23,12 @@ uv run python -m stories.roots.client --http http://127.0.0.1:8000/mcp --legacy
 
 ## What to look at
 
+- `client.py` `main` — the
+  `Client(target, mode=mode, list_roots_callback=list_roots)` construction is
+  the whole client-side story: the callback is wired in as a constructor
+  argument, and that alone advertises the capability.
 - `client.py` `list_roots` — the callback takes a `ClientRequestContext` and
-  returns `ListRootsResult`; passing it as `list_roots_callback=` is what
-  advertises the capability.
+  returns `ListRootsResult`.
 - `server.py` — `await ctx.session.list_roots()` inside the tool body: a
   server→client request that blocks until the callback answers.
 - `server_lowlevel.py` — the same call from `ServerRequestContext.session`,
@@ -50,5 +53,5 @@ uv run python -m stories.roots.client --http http://127.0.0.1:8000/mcp --legacy
 
 ## See also
 
-`elicitation/`, `sampling/` — sibling server→client requests on the same MRTR
-migration path.
+`legacy_elicitation/`, `sampling/` — sibling server→client requests on the same
+MRTR migration path.

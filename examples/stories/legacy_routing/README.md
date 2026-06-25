@@ -20,11 +20,22 @@ uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant
 uv run python -m stories.legacy_routing.server_lowlevel --port 8000 &
-uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp --server server_lowlevel
+uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 ```
 
 ## What to look at
 
+- `client.py` — two visible connections to the SAME `/mcp` endpoint from one
+  `targets()` factory: `Client(targets(), mode=mode)` (default `"auto"` →
+  `server/discover` → the modern arm) and `Client(targets(), mode="legacy")`
+  (the `initialize` handshake → the legacy arm). Each asserts `which_arm`
+  reports the era the built-in router actually dispatched to. The era decision
+  is one explicit `mode=` argument at construction.
+- `client.py` — the predicate then shown directly against a modern body, a
+  legacy body, and a malformed-modern body. The runnable `build_app()` uses the
+  SDK's built-in router; the predicate itself is exercised as a pure
+  function — see the user-land composition recipe below for wiring it into
+  your own ingress.
 - `server.py` `classify_era` — the tri-state wrapper. `InboundModernRoute` →
   `"modern"`; rung-1 `INVALID_PARAMS` (no envelope keys) → `"legacy"`; any
   other `InboundLadderRejection` (header mismatch, unsupported version) is a
@@ -32,11 +43,6 @@ uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp 
 - `server.py` `build_app` — `streamable_http_app()` + `CORSMiddleware`. The
   `which_arm` tool reads `ctx.request_context.protocol_version` to prove which
   path the built-in router took.
-- `client.py` — same endpoint, two `mode=` values, two arms; then the predicate
-  shown directly against a modern body, a legacy body, and a malformed-modern
-  body. The runnable `build_app()` uses the SDK's built-in router; the
-  predicate itself is exercised as a pure function — see the user-land
-  composition recipe below for wiring it into your own ingress.
 - `server_lowlevel.py` — same `classify_era` and CORS recipe (re-used from
   `server.py`); `build_app` wires `lowlevel.Server` instead of `MCPServer` and
   reads `ctx.protocol_version` directly.

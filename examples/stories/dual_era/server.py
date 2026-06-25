@@ -6,6 +6,8 @@ from stories._hosting import run_server_from_args
 
 
 def build_server() -> MCPServer:
+    # The same factory serves both eras with no configuration. Which era a request is
+    # on is decided by the entry point / transport, never by the server.
     mcp = MCPServer("dual-era-example", instructions="A small dual-era demo server.")
 
     @mcp.tool()

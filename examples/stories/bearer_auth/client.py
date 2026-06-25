@@ -1,57 +1,48 @@
-"""Call the bearer-gated server with a static ``Authorization`` header; assert the principal."""
+"""Call the bearer-gated server through an already-authed transport; assert the ``whoami`` principal."""
 
-import sys
-import traceback
-from typing import Any
+from collections.abc import Generator
 
-import anyio
 import httpx
 
 from mcp.client import Client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.version import LATEST_MODERN_VERSION
-from stories._harness import argv_after
+from stories._harness import Target, run_client
 
 from .server import DEMO_TOKEN, REQUIRED_SCOPE
 
-# ``Client(url)`` has no ``auth=`` / ``http_client=`` passthrough yet, so the bearer
-# header is threaded at the ``httpx.AsyncClient`` layer. The harness reads this
-# module-level dict and splats it into the in-process bridge client.
-http_client_kw: dict[str, Any] = {"headers": {"authorization": f"Bearer {DEMO_TOKEN}"}}
+
+class StaticBearerAuth(httpx.Auth):
+    """``httpx.Auth`` that attaches a fixed ``Authorization: Bearer <token>`` to every request."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
+        request.headers["Authorization"] = f"Bearer {self.token}"
+        yield request
 
 
-async def scenario(client: Client) -> None:
-    listed = await client.list_tools()
-    assert [t.name for t in listed.tools] == ["whoami"]
+def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
+    """The demo bearer token as an ``httpx.Auth``.
 
-    result = await client.call_tool("whoami", {})
-    assert not result.is_error, result
-    assert result.structured_content == {
-        "subject": "demo-user",
-        "client_id": "demo-client",
-        "scopes": [REQUIRED_SCOPE],
-    }, result.structured_content
+    ``Client(url, auth=...)`` doesn't exist yet, so the harness threads this onto the underlying
+    ``httpx.AsyncClient`` and the target ``main`` receives is already routed through it.
+    """
+    return StaticBearerAuth(DEMO_TOKEN)
+
+
+async def main(target: Target, *, mode: str = "auto") -> None:
+    async with Client(target, mode=mode) as client:
+        listed = await client.list_tools()
+        assert [t.name for t in listed.tools] == ["whoami"]
+
+        result = await client.call_tool("whoami", {})
+        assert not result.is_error, result
+        assert result.structured_content == {
+            "subject": "demo-user",
+            "client_id": "demo-client",
+            "scopes": [REQUIRED_SCOPE],
+        }, result.structured_content
 
 
 if __name__ == "__main__":
-    # HTTP-only auth story; --http takes the MCP endpoint URL. Hand-rolled because
-    # ``connect_from_args`` cannot thread the bearer header; this IS the recipe.
-    url = argv_after("--http", default="http://127.0.0.1:8000/mcp")
-    mode = "legacy" if "--legacy" in sys.argv else LATEST_MODERN_VERSION
-
-    async def _main() -> None:
-        with anyio.fail_after(30):
-            async with (
-                httpx.AsyncClient(**http_client_kw) as http_client,
-                Client(streamable_http_client(url, http_client=http_client), mode=mode) as client,
-            ):
-                await scenario(client)
-
-    try:
-        anyio.run(_main)
-    except Exception:
-        print("FAIL: bearer_auth (http)", file=sys.stderr)
-        traceback.print_exc()
-        raise SystemExit(1) from None
-    print("OK: bearer_auth (http)", file=sys.stderr)
-    raise SystemExit(0)
+    run_client(main)

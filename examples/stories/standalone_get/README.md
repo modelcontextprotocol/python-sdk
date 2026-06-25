@@ -1,5 +1,11 @@
 # standalone-get
 
+> **Legacy mechanism (2025 handshake era).** The 2026-07-28 protocol delivers
+> server-initiated notifications over a `subscriptions/listen` stream instead
+> of the standalone GET stream. TODO(maxisbey): unify once
+> `subscriptions/listen` lands
+> ([#2901](https://github.com/modelcontextprotocol/python-sdk/issues/2901)).
+
 Server-initiated `notifications/resources/list_changed` delivered over the
 **standalone GET SSE stream** of a sessionful Streamable-HTTP connection. The
 `add_note` tool mutates the resource list and emits the notification with no
@@ -17,23 +23,20 @@ uv run python -m stories.standalone_get.client --http http://127.0.0.1:8000/mcp 
 
 ## What to look at
 
+- **`client.py` — `Client(target, mode=mode, message_handler=on_message)`.**
+  Unsolicited notifications have no typed callback, so the catch-all
+  `message_handler` is wired at construction — it (and the `anyio.Event` it
+  sets) must exist *before* the connection does. The notification is not
+  guaranteed to arrive before the tool result (different streams), so the body
+  `await`s the event, bounded by `anyio.fail_after(5)`.
 - **`server.py` — `await ctx.session.send_resource_list_changed()`.**
   `MCPServer.add_resource` does **not** auto-emit (unlike the TypeScript SDK's
   `registerResource`); the explicit call is the teaching point. Because
   `send_*_list_changed()` carries no `related_request_id`, the only route to the
   client is the standalone GET stream.
-- **`client.py` — `message_handler=` + `anyio.Event`.** The notification is not
-  guaranteed to arrive before the tool result (different streams), so the
-  scenario `await`s an event the handler sets, bounded by `anyio.fail_after(5)`.
-  `client_kw()` is a callable so each run wires a fresh `anyio.Event` into
-  `message_handler`.
 
 ## Caveats
 
-- **Legacy-era only.** The standalone GET stream is a sessionful 2025-era
-  transport feature; in 2026-07-28 these notifications travel on a
-  `subscriptions/listen` stream instead — not yet wired in this SDK
-  ([#2901](https://github.com/modelcontextprotocol/python-sdk/issues/2901)).
 - DNS-rebinding protection is disabled via `transport_security=NO_DNS_REBIND`
   because the in-process httpx client sends no `Origin` header. Drop the kwarg
   for a real deployment.

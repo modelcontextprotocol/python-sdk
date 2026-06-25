@@ -16,13 +16,22 @@ inside the progress callback (event-driven, no `sleep`).
 uv run python -m stories.streaming.client
 uv run python -m stories.streaming.client --server server_lowlevel
 
-# against a running HTTP server
+# against a running HTTP server (--legacy: see the note below)
 uv run python -m stories.streaming.server --http --port 8000 &
-uv run python -m stories.streaming.client --http http://127.0.0.1:8000/mcp
+uv run python -m stories.streaming.client --http http://127.0.0.1:8000/mcp --legacy
 ```
+
+The modern HTTP leg (drop `--legacy`) is `xfail` until the SSE wiring lands —
+mid-call progress and log notifications are currently dropped there (see
+Caveats).
 
 ## What to look at
 
+- `client.py` `main` — opens with `async with Client(target, mode=mode,
+  logging_callback=on_log)`. The story owns that construction; the harness only
+  picks the target and era. `logging_callback` is constructor-only on `Client`
+  (no setter after connect), so the callback and the `logs` list it fills are
+  closed over right above the `Client(...)` call.
 - `server.py` — `ctx.report_progress(i, steps, msg)` is a silent no-op when the
   caller passed no `progress_callback`; the SDK reads the token from the
   request's `_meta` for you. The log notification is sent via the raw
@@ -44,9 +53,11 @@ uv run python -m stories.streaming.client --http http://127.0.0.1:8000/mcp
 
 ## Caveats
 
-- **Logging is deprecated** as of 2026-07-28 (SEP-2577); migrate to stderr /
-  OpenTelemetry. It is shown here because servers still need to support
-  2025-era clients during the deprecation window.
+- **Logging is deprecated** in the 2026-07-28 protocol (SEP-2577); functional
+  through the deprecation window. Migration: write to stderr or emit
+  OpenTelemetry instead of `notifications/message`. It is shown here because
+  servers still need to support 2025-era clients during that window. Progress
+  and cancellation are **not** deprecated. TODO(maxisbey): revisit before beta.
 - On the modern (2026-07-28) streamable-HTTP path, mid-call progress and log
   notifications are currently dropped pending the SSE wiring; the
   `http-asgi:modern` leg of this story is `xfail` until that lands.
@@ -54,8 +65,6 @@ uv run python -m stories.streaming.client --http http://127.0.0.1:8000/mcp
   `ErrorData(code=0, message="Request cancelled")`; the spec says it should not
   reply at all. The client never observes it (its awaiting task is already
   cancelled), so this story does not assert on the reply.
-- `Client.logging_callback` is constructor-only (no setter), so the callback
-  and the list it fills are module-level; `scenario()` clears the list at start.
 
 ## Spec
 

@@ -8,7 +8,7 @@ protected-resource metadata route, the AS routes (`/register`, `/authorize`,
 `/mcp` endpoint on a single Starlette app. On the **client** side:
 `OAuthClientProvider` is an `httpx.Auth` that reacts to the first `401` by
 walking PRM discovery → AS metadata → DCR → PKCE authorize → token exchange →
-bearer retry — all inside `Client.__aenter__`, with no user-visible
+bearer retry — all inside the first awaited request, with no user-visible
 `UnauthorizedError`.
 
 ## Run it
@@ -24,12 +24,37 @@ uv run python -m stories.oauth.client --http http://127.0.0.1:8000/mcp
 OAUTH_DEMO_AUTO_CONSENT=1 uv run python -m stories.oauth.server_lowlevel --port 8000
 ```
 
+The port must be **8000**: the demo AS metadata (`_shared/auth.py` `BASE_URL`)
+is pinned to it on both the client and server side, so on any other port the
+PRM/AS discovery chain points at the wrong origin.
+
 `OAUTH_DEMO_AUTO_CONSENT=1` makes the demo AS skip the consent screen and 302
 straight back with `?code=...`; without it the authorize step returns
 `error=interaction_required` so you can see where a real browser would open.
 
+`Client(url)` has no `auth=` passthrough, so a target built from a bare URL
+can't carry the flow. Both runners close that gap the same way: `run_client`
+(terminal 2) and the pytest harness build an authed `httpx.AsyncClient` from
+this module's `build_auth` export and hand `main` targets that are already
+routed through it.
+
 ## What to look at
 
+- **`client.py` — `Client(targets(), mode=mode)`, twice.** The target `main`
+  receives is already authed. The first construction is where the whole flow
+  happens: the first request `401`s and `OAuthClientProvider` runs PRM
+  discovery → AS metadata → DCR → PKCE authorize → token exchange → bearer
+  retry before `whoami`'s result reaches the body.
+- **`client.py` — the second `Client(targets(), mode=mode)`.** A `Client`
+  cannot be re-entered after `__aexit__`; reconnecting means constructing a new
+  one. The provider's `TokenStorage` persisted the tokens and the DCR
+  registration, so this one sends `Authorization: Bearer ...` on its very first
+  request — no second `/authorize`, no second `/register`. The demo AS mints a
+  fresh `client_id` per DCR call, so `whoami` returning the *same* `client_id`
+  is the reuse proof.
+- **`client.py` — `build_auth()`.** `OAuthClientProvider` is an `httpx.Auth`.
+  `Client(url, auth=...)` is the ergonomic the SDK is missing; until it lands
+  the auth has to be threaded onto the underlying `httpx.AsyncClient` by hand.
 - **`server.py` — `MCPServer(auth=..., auth_server_provider=...)`.** The
   constructor wires everything; `streamable_http_app()` reads it back. (Don't
   also pass `token_verifier=` — `auth_server_provider` and `token_verifier` are
@@ -40,14 +65,6 @@ straight back with `?code=...`; without it the authorize step returns
   `auth=`/`token_verifier=`/`auth_server_provider=` on `streamable_http_app()`
   rather than the constructor. `mcp.server.auth.*` is a helper tier the lowlevel
   API may import directly.
-- **`client.py` — `_auth_with()` / `build_auth()`.** `OAuthClientProvider` is
-  threaded onto `httpx.AsyncClient.auth`; `Client(url)` has no `auth=` kwarg
-  yet, so the transport is built by hand:
-  `Client(streamable_http_client(url, http_client=http))`.
-- **`client.py` — token reuse.** A `Client` cannot be re-entered after
-  `__aexit__`. The third connection reuses the same `TokenStorage`, so it sends
-  `Authorization: Bearer ...` on the very first request — no `/authorize`, no
-  `/register` — and `whoami` returns the DCR-persisted `client_id`.
 
 ## Caveats
 
@@ -67,4 +84,4 @@ straight back with `?code=...`; without it the authorize step returns
 
 `bearer_auth/` (RS-only, static token, no AS) · `oauth_client_credentials/`
 (M2M `client_credentials` grant — no browser, no DCR) · `reconnect/` (the other
-`connect: Connect` consumer).
+multi-connection `targets()` consumer, no auth).

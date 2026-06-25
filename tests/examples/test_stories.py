@@ -1,4 +1,4 @@
-"""Run every story's ``scenario`` over the in-process (transport × era × variant) matrix."""
+"""Run every story's ``main`` over the in-process (transport × era × variant) matrix."""
 
 from __future__ import annotations
 
@@ -14,22 +14,15 @@ from tests.examples.conftest import MANIFEST, STORIES, STORIES_DIR, Hosted, Leg,
 pytestmark = pytest.mark.anyio
 
 
-async def test_story(
-    leg: Leg,
-    cfg: dict[str, Any],
-    hosted: Hosted,
-    client_module: Any,
-    scenario_kw: dict[str, Any],
-) -> None:
-    scenario = client_module.scenario
+async def test_story(leg: Leg, cfg: dict[str, Any], hosted: Hosted, client_module: Any) -> None:
+    kwargs: dict[str, Any] = {"mode": leg.mode}
+    if cfg["needs_http"]:
+        kwargs["http"] = hosted.http
     with anyio.fail_after(cfg["timeout_s"]):
-        async with hosted.connect(**scenario_kw) as client:
-            args: list[Any] = [client]
-            if cfg["needs_connect"] or leg.era == "in-body":
-                args.append(hosted.connect)
-            if cfg["needs_http"]:
-                args.append(hosted.http)
-            await scenario(*args)
+        if cfg["multi_connection"]:
+            await client_module.main(hosted.targets, **kwargs)
+        else:
+            await client_module.main(hosted.targets(), **kwargs)
 
 
 def test_manifest_matches_filesystem() -> None:
@@ -56,7 +49,7 @@ def test_manifest_schema_valid() -> None:
     """Declared manifest values are mutually consistent with the story files."""
     for name in STORIES:
         cfg = story_cfg(name)
-        assert "-" not in name, f"{name!r}: story directories must be underscored (R3)"
+        assert "-" not in name, f"{name!r}: story directories must be underscored"
         assert cfg["era"] in _ERAS, f"{name!r}: era={cfg['era']!r} not in {_ERAS}"
         assert cfg["server_export"] in _SERVER_EXPORTS, f"{name!r}: server_export={cfg['server_export']!r}"
         assert set(cfg["transports"]) <= _TRANSPORTS, f"{name!r}: transports={cfg['transports']!r}"
@@ -71,12 +64,11 @@ def test_manifest_schema_valid() -> None:
         assert cfg["lowlevel"] == ll.exists(), f"{name!r}: lowlevel={cfg['lowlevel']} vs server_lowlevel.py on disk"
 
 
-def test_scenario_arity_matches_manifest() -> None:
-    """``scenario`` parameter count agrees with ``needs_connect``/``dual-in-body``/``needs_http``."""
-    for name in STORIES:
-        cfg = story_cfg(name)
-        wants_connect = cfg["needs_connect"] or cfg["era"] == "dual-in-body"
-        expected = 1 + int(wants_connect) + int(cfg["needs_http"])
-        mod = importlib.import_module(f"stories.{name}.client")
-        arity = len(inspect.signature(mod.scenario).parameters)
-        assert arity == expected, f"{name}: arity={arity} expected={expected}"
+@pytest.mark.parametrize("name", sorted(STORIES))
+def test_main_signature_matches_manifest(name: str) -> None:
+    """``main``'s first parameter is ``target``/``targets`` per ``multi_connection``; ``http`` iff ``needs_http``."""
+    cfg = story_cfg(name)
+    params = list(inspect.signature(importlib.import_module(f"stories.{name}.client").main).parameters)
+    first = "targets" if cfg["multi_connection"] else "target"
+    assert params[0] == first, f"{name}: first param is {params[0]!r}, expected {first!r}"
+    assert ("http" in params) == cfg["needs_http"], f"{name}: 'http' param vs needs_http={cfg['needs_http']}"

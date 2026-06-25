@@ -1,13 +1,11 @@
 """Supply a canned sampling_callback and assert its text round-trips through the tool."""
 
-from typing import Any
-
 from mcp.client import Client, ClientRequestContext
 from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
-from stories._harness import connect_from_args, run_client
+from stories._harness import Target, run_client
 
 
-async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
+async def on_sample(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
     # A real host would call its LLM provider here; the example returns a deterministic
     # canned answer so the round-trip is assertable.
     return CreateMessageResult(
@@ -18,17 +16,14 @@ async def sampling_callback(context: ClientRequestContext, params: CreateMessage
     )
 
 
-def client_kw() -> dict[str, Any]:
-    return {"sampling_callback": sampling_callback}
+async def main(target: Target, *, mode: str = "auto") -> None:
+    async with Client(target, mode=mode, sampling_callback=on_sample) as client:
+        result = await client.call_tool("summarize", {"text": "hello world"})
 
-
-async def scenario(client: Client) -> None:
-    result = await client.call_tool("summarize", {"text": "hello world"})
-
-    assert not result.is_error, result
-    assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == "[canned summary]", result.content[0].text
+        assert not result.is_error, result
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "[canned summary]", result.content[0].text
 
 
 if __name__ == "__main__":
-    run_client(scenario, connect=connect_from_args(__file__), **client_kw())
+    run_client(main)
