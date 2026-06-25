@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.resolve import (
+    build_resolver_plans,
+    find_resolved_parameters,
+    resolve_arguments,
+)
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
@@ -32,6 +37,14 @@ class Tool(BaseModel):
     )
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    resolved_params: dict[str, Any] = Field(
+        default_factory=lambda: {},
+        exclude=True,
+        description="Parameters filled by resolvers, mapped to (Resolve, wants_union)",
+    )
+    resolver_plans: dict[int, Any] = Field(
+        default_factory=lambda: {}, exclude=True, description="Static per-resolver parameter plans"
+    )
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
@@ -67,12 +80,22 @@ class Tool(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
+        resolved_params = find_resolved_parameters(fn)
+
+        skip_names = [context_kwarg] if context_kwarg is not None else []
+        skip_names.extend(resolved_params)
+
         func_arg_metadata = func_metadata(
             fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            skip_names=skip_names,
             structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+
+        tool_arg_names = set(func_arg_metadata.arg_model.model_fields) | {
+            field.alias for field in func_arg_metadata.arg_model.model_fields.values() if field.alias
+        }
+        resolver_plans = build_resolver_plans(resolved_params, tool_arg_names)
 
         return cls(
             fn=fn,
@@ -83,6 +106,8 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            resolved_params=dict(resolved_params),
+            resolver_plans=resolver_plans,
             annotations=annotations,
             icons=icons,
             meta=meta,
@@ -100,11 +125,18 @@ class Tool(BaseModel):
             ToolError: If the tool function raises during execution.
         """
         try:
+            pass_directly: dict[str, Any] = {}
+            if self.context_kwarg is not None:
+                pass_directly[self.context_kwarg] = context
+            if self.resolved_params:
+                tool_args = self.fn_metadata.validate_arguments(arguments)
+                pass_directly |= await resolve_arguments(self.resolved_params, self.resolver_plans, tool_args, context)
+
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
-                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+                pass_directly or None,
             )
 
             if convert_result:

@@ -65,6 +65,16 @@ class FuncMetadata(BaseModel):
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
     wrap_output: bool = False
 
+    def validate_arguments(self, arguments_to_validate: dict[str, Any]) -> dict[str, Any]:
+        """Validate raw arguments into a one-level kwargs dict (no function call).
+
+        Used to feed resolver dependency injection the validated tool arguments
+        before the tool function itself runs.
+        """
+        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
+        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
+        return arguments_parsed_model.model_dump_one_level()
+
     async def call_fn_with_arg_validation(
         self,
         fn: Callable[..., Any | Awaitable[Any]],
@@ -77,9 +87,7 @@ class FuncMetadata(BaseModel):
         Arguments are first attempted to be parsed from JSON, then validated against
         the argument model, before being passed to the function.
         """
-        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
-        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
-        arguments_parsed_dict = arguments_parsed_model.model_dump_one_level()
+        arguments_parsed_dict = self.validate_arguments(arguments_to_validate)
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 

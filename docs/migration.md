@@ -1396,6 +1396,64 @@ app = server.streamable_http_app(
 
 The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
+### Resolver dependency injection for tools (`Resolve` / `Elicit`)
+
+A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the resolver `fn` before the tool body, instead of by the calling LLM. Resolvers form a dependency graph: a resolver may declare its own `Resolve(...)` dependencies, read the `Context` (including `ctx.headers`), and receive the tool's own arguments by name. A resolver may return `Elicit[T]` to ask the client; the SDK runs the elicitation and injects the answer. Each resolver runs at most once per `tools/call`.
+
+```python
+from typing import Annotated
+
+from pydantic import BaseModel
+
+from mcp.server.mcpserver import AcceptedElicitation, Context, Elicit, MCPServer, Resolve
+
+mcp = MCPServer(name="github")
+
+
+class Login(BaseModel):
+    username: str
+
+
+class Confirm(BaseModel):
+    ok: bool
+
+
+async def login(ctx: Context) -> Login | Elicit[Login]:
+    if username := (ctx.headers or {}).get("x-github-user"):
+        return Login(username=username)  # resolved from context, no question
+    return Elicit("GitHub username?", Login)  # must ask
+
+
+async def confirm(repo: str, login: Annotated[Login, Resolve(login)]) -> Elicit[Confirm]:
+    return Elicit(f"Star {repo} as {login.username}?", Confirm)
+
+
+@mcp.tool()
+async def star_repo(
+    repo: str,
+    login: Annotated[Login, Resolve(login)],
+    confirm: Annotated[Confirm, Resolve(confirm)],
+) -> str:
+    """Star a GitHub repo."""
+    return f"starred {repo} as {login.username}" if confirm.ok else "cancelled"
+```
+
+The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Login, Resolve(login)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead, annotate the elicitation result union:
+
+```python
+@mcp.tool()
+async def whoami(
+    login: Annotated[AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation, Resolve(login)],
+) -> str:
+    match login:
+        case AcceptedElicitation(data=data):
+            return f"hi {data.username}"
+        case _:
+            return "no username provided"
+```
+
+Resolved parameters are omitted from the tool's input schema, so the client never supplies them. Resolver parameters that cannot be classified, and cyclic resolver dependencies, raise at registration time.
+
 ## Need Help?
 
 If you encounter issues during migration:
