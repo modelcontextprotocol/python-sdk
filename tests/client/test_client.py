@@ -415,13 +415,14 @@ async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Serve
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 
-@pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.REQUEST_TIMEOUT])
+@pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.REQUEST_TIMEOUT, types.INTERNAL_ERROR])
 async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: int) -> None:
-    """`mode='auto'`: when `server/discover` is rejected with -32601 or -32001,
-    `Client.__aenter__` runs the legacy `initialize()` handshake and lands at a
-    handshake-era protocol version. The session itself does not fall back —
-    that policy lives here. A real `Server` always implements `server/discover`,
-    so the server side is hand-played."""
+    """`mode='auto'`: any JSON-RPC error from `server/discover` makes
+    `Client.__aenter__` run the legacy `initialize()` handshake and land at a
+    handshake-era protocol version. The denylist policy treats every server-sent
+    rpc-error as "not modern" — including INTERNAL_ERROR, since a legacy server
+    may crash on the unknown method before reaching its router. A real `Server`
+    always implements `server/discover`, so the server side is hand-played."""
     methods_seen: list[str] = []
 
     async def scripted_server(streams: MessageStream) -> None:

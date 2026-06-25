@@ -31,7 +31,6 @@ from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, 
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -217,31 +216,27 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
 
 
 @requirement("lifecycle:discover:network-error-raises")
-async def test_auto_mode_reraises_a_non_fallback_discover_error_without_initializing() -> None:
-    """A `server/discover` failure that is not a recognised legacy-server rejection raises without falling back.
+async def test_auto_mode_propagates_a_network_error_from_discover_without_initializing() -> None:
+    """A network/connection error during `server/discover` propagates to the caller without falling back.
 
-    Requirement `lifecycle:discover:network-error-raises` (sdk-defined): a 5xx-class error from
-    the probe is surfaced to the caller; the client never sends `initialize`. Exercised here as
-    the JSON-RPC INTERNAL_ERROR branch (which the modern HTTP entry maps to a 5xx). The error
+    Requirement `lifecycle:discover:network-error-raises` (sdk-defined): under the denylist policy
+    every server-sent rpc-error and every transport-layer 4xx falls back to `initialize()`; the
+    only probe failures that reach the caller are real outages — network errors, anyio resource
+    errors, and the disjoint-modern -32022 case. Exercised here as an `httpx.ConnectError` from
+    the underlying transport, which the policy must not classify as an era verdict. The error
     reaches the test wrapped in the streamable-http transport's task-group teardown, so
-    `pytest.RaisesGroup` flattens before matching.
+    `pytest.RaisesGroup` flattens before matching. The probe POST is recorded before the
+    transport raises, so the `initialize` fallback observably did not happen.
     """
+    requests: list[httpx.Request] = []
 
-    async def discover(ctx: ServerRequestContext, params: types.RequestParams | None) -> DiscoverResult:
-        raise MCPError(code=INTERNAL_ERROR, message="storage unavailable")
-
-    server = _tools_server()
-    server.add_request_handler("server/discover", types.RequestParams, discover)
-    requests, on_request = _request_recorder()
-
-    def is_internal_error(exc: MCPError) -> bool:
-        return exc.code == INTERNAL_ERROR
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise httpx.ConnectError("connection refused")
 
     with anyio.fail_after(5):
-        async with mounted_app(server, on_request=on_request) as (http, _):
-            with pytest.RaisesGroup(
-                pytest.RaisesExc(MCPError, check=is_internal_error), flatten_subgroups=True
-            ):  # pragma: no branch
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            with pytest.RaisesGroup(httpx.ConnectError, flatten_subgroups=True):  # pragma: no branch
                 async with Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto"):
                     raise NotImplementedError("entering the Client should have raised")  # pragma: no cover
 

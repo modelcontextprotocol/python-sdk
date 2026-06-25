@@ -430,17 +430,18 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:discover:fallback-method-not-found": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
         behavior=(
-            "When server/discover returns -32601 (or HTTP 404), an auto-negotiating client falls back to "
-            "the legacy initialize handshake and the connection succeeds at a handshake-era version."
+            "When server/discover returns any JSON-RPC error or a bare HTTP 4xx, an auto-negotiating "
+            "client falls back to the legacy initialize handshake and the connection succeeds at a "
+            "handshake-era version (legacy servers reject the probe with various codes)."
         ),
         added_in="2026-07-28",
     ),
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
         behavior=(
-            "A network/connection error or 5xx during server/discover raises to the caller without "
-            "falling back to initialize. A 4xx with a JSON-RPC error body is a server-side rejection "
-            "and falls back (legacy servers reject the probe with 400 INVALID_REQUEST)."
+            "A network/connection error during server/discover propagates to the caller without "
+            "falling back to initialize; any rpc-error or 4xx falls back (legacy servers reject the "
+            "probe with various codes). An outage is never an era verdict."
         ),
         transports=("streamable-http", "streamable-http-stateless"),
         added_in="2026-07-28",

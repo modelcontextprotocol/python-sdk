@@ -12,6 +12,7 @@ from typing_extensions import deprecated
 
 from mcp import types
 from mcp.client._memory import InMemoryTransport
+from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.streamable_http import streamable_http_client
@@ -20,13 +21,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
-    INVALID_REQUEST,
-    METHOD_NOT_FOUND,
-    REQUEST_TIMEOUT,
     CallToolResult,
     CompleteResult,
     EmptyResult,
@@ -183,8 +181,7 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    # TODO(maxisbey): flip default to 'auto' once the in-proc test suite is era-decoupled
-    # and the probe-timeout fallback is transport-aware (stdio→fallback / HTTP→reject).
+    # TODO(maxisbey): flip default to 'auto' once the in-proc test suite is era-decoupled.
     mode: ConnectMode = "legacy"
     """'legacy' performs the initialize handshake. 'auto' probes server/discover and falls back to initialize()
     on legacy servers. A modern protocol-version string (e.g. '2026-07-28') adopts that version directly without
@@ -250,15 +247,7 @@ class Client:
             if self.mode == "legacy":
                 await session.initialize()
             elif self.mode == "auto":
-                try:
-                    await session.discover()
-                except MCPError as e:
-                    # TODO(L73): invert this allowlist into a `classify_probe_outcome` denylist —
-                    # fall back on every rpc-error/4xx that isn't a recognized modern error.
-                    if e.code in (METHOD_NOT_FOUND, INVALID_REQUEST, REQUEST_TIMEOUT):
-                        await session.initialize()
-                    else:
-                        raise
+                await negotiate_auto(session)
             else:
                 session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 

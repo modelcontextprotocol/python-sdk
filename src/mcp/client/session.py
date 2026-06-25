@@ -393,6 +393,35 @@ class ClientSession:
             self._discover_result = None
             self._negotiated_version = result.protocol_version
 
+    async def send_discover(self, version: str) -> dict[str, Any]:
+        """Send a single ``server/discover`` at ``version`` and return the raw result dict.
+
+        No retry, no ``adopt()``. The ``_meta`` envelope and the
+        ``Mcp-Protocol-Version`` header are stamped at ``version`` so the
+        server-side era router sees a coherent probe. Used by ``discover()`` and
+        the connect-time auto-negotiation policy.
+
+        Raises:
+            MCPError: The server returned a JSON-RPC error.
+            ProbeNotRecognized: The transport bounced the request at its own
+                layer (HTTP 4xx without a JSON-RPC error body).
+        """
+        client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+        capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+        params = {
+            "_meta": {
+                PROTOCOL_VERSION_META_KEY: version,
+                CLIENT_INFO_META_KEY: client_info,
+                CLIENT_CAPABILITIES_META_KEY: capabilities,
+            }
+        }
+        opts: CallOptions = {
+            "timeout": DISCOVER_TIMEOUT_SECONDS,
+            "cancel_on_abandon": False,
+            "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
+        }
+        return await self._dispatcher.send_raw_request("server/discover", params, opts)
+
     async def discover(self) -> types.DiscoverResult:
         """Probe `server/discover` and adopt the result.
 
@@ -412,26 +441,8 @@ class ClientSession:
         if self._discover_result is not None:
             return self._discover_result
 
-        client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
-        capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        async def probe(version: str) -> dict[str, Any]:
-            params = {
-                "_meta": {
-                    PROTOCOL_VERSION_META_KEY: version,
-                    CLIENT_INFO_META_KEY: client_info,
-                    CLIENT_CAPABILITIES_META_KEY: capabilities,
-                }
-            }
-            opts: CallOptions = {
-                "timeout": DISCOVER_TIMEOUT_SECONDS,
-                "cancel_on_abandon": False,
-                "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
-            }
-            return await self._dispatcher.send_raw_request("server/discover", params, opts)
-
         try:
-            raw = await probe(LATEST_MODERN_VERSION)
+            raw = await self.send_discover(LATEST_MODERN_VERSION)
         except MCPError as e:
             if e.code != UNSUPPORTED_PROTOCOL_VERSION:
                 raise
@@ -443,7 +454,7 @@ class ClientSession:
             mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in data.supported]
             if not mutual:
                 raise
-            raw = await probe(mutual[-1])
+            raw = await self.send_discover(mutual[-1])
 
         result = types.DiscoverResult.model_validate(raw)
         self.adopt(result)
