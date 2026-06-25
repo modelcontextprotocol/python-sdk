@@ -222,13 +222,13 @@ async def test_sync_resolver():
 
 def test_resolved_params_absent_from_input_schema():
     async def login(ctx: Context) -> Login:
-        return Login(username="x")
+        return Login(username="x")  # pragma: no cover - only the schema is inspected
 
     async def tool(
         repo: Annotated[str, Field(description="repo name")],
         login: Annotated[Login, Resolve(login)],
     ) -> str:
-        return repo
+        return repo  # pragma: no cover - only the schema is inspected
 
     built = Tool.from_function(tool)
     properties = built.parameters["properties"]
