@@ -1,6 +1,6 @@
 [project]
 name = "mcp"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 description = "Model Context Protocol SDK"
 readme = "README.v2.md"
 requires-python = ">=3.10"
@@ -24,30 +24,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = [
-    # anyio < 4.10 triggers a compile-time SyntaxWarning on Python 3.14 (PEP 765,
-    # "'return' in a 'finally' block"); for stdio servers it lands on the child's
-    # stderr (agronholm/anyio#816, fixed in 4.10).
-    "anyio>=4.10; python_version >= '3.14'",
-    "anyio>=4.9; python_version < '3.14'",
-    "httpx>=0.27.1,<1.0.0",
-    "httpx-sse>=0.4",
-    "mcp-types",
-    "pydantic>=2.12.0",
-    "starlette>=0.48.0; python_version >= '3.14'",
-    "starlette>=0.27; python_version < '3.14'",
-    "python-multipart>=0.0.9",
-    "sse-starlette>=3.0.0",
-    "pydantic-settings>=2.5.2",
-    "uvicorn>=0.31.1; sys_platform != 'emscripten'",
-    "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
-    "pyjwt[crypto]>=2.10.1",
-    "typing-extensions>=4.13.0",
-    "typing-inspection>=0.4.1",
-    "opentelemetry-api>=1.28.0",
-]
-
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
@@ -118,6 +94,31 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    # anyio < 4.10 triggers a compile-time SyntaxWarning on Python 3.14 (PEP 765,
+    # "'return' in a 'finally' block"); for stdio servers it lands on the child's
+    # stderr (agronholm/anyio#816, fixed in 4.10).
+    "anyio>=4.10; python_version >= '3.14'",
+    "anyio>=4.9; python_version < '3.14'",
+    "httpx>=0.27.1,<1.0.0",
+    "httpx-sse>=0.4",
+    "mcp-types=={{ version }}",
+    "pydantic>=2.12.0",
+    "starlette>=0.48.0; python_version >= '3.14'",
+    "starlette>=0.27; python_version < '3.14'",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=3.0.0",
+    "pydantic-settings>=2.5.2",
+    "uvicorn>=0.31.1; sys_platform != 'emscripten'",
+    "jsonschema>=4.20.0",
+    "pywin32>=311; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
+    "typing-extensions>=4.13.0",
+    "typing-inspection>=0.4.1",
+    "opentelemetry-api>=1.28.0",
+]
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"
