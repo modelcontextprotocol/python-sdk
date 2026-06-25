@@ -1,4 +1,4 @@
-"""Connect to the same server factory twice — once per era — and assert both are served."""
+"""Connect to the same server factory twice — once per era, so `main` takes `targets` — and assert both are served."""
 
 from mcp import types
 from mcp.client import Client

@@ -1,4 +1,4 @@
-"""Connect at each era; the same stateless app answers both with the same result."""
+"""Connect at each era — two connections, so `main` takes `targets`; the same stateless app answers both."""
 
 from mcp.client import Client
 from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION

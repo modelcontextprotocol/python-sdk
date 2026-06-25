@@ -1,4 +1,4 @@
-"""Connect to the sub-mounted MCP endpoint at /api/, list tools and call greet."""
+"""Connect to the sub-mounted MCP endpoint at /api/, list tools and call greet. HTTP-only: the mount is the story."""
 
 from mcp.client import Client
 from mcp.types import TextContent

@@ -1,4 +1,4 @@
-"""SEP-1699: a tool that closes its own SSE stream mid-call; the event store buffers the rest."""
+"""SEP-1699: a tool closes its own SSE stream mid-call; the event store buffers the rest. Exports `build_app()`."""
 
 from starlette.applications import Starlette
 

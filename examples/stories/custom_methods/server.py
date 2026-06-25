@@ -24,7 +24,7 @@ class SearchResult(types.Result):
 
 
 def build_server() -> Server[Any]:
-    server = Server("acme-search")
+    server = Server("custom-methods-example")
 
     async def search(ctx: ServerRequestContext[Any], params: SearchParams) -> SearchResult:
         items = [f"{params.query}-{i}" for i in range(params.limit)]

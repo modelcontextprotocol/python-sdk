@@ -1,4 +1,4 @@
-"""OAuth-protected MCP server: in-process AS + PRM + bearer-gated /mcp on one Starlette app."""
+"""OAuth-protected MCP server: in-process AS + PRM + bearer-gated /mcp on one Starlette app — exports `build_app()`."""
 
 from pydantic import BaseModel
 from starlette.applications import Starlette

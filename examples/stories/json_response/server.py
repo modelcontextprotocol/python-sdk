@@ -1,4 +1,4 @@
-"""Serve over Streamable HTTP with JSON responses (no SSE stream).
+"""Serve over Streamable HTTP with JSON responses (no SSE stream); HTTP-only, so this exports ``build_app()``.
 
 The 2026-07-28 path is stateless and JSON-only by construction today; the
 ``json_response=True`` flag also forces JSON for the legacy (2025-era) branch on

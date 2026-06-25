@@ -1,4 +1,4 @@
-"""Connect at both eras to one app; assert the built-in router and the predicate agree."""
+"""Connect at both eras to one app — so `main` takes `targets` — and assert the built-in router and predicate agree."""
 
 from typing import Any
 

@@ -6,6 +6,45 @@ One feature per folder. Each story is a small, self-verifying program: a
 exits non-zero on failure. The code you read here is the same code CI runs —
 there is no separate test double.
 
+## Canonical shape
+
+Every `client.py` starts from this skeleton — copy it, then replace the body
+with the story's assertions:
+
+```python
+"""One line: what this client proves."""
+
+from mcp.client import Client
+from stories._harness import Target, run_client
+
+
+async def main(target: Target, *, mode: str = "auto") -> None:
+    async with Client(target, mode=mode) as client:
+        ...  # the story's assertions
+
+
+if __name__ == "__main__":
+    run_client(main)
+```
+
+There are exactly two `main` shapes. A story that opens **one** connection
+takes `main(target: Target, ...)`. A story that opens **more than one** sets
+`multi_connection = true` in [`manifest.toml`](manifest.toml), takes
+`main(targets: TargetFactory, ...)`, and calls `targets()` once per fresh
+connection — a `Client` cannot be re-entered after exit. Nothing else changes
+shape.
+
+Story files import from `stories._harness` only these names: `run_client`,
+`target_from_args`, `Target`, `TargetFactory` — plus `AuthBuilder` for the
+auth stories. Everything else a story uses comes from public `mcp.*` modules.
+
+The repetition this produces across stories is deliberate, not a refactor
+waiting to happen: each `client.py` is a standalone, compiled doc page, so
+when a public API changes, N red example files flag N doc pages. Don't pull
+the `Client(target, mode=mode)` line (or anything around it) into a shared
+helper. A story that can't be the canonical shape says why in its module
+docstring's first line.
+
 ## How to read a story
 
 Start with the story's README, then `server.py`, then `client.py`. Every

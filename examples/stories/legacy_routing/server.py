@@ -1,4 +1,4 @@
-"""Exported era classifier: the body-primary predicate, the built-in dual-era app, and CORS."""
+"""Exported era classifier: the body-primary predicate, the built-in dual-era app, and CORS — exports `build_app()`."""
 
 from collections.abc import Mapping
 from typing import Any, Literal

@@ -1,4 +1,4 @@
-"""Connect with ``ClientCredentialsOAuthProvider``; assert ``whoami`` round-trips client_id + scopes."""
+"""HTTP-only: ``build_auth`` returns a ``ClientCredentialsOAuthProvider``; ``whoami`` round-trips client_id + scopes."""
 
 import httpx
 

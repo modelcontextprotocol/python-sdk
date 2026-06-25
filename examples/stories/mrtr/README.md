@@ -7,9 +7,11 @@ the server resumes from the carried state. The story will show both the
 auto-fulfil helper and a manual resubmit loop.
 
 **Status: not yet implemented** ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)).
-The `InputRequiredResult` types exist, but `Client.call_tool` still validates
-the response as a plain `CallToolResult` and rejects `input_required`. There is
-no runnable round-trip until the runtime lands.
+The lowlevel registration surface exists on `main` as of
+[#2967](https://github.com/modelcontextprotocol/python-sdk/pull/2967)
+(`ae13ede`), which widened the tool/prompt/resource handler return types to
+include `InputRequiredResult`. This story graduates from a README stub to a
+runnable example once this branch's base includes that commit.
 
 ## Spec
 
@@ -23,4 +25,6 @@ The TypeScript SDK ships a runnable `mrtr` story:
 ## See also
 
 `legacy_elicitation/` and `sampling/` — the handshake-era push equivalents that
-this mechanism replaces on the 2026 protocol.
+this mechanism replaces on the 2026 protocol. The TypeScript SDK ships a single
+dual-era `elicitation/` story covering both eras in one place; we re-merge
+`legacy_elicitation/` back into `elicitation/` once MRTR lands.

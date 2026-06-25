@@ -13,7 +13,7 @@ class Registration(BaseModel):
 
 
 def build_server() -> MCPServer:
-    mcp = MCPServer("elicitation-example")
+    mcp = MCPServer("legacy-elicitation-example")
 
     @mcp.tool(description="Register a new account by asking the user for their details.")
     async def register_user(ctx: Context) -> str:

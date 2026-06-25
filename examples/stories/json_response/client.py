@@ -1,4 +1,4 @@
-"""Regular ``Client`` against a JSON-only server; assert mid-call progress is dropped.
+"""Plain ``Client`` against a JSON-only server: mid-call progress drops. HTTP-only — ``main`` also takes ``http``.
 
 ``RAW_ENVELOPE_BODY`` / ``MODERN_HEADERS`` are the exact wire shape a 2026-era client
 sends — this is the only story that shows it. ``main`` posts that body by hand and

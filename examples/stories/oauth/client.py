@@ -1,4 +1,4 @@
-"""OAuth authorization-code flow: 401 → PRM → AS metadata → DCR → PKCE authorize → token → retry."""
+"""HTTP-only OAuth authorization-code flow; `build_auth` supplies the provider, reconnecting needs `targets`."""
 
 import httpx
 from pydantic import AnyUrl

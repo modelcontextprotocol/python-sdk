@@ -6,8 +6,12 @@ them. Replaces the handshake-era `resources/subscribe` + standalone-GET
 notification path.
 
 **Status: not yet implemented** ([#2901](https://github.com/modelcontextprotocol/python-sdk/issues/2901)).
-Types exist; there is no `Client.listen()`, no `ServerEventBus`, and no
-entry-handled `subscriptions/listen` route yet.
+The lowlevel registration surface exists on `main` as of
+[#2967](https://github.com/modelcontextprotocol/python-sdk/pull/2967)
+(`ae13ede`), which added the lowlevel `on_subscriptions_listen` handler slot.
+There is no `Client.listen()` or `ServerEventBus` yet; this story graduates
+from a README stub to a runnable example once this branch's base includes that
+commit.
 
 ## Spec
 

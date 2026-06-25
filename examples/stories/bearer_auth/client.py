@@ -1,4 +1,4 @@
-"""Call the bearer-gated server through an already-authed transport; assert the ``whoami`` principal."""
+"""Call the bearer-gated server through an already-authed (``build_auth``, HTTP-only) transport; assert ``whoami``."""
 
 from collections.abc import Generator
 

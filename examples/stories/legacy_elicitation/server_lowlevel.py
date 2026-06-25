@@ -58,7 +58,7 @@ def build_server() -> Server[Any]:
         await ctx.session.send_elicit_complete(elicitation_id, related_request_id=ctx.request_id)
         return types.CallToolResult(content=[types.TextContent(text=f"linked {provider}")])
 
-    return Server("elicitation-example", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("legacy-elicitation-example", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 if __name__ == "__main__":

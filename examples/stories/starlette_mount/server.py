@@ -1,4 +1,4 @@
-"""Mount an MCPServer inside an existing Starlette app at a sub-path, alongside non-MCP routes."""
+"""Mount an MCPServer in an existing Starlette app at a sub-path, alongside non-MCP routes; exports `build_app()`."""
 
 import contextlib
 from collections.abc import AsyncIterator

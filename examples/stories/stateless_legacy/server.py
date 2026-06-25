@@ -1,4 +1,4 @@
-"""The one-liner HTTP deploy: one stateless ASGI app serves both protocol eras."""
+"""The one-liner HTTP deploy: one stateless ASGI app serves both protocol eras, so it exports `build_app()`."""
 
 from starlette.applications import Starlette
 

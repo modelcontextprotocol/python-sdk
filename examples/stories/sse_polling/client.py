@@ -1,4 +1,4 @@
-"""Call a tool whose SSE stream the server closes mid-flight; assert the call still completes."""
+"""Call a tool whose SSE stream the server closes mid-flight; the call still completes. HTTP-only — no SSE on stdio."""
 
 import anyio
 

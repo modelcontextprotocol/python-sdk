@@ -1,4 +1,4 @@
-"""Probe server/discover once, persist the DiscoverResult, then reconnect with zero round-trips."""
+"""Probe server/discover once, persist the result, reconnect with zero round-trips — a fresh `Client` via `targets`."""
 
 from mcp.client import Client
 from mcp.shared.version import LATEST_MODERN_VERSION

@@ -6,6 +6,8 @@
 > [`mrtr/`](../mrtr/) story. Elicitation itself is **not** deprecated.
 > TODO(maxisbey): unify once the MRTR runtime lands
 > ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)).
+> The TypeScript SDK ships a single dual-era `elicitation/` story; this
+> directory re-merges back into `elicitation/` once MRTR lands.
 
 A tool pauses mid-call to ask the user for structured input. On the
 handshake-era protocol the server pushes an `elicitation/create` *request* to

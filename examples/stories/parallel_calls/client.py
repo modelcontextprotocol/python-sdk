@@ -1,4 +1,4 @@
-"""Two concurrent `Client`s against one server; the rendezvous tool proves concurrent dispatch."""
+"""Two concurrent `Client`s, so `main` takes `targets`; their rendezvous in one tool proves concurrent dispatch."""
 
 import anyio
 
