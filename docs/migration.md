@@ -364,6 +364,12 @@ For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` 
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
+### `ClientSession.call_tool` returns `CallToolResult | InputRequiredResult`
+
+For protocol 2026-07-28, a `tools/call` request may return an `InputRequiredResult` asking the client to supply additional input and retry. `ClientSession.call_tool` now returns `CallToolResult | InputRequiredResult` to reflect this; narrow with `isinstance(result, CallToolResult)` before reading `.content` / `.is_error` / `.structured_content`.
+
+The high-level `Client.call_tool` still returns `CallToolResult` by default (and raises `RuntimeError` if the server requests input). Pass `allow_input_required=True` to receive the `InputRequiredResult` and retry with `input_responses=` / `request_state=`.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
