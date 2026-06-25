@@ -21,6 +21,22 @@ from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio
 import anyio.abc
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
+    ErrorData,
+    Implementation,
+    InitializeRequestParams,
+    InitializeResult,
+    RequestParams,
+    RequestParamsMeta,
+)
+from mcp_types import methods as _methods
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
@@ -36,22 +52,6 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from mcp.types import (
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    METHOD_NOT_FOUND,
-    PROTOCOL_VERSION_META_KEY,
-    ErrorData,
-    Implementation,
-    InitializeRequestParams,
-    InitializeResult,
-    RequestParams,
-    RequestParamsMeta,
-)
-from mcp.types import methods as _methods
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server

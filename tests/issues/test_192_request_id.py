@@ -1,11 +1,6 @@
 import anyio
 import pytest
-
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -15,6 +10,11 @@ from mcp.types import (
     JSONRPCResponse,
     NotificationParams,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio

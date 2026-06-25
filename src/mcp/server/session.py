@@ -8,16 +8,16 @@ Handlers reach it as `ctx.session` and use the typed helpers (`elicit_form`,
 
 from typing import Any, TypeVar, overload
 
+import mcp_types as types
+from mcp_types import methods as _methods
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
-from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.dispatcher import CallOptions, DispatchContext, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
-from mcp.types import methods as _methods
 
 __all__ = ["ServerSession"]
 

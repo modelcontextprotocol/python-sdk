@@ -2,10 +2,7 @@ import logging
 from typing import Any
 
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -13,6 +10,9 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 
 def _make_server(

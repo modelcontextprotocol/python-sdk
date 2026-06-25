@@ -15,14 +15,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Final
 
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
-from mcp.types import (
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     UnsupportedProtocolVersionErrorData,
 )
-from mcp.types.jsonrpc import (
+from mcp_types.jsonrpc import (
     HEADER_MISMATCH,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -31,6 +30,7 @@ from mcp.types.jsonrpc import (
     PARSE_ERROR,
     UNSUPPORTED_PROTOCOL_VERSION,
 )
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 __all__ = [
     "ERROR_CODE_HTTP_STATUS",
@@ -119,14 +119,14 @@ def classify_inbound_request(
 
     1. ``params._meta`` is a mapping carrying every reserved envelope key
        (protocol version, client info, client capabilities) → else
-       :data:`~mcp.types.jsonrpc.INVALID_PARAMS`.
+       :data:`~mcp_types.jsonrpc.INVALID_PARAMS`.
     2. When ``headers`` is given, its ``MCP-Protocol-Version`` entry equals
        the envelope's protocol version → else
-       :data:`~mcp.types.jsonrpc.HEADER_MISMATCH`. Runs before the
+       :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs before the
        supported-version rung so a client that disagrees with itself is told
        so, rather than told the body's version is unsupported.
     3. The envelope's protocol version is in ``supported_modern_versions`` →
-       else :data:`~mcp.types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
+       else :data:`~mcp_types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
        ``data = {"supported": [...], "requested": <value>}``.
 
     Method existence is *not* a rung: kernel dispatch owns that decision so

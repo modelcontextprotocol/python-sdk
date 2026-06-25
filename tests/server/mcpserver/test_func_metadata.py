@@ -10,11 +10,11 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
+from mcp_types import CallToolResult
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
-from mcp.types import CallToolResult
 
 
 class SomeInputModelA(BaseModel):

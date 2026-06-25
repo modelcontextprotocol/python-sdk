@@ -8,9 +8,9 @@ resumability tests themselves.
 """
 
 import anyio
+from mcp_types import JSONRPCMessage
 
 from mcp.server.streamable_http import EventCallback, EventId, EventMessage, EventStore, StreamId
-from mcp.types import JSONRPCMessage
 
 
 class SequencedEventStore(EventStore):

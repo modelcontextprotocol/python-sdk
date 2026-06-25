@@ -25,14 +25,7 @@ from contextlib import AsyncExitStack
 from typing import Any, TypeVar, overload
 
 import anyio
-from pydantic import BaseModel
-from typing_extensions import deprecated
-
-from mcp.shared.dispatcher import CallOptions, Outbound
-from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
-from mcp.shared.peer import Meta, dump_params
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
@@ -47,7 +40,14 @@ from mcp.types import (
     PingRequest,
     Request,
 )
-from mcp.types import methods as _methods
+from mcp_types import methods as _methods
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+from pydantic import BaseModel
+from typing_extensions import deprecated
+
+from mcp.shared.dispatcher import CallOptions, Outbound
+from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
+from mcp.shared.peer import Meta, dump_params
 
 __all__ = ["Connection"]
 

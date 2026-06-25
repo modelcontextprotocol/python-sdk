@@ -9,21 +9,12 @@ import dataclasses
 from typing import Any
 
 import pytest
-
-from mcp.shared.inbound import (
-    ERROR_CODE_HTTP_STATUS,
-    MCP_PROTOCOL_VERSION_HEADER,
-    InboundLadderRejection,
-    InboundModernRoute,
-    classify_inbound_request,
-)
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
-from mcp.types import (
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
 )
-from mcp.types.jsonrpc import (
+from mcp_types.jsonrpc import (
     HEADER_MISMATCH,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -31,6 +22,15 @@ from mcp.types.jsonrpc import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     PARSE_ERROR,
     UNSUPPORTED_PROTOCOL_VERSION,
+)
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
+
+from mcp.shared.inbound import (
+    ERROR_CODE_HTTP_STATUS,
+    MCP_PROTOCOL_VERSION_HEADER,
+    InboundLadderRejection,
+    InboundModernRoute,
+    classify_inbound_request,
 )
 
 CLIENT_INFO = {"name": "t", "version": "0"}

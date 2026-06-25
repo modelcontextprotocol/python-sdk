@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import anyio.to_thread
 import pydantic_core
+from mcp_types import ContentBlock, Icon, TextContent
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.types import ContentBlock, Icon, TextContent
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT

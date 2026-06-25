@@ -17,18 +17,9 @@ from contextlib import asynccontextmanager
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
-
-from mcp import MCPError, types
-from mcp.client._memory import InMemoryTransport
-from mcp.client._transport import TransportStreams
-from mcp.client.client import Client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import MessageStream, create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
-from mcp.types import (
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     INVALID_REQUEST,
@@ -45,6 +36,16 @@ from mcp.types import (
     ServerCapabilities,
     ToolsCapability,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
+
+from mcp import MCPError
+from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import TransportStreams
+from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, Connect, mounted_app
 from tests.interaction._helpers import RecordingTransport
 from tests.interaction._requirements import requirement

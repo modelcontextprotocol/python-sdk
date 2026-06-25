@@ -16,6 +16,25 @@ from typing import Any, cast
 import anyio
 import anyio.abc
 import pytest
+from mcp_types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    LATEST_PROTOCOL_VERSION,
+    METHOD_NOT_FOUND,
+    CallToolRequestParams,
+    ClientCapabilities,
+    ErrorData,
+    Implementation,
+    InitializeRequestParams,
+    ListToolsResult,
+    NotificationParams,
+    PaginatedRequestParams,
+    ProgressNotificationParams,
+    RequestParams,
+    SetLevelRequestParams,
+    Tool,
+)
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, OLDEST_SUPPORTED_VERSION
 from opentelemetry.trace import SpanKind, StatusCode
 
 import mcp.server.runner
@@ -38,25 +57,6 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, OLDEST_SUPPORTED_VERSION
-from mcp.types import (
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    LATEST_PROTOCOL_VERSION,
-    METHOD_NOT_FOUND,
-    CallToolRequestParams,
-    ClientCapabilities,
-    ErrorData,
-    Implementation,
-    InitializeRequestParams,
-    ListToolsResult,
-    NotificationParams,
-    PaginatedRequestParams,
-    ProgressNotificationParams,
-    RequestParams,
-    SetLevelRequestParams,
-    Tool,
-)
 
 from ..shared.conftest import jsonrpc_pair
 from ..shared.test_dispatcher import Recorder, echo_handlers

@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, TextContent, TextResourceContents
 from pytest_examples import CodeExample, EvalExample, find_examples
 
 from mcp import Client
-from mcp.types import CallToolResult, TextContent, TextResourceContents
 
 
 @pytest.mark.anyio

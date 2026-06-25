@@ -1,19 +1,18 @@
-"""Tests for the wire-method maps and two-step parse functions in `mcp.types.methods`."""
+"""Tests for the wire-method maps and two-step parse functions in `mcp_types.methods`."""
 
 import importlib.util
 from collections.abc import Mapping
 from types import MappingProxyType, UnionType
 from typing import Any, get_args
 
+import mcp_types as types
+import mcp_types.v2025_11_25 as v2025
+import mcp_types.v2026_07_28 as v2026
 import pydantic
 import pytest
+from mcp_types import methods
+from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
-
-import mcp.types as types
-import mcp.types.v2025_11_25 as v2025
-import mcp.types.v2026_07_28 as v2026
-from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
-from mcp.types import methods
 
 # Transcribed from each schema's ClientRequest/ServerRequest/ClientNotification/
 # ServerNotification unions, minus the tasks/* family (extensions register those).
@@ -298,11 +297,11 @@ EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
 PACKAGE_BY_VERSION = {
-    "2024-11-05": "mcp.types.v2025_11_25",
-    "2025-03-26": "mcp.types.v2025_11_25",
-    "2025-06-18": "mcp.types.v2025_11_25",
-    "2025-11-25": "mcp.types.v2025_11_25",
-    "2026-07-28": "mcp.types.v2026_07_28",
+    "2024-11-05": "mcp_types.v2025_11_25",
+    "2025-03-26": "mcp_types.v2025_11_25",
+    "2025-06-18": "mcp_types.v2025_11_25",
+    "2025-11-25": "mcp_types.v2025_11_25",
+    "2026-07-28": "mcp_types.v2026_07_28",
 }
 
 # The three reserved `params._meta` entries the 2026 surface requires on every request.
@@ -920,7 +919,7 @@ def test_serialize_server_result_raises_key_error_for_an_absent_row_and_value_er
 
 def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():
     # Execute a fresh copy so the cache assertion is order-independent.
-    spec = importlib.util.find_spec("mcp.types.methods")
+    spec = importlib.util.find_spec("mcp_types.methods")
     assert spec is not None and spec.loader is not None
     fresh = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fresh)

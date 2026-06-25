@@ -23,8 +23,8 @@ from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
+import mcp_types as types
 
-from mcp import types
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 

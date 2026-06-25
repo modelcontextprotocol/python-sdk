@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import Icon, ToolAnnotations
+
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT

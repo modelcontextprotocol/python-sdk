@@ -8,20 +8,10 @@ from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client._memory import InMemoryTransport
-from mcp.client._transport import TransportStreams
-from mcp.client.client import Client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
-from mcp.shared.memory import MessageStream, create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     EmptyResult,
     GetPromptResult,
@@ -42,6 +32,17 @@ from mcp.types import (
     Tool,
     ToolsCapability,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp import MCPError
+from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import TransportStreams
+from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio

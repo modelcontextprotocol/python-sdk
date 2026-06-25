@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 import pytest
+from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel
 
 from mcp.server.context import LifespanContextT, RequestT
@@ -11,7 +12,6 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 
 class TestAddTools:

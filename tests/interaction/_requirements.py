@@ -38,8 +38,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
 import pytest
-
-from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
+from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 SpecVersion = Literal["2025-11-25", "2026-07-28"]
 """A protocol version the suite parametrizes over. Both values are typed even though only one is

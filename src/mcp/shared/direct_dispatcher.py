@@ -24,6 +24,7 @@ from typing import Any
 
 import anyio
 import anyio.abc
+from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
 from pydantic import ValidationError
 
 from mcp.shared._compat import resync_tracer
@@ -31,7 +32,6 @@ from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
-from mcp.types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
 
 logger = logging.getLogger(__name__)
 

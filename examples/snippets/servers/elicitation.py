@@ -7,11 +7,11 @@ like OAuth flows, credential collection, or payment processing.
 
 import uuid
 
+from mcp_types import ElicitRequestURLParams
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import UrlElicitationRequiredError
-from mcp.types import ElicitRequestURLParams
 
 mcp = MCPServer(name="Elicitation Example")
 

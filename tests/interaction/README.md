@@ -24,7 +24,7 @@ flows — with a single subprocess test for stdio.
   rewrite preserved behaviour; a passing test that pins the wrong output exactly does. Known
   divergences are recorded as data on the requirement (see below), not worked around in the test.
 - **Spec-mandated assertions, not implementation quirks.** Error *codes* are asserted against
-  the constants in `mcp.types`; error *message strings* are pinned only where they are the
+  the constants in `mcp_types`; error *message strings* are pinned only where they are the
   SDK's own deliberate output.
 - **No sleeps, no real I/O.** Concurrency is coordinated with `anyio.Event`; every wait that
   could hang is bounded by `anyio.fail_after(5)`. The HTTP and OAuth tests drive the Starlette
@@ -243,7 +243,7 @@ many requirements at once; if the assertions would be separate, write separate t
 |---|---|
 | the result of a transformation (arguments → output, exception → error result) | `result == snapshot(...)` of the full object, so any field the implementation adds or drops fails the test |
 | pass-through of an opaque value (`_meta`, cursors) | identity against the same variable that was sent — a snapshot of a pass-through value only matches the input because a human checked two literals correspond |
-| an error | `pytest.raises(MCPError)` and a snapshot of `exc.value.error` when the message is the SDK's own; a plain `==` on `.code` against the `mcp.types` constant when it is not |
+| an error | `pytest.raises(MCPError)` and a snapshot of `exc.value.error` when the message is the SDK's own; a plain `==` on `.code` against the `mcp_types` constant when it is not |
 | third-party output embedded in a result (validation messages) | the stable prefix only — never pin text that changes with a dependency upgrade |
 
 ### Notifications and concurrency

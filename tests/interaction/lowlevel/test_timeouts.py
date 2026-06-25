@@ -9,17 +9,18 @@ cancellation reason these tests snapshot.)
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import REQUEST_TIMEOUT, CallToolResult, ErrorData, JSONRPCNotification, TextContent
 from trio.testing import MockClock
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.message import SessionMessage
-from mcp.types import REQUEST_TIMEOUT, CallToolResult, ErrorData, JSONRPCNotification, TextContent
 from tests.interaction._helpers import RecordingTransport
 from tests.interaction._requirements import requirement
 

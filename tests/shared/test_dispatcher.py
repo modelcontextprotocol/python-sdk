@@ -12,13 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
-
-from mcp.shared._compat import resync_tracer
-from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
-from mcp.shared.exceptions import MCPError
-from mcp.shared.transport_context import TransportContext
-from mcp.types import (
+from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -27,6 +21,12 @@ from mcp.types import (
     ErrorData,
     Tool,
 )
+
+from mcp.shared._compat import resync_tracer
+from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
+from mcp.shared.exceptions import MCPError
+from mcp.shared.transport_context import TransportContext
 
 from .conftest import PairFactory, direct_pair
 

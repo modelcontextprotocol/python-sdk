@@ -14,13 +14,7 @@ from typing import Any, Literal
 
 import anyio
 import pytest
-from pydantic import BaseModel, ValidationError
-
-from mcp.server.connection import Connection
-from mcp.shared.dispatcher import CallOptions
-from mcp.shared.exceptions import NoBackChannelError
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from mcp.types import (
+from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     CreateMessageRequest,
@@ -38,6 +32,12 @@ from mcp.types import (
     SamplingContextCapability,
     SamplingToolsCapability,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
+from pydantic import BaseModel, ValidationError
+
+from mcp.server.connection import Connection
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
 
 _CLIENT_INFO = Implementation(name="t", version="0")
 

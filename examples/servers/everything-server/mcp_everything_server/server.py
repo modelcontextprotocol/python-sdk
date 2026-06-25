@@ -15,7 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     Completion,
     CompletionArgument,
@@ -33,7 +33,7 @@ from mcp.types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
-from mcp.types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

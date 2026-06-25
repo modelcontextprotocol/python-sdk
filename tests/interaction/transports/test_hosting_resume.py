@@ -16,13 +16,7 @@ import httpx
 import pytest
 from httpx_sse import EventSource, ServerSentEvent
 from inline_snapshot import snapshot
-
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.message import ClientMessageMetadata
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -33,6 +27,12 @@ from mcp.types import (
     TextContent,
     jsonrpc_message_adapter,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.message import ClientMessageMetadata
 from tests.interaction._connect import (
     BASE_URL,
     base_headers,

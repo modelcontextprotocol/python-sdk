@@ -1,6 +1,7 @@
+import mcp_types as types
 import pytest
 
-from mcp import Client, types
+from mcp import Client
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError

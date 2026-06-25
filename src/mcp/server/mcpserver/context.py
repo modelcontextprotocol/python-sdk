@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
+from mcp_types import LoggingLevel
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
@@ -16,7 +17,6 @@ from mcp.server.elicitation import (
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.shared.exceptions import MCPDeprecationWarning
-from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer

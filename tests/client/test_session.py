@@ -7,19 +7,9 @@ from typing import Any, cast
 import anyio
 import anyio.abc
 import anyio.streams.memory
+import mcp_types as types
 import pytest
-from pydantic import FileUrl, ValidationError
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
-from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -42,6 +32,17 @@ from mcp.types import (
     client_notification_adapter,
     client_request_adapter,
 )
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION
+from pydantic import FileUrl, ValidationError
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
+from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
+from mcp.shared.transport_context import TransportContext
 
 _SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
 _RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage]

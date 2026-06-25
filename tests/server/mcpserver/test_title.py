@@ -1,12 +1,12 @@
 """Integration tests for title field functionality."""
 
 import pytest
+from mcp_types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import FunctionResource
 from mcp.shared.metadata_utils import get_display_name
-from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio

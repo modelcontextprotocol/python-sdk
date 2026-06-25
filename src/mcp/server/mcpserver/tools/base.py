@@ -4,6 +4,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import Icon, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -12,7 +13,6 @@ from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_meta
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
-from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT

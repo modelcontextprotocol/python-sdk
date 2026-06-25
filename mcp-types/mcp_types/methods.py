@@ -1,12 +1,12 @@
 """Per-version method maps and parse/serialize functions for MCP traffic.
 
-This module is supported public API; the `mcp.types.v*` packages it draws on
+This module is supported public API; the `mcp_types.v*` packages it draws on
 are internal validators and not for direct import.
 
 Surface maps key `(method, version)` to per-version wire types (key absence is
 the version gate; shape validation is per schema era, i.e. 2025-11-25 for every
 pre-2026 version and 2026-07-28 for 2026). Monolith maps key `method` to the
-version-free `mcp.types` models user code receives."""
+version-free `mcp_types` models user code receives."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from typing import Any, Final, TypeVar
 
 from pydantic import BaseModel, TypeAdapter
 
-import mcp.types as types
-import mcp.types.v2025_11_25 as v2025
-import mcp.types.v2026_07_28 as v2026
-from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
+import mcp_types as types
+import mcp_types.v2025_11_25 as v2025
+import mcp_types.v2026_07_28 as v2026
+from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 __all__ = [
     "CLIENT_NOTIFICATIONS",

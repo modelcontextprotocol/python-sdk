@@ -9,6 +9,7 @@ from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 import anyio
 import anyio.to_thread
 import pydantic_core
+from mcp_types import CallToolResult, ContentBlock, TextContent
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -24,7 +25,6 @@ from typing_inspection.introspection import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
 

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from mcp_types import INVALID_PARAMS, CallToolResult
 from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import ValidationError
 
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_PARAMS, CallToolResult
 
 
 class OpenTelemetryMiddleware(ServerMiddleware[Any]):

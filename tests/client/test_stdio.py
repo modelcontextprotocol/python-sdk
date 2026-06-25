@@ -26,6 +26,7 @@ import pytest
 import trio
 import trio.testing
 from anyio.streams.memory import MemoryObjectReceiveStream
+from mcp_types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from mcp.client import stdio
 from mcp.client._transport import ReadStream
@@ -42,7 +43,6 @@ from mcp.os.posix.utilities import terminate_posix_process_tree
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 # ---------------------------------------------------------------------------
 # In-process fake of the spawned server process

@@ -8,23 +8,8 @@ from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar
 
 import anyio
-from typing_extensions import deprecated
-
-from mcp import types
-from mcp.client._memory import InMemoryTransport
-from mcp.client._probe import negotiate_auto
-from mcp.client._transport import Transport
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server
-from mcp.server.mcpserver import MCPServer
-from mcp.server.runner import modern_on_request
-from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-from mcp.shared.dispatcher import Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
-from mcp.types import (
+import mcp_types as types
+from mcp_types import (
     CallToolResult,
     CompleteResult,
     EmptyResult,
@@ -42,6 +27,21 @@ from mcp.types import (
     ResourceTemplateReference,
     ServerCapabilities,
 )
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from typing_extensions import deprecated
+
+from mcp.client._memory import InMemoryTransport
+from mcp.client._probe import negotiate_auto
+from mcp.client._transport import Transport
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server
+from mcp.server.mcpserver import MCPServer
+from mcp.server.runner import modern_on_request
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import Dispatcher, ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 
 ConnectMode = Literal["legacy", "auto"] | str
 """``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to

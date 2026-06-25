@@ -5,15 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
-from opentelemetry.trace import SpanKind, StatusCode
-
-from mcp.server._otel import OpenTelemetryMiddleware
-from mcp.server.context import CallNext
-from mcp.server.lowlevel.server import Server
-from mcp.server.runner import otel_middleware
-from mcp.shared._otel import inject_trace_context
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
@@ -24,6 +16,14 @@ from mcp.types import (
     PaginatedRequestParams,
     Tool,
 )
+from opentelemetry.trace import SpanKind, StatusCode
+
+from mcp.server._otel import OpenTelemetryMiddleware
+from mcp.server.context import CallNext
+from mcp.server.lowlevel.server import Server
+from mcp.server.runner import otel_middleware
+from mcp.shared._otel import inject_trace_context
+from mcp.shared.exceptions import MCPError
 
 from .conftest import SpanCapture
 from .test_runner import Ctx, SrvT, connected_runner
