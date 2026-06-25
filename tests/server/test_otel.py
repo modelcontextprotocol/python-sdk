@@ -14,6 +14,7 @@ from mcp.server.runner import otel_middleware
 from mcp.shared._otel import inject_trace_context
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
     GetPromptRequestParams,
@@ -258,7 +259,8 @@ async def test_validation_failure_sets_sanitized_status(server: SrvT, spans: Spa
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "Invalid request parameters"
     assert span.attributes is not None
-    assert span.attributes["error.type"] == "ValidationError"
+    assert span.attributes["error.type"] == str(INVALID_PARAMS)
+    assert span.attributes["rpc.response.status_code"] == str(INVALID_PARAMS)
     assert not span.events
 
 

@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.exceptions import MCPError
-from mcp.types import CallToolResult
+from mcp.types import INVALID_PARAMS, CallToolResult
 
 
 class OpenTelemetryMiddleware(ServerMiddleware[Any]):
@@ -20,8 +20,9 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
 
     Tool and prompt operations additionally carry the GenAI semantic-convention attributes `gen_ai.tool.name` /
     `gen_ai.prompt.name`, and `gen_ai.operation.name` is set to `execute_tool` for `tools/call`. Failures set
-    `error.type` and `rpc.response.status_code` to the JSON-RPC error code, or `error.type` to `tool_error` for a
-    `tools/call` result carrying `is_error`.
+    `error.type` and `rpc.response.status_code` to the JSON-RPC error code as a string (e.g. `-32602`), or
+    `error.type` to `tool_error` for a `tools/call` result carrying `is_error`; a non-`MCPError` handler exception
+    sets `error.type` to its type name.
     """
 
     async def __call__(self, ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
@@ -59,7 +60,8 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
                 raise
             except ValidationError:
                 # Mirror the sanitized wire response; pydantic messages carry client input.
-                span.set_attribute("error.type", "ValidationError")
+                code = str(INVALID_PARAMS)
+                span.set_attributes({"error.type": code, "rpc.response.status_code": code})
                 span.set_status(StatusCode.ERROR, "Invalid request parameters")
                 raise
             except Exception as e:
