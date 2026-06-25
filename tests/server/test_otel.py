@@ -261,6 +261,8 @@ async def test_validation_failure_sets_sanitized_status(server: SrvT, spans: Spa
     assert span.attributes is not None
     assert span.attributes["error.type"] == str(INVALID_PARAMS)
     assert span.attributes["rpc.response.status_code"] == str(INVALID_PARAMS)
+    assert span.attributes["gen_ai.operation.name"] == "execute_tool"
+    assert "gen_ai.tool.name" not in span.attributes
     assert not span.events
 
 

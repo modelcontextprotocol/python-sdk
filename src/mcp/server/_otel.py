@@ -19,10 +19,10 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
     `jsonrpc.request.id` is set only when `ctx.request_id` is present (notifications have none).
 
     Tool and prompt operations additionally carry the GenAI semantic-convention attributes `gen_ai.tool.name` /
-    `gen_ai.prompt.name`, and `gen_ai.operation.name` is set to `execute_tool` for `tools/call`. Failures set
-    `error.type` and `rpc.response.status_code` to the JSON-RPC error code as a string (e.g. `-32602`), or
-    `error.type` to `tool_error` for a `tools/call` result carrying `is_error`; a non-`MCPError` handler exception
-    sets `error.type` to its type name.
+    `gen_ai.prompt.name`, and `gen_ai.operation.name` is set to `execute_tool` for `tools/call`. A protocol or
+    validation failure sets `error.type` and `rpc.response.status_code` to the JSON-RPC error code as a string
+    (e.g. `-32602`); any other handler exception sets `error.type` to its type name (the wire code is not yet known
+    here). A `tools/call` result carrying `is_error` sets `error.type` to `tool_error`.
     """
 
     async def __call__(self, ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
@@ -36,12 +36,12 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
         if ctx.request_id is not None:
             attributes["jsonrpc.request.id"] = str(ctx.request_id)
 
-        if target is not None:
-            if ctx.method == "tools/call":
-                attributes["gen_ai.operation.name"] = "execute_tool"
+        if ctx.method == "tools/call":
+            attributes["gen_ai.operation.name"] = "execute_tool"
+            if target is not None:
                 attributes["gen_ai.tool.name"] = target
-            elif ctx.method == "prompts/get":
-                attributes["gen_ai.prompt.name"] = target
+        elif ctx.method == "prompts/get" and target is not None:
+            attributes["gen_ai.prompt.name"] = target
 
         with otel_span(
             name=f"{ctx.method}{f' {target}' if target else ''}",
