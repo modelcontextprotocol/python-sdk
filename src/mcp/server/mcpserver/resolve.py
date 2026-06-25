@@ -132,17 +132,16 @@ def _wants_union(type_arg: Any) -> bool:
 
 
 def _resolver_key(fn: Callable[..., Any]) -> Hashable:
-    """Stable, equality-based key for memoizing a resolver.
+    """Identity key for memoizing a resolver.
 
-    Bound methods are recreated on each attribute access (`id(auth.login)` differs
-    every time) but hash/compare by `(__func__, __self__)`, so the callable itself
-    is the right key. Falls back to `id` only for the rare unhashable callable.
+    A bound method is recreated on each attribute access (`id(auth.login)` differs
+    every time), so key it by `(id(__func__), id(__self__))` to keep `auth.login`
+    referenced in two places memoized to one call. Everything else keys by `id`,
+    so two distinct callables never collide even if they compare equal.
     """
-    try:
-        hash(fn)
-    except TypeError:  # pragma: no cover - unhashable callables are pathological
-        return id(fn)
-    return fn
+    if inspect.ismethod(fn):
+        return (id(fn.__func__), id(fn.__self__))
+    return id(fn)
 
 
 def build_resolver_plans(

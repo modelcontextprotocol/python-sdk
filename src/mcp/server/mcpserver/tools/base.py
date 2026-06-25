@@ -128,15 +128,23 @@ class Tool(BaseModel):
             pass_directly: dict[str, Any] = {}
             if self.context_kwarg is not None:
                 pass_directly[self.context_kwarg] = context
+
+            # Resolvers see the same validated arguments the tool body receives:
+            # validate once and reuse it, so a `default_factory`/stateful validator
+            # can't hand a by-name resolver a different value than the body.
+            pre_validated: dict[str, Any] | None = None
             if self.resolved_params:
-                tool_args = self.fn_metadata.validate_arguments(arguments)
-                pass_directly |= await resolve_arguments(self.resolved_params, self.resolver_plans, tool_args, context)
+                pre_validated = self.fn_metadata.validate_arguments(arguments)
+                pass_directly |= await resolve_arguments(
+                    self.resolved_params, self.resolver_plans, pre_validated, context
+                )
 
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
                 pass_directly or None,
+                pre_validated=pre_validated,
             )
 
             if convert_result:

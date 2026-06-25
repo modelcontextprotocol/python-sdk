@@ -81,13 +81,19 @@ class FuncMetadata(BaseModel):
         fn_is_async: bool,
         arguments_to_validate: dict[str, Any],
         arguments_to_pass_directly: dict[str, Any] | None,
+        pre_validated: dict[str, Any] | None = None,
     ) -> Any:
         """Call the given function with arguments validated and injected.
 
         Arguments are first attempted to be parsed from JSON, then validated against
-        the argument model, before being passed to the function.
+        the argument model, before being passed to the function. Pass `pre_validated`
+        (the output of `validate_arguments`) to reuse an earlier validation pass -
+        validating twice can re-run `default_factory`/stateful validators and hand the
+        function different values than a caller already observed.
         """
-        arguments_parsed_dict = self.validate_arguments(arguments_to_validate)
+        arguments_parsed_dict = (
+            pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
+        )
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 

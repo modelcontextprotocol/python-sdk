@@ -403,3 +403,32 @@ def test_bound_method_cycle_is_detected():
 
     with pytest.raises(InvalidSignature, match="cyclic"):
         Tool.from_function(tool)
+
+
+@pytest.mark.anyio
+async def test_resolver_and_body_see_the_same_validated_default():
+    mcp = MCPServer(name="DefaultFactory")
+    counter = {"n": 0}
+
+    def next_id() -> int:
+        counter["n"] += 1
+        return counter["n"]
+
+    # A by-name resolver and the tool body must observe one validation pass, so the
+    # `default_factory` runs once and both see the same generated value.
+    async def echo_id(request_id: int) -> int:
+        return request_id
+
+    @mcp.tool()
+    async def run(
+        request_id: Annotated[int, Field(default_factory=next_id)],
+        resolved_id: Annotated[int, Resolve(echo_id)],
+    ) -> str:
+        return f"{request_id}:{resolved_id}"
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "run", {}) == "1:1"
+    assert counter["n"] == 1
