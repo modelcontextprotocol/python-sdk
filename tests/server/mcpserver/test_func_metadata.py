@@ -10,7 +10,7 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
-from mcp_types import CallToolResult
+from mcp_types import CallToolResult, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
@@ -1038,7 +1038,9 @@ def test_structured_output_aliases():
 
     # Check that the actual output uses aliases too
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
-    structured_content = meta.convert_result(result).structured_content
+    converted = meta.convert_result(result)
+    assert isinstance(converted, CallToolResult)
+    structured_content = converted.structured_content
     assert structured_content is not None
 
     # The structured content should use aliases to match the schema
@@ -1051,7 +1053,9 @@ def test_structured_output_aliases():
 
     # Also test the case where we have a model with defaults to ensure aliases work in all cases
     result_with_defaults = ModelWithAliases()  # Uses default None values
-    structured_content_defaults = meta.convert_result(result_with_defaults).structured_content
+    converted_defaults = meta.convert_result(result_with_defaults)
+    assert isinstance(converted_defaults, CallToolResult)
+    structured_content_defaults = converted_defaults.structured_content
     assert structured_content_defaults is not None
 
     # Even with defaults, should use aliases in output
@@ -1191,3 +1195,38 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_convert_result_passes_input_required_result_through_unchanged():
+    def fn() -> str | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    irr = InputRequiredResult(request_state="opaque")
+    assert meta.convert_result(irr) is irr
+
+
+def test_input_required_result_return_annotation_yields_no_output_schema():
+    def fn() -> InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+    assert meta.output_model is None
+
+
+def test_union_with_input_required_result_yields_no_output_schema():
+    def fn() -> str | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+    converted = meta.convert_result("hello")
+    assert isinstance(converted, CallToolResult)
+    block = converted.content[0]
+    assert isinstance(block, TextContent)
+    assert block.text == "hello"
+
+
+def test_call_tool_result_unioned_with_input_required_result_is_accepted():
+    def fn() -> CallToolResult | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None

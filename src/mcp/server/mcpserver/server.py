@@ -24,6 +24,7 @@ from mcp_types import (
     GetPromptRequestParams,
     GetPromptResult,
     Icon,
+    InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -306,7 +307,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
-    ) -> CallToolResult:
+    ) -> CallToolResult | InputRequiredResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
@@ -387,7 +388,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult:
+    ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)

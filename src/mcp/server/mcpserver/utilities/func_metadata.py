@@ -9,7 +9,7 @@ from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 import anyio
 import anyio.to_thread
 import pydantic_core
-from mcp_types import CallToolResult, ContentBlock, TextContent
+from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -88,8 +88,12 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> CallToolResult:
+    def convert_result(self, result: Any) -> CallToolResult | InputRequiredResult:
         """Convert a function call result into a `CallToolResult`.
+
+        An `InputRequiredResult` is passed through unchanged so the multi-round
+        flow surfaces on the wire as `resultType: "input_required"` rather than
+        being JSON-dumped into a text block.
 
         Note: we build unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of
@@ -98,6 +102,8 @@ class FuncMetadata(BaseModel):
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
         """
+        if isinstance(result, InputRequiredResult):
+            return result
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
@@ -266,8 +272,17 @@ def func_metadata(
     # unknown (i.e. a bare `Final`).
     assert return_type_expr is not UNKNOWN
 
+    if isinstance(return_type_expr, type) and issubclass(return_type_expr, InputRequiredResult):
+        # A tool annotated to return only InputRequiredResult never produces structured content.
+        return FuncMetadata(arg_model=arguments_model)
+
     if is_union_origin(get_origin(return_type_expr)):
         args = get_args(return_type_expr)
+        # A union containing InputRequiredResult means the tool may return either a complete
+        # value or a multi-round input request; treat the complete arm as unstructured (the
+        # pass-through in convert_result handles the InputRequiredResult arm).
+        if any(isinstance(arg, type) and issubclass(arg, InputRequiredResult) for arg in args):
+            return FuncMetadata(arg_model=arguments_model)
         # Check if CallToolResult appears in the union (excluding None for Optional check)
         if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
             raise InvalidSignature(

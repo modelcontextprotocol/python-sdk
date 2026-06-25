@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
-from mcp_types import LoggingLevel
-from pydantic import AnyUrl, BaseModel
+from mcp_types import ClientCapabilities, InputResponses, LoggingLevel
+from pydantic import AnyUrl, BaseModel, TypeAdapter
 from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
@@ -17,6 +17,8 @@ from mcp.server.elicitation import (
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.shared.exceptions import MCPDeprecationWarning
+
+_INPUT_RESPONSES_ADAPTER: TypeAdapter[InputResponses] = TypeAdapter(InputResponses)
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -218,6 +220,36 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)
+
+    @property
+    def input_responses(self) -> InputResponses | None:
+        """Client responses to a prior `InputRequiredResult.input_requests`.
+
+        `None` on the initial round, or when the client retried without
+        responses. Values are parsed into the typed result models.
+        """
+        params = self.request_context.params
+        raw = params.get("inputResponses") if params else None
+        return None if raw is None else _INPUT_RESPONSES_ADAPTER.validate_python(raw)
+
+    @property
+    def request_state(self) -> str | None:
+        """Opaque state echoed from a prior `InputRequiredResult.request_state`.
+
+        `None` on the initial round.
+        """
+        params = self.request_context.params
+        return params.get("requestState") if params else None
+
+    @property
+    def client_capabilities(self) -> ClientCapabilities | None:
+        """The client's declared capabilities for this connection.
+
+        `None` when the client supplied no client info (e.g. an anonymous
+        stateless request without the reserved `_meta` keys).
+        """
+        client_params = self.request_context.session.client_params
+        return client_params.capabilities if client_params else None
 
     @property
     def session(self):
