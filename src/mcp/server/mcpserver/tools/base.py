@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +42,7 @@ class Tool(BaseModel):
         exclude=True,
         description="Parameters filled by resolvers, mapped to (Resolve, wants_union)",
     )
-    resolver_plans: dict[int, Any] = Field(
+    resolver_plans: dict[Hashable, Any] = Field(
         default_factory=lambda: {}, exclude=True, description="Static per-resolver parameter plans"
     )
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")

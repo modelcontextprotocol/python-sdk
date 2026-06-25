@@ -314,3 +314,92 @@ async def test_by_name_resolver_param_uses_aliased_tool_arg():
 
     async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
         assert await _text(client, "run", {"schema": "gpt"}) == "GPT"
+
+
+@pytest.mark.anyio
+async def test_resolver_may_return_non_basemodel_value():
+    mcp = MCPServer(name="NonModel")
+
+    async def get_token(ctx: Context) -> str:
+        return "secret-token"
+
+    @mcp.tool()
+    async def use_token(token: Annotated[str, Resolve(get_token)]) -> str:
+        return token
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "use_token", {}) == "secret-token"
+
+
+@pytest.mark.anyio
+async def test_resolver_accepts_optional_context_annotation():
+    mcp = MCPServer(name="OptionalContext")
+
+    async def whoami(ctx: Context | None) -> str:
+        assert ctx is not None
+        return "has-context"
+
+    @mcp.tool()
+    async def run(who: Annotated[str, Resolve(whoami)]) -> str:
+        return who
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "run", {}) == "has-context"
+
+
+@pytest.mark.anyio
+async def test_bound_method_resolver_runs_once_across_references():
+    mcp = MCPServer(name="BoundMethod")
+    calls = 0
+
+    class Service:
+        async def token(self, ctx: Context) -> str:
+            nonlocal calls
+            calls += 1
+            return "tok"
+
+    service = Service()
+
+    # Each `service.token` access is a fresh bound-method object; keying by the
+    # callable (not id) keeps the resolver memoized to a single call.
+    async def downstream(token: Annotated[str, Resolve(service.token)]) -> str:
+        return token.upper()
+
+    @mcp.tool()
+    async def run(
+        token: Annotated[str, Resolve(service.token)],
+        shouted: Annotated[str, Resolve(downstream)],
+    ) -> str:
+        return f"{token}:{shouted}"
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "run", {}) == "tok:TOK"
+    assert calls == 1
+
+
+def test_bound_method_cycle_is_detected():
+    class Service:
+        async def a(self, dep: Login) -> Login:
+            return dep  # pragma: no cover
+
+        async def b(self, dep: Login) -> Login:
+            return dep  # pragma: no cover
+
+    service = Service()
+    service.a.__func__.__annotations__["dep"] = Annotated[Login, Resolve(service.b)]
+    service.b.__func__.__annotations__["dep"] = Annotated[Login, Resolve(service.a)]
+
+    async def tool(value: Annotated[Login, Resolve(service.a)]) -> str:
+        return value.username  # pragma: no cover
+
+    with pytest.raises(InvalidSignature, match="cyclic"):
+        Tool.from_function(tool)

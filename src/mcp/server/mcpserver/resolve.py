@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import inspect
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from typing import Annotated, Any, Generic, cast, get_args, get_origin
 
 import anyio.to_thread
@@ -131,10 +131,24 @@ def _wants_union(type_arg: Any) -> bool:
     return any(isinstance(m, type) and issubclass(m, _ELICITATION_RESULT_MEMBERS) for m in members)
 
 
+def _resolver_key(fn: Callable[..., Any]) -> Hashable:
+    """Stable, equality-based key for memoizing a resolver.
+
+    Bound methods are recreated on each attribute access (`id(auth.login)` differs
+    every time) but hash/compare by `(__func__, __self__)`, so the callable itself
+    is the right key. Falls back to `id` only for the rare unhashable callable.
+    """
+    try:
+        hash(fn)
+    except TypeError:  # pragma: no cover - unhashable callables are pathological
+        return id(fn)
+    return fn
+
+
 def build_resolver_plans(
     resolved_params: Mapping[str, tuple[Resolve, bool]],
     tool_arg_names: set[str],
-) -> dict[int, _ResolverPlan]:
+) -> dict[Hashable, _ResolverPlan]:
     """Statically analyze the resolver DAG rooted at a tool's resolved parameters.
 
     Raises:
@@ -142,10 +156,10 @@ def build_resolver_plans(
             parameter cannot be classified (not a `Context`, a nested `Resolve`,
             or a tool argument by name).
     """
-    plans: dict[int, _ResolverPlan] = {}
+    plans: dict[Hashable, _ResolverPlan] = {}
 
-    def analyze(fn: Callable[..., Any], stack: tuple[int, ...]) -> None:
-        key = id(fn)
+    def analyze(fn: Callable[..., Any], stack: tuple[Hashable, ...]) -> None:
+        key = _resolver_key(fn)
         if key in stack:
             raise InvalidSignature(f"Resolver {_resolver_name(fn)!r} has a cyclic dependency")
         if key in plans:
@@ -193,12 +207,13 @@ def _resolve_marker(annotation: Any) -> tuple[Resolve | None, bool]:
 def _is_context_annotation(annotation: Any) -> bool:
     if get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
-    return isinstance(annotation, type) and issubclass(annotation, Context)
+    candidates = get_args(annotation) if get_origin(annotation) is not None else (annotation,)
+    return any(isinstance(c, type) and issubclass(c, Context) for c in candidates)
 
 
 async def resolve_arguments(
     resolved_params: Mapping[str, tuple[Resolve, bool]],
-    plans: Mapping[int, _ResolverPlan],
+    plans: Mapping[Hashable, _ResolverPlan],
     tool_args: Mapping[str, Any],
     context: Context[Any, Any],
 ) -> dict[str, Any]:
@@ -211,7 +226,7 @@ async def resolve_arguments(
         ToolError: If an elicited value is declined or cancelled and the consumer
             asked for the unwrapped model (rather than the result union).
     """
-    cache: dict[int, ElicitationResult[BaseModel]] = {}
+    cache: dict[Hashable, ElicitationResult[Any]] = {}
     injected: dict[str, Any] = {}
     for name, (marker, wants_union) in resolved_params.items():
         outcome = await _resolve(marker.fn, plans, tool_args, context, cache)
@@ -221,12 +236,12 @@ async def resolve_arguments(
 
 async def _resolve(
     fn: Callable[..., Any],
-    plans: Mapping[int, _ResolverPlan],
+    plans: Mapping[Hashable, _ResolverPlan],
     tool_args: Mapping[str, Any],
     context: Context[Any, Any],
-    cache: dict[int, ElicitationResult[BaseModel]],
-) -> ElicitationResult[BaseModel]:
-    key = id(fn)
+    cache: dict[Hashable, ElicitationResult[Any]],
+) -> ElicitationResult[Any]:
+    key = _resolver_key(fn)
     if key in cache:
         return cache[key]
 
@@ -247,18 +262,20 @@ async def _resolve(
     else:
         result = await anyio.to_thread.run_sync(lambda: fn(**kwargs))
 
-    outcome: ElicitationResult[BaseModel]
+    outcome: ElicitationResult[Any]
     if isinstance(result, Elicit):
         elicit = cast("Elicit[BaseModel]", result)
         outcome = await context.elicit(elicit.message, elicit.schema)
     else:
-        outcome = AcceptedElicitation(data=result)
+        # A resolver may return any type (not just `BaseModel`); `model_construct`
+        # wraps it as an accepted result without validating against the schema bound.
+        outcome = cast("AcceptedElicitation[Any]", AcceptedElicitation.model_construct(data=result))
 
     cache[key] = outcome
     return outcome
 
 
-def _unwrap(outcome: ElicitationResult[BaseModel], name: str) -> BaseModel:
+def _unwrap(outcome: ElicitationResult[Any], name: str) -> Any:
     if isinstance(outcome, AcceptedElicitation):
         return outcome.data
     raise ToolError(f"Resolver for parameter {name!r} could not resolve: elicitation was {outcome.action}")
