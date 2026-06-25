@@ -238,7 +238,7 @@ class ClientSessionGroup:
         """
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
-        result = await session.call_tool(
+        return await session.call_tool(
             session_tool_name,
             arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
@@ -246,14 +246,8 @@ class ClientSessionGroup:
             input_responses=input_responses,
             request_state=request_state,
             meta=meta,
+            allow_input_required=allow_input_required,
         )
-        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
-            # TODO(L84): replace this raise with the MRTR auto-loop driver (S6).
-            raise RuntimeError(
-                "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
-                "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
-            )
-        return result
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""

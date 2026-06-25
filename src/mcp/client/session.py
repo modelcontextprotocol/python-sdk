@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast, overload
 
 import anyio
 import anyio.abc
@@ -602,6 +602,7 @@ class ClientSession:
             types.EmptyResult,
         )
 
+    @overload
     async def call_tool(
         self,
         name: str,
@@ -612,8 +613,62 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        allow_input_required: Literal[False] = False,
+    ) -> types.CallToolResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: Literal[True],
+    ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
     ) -> types.CallToolResult | types.InputRequiredResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            input_responses: Responses to a prior `InputRequiredResult.input_requests`.
+            request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            allow_input_required: When ``False`` (default), an `InputRequiredResult`
+                from the server raises `RuntimeError`; when ``True``, it is returned
+                so the caller can resolve the requests and retry.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                ``allow_input_required`` is ``False``.
+        """
 
         result = await self.send_request(
             types.CallToolRequest(
@@ -633,6 +688,11 @@ class ClientSession:
         if isinstance(result, types.CallToolResult) and not result.is_error:
             await self._validate_tool_result(name, result)
 
+        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
+            raise RuntimeError(
+                "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
+                "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
+            )
         return result
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:

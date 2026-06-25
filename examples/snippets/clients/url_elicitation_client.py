@@ -150,7 +150,6 @@ async def call_tool_with_error_handling(
     """
     try:
         result = await session.call_tool(tool_name, arguments)
-        assert isinstance(result, types.CallToolResult)
 
         # Check if the tool returned an error in the result
         if result.is_error:

@@ -96,7 +96,6 @@ async def test_notification_validation_error(tmp_path: Path):
 
             # First call should work (fast operation, no timeout)
             result = await session.call_tool("fast", read_timeout_seconds=None)
-            assert isinstance(result, CallToolResult)
             assert result.content == [TextContent(type="text", text="fast 1")]
             assert not slow_request_lock.is_set()
 
@@ -112,7 +111,6 @@ async def test_notification_validation_error(tmp_path: Path):
             # Third call should work (fast operation, no timeout),
             # proving server is still responsive
             result = await session.call_tool("fast", read_timeout_seconds=None)
-            assert isinstance(result, CallToolResult)
             assert result.content == [TextContent(type="text", text="fast 3")]
         scope.cancel()  # pragma: lax no cover
 

@@ -25,7 +25,6 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.message import SessionMessage
-from mcp.types import CallToolResult
 
 
 class InMemoryTokenStorage(TokenStorage):
@@ -294,7 +293,7 @@ class SimpleAuthClient:
         try:
             result = await self.session.call_tool(tool_name, arguments or {})
             print(f"\n🔧 Tool '{tool_name}' result:")
-            if isinstance(result, CallToolResult):
+            if hasattr(result, "content"):
                 for content in result.content:
                     if content.type == "text":
                         print(content.text)
