@@ -65,7 +65,7 @@ async def test_resolver_returns_value_directly_without_eliciting():
     async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
         raise AssertionError("should not elicit")
 
-    async with Client(mcp, elicitation_callback=never) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
         assert await _text(client, "whoami", {}) == "from-resolver"
 
 
@@ -80,7 +80,7 @@ async def test_resolver_elicits_and_injects_unwrapped_model_on_accept():
     async def whoami(login: Annotated[Login, Resolve(login)]) -> str:
         return login.username
 
-    async with Client(mcp, elicitation_callback=_accept({"username": "octocat"})) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=_accept({"username": "octocat"})) as client:
         assert await _text(client, "whoami", {}) == "octocat"
 
 
@@ -101,7 +101,7 @@ async def test_consumer_receives_result_union_and_branches():
             case _:  # pragma: no cover - accepted in this test
                 return "no username"
 
-    async with Client(mcp, elicitation_callback=_accept({"username": "octocat"})) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=_accept({"username": "octocat"})) as client:
         assert await _text(client, "whoami", {}) == "hi octocat"
 
 
@@ -120,7 +120,7 @@ async def test_decline_reaches_union_consumer_without_aborting():
             return "declined gracefully"
         raise NotImplementedError
 
-    async with Client(mcp, elicitation_callback=_decline) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=_decline) as client:
         assert await _text(client, "whoami", {}) == "declined gracefully"
 
 
@@ -135,7 +135,7 @@ async def test_decline_aborts_when_consumer_wants_unwrapped():
     async def whoami(login: Annotated[Login, Resolve(login)]) -> str:
         raise NotImplementedError  # pragma: no cover - never reached
 
-    async with Client(mcp, elicitation_callback=_decline) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=_decline) as client:
         result = await client.call_tool("whoami", {})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
@@ -168,7 +168,7 @@ async def test_nested_resolver_sees_dependency_and_tool_args():
         assert "Star modelcontextprotocol/python-sdk as octocat?" in params.message
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp, elicitation_callback=callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=callback) as client:
         text = await _text(client, "star_repo", {"repo": "modelcontextprotocol/python-sdk"})
         assert text == "starred modelcontextprotocol/python-sdk as octocat"
 
@@ -198,7 +198,7 @@ async def test_resolver_runs_once_for_two_consumers():
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp, elicitation_callback=callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=callback) as client:
         assert await _text(client, "star_repo", {}) == "octocat:True"
     assert elicit_count == 1
 
@@ -217,7 +217,7 @@ async def test_sync_resolver():
     async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
         raise AssertionError("should not elicit")
 
-    async with Client(mcp, elicitation_callback=never) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
         assert await _text(client, "whoami", {}) == "sync-user"
 
 
