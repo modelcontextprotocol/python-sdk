@@ -7,7 +7,7 @@ import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, ParamSpec, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -74,7 +74,8 @@ from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
-_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -508,7 +509,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
-    ) -> Callable[[_CallableT], _CallableT]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Decorator to register a tool.
 
         Tools can optionally request a Context object by adding a parameter with the
@@ -554,7 +555,7 @@ class MCPServer(Generic[LifespanResultT]):
                 "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
             )
 
-        def decorator(fn: _CallableT) -> _CallableT:
+        def decorator(fn: Callable[P, R]) -> Callable[P, R]:
             self.add_tool(
                 fn,
                 name=name,
@@ -569,7 +570,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator
 
-    def completion(self):
+    def completion(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a completion handler.
 
         The completion handler receives:
@@ -588,7 +589,7 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
-        def decorator(func: _CallableT) -> _CallableT:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             async def handler(
                 ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
             ) -> CompleteResult:
@@ -621,7 +622,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
-    ) -> Callable[[_CallableT], _CallableT]:
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Decorator to register a function as a resource.
 
         The function will be called when the resource is read to generate its content.
@@ -671,7 +672,7 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
-        def decorator(fn: _CallableT) -> _CallableT:
+        def decorator(fn: Callable[P, R]) -> Callable[P, R]:
             # Check if this should be a template
             sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
@@ -736,7 +737,7 @@ class MCPServer(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         icons: list[Icon] | None = None,
-    ) -> Callable[[_CallableT], _CallableT]:
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a prompt.
 
         Args:
@@ -781,7 +782,7 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @prompt() instead of @prompt"
             )
 
-        def decorator(func: _CallableT) -> _CallableT:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons)
             self.add_prompt(prompt)
             return func
