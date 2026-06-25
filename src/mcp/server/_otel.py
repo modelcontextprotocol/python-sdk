@@ -12,18 +12,7 @@ from mcp.types import INVALID_PARAMS, CallToolResult
 
 
 class OpenTelemetryMiddleware(ServerMiddleware[Any]):
-    """Context-tier middleware that wraps each inbound message in an OpenTelemetry span.
-
-    Span name `"<method> [<target>]"`, `mcp.method.name` attribute, W3C trace context extracted from
-    `params._meta` (SEP-414), and an ERROR status if the handler raises. Requests and notifications both get a span;
-    `jsonrpc.request.id` is set only when `ctx.request_id` is present (notifications have none).
-
-    Tool and prompt operations additionally carry the GenAI semantic-convention attributes `gen_ai.tool.name` /
-    `gen_ai.prompt.name`, and `gen_ai.operation.name` is set to `execute_tool` for `tools/call`. A protocol or
-    validation failure sets `error.type` and `rpc.response.status_code` to the JSON-RPC error code as a string
-    (e.g. `-32602`); any other handler exception sets `error.type` to its type name (the wire code is not yet known
-    here). A `tools/call` result carrying `is_error` sets `error.type` to `tool_error`.
-    """
+    """Context-tier middleware that wraps each inbound message in an OpenTelemetry span."""
 
     async def __call__(self, ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
         name = ctx.params.get("name") if ctx.params else None
