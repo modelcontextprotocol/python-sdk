@@ -1191,3 +1191,152 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def _props(meta: Any) -> dict[str, Any]:
+    """Return the JSON schema properties for a function's arguments."""
+    return meta.arg_model.model_json_schema()["properties"]
+
+
+def test_docstring_param_descriptions_google():
+    """Parameter descriptions are extracted from a Google-style docstring."""
+
+    def add(a: int, b: int):  # pragma: no cover
+        """Add two numbers.
+
+        Args:
+            a: The first number to add.
+            b: The second number to add.
+        """
+        return a + b
+
+    props = _props(func_metadata(add))
+    assert props["a"]["description"] == "The first number to add."
+    assert props["b"]["description"] == "The second number to add."
+
+
+def test_docstring_param_descriptions_numpy():
+    """Parameter descriptions are extracted from a NumPy-style docstring."""
+
+    def sub(a: int, b: int):  # pragma: no cover
+        """Subtract two numbers.
+
+        Parameters
+        ----------
+        a : int
+            The minuend value.
+        b : int
+            The subtrahend value.
+        """
+        return a - b
+
+    props = _props(func_metadata(sub))
+    assert props["a"]["description"] == "The minuend value."
+    assert props["b"]["description"] == "The subtrahend value."
+
+
+def test_docstring_param_descriptions_sphinx():
+    """Parameter descriptions are extracted from a Sphinx-style docstring."""
+
+    def mul(a: int, b: int):  # pragma: no cover
+        """Multiply two numbers.
+
+        :param a: The first factor.
+        :param b: The second factor.
+        """
+        return a * b
+
+    props = _props(func_metadata(mul))
+    assert props["a"]["description"] == "The first factor."
+    assert props["b"]["description"] == "The second factor."
+
+
+def test_docstring_param_description_does_not_override_explicit_field():
+    """An explicit Field(description=...) takes precedence over the docstring."""
+
+    def func(  # pragma: no cover
+        a: Annotated[int, Field(description="Explicit description for a.")],
+        b: int,
+    ):
+        """Do something.
+
+        Args:
+            a: Docstring description for a (should be ignored).
+            b: Docstring description for b.
+        """
+        return a + b
+
+    props = _props(func_metadata(func))
+    assert props["a"]["description"] == "Explicit description for a."
+    assert props["b"]["description"] == "Docstring description for b."
+
+
+def test_docstring_param_descriptions_untyped_params():
+    """Descriptions are applied to parameters without type annotations."""
+
+    def func(a, b):  # pragma: no cover
+        """Do something.
+
+        Args:
+            a: Description for untyped a.
+            b: Description for untyped b.
+        """
+        ...
+
+    props = _props(func_metadata(func))
+    assert props["a"]["description"] == "Description for untyped a."
+    assert props["b"]["description"] == "Description for untyped b."
+
+
+def test_no_docstring_yields_no_descriptions():
+    """Functions without a docstring produce schemas without descriptions."""
+
+    def func(a: int, b: int):  # pragma: no cover
+        return a + b
+
+    props = _props(func_metadata(func))
+    assert "description" not in props["a"]
+    assert "description" not in props["b"]
+
+
+def test_docstring_without_params_section_is_safe():
+    """A docstring lacking a parameters section doesn't add descriptions or error."""
+
+    def func(a: int):  # pragma: no cover
+        """Just a summary line with no documented parameters."""
+        return a
+
+    props = _props(func_metadata(func))
+    assert "description" not in props["a"]
+
+
+def test_docstring_param_with_empty_description_is_skipped():
+    """A documented parameter with no description text gets no description."""
+
+    def func(a: int, b: int):  # pragma: no cover
+        """Do something.
+
+        Args:
+            a:
+            b: Description for b.
+        """
+        ...
+
+    props = _props(func_metadata(func))
+    assert "description" not in props["a"]
+    assert props["b"]["description"] == "Description for b."
+
+
+def test_docstring_description_applied_with_non_field_metadata():
+    """Docstring descriptions still apply when annotation metadata isn't a Field."""
+
+    def func(a: Annotated[int, "not a field"]):  # pragma: no cover
+        """Do something.
+
+        Args:
+            a: Description for a.
+        """
+        ...
+
+    props = _props(func_metadata(func))
+    assert props["a"]["description"] == "Description for a."
