@@ -13,7 +13,8 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import _contains_content_helper_type, func_metadata
+from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult
 
 
@@ -714,6 +715,41 @@ def test_structured_output_generic_types():
         "required": ["result"],
         "title": "func_optionalOutput",
     }
+
+
+def test_unstructured_output_content_helper_annotations():
+    """Image/Audio helper return annotations use content conversion, not schemas."""
+
+    def func_image() -> Image:  # pragma: no cover
+        return Image(data=b"abc", format="png")
+
+    def func_image_list() -> list[Image]:  # pragma: no cover
+        return [Image(data=b"abc", format="png")]
+
+    def func_nested_helpers() -> tuple[str, list[Image | Audio]]:  # pragma: no cover
+        return ("media", [Image(data=b"abc", format="png"), Audio(data=b"def", format="wav")])
+
+    def func_annotated_helper() -> Annotated[tuple[str, Image], "media"]:  # pragma: no cover
+        return ("image", Image(data=b"abc", format="png"))
+
+    for func in (
+        func_image,
+        func_image_list,
+        func_nested_helpers,
+        func_annotated_helper,
+    ):
+        meta = func_metadata(func)
+        assert meta.output_schema is None
+        assert meta.output_model is None
+        assert meta.wrap_output is False
+
+
+def test_detects_content_helper_types_in_nested_annotations():
+    assert _contains_content_helper_type(Image)
+    assert _contains_content_helper_type(list[Image])
+    assert _contains_content_helper_type(tuple[str, list[Image | Audio]])
+    assert _contains_content_helper_type(Annotated[tuple[str, Image], "media"])
+    assert not _contains_content_helper_type(list[str])
 
 
 def test_structured_output_dataclass():

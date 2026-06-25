@@ -27,7 +27,7 @@ class Image:
 
     def _get_mime_type(self) -> str:
         """Get MIME type from format or guess from file extension."""
-        if self._format:  # pragma: no cover
+        if self._format:
             return f"image/{self._format.lower()}"
 
         if self.path:
@@ -46,7 +46,7 @@ class Image:
         if self.path:
             with open(self.path, "rb") as f:
                 data = base64.b64encode(f.read()).decode()
-        elif self.data is not None:  # pragma: no cover
+        elif self.data is not None:
             data = base64.b64encode(self.data).decode()
         else:  # pragma: no cover
             raise ValueError("No image data available")
