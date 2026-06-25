@@ -124,11 +124,21 @@ async def test_streamable_http_path_moves_the_endpoint_to_the_mount_prefix() -> 
 
 
 async def test_cors_exposes_the_session_id_header() -> None:
-    """tutorial005: the CORS middleware exposes `Mcp-Session-Id` and allows the three MCP methods."""
+    """tutorial005: the browser origin gets the three MCP methods and can read `Mcp-Session-Id`."""
     (middleware,) = tutorial005.app.user_middleware
     assert middleware.cls is CORSMiddleware
-    assert middleware.kwargs["expose_headers"] == ["Mcp-Session-Id"]
-    assert middleware.kwargs["allow_methods"] == ["GET", "POST", "DELETE"]
+    transport = httpx.ASGITransport(app=tutorial005.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+        preflight = await http.options(
+            "/mcp",
+            headers={"Origin": "https://app.example.com", "Access-Control-Request-Method": "POST"},
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers["access-control-allow-methods"] == "GET, POST, DELETE"
+
+        response = await http.get("/not-the-endpoint", headers={"Origin": "https://app.example.com"})
+        assert response.headers["access-control-allow-origin"] == "https://app.example.com"
+        assert response.headers["access-control-expose-headers"] == "Mcp-Session-Id"
 
 
 async def test_custom_route_lands_next_to_the_mcp_endpoint() -> None:
