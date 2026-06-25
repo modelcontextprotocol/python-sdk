@@ -2,10 +2,10 @@
 
 from typing import Any
 
+import mcp_types as types
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
-from mcp import types
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext

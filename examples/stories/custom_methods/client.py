@@ -2,7 +2,8 @@
 
 from typing import Literal, cast
 
-from mcp import types
+import mcp_types as types
+
 from mcp.client import Client
 from stories._harness import Target, run_client
 

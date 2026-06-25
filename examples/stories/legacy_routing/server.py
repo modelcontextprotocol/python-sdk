@@ -3,13 +3,13 @@
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from mcp_types import INVALID_PARAMS
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.inbound import InboundLadderRejection, InboundModernRoute, classify_inbound_request
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
-from mcp.types import INVALID_PARAMS
 from stories._hosting import NO_DNS_REBIND, run_app_from_args
 
 #: Response headers a browser-based MCP client must be able to read.

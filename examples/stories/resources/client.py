@@ -1,7 +1,8 @@
 """List resources and templates, then read both the static and templated URIs."""
 
+from mcp_types import TextResourceContents
+
 from mcp.client import Client
-from mcp.types import TextResourceContents
 from stories._harness import Target, run_client
 
 

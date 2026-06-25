@@ -1,9 +1,9 @@
 """Asserts progress + log notifications arrive in order, then cancels a call mid-flight."""
 
 import anyio
+from mcp_types import LoggingMessageNotificationParams
 
 from mcp.client import Client
-from mcp.types import LoggingMessageNotificationParams
 from stories._harness import Target, run_client
 
 

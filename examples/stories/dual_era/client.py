@@ -1,8 +1,9 @@
 """Connect to the same server factory twice — once per era, so `main` takes `targets` — and assert both are served."""
 
-from mcp import types
+import mcp_types as types
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
+
 from mcp.client import Client
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from stories._harness import TargetFactory, run_client
 
 

@@ -1,6 +1,7 @@
 """Auto-answer form and URL elicitations and assert the tool result reflects them."""
 
-from mcp import types
+import mcp_types as types
+
 from mcp.client import Client, ClientRequestContext
 from stories._harness import Target, run_client
 

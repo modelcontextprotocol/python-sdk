@@ -2,9 +2,9 @@
 
 from typing import Any
 
+import mcp_types as types
 from starlette.applications import Starlette
 
-from mcp import types
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import ProviderTokenVerifier
 from mcp.server.context import ServerRequestContext

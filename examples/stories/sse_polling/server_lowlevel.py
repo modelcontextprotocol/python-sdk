@@ -2,9 +2,9 @@
 
 from typing import Any
 
+import mcp_types as types
 from starlette.applications import Starlette
 
-from mcp import types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import NO_DNS_REBIND, run_app_from_args

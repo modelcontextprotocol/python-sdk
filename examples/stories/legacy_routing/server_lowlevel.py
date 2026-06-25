@@ -2,13 +2,13 @@
 
 from typing import Any
 
+import mcp_types as types
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 
-from mcp import types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from stories._hosting import NO_DNS_REBIND, run_app_from_args
 
 from .server import MCP_ALLOWED_HEADERS, MCP_ALLOWED_METHODS, MCP_EXPOSED_HEADERS

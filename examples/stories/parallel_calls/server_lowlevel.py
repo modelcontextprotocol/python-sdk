@@ -4,8 +4,8 @@ from collections import defaultdict
 from typing import Any
 
 import anyio
+import mcp_types as types
 
-from mcp import types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args

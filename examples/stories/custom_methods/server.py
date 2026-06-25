@@ -6,7 +6,8 @@ story's `server.py` is lowlevel-native (no `server_lowlevel.py` sibling).
 
 from typing import Any
 
-from mcp import types
+import mcp_types as types
+
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args

@@ -4,8 +4,9 @@ Sequential integer IDs so the wire is readable; a production server would back
 this interface with persistent storage so replay survives a process restart.
 """
 
+from mcp_types import JSONRPCMessage
+
 from mcp.server.streamable_http import EventCallback, EventId, EventMessage, EventStore, StreamId
-from mcp.types import JSONRPCMessage
 
 
 class InMemoryEventStore(EventStore):

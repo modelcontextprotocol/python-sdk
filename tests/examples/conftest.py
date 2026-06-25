@@ -22,12 +22,12 @@ from typing import Any
 import httpx
 import pytest
 import stories
+from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.applications import Starlette
 from stories._harness import AuthBuilder, TargetFactory
 from stories._hosting import asgi_from
 
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.version import LATEST_MODERN_VERSION
 from tests.interaction.transports._bridge import StreamingASGITransport
 
 if sys.version_info >= (3, 11):  # pragma: lax no cover

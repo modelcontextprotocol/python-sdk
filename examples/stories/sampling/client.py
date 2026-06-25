@@ -1,7 +1,8 @@
 """Supply a canned sampling_callback and assert its text round-trips through the tool."""
 
+from mcp_types import CreateMessageRequestParams, CreateMessageResult, TextContent
+
 from mcp.client import Client, ClientRequestContext
-from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
 from stories._harness import Target, run_client
 
 

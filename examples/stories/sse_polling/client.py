@@ -1,9 +1,9 @@
 """Call a tool whose SSE stream the server closes mid-flight; the call still completes. HTTP-only — no SSE on stdio."""
 
 import anyio
+from mcp_types import TextContent
 
 from mcp.client import Client
-from mcp.types import TextContent
 from stories._harness import Target, run_client
 
 

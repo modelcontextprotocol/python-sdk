@@ -1,8 +1,8 @@
 """Progress, in-flight logging, and cancellation from a single long-running tool."""
 
 import anyio
+import mcp_types as types
 
-from mcp import types
 from mcp.server.mcpserver import Context, MCPServer
 from stories._hosting import run_server_from_args
 

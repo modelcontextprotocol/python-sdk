@@ -1,9 +1,9 @@
 """Two concurrent `Client`s, so `main` takes `targets`; their rendezvous in one tool proves concurrent dispatch."""
 
 import anyio
+from mcp_types import TextContent
 
 from mcp.client import Client
-from mcp.types import TextContent
 from stories._harness import TargetFactory, run_client
 
 

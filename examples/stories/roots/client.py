@@ -1,9 +1,9 @@
 """Expose two filesystem roots and verify the server's tool can read them back."""
 
+from mcp_types import ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
 from mcp.client import Client, ClientRequestContext
-from mcp.types import ListRootsResult, Root, TextContent
 from stories._harness import Target, run_client
 
 

@@ -7,7 +7,8 @@ one supported registration point is the `middleware` list on `lowlevel.Server`.
 import json
 from typing import Any
 
-from mcp import types
+import mcp_types as types
+
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args

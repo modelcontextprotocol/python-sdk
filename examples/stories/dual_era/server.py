@@ -1,7 +1,8 @@
 """One MCPServer factory that serves both the 2025 handshake era and the 2026 stateless era."""
 
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 from stories._hosting import run_server_from_args
 
 

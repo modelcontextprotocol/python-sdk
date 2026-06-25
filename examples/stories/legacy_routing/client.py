@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from mcp import types
+import mcp_types as types
+from mcp_types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
+
 from mcp.client import Client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, InboundLadderRejection
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from mcp.types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY
 from stories._harness import TargetFactory, run_client
 
 from .server import classify_era

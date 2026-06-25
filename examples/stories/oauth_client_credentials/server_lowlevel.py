@@ -5,13 +5,13 @@ import json
 import secrets
 from typing import Any
 
+import mcp_types as types
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from mcp import types
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.context import ServerRequestContext

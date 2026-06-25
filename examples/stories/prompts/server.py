@@ -1,8 +1,9 @@
 """Prompts primitive: register templates, list, render, complete an argument."""
 
+from mcp_types import Completion, CompletionArgument, CompletionContext, PromptReference, ResourceTemplateReference
+
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, UserMessage
-from mcp.types import Completion, CompletionArgument, CompletionContext, PromptReference, ResourceTemplateReference
 from stories._hosting import run_server_from_args
 
 LANGUAGES = ["python", "pytorch", "rust", "go", "typescript"]

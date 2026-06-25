@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
+import mcp_types as types
+from mcp_types.version import LATEST_MODERN_VERSION
 
-from mcp import types
 from mcp.server.connection import Connection  # deep-path import; shorter re-export planned
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
@@ -22,7 +23,6 @@ from mcp.server.runner import serve_connection, serve_one  # deep-path import; s
 from mcp.server.stdio import stdio_server
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import LATEST_MODERN_VERSION
 
 __all__ = ["SingleExchangeContext", "build_server", "handle_one"]
 

@@ -1,8 +1,9 @@
 """Probe server/discover once, persist the result, reconnect with zero round-trips — a fresh `Client` via `targets`."""
 
+from mcp_types import DiscoverResult
+from mcp_types.version import LATEST_MODERN_VERSION
+
 from mcp.client import Client
-from mcp.shared.version import LATEST_MODERN_VERSION
-from mcp.types import DiscoverResult
 from stories._harness import TargetFactory, run_client
 
 

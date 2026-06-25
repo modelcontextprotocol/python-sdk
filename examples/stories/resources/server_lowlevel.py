@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from mcp import types
+import mcp_types as types
+from mcp_types.jsonrpc import INVALID_PARAMS
+
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import MCPError
-from mcp.types.jsonrpc import INVALID_PARAMS
 from stories._hosting import run_server_from_args
 
 

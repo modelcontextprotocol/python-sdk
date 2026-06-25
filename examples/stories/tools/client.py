@@ -1,7 +1,8 @@
 """List tools, inspect schemas + annotations, call both tools, assert structured output."""
 
+from mcp_types import TextContent
+
 from mcp.client import Client
-from mcp.types import TextContent
 from stories._harness import Target, run_client
 
 
