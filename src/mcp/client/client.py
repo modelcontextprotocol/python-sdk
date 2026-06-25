@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, overload
 
 import anyio
 import mcp_types as types
@@ -15,6 +15,8 @@ from mcp_types import (
     EmptyResult,
     GetPromptResult,
     Implementation,
+    InputRequiredResult,
+    InputResponses,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -374,6 +376,7 @@ class Client:
         """Unsubscribe from resource updates."""
         return await self.session.unsubscribe_resource(uri, meta=meta)
 
+    @overload
     async def call_tool(
         self,
         name: str,
@@ -381,8 +384,38 @@ class Client:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-    ) -> CallToolResult:
+        allow_input_required: Literal[False] = False,
+    ) -> CallToolResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> CallToolResult | InputRequiredResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> CallToolResult | InputRequiredResult:
         """Call a tool on the server.
 
         Args:
@@ -390,17 +423,32 @@ class Client:
             arguments: Arguments to pass to the tool
             read_timeout_seconds: Timeout for the tool call
             progress_callback: Callback for progress updates
+            input_responses: Responses to a prior `InputRequiredResult.input_requests`
+            request_state: Opaque state echoed from a prior `InputRequiredResult`
             meta: Additional metadata for the request
+            allow_input_required: When ``False`` (default), an `InputRequiredResult`
+                from the server raises `RuntimeError`; when ``True``, it is returned
+                so the caller can resolve the requests and retry.
 
         Returns:
-            The tool result.
+            The tool result. When ``allow_input_required=True``, may instead be an
+            `InputRequiredResult` carrying the server's input requests and opaque
+            ``request_state`` for the retry.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                ``allow_input_required`` is ``False``.
         """
+        # TODO(L84): stop forwarding allow_input_required; run the MRTR auto-loop driver here (S6).
         return await self.session.call_tool(
             name=name,
             arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+            input_responses=input_responses,
+            request_state=request_state,
             meta=meta,
+            allow_input_required=allow_input_required,
         )
 
     async def list_prompts(

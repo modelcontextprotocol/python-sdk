@@ -37,7 +37,9 @@ from pydantic import FileUrl, ValidationError
 
 from mcp import MCPError
 from mcp.client import ClientRequestContext
+from mcp.client.client import Client
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
 from mcp.shared.message import SessionMessage
@@ -1657,3 +1659,59 @@ async def test_discover_reraises_unsupported_version_with_malformed_error_data()
                 await session.discover()
             assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
     assert [m for m, _ in dispatcher.calls] == ["server/discover"]
+
+
+@pytest.mark.anyio
+async def test_call_tool_returns_input_required_result_when_server_requests_input() -> None:
+    # `on_call_tool` is still typed `-> CallToolResult` on this branch (#2967 widens it later);
+    # `add_request_handler` is `HandlerResult`-typed and accepts `InputRequiredResult` cleanly.
+    async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="s")
+
+    server = Server("test")
+    server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            result = await client.call_tool("ask", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "s"
+
+
+@pytest.mark.anyio
+async def test_call_tool_threads_input_responses_and_request_state_into_params() -> None:
+    captured: list[types.CallToolRequestParams] = []
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        captured.append(params)
+        return CallToolResult(content=[])
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
+
+    server = Server("test", on_call_tool=on_call_tool, on_list_tools=on_list_tools)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            await client.call_tool(
+                "ask",
+                input_responses={"k": types.ElicitResult(action="decline")},
+                request_state="s",
+            )
+    assert captured[0].input_responses == {"k": types.ElicitResult(action="decline")}
+    assert captured[0].request_state == "s"
+
+
+@pytest.mark.anyio
+async def test_client_call_tool_raises_on_input_required_without_opt_in() -> None:
+    async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="s")
+
+    server = Server("test")
+    server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError):
+                await client.call_tool("t")
+            result = await client.call_tool("t", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
