@@ -64,6 +64,7 @@ async def run():
 
             # Call a tool (add tool from mcpserver_quickstart)
             result = await session.call_tool("add", arguments={"a": 5, "b": 3})
+            assert isinstance(result, types.CallToolResult)
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
                 print(f"Tool result: {result_unstructured.text}")

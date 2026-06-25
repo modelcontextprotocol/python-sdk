@@ -2166,6 +2166,7 @@ async def run():
 
             # Call a tool (add tool from mcpserver_quickstart)
             result = await session.call_tool("add", arguments={"a": 5, "b": 3})
+            assert isinstance(result, types.CallToolResult)
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
                 print(f"Tool result: {result_unstructured.text}")
@@ -2431,19 +2432,22 @@ async def parse_tool_results():
 
             # Example 1: Parsing text content
             result = await session.call_tool("get_data", {"format": "text"})
+            assert isinstance(result, types.CallToolResult)
             for content in result.content:
                 if isinstance(content, types.TextContent):
                     print(f"Text: {content.text}")
 
             # Example 2: Parsing structured content from JSON tools
             result = await session.call_tool("get_user", {"id": "123"})
-            if hasattr(result, "structured_content") and result.structured_content:
+            assert isinstance(result, types.CallToolResult)
+            if result.structured_content:
                 # Access structured data directly
                 user_data = result.structured_content
                 print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
 
             # Example 3: Parsing embedded resources
             result = await session.call_tool("read_config", {})
+            assert isinstance(result, types.CallToolResult)
             for content in result.content:
                 if isinstance(content, types.EmbeddedResource):
                     resource = content.resource
@@ -2454,12 +2458,14 @@ async def parse_tool_results():
 
             # Example 4: Parsing image content
             result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
+            assert isinstance(result, types.CallToolResult)
             for content in result.content:
                 if isinstance(content, types.ImageContent):
                     print(f"Image ({content.mime_type}): {len(content.data)} bytes")
 
             # Example 5: Handling errors
             result = await session.call_tool("failing_tool", {})
+            assert isinstance(result, types.CallToolResult)
             if result.is_error:
                 print("Tool execution failed!")
                 for content in result.content:

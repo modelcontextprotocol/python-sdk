@@ -899,6 +899,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 
     # Call the tool
     result = await initialized_client_session.call_tool("test_tool", {})
+    assert isinstance(result, CallToolResult)
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert result.content[0].text == "Called test_tool"
@@ -956,6 +957,7 @@ async def test_streamable_http_client_json_response(json_app: Starlette) -> None
 
         # Call a tool and verify JSON response handling
         result = await session.call_tool("test_tool", {})
+        assert isinstance(result, CallToolResult)
         assert len(result.content) == 1
         assert result.content[0].type == "text"
         assert result.content[0].text == "Called test_tool"
@@ -1277,6 +1279,7 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
 
         # Call the tool that triggers server-side sampling
         tool_result = await session.call_tool("test_sampling_tool", {})
+        assert isinstance(tool_result, CallToolResult)
 
         # Verify the tool result contains the expected content
         assert len(tool_result.content) == 1
@@ -1418,6 +1421,7 @@ async def test_streamablehttp_request_context_propagation(context_app: Starlette
 
                 # Call the tool that echoes headers back
                 tool_result = await session.call_tool("echo_headers", {})
+                assert isinstance(tool_result, CallToolResult)
 
                 # Parse the JSON response
                 assert len(tool_result.content) == 1
@@ -1453,6 +1457,7 @@ async def test_streamablehttp_request_context_isolation(context_app: Starlette) 
 
                     # Call the tool that echoes context
                     tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                    assert isinstance(tool_result, CallToolResult)
 
                     assert len(tool_result.content) == 1
                     assert isinstance(tool_result.content[0], TextContent)
@@ -1482,6 +1487,7 @@ async def test_client_includes_protocol_version_header_after_init(context_app: S
 
         # Call a tool that echoes headers to verify the header is present
         tool_result = await session.call_tool("echo_headers", {})
+        assert isinstance(tool_result, CallToolResult)
 
         assert len(tool_result.content) == 1
         assert isinstance(tool_result.content[0], TextContent)
@@ -1782,7 +1788,7 @@ async def test_server_close_sse_stream_via_context(
         result = await session.call_tool("tool_with_stream_close", {})
 
         # Client should still receive complete response (via auto-reconnect)
-        assert result is not None
+        assert isinstance(result, CallToolResult)
         assert len(result.content) > 0
         assert result.content[0].type == "text"
         assert isinstance(result.content[0], TextContent)
@@ -1819,6 +1825,7 @@ async def test_streamable_http_client_auto_reconnects(
         # 3. Sends more notifications (stored in event_store)
         # 4. Returns response
         result = await session.call_tool("tool_with_stream_close", {})
+        assert isinstance(result, CallToolResult)
 
         # Client should have auto-reconnected and received ALL notifications
         assert len(captured_notifications) >= 2, (
@@ -1848,6 +1855,7 @@ async def test_streamable_http_client_respects_retry_interval(
         elapsed = time.monotonic() - start_time
 
         # Verify result was received
+        assert isinstance(result, CallToolResult)
         assert result.content[0].type == "text"
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Done"
@@ -1889,6 +1897,7 @@ async def test_streamable_http_sse_polling_full_cycle(
         # 5. Server sends "After close" notification
         # 6. Server sends final response
         result = await session.call_tool("tool_with_stream_close", {})
+        assert isinstance(result, CallToolResult)
 
         # Verify all notifications received in order
         assert "Before close" in all_notifications, "Should receive notification sent before stream close"
@@ -1927,6 +1936,7 @@ async def test_streamable_http_events_replayed_after_disconnect(
         # Tool sends: notification1, close_stream, notification2, notification3, response
         # Client should receive all notifications even though 2&3 were sent during disconnect
         result = await session.call_tool("tool_with_multiple_notifications_and_close", {})
+        assert isinstance(result, CallToolResult)
 
         assert "notification1" in notification_data, "Should receive notification1 (sent before close)"
         assert "notification2" in notification_data, "Should receive notification2 (sent after close, replayed)"
@@ -2063,6 +2073,7 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
         # 3. Sends notification_2 (stored in event_store)
         # 4. Returns response
         result = await session.call_tool("tool_with_standalone_stream_close", {})
+        assert isinstance(result, CallToolResult)
 
         # Verify the tool completed
         assert result.content[0].type == "text"
@@ -2125,6 +2136,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(context_app:
 
                 # Use echo_headers tool to see what headers the server actually received
                 tool_result = await session.call_tool("echo_headers", {})
+                assert isinstance(tool_result, CallToolResult)
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
@@ -2154,6 +2166,7 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
 
                 # Use echo_headers tool to verify both custom and MCP headers are present
                 tool_result = await session.call_tool("echo_headers", {})
+                assert isinstance(tool_result, CallToolResult)
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)

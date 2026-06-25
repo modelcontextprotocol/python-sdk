@@ -173,6 +173,10 @@ async def _default_logging_callback(
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
+_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult] = TypeAdapter(
+    types.CallToolResult | types.InputRequiredResult
+)
+
 
 class ClientSession:
     """Client half of an MCP connection, running on a `Dispatcher`.
@@ -269,7 +273,7 @@ class ClientSession:
     async def send_request(
         self,
         request: types.ClientRequest,
-        result_type: type[ReceiveResultT],
+        result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
         request_read_timeout_seconds: float | None = None,
         metadata: ClientMessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
@@ -308,6 +312,8 @@ class ClientSession:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
             pass
+        if isinstance(result_type, TypeAdapter):
+            return result_type.validate_python(raw)
         return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
@@ -603,20 +609,28 @@ class ClientSession:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-    ) -> types.CallToolResult:
+    ) -> types.CallToolResult | types.InputRequiredResult:
         """Send a tools/call request with optional progress callback support."""
 
         result = await self.send_request(
             types.CallToolRequest(
-                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
+                params=types.CallToolRequestParams(
+                    name=name,
+                    arguments=arguments,
+                    input_responses=input_responses,
+                    request_state=request_state,
+                    _meta=meta,
+                ),
             ),
-            types.CallToolResult,
+            _CallToolResultAdapter,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
         )
 
-        if not result.is_error:
+        if isinstance(result, types.CallToolResult) and not result.is_error:
             await self._validate_tool_result(name, result)
 
         return result

@@ -306,6 +306,7 @@ async def test_request_context_propagation() -> None:
             assert isinstance(result, InitializeResult)
 
             tool_result = await session.call_tool("echo_headers", {})
+            assert isinstance(tool_result, CallToolResult)
 
             assert len(tool_result.content) == 1
             content = tool_result.content[0]
@@ -332,6 +333,7 @@ async def test_request_context_isolation() -> None:
                 await session.initialize()
 
                 tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
+                assert isinstance(tool_result, CallToolResult)
 
                 assert len(tool_result.content) == 1
                 content = tool_result.content[0]

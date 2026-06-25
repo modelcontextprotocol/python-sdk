@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias, overload
 
 import anyio
 import httpx
@@ -190,6 +190,7 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
+    @overload
     async def call_tool(
         self,
         name: str,
@@ -197,18 +198,62 @@ class ClientSessionGroup:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
         meta: types.RequestParamsMeta | None = None,
-    ) -> types.CallToolResult:
-        """Executes a tool given its name and arguments."""
+        allow_input_required: Literal[False] = False,
+    ) -> types.CallToolResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: Literal[True],
+    ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: types.RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.CallToolResult | types.InputRequiredResult:
+        """Executes a tool given its name and arguments.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                ``allow_input_required`` is ``False``.
+        """
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
-        return await session.call_tool(
+        result = await session.call_tool(
             session_tool_name,
             arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+            input_responses=input_responses,
+            request_state=request_state,
             meta=meta,
         )
+        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
+            # TODO(L80): replace this raise with the MRTR auto-loop driver (S6).
+            raise RuntimeError(
+                "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
+                "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
+            )
+        return result
 
     async def disconnect_from_server(self, session: mcp.ClientSession) -> None:
         """Disconnects from a single MCP server."""

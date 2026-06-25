@@ -142,6 +142,7 @@ async def test_streamable_http_client_unicode_tool_call() -> None:
         # Test 2: Send Unicode text in tool call (client→server→client)
         for test_name, test_string in UNICODE_TEST_STRINGS.items():
             result = await session.call_tool("echo_unicode", arguments={"text": test_string})
+            assert isinstance(result, types.CallToolResult)
 
             # Verify server correctly received and echoed back Unicode
             assert len(result.content) == 1

@@ -20,6 +20,7 @@ import logging
 import click
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import CallToolResult
 
 
 async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
@@ -55,6 +56,7 @@ async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
             )
 
             print("-" * 40)
+            assert isinstance(result, CallToolResult)
             if result.content:
                 content = result.content[0]
                 text = getattr(content, "text", str(content))
