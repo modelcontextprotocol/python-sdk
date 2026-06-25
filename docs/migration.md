@@ -435,7 +435,7 @@ The constructor signature also changed — it now takes `code`, `message`, and o
 
 ```python
 from mcp.shared.exceptions import McpError
-from mcp_types import ErrorData, INVALID_REQUEST
+from mcp.types import ErrorData, INVALID_REQUEST
 
 raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 ```
@@ -679,7 +679,7 @@ This means you can no longer access `.root` on these types or use `model_validat
 **Before (v1):**
 
 ```python
-from mcp_types import ClientRequest, ServerNotification
+from mcp.types import ClientRequest, ServerNotification
 
 # Using RootModel.model_validate()
 request = ClientRequest.model_validate(data)
@@ -901,7 +901,7 @@ The `uri` field on resource-related types now uses `str` instead of Pydantic's `
 
 ```python
 from pydantic import AnyUrl
-from mcp_types import Resource
+from mcp.types import Resource
 
 # Required wrapping in AnyUrl
 resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validation
@@ -986,7 +986,7 @@ The public `server.request_handlers` and `server.notification_handlers` dictiona
 
 ```python
 # Before (v1) — direct dict access
-from mcp_types import ListToolsRequest
+from mcp.types import ListToolsRequest
 
 if ListToolsRequest in server.request_handlers:
     ...
