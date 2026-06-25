@@ -36,10 +36,10 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AnyUrl
 
-from mcp import types
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
