@@ -13,7 +13,17 @@ from mcp.server.lowlevel.server import Server
 from mcp.server.runner import otel_middleware
 from mcp.shared._otel import inject_trace_context
 from mcp.shared.exceptions import MCPError
-from mcp.types import CallToolRequestParams, ListToolsResult, NotificationParams, PaginatedRequestParams, Tool
+from mcp.types import (
+    INVALID_PARAMS,
+    CallToolRequestParams,
+    CallToolResult,
+    GetPromptRequestParams,
+    GetPromptResult,
+    ListToolsResult,
+    NotificationParams,
+    PaginatedRequestParams,
+    Tool,
+)
 
 from .conftest import SpanCapture
 from .test_runner import Ctx, SrvT, connected_runner
@@ -40,11 +50,96 @@ async def test_emits_server_span_with_method_and_target(server: SrvT, spans: Spa
         result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
     assert result == {"content": [], "isError": False}
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.name == "MCP handle tools/call mytool"
+    assert span.name == "tools/call mytool"
     assert span.attributes is not None
     assert span.attributes["mcp.method.name"] == "tools/call"
+    assert span.attributes["gen_ai.operation.name"] == "execute_tool"
+    assert span.attributes["gen_ai.tool.name"] == "mytool"
     assert isinstance(span.attributes["jsonrpc.request.id"], str)
     assert span.status.status_code == StatusCode.UNSET
+
+
+@pytest.mark.anyio
+async def test_tool_error_dict_result_sets_error_type(server: SrvT, spans: SpanCapture):
+    async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"content": [], "isError": True}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "tool_error"
+    assert span.status.status_code == StatusCode.ERROR
+
+
+@pytest.mark.anyio
+async def test_tool_error_model_result_sets_error_type(server: SrvT, spans: SpanCapture):
+    async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[], is_error=True)
+
+    server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "tool_error"
+    assert span.status.status_code == StatusCode.ERROR
+
+
+@pytest.mark.anyio
+async def test_tool_error_snake_case_dict_result_sets_error_type(server: SrvT, spans: SpanCapture):
+    async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"content": [], "is_error": True}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "tool_error"
+    assert span.status.status_code == StatusCode.ERROR
+
+
+@pytest.mark.anyio
+async def test_named_non_tool_prompt_method_omits_gen_ai_attrs(server: SrvT, spans: SpanCapture):
+    async def custom(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"content": [], "isError": False}
+
+    server.add_request_handler("custom/op", CallToolRequestParams, custom)
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        await client.send_raw_request("custom/op", {"name": "thing", "arguments": {}})
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.name == "custom/op thing"
+    assert span.attributes is not None
+    assert "gen_ai.operation.name" not in span.attributes
+    assert "gen_ai.tool.name" not in span.attributes
+    assert "gen_ai.prompt.name" not in span.attributes
+
+
+@pytest.mark.anyio
+async def test_prompt_get_sets_prompt_name(server: SrvT, spans: SpanCapture):
+    async def get_prompt(ctx: Ctx, params: GetPromptRequestParams) -> GetPromptResult:
+        return GetPromptResult(messages=[])
+
+    server.add_request_handler("prompts/get", GetPromptRequestParams, get_prompt)
+    server.middleware.append(OpenTelemetryMiddleware())
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        await client.send_raw_request("prompts/get", {"name": "myprompt"})
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.name == "prompts/get myprompt"
+    assert span.attributes is not None
+    assert span.attributes["gen_ai.prompt.name"] == "myprompt"
+    assert "gen_ai.operation.name" not in span.attributes
 
 
 @pytest.mark.anyio
@@ -59,7 +154,7 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
         await client.notify("notifications/roots/list_changed", None)
         await anyio.wait_all_tasks_blocked()
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.name == "MCP handle notifications/roots/list_changed"
+    assert span.name == "notifications/roots/list_changed"
     assert span.attributes is not None
     assert span.attributes["mcp.method.name"] == "notifications/roots/list_changed"
     assert "jsonrpc.request.id" not in span.attributes
@@ -146,6 +241,9 @@ async def test_records_error_status_on_mcp_error(server: SrvT, spans: SpanCaptur
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "Method not found"
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == str(exc.value.error.code)
+    assert span.attributes["rpc.response.status_code"] == str(exc.value.error.code)
     assert not [e for e in span.events if e.name == "exception"]
 
 
@@ -160,6 +258,11 @@ async def test_validation_failure_sets_sanitized_status(server: SrvT, spans: Spa
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "Invalid request parameters"
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == str(INVALID_PARAMS)
+    assert span.attributes["rpc.response.status_code"] == str(INVALID_PARAMS)
+    assert span.attributes["gen_ai.operation.name"] == "execute_tool"
+    assert "gen_ai.tool.name" not in span.attributes
     assert not span.events
 
 
@@ -177,6 +280,8 @@ async def test_records_error_status_on_handler_exception(server: SrvT, spans: Sp
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "handler blew up"
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "ValueError"
     [event] = [e for e in span.events if e.name == "exception"]
     assert event.attributes is not None
     assert event.attributes["exception.type"] == "ValueError"
@@ -202,4 +307,4 @@ async def test_passes_rewritten_context_through(server: SrvT, spans: SpanCapture
         await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {"x": 1}})
     assert seen_arguments == {"x": 1, "injected": True}
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.name == "MCP handle tools/call mytool"
+    assert span.name == "tools/call mytool"
