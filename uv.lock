@@ -971,7 +971,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.1,<1.0.0" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "jsonschema", specifier = ">=4.20.0" },
-    { name = "mcp-types", editable = "mcp-types" },
+    { name = "mcp-types", editable = "src/mcp-types" },
     { name = "opentelemetry-api", specifier = ">=1.28.0" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
@@ -1453,7 +1453,7 @@ requires-dist = [{ name = "mcp", editable = "." }]
 
 [[package]]
 name = "mcp-types"
-source = { editable = "mcp-types" }
+source = { editable = "src/mcp-types" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },

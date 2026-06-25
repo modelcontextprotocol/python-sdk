@@ -1,7 +1,7 @@
 """Regenerate the per-version wire-shape surface packages from vendored schemas.
 
 Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
-writes the result to `mcp-types/mcp_types/v<version>/__init__.py` with only the
+writes the result to `src/mcp-types/mcp_types/v<version>/__init__.py` with only the
 fixes the raw output needs: a small JSON pre-patch for the known
 `number`-as-`integer` schema.json defect, a header, full URLs for the spec's
 site-absolute doc links, and per-version epilogue aliases. Run with
@@ -23,7 +23,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "schema"
-TYPES_DIR = REPO_ROOT / "mcp-types" / "mcp_types"
+TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
 
 # schema.ts -> schema.json renders TypeScript `number` as JSON Schema
 # `integer` at these sites; patch the JSON before codegen so floats validate.
