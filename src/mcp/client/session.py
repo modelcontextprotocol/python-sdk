@@ -313,7 +313,7 @@ class ClientSession:
         except KeyError:
             pass
         if isinstance(result_type, TypeAdapter):
-            return result_type.validate_python(raw)
+            return result_type.validate_python(raw, by_name=False)
         return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
