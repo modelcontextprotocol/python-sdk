@@ -27,6 +27,7 @@ from mcp.types import (
     CreateMessageRequestParams,
     ElicitationCapability,
     EmptyResult,
+    FormElicitationCapability,
     Implementation,
     ListRootsRequest,
     ListRootsResult,
@@ -37,6 +38,7 @@ from mcp.types import (
     SamplingCapability,
     SamplingContextCapability,
     SamplingToolsCapability,
+    UrlElicitationCapability,
 )
 
 _CLIENT_INFO = Implementation(name="t", version="0")
@@ -365,6 +367,28 @@ def test_connection_check_capability_false_when_no_client_params_recorded():
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
         (ClientCapabilities(experimental={"a": {"x": 1}}), ClientCapabilities(experimental={"a": {"x": 2}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"a": {}}), True),
+        # Elicitation sub-capability checks (form / url)
+        (ClientCapabilities(elicitation=None), ClientCapabilities(elicitation=ElicitationCapability()), False),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability(), url=UrlElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            True,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            True,
+        ),
     ],
 )
 def test_check_capability_per_field_branches(have: ClientCapabilities, want: ClientCapabilities, expected: bool):
