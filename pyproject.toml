@@ -273,12 +273,6 @@ source = [
     "/home/runner/work/python-sdk/python-sdk/src/",
     'D:\a\python-sdk\python-sdk\src',
 ]
-mcp_types = [
-    "src/mcp-types/mcp_types/",
-    "/home/runner/work/python-sdk/python-sdk/src/mcp-types/mcp_types/",
-    'D:\a\python-sdk\python-sdk\src\mcp-types\mcp_types',
-    "**/site-packages/mcp_types/",
-]
 
 [tool.inline-snapshot]
 default-flags = ["disable"]
