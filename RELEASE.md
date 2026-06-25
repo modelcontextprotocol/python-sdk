@@ -49,6 +49,3 @@ for alphas, later `bN`/`rcN` for betas and release candidates.
    Yanking doesn't stop `==` pins from installing the broken version, so set
    the yank reason (and edit the GitHub release notes) to point at the
    replacement version.
-5. When the line moves to a new stage (first beta, first release candidate,
-   stable), update the `Development Status` classifier in `pyproject.toml`
-   before tagging — PyPI uploads are immutable.
