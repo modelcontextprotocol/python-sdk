@@ -17,7 +17,7 @@ from inline_snapshot import snapshot
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCRequest
+from mcp.types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
 @pytest.mark.parametrize(
@@ -104,19 +104,25 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
 
 
 @pytest.mark.anyio
-async def test_post_does_not_read_cached_protocol_version_header() -> None:
-    """A POST's protocol-version header comes only from its own ``metadata.headers``.
+async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_it() -> None:
+    """``initialize`` discards the cached protocol-version header; every other POST reads it.
 
-    The first POST carries (and caches) a pv header; the second POST sends no metadata
-    and must therefore carry no pv header — a stale cached value would poison the
-    fallback ``initialize`` after a failed discover probe. The cache exists for
-    transport-internal GET/DELETE only.
+    Steps:
+    1. A stamped probe POST caches its ``MCP-Protocol-Version`` header.
+    2. An ``initialize`` POST clears that cache before building headers, so the fallback
+       handshake never carries a probe-stamped value.
+    3. A subsequent stamped POST re-seeds the cache with the negotiated version.
+    4. An unstamped POST (a JSON-RPC response written by the dispatcher, which never
+       passes through the session's stamp) then reads the cache and carries the
+       negotiated version — the spec MUST for all post-initialization HTTP requests.
     """
     recorded: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
         body = json.loads(request.content)
+        if "id" not in body or "result" in body:
+            return httpx.Response(202)
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
@@ -133,6 +139,18 @@ async def test_post_does_not_read_cached_protocol_version_header() -> None:
             await read.receive()
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="initialize", params={})))
             await read.receive()
-    assert [r.method for r in recorded] == ["POST", "POST"]
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"),
+                    metadata=ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: "2025-11-25"}),
+                )
+            )
+            # An unstamped JSON-RPC response — what the dispatcher writes when answering
+            # a server-initiated request (sampling/elicitation/roots).
+            await write.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=99, result={})))
+
+    assert [r.method for r in recorded] == ["POST", "POST", "POST", "POST"]
     assert recorded[0].headers[MCP_PROTOCOL_VERSION_HEADER] == "2026-07-28"
     assert MCP_PROTOCOL_VERSION_HEADER not in recorded[1].headers
+    assert recorded[2].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"
+    assert recorded[3].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"

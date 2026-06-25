@@ -24,6 +24,7 @@ from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     REQUEST_TIMEOUT,
     CallToolResult,
@@ -252,7 +253,9 @@ class Client:
                 try:
                     await session.discover()
                 except MCPError as e:
-                    if e.code in (METHOD_NOT_FOUND, REQUEST_TIMEOUT):
+                    # TODO(L73): invert this allowlist into a `classify_probe_outcome` denylist —
+                    # fall back on every rpc-error/4xx that isn't a recognized modern error.
+                    if e.code in (METHOD_NOT_FOUND, INVALID_REQUEST, REQUEST_TIMEOUT):
                         await session.initialize()
                     else:
                         raise

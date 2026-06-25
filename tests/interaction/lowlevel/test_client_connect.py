@@ -32,6 +32,7 @@ from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
@@ -217,7 +218,7 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
 
 @requirement("lifecycle:discover:network-error-raises")
 async def test_auto_mode_reraises_a_non_fallback_discover_error_without_initializing() -> None:
-    """A `server/discover` failure outside the {-32601, -32001, -32022} ladder raises without falling back.
+    """A `server/discover` failure that is not a recognised legacy-server rejection raises without falling back.
 
     Requirement `lifecycle:discover:network-error-raises` (sdk-defined): a 5xx-class error from
     the probe is surfaced to the caller; the client never sends `initialize`. Exercised here as
@@ -248,14 +249,27 @@ async def test_auto_mode_reraises_a_non_fallback_discover_error_without_initiali
 
 
 @requirement("lifecycle:discover:fallback-method-not-found")
-async def test_auto_mode_falls_back_to_initialize_when_discover_is_method_not_found() -> None:
-    """A -32601 from `server/discover` makes an auto-negotiating client run the legacy `initialize` handshake.
+@pytest.mark.parametrize(
+    ("probe_code", "probe_message"),
+    [
+        (METHOD_NOT_FOUND, "Method not found"),
+        (INVALID_REQUEST, "Bad Request: Missing session ID"),
+    ],
+    ids=["method-not-found", "invalid-request"],
+)
+async def test_auto_mode_falls_back_to_initialize_on_a_legacy_probe_rejection(
+    probe_code: int, probe_message: str
+) -> None:
+    """A legacy server's rejection of `server/discover` makes an auto-negotiating client fall back to `initialize`.
 
     Requirement `lifecycle:discover:fallback-method-not-found` (spec stdio#backward-compatibility):
     a legacy-era server that does not implement `server/discover` is connected to via the
-    handshake, and the session lands at a handshake-era protocol version. A real `Server` always
-    implements `server/discover`, so this test plays the server's side of the wire by hand.
-    Reserve this pattern for behaviour no real server can be made to produce.
+    handshake, and the session lands at a handshake-era protocol version. The probe rejection
+    arrives as METHOD_NOT_FOUND from a server that routes the unknown method, or as
+    INVALID_REQUEST from a deployed v1.x stateful streamable-HTTP server that rejects the
+    session-id-less probe before dispatch. A real `Server` always implements `server/discover`,
+    so this test plays the server's side of the wire by hand. Reserve this pattern for behaviour
+    no real server can be made to produce.
     """
     methods_seen: list[str] = []
 
@@ -267,7 +281,7 @@ async def test_auto_mode_falls_back_to_initialize_when_discover_is_method_not_fo
             assert isinstance(frame, JSONRPCRequest | JSONRPCNotification)
             methods_seen.append(frame.method)
             if isinstance(frame, JSONRPCRequest) and frame.method == "server/discover":
-                error = types.ErrorData(code=METHOD_NOT_FOUND, message="Method not found")
+                error = types.ErrorData(code=probe_code, message=probe_message)
                 await server_write.send(SessionMessage(JSONRPCError(jsonrpc="2.0", id=frame.id, error=error)))
             elif isinstance(frame, JSONRPCRequest) and frame.method == "initialize":
                 result = InitializeResult(

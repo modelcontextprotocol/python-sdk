@@ -81,17 +81,21 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.session_id: str | None = None
-        # Captured from the first stamped POST's metadata; reused on transport-internal
-        # GET/DELETE that don't carry per-message metadata.
+        # Captured from each stamped POST's metadata. Reused on outbound HTTP that carries
+        # no per-message header (transport-internal GET/DELETE, and dispatcher-written
+        # response/error/cancel POSTs that bypass the session's stamp). Cleared when an
+        # `initialize` POST goes out so a probe-stamped value cannot leak onto the handshake.
         self._protocol_version_header: str | None = None
 
-    def _base_headers(self) -> dict[str, str]:
-        """Build MCP-specific request headers (accept / content-type / session-id).
+    def _prepare_headers(self) -> dict[str, str]:
+        """Build MCP-specific request headers for any outbound HTTP request.
 
-        These headers will be merged with the httpx.AsyncClient's default headers,
-        with these MCP-specific headers taking precedence. POSTs use this directly:
-        their protocol-version header arrives per-message via ``metadata.headers``,
-        so they must never read the cached value.
+        These are merged with the ``httpx.AsyncClient`` defaults (these take
+        precedence). The cached ``MCP-Protocol-Version`` is included whenever
+        present so messages that don't pass through the session's stamp —
+        response/error/cancel POSTs, transport-internal GET/DELETE — still
+        carry the negotiated version. Per-message headers are layered on top
+        by the caller.
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
@@ -99,15 +103,6 @@ class StreamableHTTPTransport:
         }
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
-        return headers
-
-    def _prepare_headers(self) -> dict[str, str]:
-        """Base headers plus the cached protocol-version header.
-
-        Used by transport-internal GET/DELETE (listen stream, resumption,
-        reconnect, terminate) which don't carry per-message metadata.
-        """
-        headers = self._base_headers()
         if self._protocol_version_header:
             headers[MCP_PROTOCOL_VERSION_HEADER] = self._protocol_version_header
         return headers
@@ -249,13 +244,17 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._base_headers()
         message = ctx.session_message.message
+        is_initialization = self._is_initialization_request(message)
+        if is_initialization:
+            # `initialize` is the negotiation, not a "subsequent request" — discard any
+            # probe-stamped value so the discover→fallback path can't leak it onto the handshake.
+            self._protocol_version_header = None
+        headers = self._prepare_headers()
         if ctx.metadata is not None and ctx.metadata.headers is not None:
             headers.update(ctx.metadata.headers)
             if MCP_PROTOCOL_VERSION_HEADER in ctx.metadata.headers:
                 self._protocol_version_header = ctx.metadata.headers[MCP_PROTOCOL_VERSION_HEADER]
-        is_initialization = self._is_initialization_request(message)
 
         async with ctx.client.stream(
             "POST",

@@ -438,12 +438,13 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
         behavior=(
-            "An HTTP timeout, connection error, or non-404 4xx/5xx during server/discover raises to the "
-            "caller without falling back to initialize."
+            "A network/connection error or 5xx during server/discover raises to the caller without "
+            "falling back to initialize. A 4xx with a JSON-RPC error body is a server-side rejection "
+            "and falls back (legacy servers reject the probe with 400 INVALID_REQUEST)."
         ),
         transports=("streamable-http", "streamable-http-stateless"),
         added_in="2026-07-28",
-        note="HTTP-only: distinguishes transport-level failures from the -32601 fallback signal.",
+        note="HTTP-only: distinguishes transport-level failures from server-side rejection.",
     ),
     "lifecycle:mode:legacy-never-probes": Requirement(
         source="sdk",
