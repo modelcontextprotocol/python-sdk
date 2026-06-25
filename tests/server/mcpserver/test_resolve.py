@@ -272,3 +272,45 @@ def test_unresolvable_resolver_param_raises_at_registration():
 
     with pytest.raises(InvalidSignature, match="cannot be resolved"):
         Tool.from_function(tool)
+
+
+def test_resolve_marker_on_return_annotation_is_ignored():
+    async def login(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover
+
+    async def tool(repo: str) -> Annotated[str, Resolve(login)]:
+        return repo  # pragma: no cover
+
+    assert find_resolved_parameters(tool) == {}
+
+
+def test_callable_object_resolver_error_uses_type_name():
+    class BadResolver:
+        async def __call__(self, mystery: int) -> Login:
+            return Login(username="x")  # pragma: no cover
+
+    async def tool(login: Annotated[Login, Resolve(BadResolver())]) -> str:
+        return login.username  # pragma: no cover
+
+    with pytest.raises(InvalidSignature, match="'BadResolver'"):
+        Tool.from_function(tool)
+
+
+@pytest.mark.anyio
+async def test_by_name_resolver_param_uses_aliased_tool_arg():
+    mcp = MCPServer(name="Aliased")
+
+    # `schema` collides with a BaseModel attribute, so func_metadata aliases the field;
+    # the runtime kwarg key is the alias, which is what a by-name resolver must match.
+    async def upper(schema: str) -> Login:
+        return Login(username=schema.upper())
+
+    @mcp.tool()
+    async def run(schema: str, shouted: Annotated[Login, Resolve(upper)]) -> str:
+        return shouted.username
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "run", {"schema": "gpt"}) == "GPT"

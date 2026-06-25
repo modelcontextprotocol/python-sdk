@@ -100,6 +100,11 @@ def _type_hints(fn: Callable[..., Any]) -> dict[str, Any]:
         return {}
 
 
+def _resolver_name(fn: Callable[..., Any]) -> str:
+    """Best-effort display name for error messages (callable objects lack `__name__`)."""
+    return getattr(fn, "__name__", None) or type(fn).__name__
+
+
 def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve, bool]]:
     """Find parameters of `fn` annotated `Annotated[_, Resolve(...)]`.
 
@@ -107,8 +112,10 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     `wants_union` is True when the annotated type is an `ElicitationResult` member
     (the consumer wants the full outcome rather than the unwrapped model).
     """
+    hints = _type_hints(fn)
     resolved: dict[str, tuple[Resolve, bool]] = {}
-    for name, annotation in _type_hints(fn).items():
+    for name in inspect.signature(fn).parameters:
+        annotation = hints.get(name)
         if get_origin(annotation) is not Annotated:
             continue
         type_arg, *metadata = get_args(annotation)
@@ -140,7 +147,7 @@ def build_resolver_plans(
     def analyze(fn: Callable[..., Any], stack: tuple[int, ...]) -> None:
         key = id(fn)
         if key in stack:
-            raise InvalidSignature(f"Resolver {fn.__name__!r} has a cyclic dependency")
+            raise InvalidSignature(f"Resolver {_resolver_name(fn)!r} has a cyclic dependency")
         if key in plans:
             return
 
@@ -162,7 +169,7 @@ def build_resolver_plans(
                 params[param_name] = _ParamPlan("by_name")
                 continue
             raise InvalidSignature(
-                f"Resolver {fn.__name__!r} parameter {param_name!r} cannot be resolved: "
+                f"Resolver {_resolver_name(fn)!r} parameter {param_name!r} cannot be resolved: "
                 "expected a Context, an Annotated[_, Resolve(...)], or a tool argument by name"
             )
 
