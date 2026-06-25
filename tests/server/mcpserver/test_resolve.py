@@ -17,7 +17,7 @@ from mcp.server.mcpserver import (
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.resolve import find_resolved_parameters
+from mcp.server.mcpserver.resolve import _resolver_key, find_resolved_parameters
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
@@ -432,3 +432,27 @@ async def test_resolver_and_body_see_the_same_validated_default():
     async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
         assert await _text(client, "run", {}) == "1:1"
     assert counter["n"] == 1
+
+
+def test_resolver_key_is_stable_for_methods_and_distinct_callables():
+    class Service:
+        def handler(self) -> None: ...  # pragma: no cover
+
+    a, b = Service(), Service()
+
+    # Pure-python bound methods: stable across accesses, distinct per instance.
+    assert _resolver_key(a.handler) == _resolver_key(a.handler)
+    assert _resolver_key(a.handler) != _resolver_key(b.handler)
+
+    # Built-in bound methods (no `__func__`): fresh object each access, but the key
+    # is stable and keyed to `__self__`.
+    items: list[int] = []
+    others: list[int] = []
+    assert _resolver_key(items.append) == _resolver_key(items.append)
+    assert _resolver_key(items.append) != _resolver_key(others.append)
+    assert _resolver_key(items.append) != _resolver_key(items.pop)
+
+    # Plain functions key by identity.
+    def fn() -> None: ...  # pragma: no cover
+
+    assert _resolver_key(fn) == _resolver_key(fn)

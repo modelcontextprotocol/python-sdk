@@ -134,13 +134,20 @@ def _wants_union(type_arg: Any) -> bool:
 def _resolver_key(fn: Callable[..., Any]) -> Hashable:
     """Identity key for memoizing a resolver.
 
-    A bound method is recreated on each attribute access (`id(auth.login)` differs
-    every time), so key it by `(id(__func__), id(__self__))` to keep `auth.login`
-    referenced in two places memoized to one call. Everything else keys by `id`,
-    so two distinct callables never collide even if they compare equal.
+    A bound method - pure-python (`inspect.ismethod`) or built-in (e.g. `obj.meth`
+    on a C-extension type) - is recreated on each attribute access, so `id(fn)`
+    differs every time. Key it by its underlying function (or name) plus its
+    `__self__` identity so `auth.login` referenced in two places memoizes to one
+    call. Everything else keys by `id`, so two distinct callables never collide
+    even if they compare equal.
     """
-    if inspect.ismethod(fn):
-        return (id(fn.__func__), id(fn.__self__))
+    bound_self = getattr(fn, "__self__", None)
+    if bound_self is not None:
+        # `__func__` (pure-python) has a stable identity; built-ins expose only a
+        # stable `__name__`. Use the function's id or the name's value accordingly.
+        func = getattr(fn, "__func__", None)
+        underlying: Hashable = id(func) if func is not None else getattr(fn, "__name__", id(fn))
+        return (underlying, id(bound_self))
     return id(fn)
 
 

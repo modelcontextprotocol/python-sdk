@@ -91,7 +91,8 @@ class FuncMetadata(BaseModel):
         validating twice can re-run `default_factory`/stateful validators and hand the
         function different values than a caller already observed.
         """
-        arguments_parsed_dict = (
+        # Copy so a caller-provided `pre_validated` dict is never mutated in place.
+        arguments_parsed_dict = dict(
             pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
         )
 
