@@ -28,8 +28,8 @@ jobs:
 
       - name: Build
         run: |
-          uv build --package mcp
-          uv build --package mcp-types
+          uv build --package mcp-types -o dist/types
+          uv build --package mcp -o dist/mcp
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -56,5 +56,18 @@ jobs:
           name: release-dists
           path: dist/
 
-      - name: Publish package distributions to PyPI
+      # The `mcp` wheel exact-pins `mcp-types`, so the dependency must publish
+      # first: if its upload fails, nothing `mcp`-named has been uploaded yet and
+      # `pip install mcp` keeps resolving to the previous release. `skip-existing`
+      # lets a re-run after a failed `mcp` upload get past the already-published
+      # `mcp-types`; the `mcp` step omits it so a duplicate upload still fails loudly.
+      - name: Publish mcp-types to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist/types
+          skip-existing: true
+
+      - name: Publish mcp to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist/mcp
