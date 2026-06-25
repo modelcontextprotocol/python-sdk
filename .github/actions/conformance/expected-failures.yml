@@ -12,12 +12,9 @@
 
 client:
   # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-  # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-  # handle IncompleteResult yet.
-  - sep-2322-client-request-state
-  # SEP-2243 (HTTP standardization): no fixture handler / client Mcp-Param-* support yet.
+  # SEP-2243 (HTTP standardization): no client Mcp-Param-* support yet — needs the
+  # tool-schema-cache vs per-call tool_definition design (S8).
   - http-custom-headers
-  - http-invalid-tool-headers
 
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /
@@ -26,23 +23,6 @@ client:
 
 server:
   # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
-  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
-  - input-required-result-basic-elicitation
-  - input-required-result-basic-sampling
-  - input-required-result-basic-list-roots
-  - input-required-result-request-state
-  - input-required-result-multiple-input-requests
-  - input-required-result-multi-round
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
+  # cannot return InputRequiredResult from MCPServer yet (tools/call can).
   - input-required-result-non-tool-request
-  - input-required-result-result-type
-  - input-required-result-tampered-state
-  - input-required-result-capability-check
-  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
-  # against the request body is not implemented.
-  - http-header-validation
-  # WARNING-only entries: these scenarios emit no FAILURE checks but the
-  # expected-failures evaluator counts WARNINGs as failures (the summary line
-  # only shows passed/failed, not warnings, so a local re-probe can mis-read
-  # these as stale).
-  - input-required-result-missing-input-response
-  - input-required-result-validate-input
