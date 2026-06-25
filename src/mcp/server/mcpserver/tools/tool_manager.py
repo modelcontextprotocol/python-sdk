@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from pydantic.json_schema import GenerateJsonSchema
+
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
@@ -18,7 +20,13 @@ logger = get_logger(__name__)
 class ToolManager:
     """Manages MCPServer tools."""
 
-    def __init__(self, warn_on_duplicate_tools: bool = True, *, tools: list[Tool] | None = None):
+    def __init__(
+        self,
+        warn_on_duplicate_tools: bool = True,
+        *,
+        tools: list[Tool] | None = None,
+        schema_generator: type[GenerateJsonSchema] | None = None,
+    ):
         self._tools: dict[str, Tool] = {}
         for tool in tools or ():
             if warn_on_duplicate_tools and tool.name in self._tools:
@@ -26,6 +34,7 @@ class ToolManager:
             self._tools[tool.name] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
+        self.schema_generator = schema_generator
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
@@ -56,6 +65,7 @@ class ToolManager:
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            schema_generator=self.schema_generator,
         )
         existing = self._tools.get(tool.name)
         if existing:

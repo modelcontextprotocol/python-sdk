@@ -5,6 +5,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import GenerateJsonSchema
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
@@ -52,6 +53,7 @@ class Tool(BaseModel):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        schema_generator: type[GenerateJsonSchema] | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -71,8 +73,15 @@ class Tool(BaseModel):
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
             structured_output=structured_output,
+            schema_generator=schema_generator,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        if schema_generator is None:
+            parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        else:
+            parameters = func_arg_metadata.arg_model.model_json_schema(
+                by_alias=True,
+                schema_generator=schema_generator,
+            )
 
         return cls(
             fn=fn,
