@@ -449,7 +449,7 @@ class Client:
             meta=meta,
         )
         if isinstance(result, InputRequiredResult) and not allow_input_required:
-            # TODO(L80): replace this raise with the MRTR auto-loop driver (S6).
+            # TODO(L84): replace this raise with the MRTR auto-loop driver (S6).
             raise RuntimeError(
                 "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
                 "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
