@@ -26,6 +26,7 @@ import anyio
 import anyio.abc
 from pydantic import ValidationError
 
+from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
@@ -251,6 +252,8 @@ class DirectDispatcher:
                 code=REQUEST_TIMEOUT,
                 message=f"Timed out after {opts.get('timeout')}s waiting for {method!r}",
             ) from None
+        finally:
+            await resync_tracer()
 
     async def _dispatch_notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         try:
