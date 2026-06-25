@@ -11,10 +11,11 @@ discovery → token POST → Bearer attachment automatically.
 ```bash
 # start the server (real uvicorn on :8000 — auth is HTTP-only)
 uv run python -m stories.oauth_client_credentials.server --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant — same port, so stop the first server
-kill %1
+kill "$SERVER_PID"
 uv run python -m stories.oauth_client_credentials.server_lowlevel --port 8000 &
 uv run python -m stories.oauth_client_credentials.client --http http://127.0.0.1:8000/mcp
 ```

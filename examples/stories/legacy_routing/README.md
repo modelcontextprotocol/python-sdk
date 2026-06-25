@@ -17,10 +17,11 @@ browser-based MCP clients need.
 ```bash
 # HTTP only — the predicate is an HTTP-transport concern
 uv run python -m stories.legacy_routing.server --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant — same port, so stop the first server
-kill %1
+kill "$SERVER_PID"
 uv run python -m stories.legacy_routing.server_lowlevel --port 8000 &
 uv run python -m stories.legacy_routing.client --http http://127.0.0.1:8000/mcp
 ```

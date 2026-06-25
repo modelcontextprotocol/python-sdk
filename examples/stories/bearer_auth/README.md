@@ -15,12 +15,13 @@ authorization server; see `../oauth/` for the full grant flow.
 ```bash
 # start the bearer-gated server (real uvicorn on :8000)
 uv run python -m stories.bearer_auth.server --port 8000 &
+SERVER_PID=$!
 
 # connect with the demo bearer token
 uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant — same port, so stop the first server
-kill %1
+kill "$SERVER_PID"
 uv run python -m stories.bearer_auth.server_lowlevel --port 8000 &
 uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 ```

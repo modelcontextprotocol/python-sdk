@@ -12,10 +12,11 @@ stays era-agnostic.
 ```bash
 # over HTTP — the same /mcp endpoint serves both eras
 uv run python -m stories.dual_era.server --http --port 8000 &
+SERVER_PID=$!
 uv run python -m stories.dual_era.client --http http://127.0.0.1:8000/mcp
 
 # lowlevel server variant — same port, so stop the first server
-kill %1
+kill "$SERVER_PID"
 uv run python -m stories.dual_era.server_lowlevel --http --port 8000 &
 uv run python -m stories.dual_era.client --http http://127.0.0.1:8000/mcp
 ```
