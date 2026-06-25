@@ -5,10 +5,10 @@ from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 from anyio.abc import TaskStatus
-from httpx_sse import SSEError, aconnect_sse
+from httpx2 import EventSource, SSEError
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
@@ -34,7 +34,7 @@ async def sse_client(
     timeout: float = 5.0,
     sse_read_timeout: float = 300.0,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
-    auth: httpx.Auth | None = None,
+    auth: httpx2.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
     """Client transport for SSE.
@@ -53,10 +53,11 @@ async def sse_client(
     """
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
-        headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
+        headers=headers, auth=auth, timeout=httpx2.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with aconnect_sse(client, "GET", url) as event_source:
-            event_source.response.raise_for_status()
+        async with client.stream("GET", url) as response:
+            event_source = EventSource(response)
+            response.raise_for_status()
             logger.debug("SSE connection established")
 
             read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
@@ -64,7 +65,7 @@ async def sse_client(
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                 try:
-                    async for sse in event_source.aiter_sse():  # pragma: no branch
+                    async for sse in event_source:  # pragma: no branch
                         logger.debug(f"Received SSE event: {sse.event}")
                         match sse.event:
                             case "endpoint":

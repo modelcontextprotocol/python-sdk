@@ -2,7 +2,7 @@
 
 These tests configure the server with an event store, so every SSE event is stamped with an ID
 and a client that loses its connection can resume by sending `Last-Event-ID`. The wire-level
-tests (`mounted_app` + raw httpx) assert exactly what travels on the wire; the end-to-end test
+tests (`mounted_app` + raw httpx2) assert exactly what travels on the wire; the end-to-end test
 drives the SDK client through a server-initiated stream close and proves the call still
 completes. The bridge's `aclose()` delivers `http.disconnect` to the running application, so
 closing a streaming response mid-read is a deterministic in-process disconnect -- no sockets,
@@ -12,9 +12,9 @@ no real time. Every server here uses `retry_interval=0` so reconnection waits ar
 import json
 
 import anyio
-import httpx
+import httpx2
 import pytest
-from httpx_sse import EventSource, ServerSentEvent
+from httpx2 import EventSource, ServerSentEvent
 from inline_snapshot import snapshot
 from mcp_types import (
     CallToolRequest,
@@ -69,9 +69,9 @@ def _tools_call(request_id: int, name: str, arguments: dict[str, object]) -> str
     ).model_dump_json(by_alias=True, exclude_none=True)
 
 
-async def _read_events(response: httpx.Response, count: int) -> list[ServerSentEvent]:
+async def _read_events(response: httpx2.Response, count: int) -> list[ServerSentEvent]:
     """Read exactly `count` SSE events from a streaming response without closing it."""
-    source = EventSource(response).aiter_sse()
+    source = aiter(EventSource(response))
     return [await anext(source) for _ in range(count)]
 
 
@@ -273,7 +273,7 @@ async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
                 async with http.stream("GET", "/mcp", headers=headers) as replay:
                     assert replay.status_code == 200
                     assert replay.headers["content-type"].startswith("text/event-stream")
-                    events = [event async for event in EventSource(replay).aiter_sse()]
+                    events = [event async for event in EventSource(replay)]
                 assert events == []
 
 

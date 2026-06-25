@@ -33,7 +33,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         """Verify token via introspection endpoint."""
-        import httpx
+        import httpx2
 
         # Validate URL to prevent SSRF attacks
         if not self.introspection_endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1")):
@@ -41,10 +41,10 @@ class IntrospectionTokenVerifier(TokenVerifier):
             return None
 
         # Configure secure HTTP client
-        timeout = httpx.Timeout(10.0, connect=5.0)
-        limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
+        timeout = httpx2.Timeout(10.0, connect=5.0)
+        limits = httpx2.Limits(max_connections=10, max_keepalive_connections=5)
 
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             timeout=timeout,
             limits=limits,
             verify=True,  # Enforce SSL verification

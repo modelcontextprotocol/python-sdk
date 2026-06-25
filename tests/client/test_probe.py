@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from mcp_types import (
@@ -286,7 +286,7 @@ async def test_any_other_handshake_error_propagates_unchanged() -> None:
 @pytest.mark.parametrize(
     "exc",
     [
-        pytest.param(httpx.ConnectError("connection refused"), id="httpx-connect-error"),
+        pytest.param(httpx2.ConnectError("connection refused"), id="httpx2-connect-error"),
         pytest.param(anyio.ClosedResourceError(), id="anyio-closed-resource"),
     ],
 )

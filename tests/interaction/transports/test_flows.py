@@ -6,7 +6,7 @@ running over the matrix.
 """
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, LoggingMessageNotificationParams, TextContent
@@ -76,7 +76,7 @@ async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_op
 
     session_ids: list[str] = []
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         session_id = request.headers.get("mcp-session-id")
         if session_id is not None:
             session_ids.append(session_id)
