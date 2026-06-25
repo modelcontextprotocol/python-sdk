@@ -13,11 +13,11 @@ from collections.abc import Mapping
 from typing import Any, Generic
 
 import anyio
+from mcp_types import RequestParamsMeta
 from typing_extensions import TypeVar
 
 from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.transport_context import TransportContext
-from mcp.types import RequestParamsMeta
 
 __all__ = ["BaseContext"]
 

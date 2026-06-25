@@ -1,4 +1,4 @@
-"""Shared pydantic base for the generated `mcp.types.v*` wire-shape packages."""
+"""Shared pydantic base for the generated `mcp_types.v*` wire-shape packages."""
 
 from pydantic import BaseModel, ConfigDict
 

@@ -5,12 +5,12 @@ Notification ordering: await-free callbacks finish in arrival order, and passing
 streamable HTTP, so plain-list collection is deterministic on every transport leg.
 """
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

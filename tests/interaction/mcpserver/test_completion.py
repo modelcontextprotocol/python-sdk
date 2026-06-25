@@ -1,9 +1,7 @@
 """Completion behaviour against MCPServer, driven through the public Client API."""
 
 import pytest
-
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     Completion,
     CompletionArgument,
     CompletionContext,
@@ -11,6 +9,8 @@ from mcp.types import (
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp.server.mcpserver import MCPServer
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

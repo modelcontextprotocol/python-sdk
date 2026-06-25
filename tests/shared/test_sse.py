@@ -8,24 +8,11 @@ from urllib.parse import urlparse
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 from httpx_sse import ServerSentEvent
 from inline_snapshot import snapshot
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Mount, Route
-
-import mcp.client.sse
-from mcp import types
-from mcp.client.session import ClientSession
-from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.sse import SseServerTransport
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._httpx_utils import McpHttpClientFactory
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -41,6 +28,19 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route
+
+import mcp.client.sse
+from mcp.client.session import ClientSession
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._httpx_utils import McpHttpClientFactory
+from mcp.shared.exceptions import MCPError
 from tests.interaction.transports import StreamingASGITransport
 
 SERVER_NAME = "test_server_for_SSE"

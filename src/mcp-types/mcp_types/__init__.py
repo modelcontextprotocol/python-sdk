@@ -4,10 +4,8 @@ Check the latest schema at:
 https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.json
 """
 
-from mcp.shared.version import LATEST_PROTOCOL_VERSION
-
 # Re-export everything from _types for backward compatibility
-from mcp.types._types import (
+from mcp_types._types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     DEFAULT_NEGOTIATED_VERSION,
@@ -198,7 +196,7 @@ from mcp.types._types import (
 )
 
 # Re-export JSONRPC types
-from mcp.types.jsonrpc import (
+from mcp_types.jsonrpc import (
     CONNECTION_CLOSED,
     HEADER_MISMATCH,
     INTERNAL_ERROR,
@@ -220,6 +218,7 @@ from mcp.types.jsonrpc import (
     RequestId,
     jsonrpc_message_adapter,
 )
+from mcp_types.version import LATEST_PROTOCOL_VERSION
 
 __all__ = [
     # Protocol version constants

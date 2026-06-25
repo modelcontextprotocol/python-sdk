@@ -2,9 +2,10 @@
 
 from typing import Generic, TypeVar
 
+from mcp_types import RequestParamsMeta
+
 from mcp.shared.dispatcher import ProgressFnT as ProgressFnT
 from mcp.shared.message import MessageMetadata
-from mcp.types import RequestParamsMeta
 
 RequestId = str | int
 

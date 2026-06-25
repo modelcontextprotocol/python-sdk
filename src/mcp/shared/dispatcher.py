@@ -21,10 +21,10 @@ from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
 import anyio
 import anyio.abc
+from mcp_types import RequestId
 
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
-from mcp.types import RequestId
 
 __all__ = [
     "CallOptions",

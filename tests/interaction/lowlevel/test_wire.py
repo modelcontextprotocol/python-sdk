@@ -11,17 +11,10 @@ malformed JSON-RPC requests that the typed client API cannot produce.
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext, ClientSession
-from mcp.client._memory import InMemoryTransport
-from mcp.client.client import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.memory import create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
     CallToolRequest,
@@ -36,6 +29,14 @@ from mcp.types import (
     ListRootsResult,
     TextContent,
 )
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext, ClientSession
+from mcp.client._memory import InMemoryTransport
+from mcp.client.client import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._helpers import RecordingTransport, _RecordingReadStream
 from tests.interaction._requirements import requirement
 

@@ -1,14 +1,15 @@
 from typing import Literal
 
+import mcp_types as types
 import pytest
-
-from mcp import Client, types
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+
+from mcp import Client
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.session import RequestResponder
 
 
 class LoggingCollector:

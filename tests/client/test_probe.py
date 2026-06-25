@@ -17,18 +17,9 @@ from typing import Any, cast
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
-
-from mcp import types
-from mcp.client._probe import _parse_supported, negotiate_auto
-from mcp.client.session import ClientSession
-from mcp.shared.exceptions import MCPError
-from mcp.shared.version import (
-    HANDSHAKE_PROTOCOL_VERSIONS,
-    LATEST_MODERN_VERSION,
-    MODERN_PROTOCOL_VERSIONS,
-)
-from mcp.types import (
+from mcp_types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
@@ -37,6 +28,15 @@ from mcp.types import (
     Implementation,
     ServerCapabilities,
 )
+from mcp_types.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
+
+from mcp.client._probe import _parse_supported, negotiate_auto
+from mcp.client.session import ClientSession
+from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio
 

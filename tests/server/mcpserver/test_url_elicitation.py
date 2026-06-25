@@ -1,14 +1,15 @@
 """Test URL mode elicitation feature (SEP 1036)."""
 
 import anyio
+import mcp_types as types
 import pytest
+from mcp_types import ElicitRequestParams, ElicitResult, TextContent
 from pydantic import BaseModel, Field
 
-from mcp import Client, types
+from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
 @pytest.mark.anyio

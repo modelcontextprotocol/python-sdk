@@ -9,10 +9,27 @@ from typing import Any, Literal, Protocol, cast, overload
 import anyio
 import anyio.abc
 import anyio.lowlevel
+import mcp_types as types
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
+    RequestId,
+    RequestParamsMeta,
+)
+from mcp_types import methods as _methods
+from mcp_types.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from typing_extensions import Self, TypeVar, deprecated
 
-from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
@@ -27,23 +44,6 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import (
-    HANDSHAKE_PROTOCOL_VERSIONS,
-    LATEST_HANDSHAKE_VERSION,
-    LATEST_MODERN_VERSION,
-    MODERN_PROTOCOL_VERSIONS,
-)
-from mcp.types import (
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    INTERNAL_ERROR,
-    METHOD_NOT_FOUND,
-    PROTOCOL_VERSION_META_KEY,
-    UNSUPPORTED_PROTOCOL_VERSION,
-    RequestId,
-    RequestParamsMeta,
-)
-from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0

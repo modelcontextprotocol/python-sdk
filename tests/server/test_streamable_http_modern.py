@@ -12,20 +12,7 @@ from typing import Any
 import anyio
 import httpx
 import pytest
-from starlette.types import Receive, Scope, Send
-
-from mcp.server import Server, ServerRequestContext, runner
-from mcp.server._streamable_http_modern import (
-    _SingleExchangeDispatchContext,
-    _to_jsonrpc_response,
-    handle_modern_request,
-)
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError, NoBackChannelError
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import LATEST_MODERN_VERSION
-from mcp.types import (
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
@@ -41,6 +28,19 @@ from mcp.types import (
     PaginatedRequestParams,
     Tool,
 )
+from mcp_types.version import LATEST_MODERN_VERSION
+from starlette.types import Receive, Scope, Send
+
+from mcp.server import Server, ServerRequestContext, runner
+from mcp.server._streamable_http_modern import (
+    _SingleExchangeDispatchContext,
+    _to_jsonrpc_response,
+    handle_modern_request,
+)
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.transport_context import TransportContext
 
 pytestmark = pytest.mark.anyio
 

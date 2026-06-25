@@ -27,7 +27,9 @@ jobs:
         run: uv python install 3.12
 
       - name: Build
-        run: uv build
+        run: |
+          uv build --package mcp
+          uv build --package mcp-types
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

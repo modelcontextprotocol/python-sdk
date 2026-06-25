@@ -13,10 +13,10 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import JSONRPCResponse
 
 from mcp.server import Server
 from mcp.server.auth.provider import AccessToken
-from mcp.types import JSONRPCResponse
 from tests.interaction._connect import base_headers, initialize_body, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import StaticTokenVerifier, auth_settings

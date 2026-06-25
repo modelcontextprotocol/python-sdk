@@ -2,6 +2,7 @@
 
 import anyio
 import pytest
+from mcp_types import JSONRPCMessage, JSONRPCResponse
 from starlette.types import Message, Scope
 
 from mcp.server.streamable_http import (
@@ -14,7 +15,6 @@ from mcp.server.streamable_http import (
     StreamId,
 )
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCResponse
 
 
 class _PrimingFailingStore(EventStore):

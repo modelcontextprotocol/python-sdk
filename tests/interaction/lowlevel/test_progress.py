@@ -10,14 +10,14 @@ server's handler.
 """
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, ProgressNotification, ProgressNotificationParams, ProgressToken, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp.shared.session import ProgressFnT
-from mcp.types import CallToolResult, ProgressNotification, ProgressNotificationParams, ProgressToken, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement

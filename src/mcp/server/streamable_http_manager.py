@@ -10,6 +10,8 @@ from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
+from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -28,8 +30,6 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS
-from mcp.types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server

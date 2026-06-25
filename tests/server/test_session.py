@@ -9,21 +9,21 @@ up a transport.
 from collections.abc import Mapping
 from typing import Any
 
+import mcp_types as types
 import pytest
-from pydantic import ValidationError
-
-from mcp import types
-from mcp.server.connection import Connection
-from mcp.server.session import ServerSession
-from mcp.shared.dispatcher import CallOptions
-from mcp.shared.message import ServerMessageMetadata
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from mcp.types import (
+from mcp_types import (
     ClientCapabilities,
     Implementation,
     SamplingCapability,
     SamplingToolsCapability,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
+from pydantic import ValidationError
+
+from mcp.server.connection import Connection
+from mcp.server.session import ServerSession
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.message import ServerMessageMetadata
 
 
 class StubOutbound:

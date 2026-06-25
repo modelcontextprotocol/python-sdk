@@ -9,14 +9,10 @@ individual features are pinned by their own tests; these prove they compose.
 from collections.abc import Awaitable, Callable
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, UrlElicitationRequiredError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
-from mcp.server.session import ServerSession
-from mcp.types import (
+from mcp_types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitCompleteNotification,
@@ -31,6 +27,11 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+
+from mcp import MCPError, UrlElicitationRequiredError
+from mcp.client import ClientRequestContext
+from mcp.server import Server, ServerRequestContext
+from mcp.server.session import ServerSession
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement

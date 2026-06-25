@@ -23,6 +23,7 @@ members = [
     "mcp-sse-polling-client",
     "mcp-sse-polling-demo",
     "mcp-structured-output-lowlevel",
+    "mcp-types",
 ]
 build-constraints = [
     { name = "dunamai", specifier = "==1.26.1" },
@@ -909,6 +910,7 @@ dependencies = [
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "jsonschema" },
+    { name = "mcp-types" },
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -969,6 +971,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.1,<1.0.0" },
     { name = "httpx-sse", specifier = ">=0.4" },
     { name = "jsonschema", specifier = ">=4.20.0" },
+    { name = "mcp-types", editable = "src/mcp-types" },
     { name = "opentelemetry-api", specifier = ">=1.28.0" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
@@ -1447,6 +1450,20 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "mcp", editable = "." }]
+
+[[package]]
+name = "mcp-types"
+source = { editable = "src/mcp-types" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.12.0" },
+    { name = "typing-extensions", specifier = ">=4.13.0" },
+]
 
 [[package]]
 name = "mdurl"

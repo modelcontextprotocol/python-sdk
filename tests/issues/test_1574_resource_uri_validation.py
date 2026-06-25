@@ -10,17 +10,18 @@ uri fields as strings with no JSON Schema format validation.
 These tests verify the fix works end-to-end through the JSON-RPC protocol.
 """
 
+import mcp_types as types
 import pytest
-
-from mcp import Client, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     ListResourcesResult,
     PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
     TextResourceContents,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 pytestmark = pytest.mark.anyio
 

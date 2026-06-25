@@ -5,20 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-
-from mcp.client import Client
-from mcp.server.context import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
-from mcp.server.mcpserver.prompts.base import Message, UserMessage
-from mcp.server.mcpserver.resources import FileResource, FunctionResource
-from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     AudioContent,
@@ -43,6 +30,19 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from pydantic import BaseModel
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+
+from mcp.client import Client
+from mcp.server.context import ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
+from mcp.server.mcpserver.prompts.base import Message, UserMessage
+from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio
 

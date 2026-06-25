@@ -2,10 +2,10 @@ import contextlib
 from unittest import mock
 
 import httpx
+import mcp_types as types
 import pytest
 
 import mcp
-from mcp import types
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,

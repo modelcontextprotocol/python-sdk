@@ -1,12 +1,12 @@
 import pytest
+from mcp_types import (
+    ListResourceTemplatesResult,
+    TextResourceContents,
+)
 
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError
-from mcp.types import (
-    ListResourceTemplatesResult,
-    TextResourceContents,
-)
 
 
 @pytest.mark.anyio

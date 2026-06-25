@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from mcp.types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
+from mcp_types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
 class MCPDeprecationWarning(UserWarning):

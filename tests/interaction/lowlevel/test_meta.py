@@ -5,11 +5,11 @@ rather than snapshotting a literal: the expected value and the sent value are th
 which also proves the SDK injected nothing alongside it.
 """
 
+import mcp_types as types
 import pytest
+from mcp_types import CallToolResult, RequestParamsMeta, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, RequestParamsMeta, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

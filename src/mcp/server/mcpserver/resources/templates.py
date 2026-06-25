@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
 import anyio.to_thread
+from mcp_types import Annotations, Icon
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError
@@ -17,7 +18,6 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.types import Annotations, Icon
 
 logger = get_logger(__name__)
 

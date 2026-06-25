@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol
 
+from mcp_types import LoggingLevel, RequestId, RequestParamsMeta
 from pydantic import BaseModel
 from typing_extensions import TypeVar, deprecated
 
@@ -13,7 +14,6 @@ from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.peer import Meta
 from mcp.shared.transport_context import TransportContext
-from mcp.types import LoggingLevel, RequestId, RequestParamsMeta
 
 # Invariant: parametrizes a mutable dataclass field; dict default matches the default lifespan.
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])

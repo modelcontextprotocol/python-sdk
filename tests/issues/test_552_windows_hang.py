@@ -6,11 +6,11 @@ from textwrap import dedent
 
 import anyio
 import pytest
+from mcp_types import InitializeResult
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import InitializeResult
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")  # pragma: no cover

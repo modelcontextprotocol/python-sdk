@@ -15,11 +15,11 @@ from typing import Any, Literal, TypeAlias, overload
 
 import anyio
 import httpx
+import mcp_types as types
 from pydantic import BaseModel, Field
 from typing_extensions import Self
 
 import mcp
-from mcp import types
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters

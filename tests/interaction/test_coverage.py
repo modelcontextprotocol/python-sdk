@@ -14,9 +14,9 @@ from types import ModuleType
 from typing import cast
 
 import pytest
+from mcp_types import LATEST_PROTOCOL_VERSION
+from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
-from mcp.shared.version import KNOWN_PROTOCOL_VERSIONS
-from mcp.types import LATEST_PROTOCOL_VERSION
 from tests.interaction._requirements import (
     CONNECTABLE_TRANSPORTS,
     REQUIREMENTS,

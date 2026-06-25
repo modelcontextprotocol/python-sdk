@@ -12,12 +12,7 @@ model. Gating (and `NoBackChannelError`) is the wrapped `Outbound`'s job.
 from collections.abc import Mapping
 from typing import Any, cast, overload
 
-from pydantic import BaseModel
-from typing_extensions import deprecated
-
-from mcp.shared.dispatcher import CallOptions, Outbound
-from mcp.shared.exceptions import MCPDeprecationWarning
-from mcp.types import (
+from mcp_types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -34,6 +29,11 @@ from mcp.types import (
     Tool,
     ToolChoice,
 )
+from pydantic import BaseModel
+from typing_extensions import deprecated
+
+from mcp.shared.dispatcher import CallOptions, Outbound
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 __all__ = ["ClientPeer", "Meta"]
 

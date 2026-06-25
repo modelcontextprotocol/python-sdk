@@ -3,7 +3,7 @@
 import base64
 from pathlib import Path
 
-from mcp.types import AudioContent, ImageContent
+from mcp_types import AudioContent, ImageContent
 
 
 class Image:

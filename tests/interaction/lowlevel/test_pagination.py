@@ -5,12 +5,10 @@ handler returns as next_cursor comes back verbatim on the client's next call, no
 pagination scheme.
 """
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     ListPromptsResult,
     ListResourcesResult,
@@ -21,6 +19,9 @@ from mcp.types import (
     ResourceTemplate,
     Tool,
 )
+
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
