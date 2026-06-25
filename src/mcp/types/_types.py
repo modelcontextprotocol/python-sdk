@@ -16,9 +16,10 @@ from pydantic import (
     Field,
     FileUrl,
     TypeAdapter,
+    model_validator,
 )
 from pydantic.alias_generators import to_camel
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, Self, TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
@@ -2052,7 +2053,7 @@ class InputRequiredResult(Result):
     (`tools/call`, `prompts/get`, `resources/read`). The client fulfills
     `input_requests` and retries the original request, carrying the responses
     and the echoed `request_state`. At least one of those two fields is
-    present on the wire (spec MUST; not enforced by the model).
+    present on the wire (spec MUST).
     """
 
     result_type: Literal["input_required"] = "input_required"
@@ -2063,6 +2064,12 @@ class InputRequiredResult(Result):
 
     request_state: str | None = None
     """Opaque state to pass back verbatim when the client retries the original request."""
+
+    @model_validator(mode="after")
+    def _require_one_field(self) -> Self:
+        if self.input_requests is None and self.request_state is None:
+            raise ValueError("InputRequiredResult requires at least one of input_requests or request_state")
+        return self
 
 
 # Forward refs to InputResponses; rebuild at import time rather than first use.
