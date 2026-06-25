@@ -627,20 +627,6 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        allow_input_required: Literal[True],
-    ) -> types.CallToolResult | types.InputRequiredResult: ...
-
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        input_responses: types.InputResponses | None = None,
-        request_state: str | None = None,
-        meta: RequestParamsMeta | None = None,
         allow_input_required: bool,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
 

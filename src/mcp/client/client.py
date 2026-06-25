@@ -401,7 +401,7 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        allow_input_required: Literal[True],
+        allow_input_required: bool,
     ) -> CallToolResult | InputRequiredResult: ...
 
     async def call_tool(

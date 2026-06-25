@@ -215,7 +215,7 @@ class ClientSessionGroup:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: types.RequestParamsMeta | None = None,
-        allow_input_required: Literal[True],
+        allow_input_required: bool,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
 
     async def call_tool(
