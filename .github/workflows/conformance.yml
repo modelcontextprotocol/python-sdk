@@ -67,15 +67,20 @@ jobs:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp
       - name: Run client conformance (all suite)
+        # The harness runs all scenarios via unbounded Promise.all; with 40
+        # scenarios on a 2-core runner the slowest one (sse-retry, which has a
+        # real-time SSE reconnect wait) needs more than the 30s default budget.
         run: >-
           npx --yes "$CONFORMANCE_PKG" client
           --command 'uv run --frozen python .github/actions/conformance/client.py'
           --suite all
+          --timeout 60000
           --expected-failures ./.github/actions/conformance/expected-failures.yml
       - name: Run client conformance (2026-07-28 wire, all suite)
         run: >-
           npx --yes "$CONFORMANCE_PKG" client
           --command 'uv run --frozen python .github/actions/conformance/client.py'
           --suite all
+          --timeout 60000
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml

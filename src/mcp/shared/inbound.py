@@ -141,7 +141,8 @@ def find_invalid_x_mcp_header(input_schema: Any) -> str | None:
         header = prop_schema[X_MCP_HEADER_KEY]
         if not isinstance(header, str) or not _RFC9110_TOKEN.fullmatch(header):
             return f"property {prop_name!r}: {X_MCP_HEADER_KEY} {header!r} is not an RFC 9110 token"
-        if prop_schema.get("type") not in _X_MCP_HEADER_PRIMITIVE_TYPES:
+        prop_type = prop_schema.get("type")
+        if not isinstance(prop_type, str) or prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
             return f"property {prop_name!r}: {X_MCP_HEADER_KEY} is only permitted on primitive-typed properties"
         lower = header.lower()
         if lower in seen:

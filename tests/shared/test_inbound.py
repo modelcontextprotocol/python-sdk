@@ -383,6 +383,8 @@ def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_sch
         pytest.param(_schema(a={"type": "object", "x-mcp-header": "Data"}), id="on-object"),
         pytest.param(_schema(a={"type": "array", "x-mcp-header": "Items"}), id="on-array"),
         pytest.param(_schema(a={"type": "null", "x-mcp-header": "Nil"}), id="on-null"),
+        pytest.param(_schema(a={"type": ["string", "null"], "x-mcp-header": "Maybe"}), id="array-type"),
+        pytest.param(_schema(a={"type": {"not": "valid"}, "x-mcp-header": "Bad"}), id="dict-type"),
         pytest.param(_schema(a={"x-mcp-header": "NoType"}), id="missing-type"),
         pytest.param(
             _schema(a={"type": "string", "x-mcp-header": "Region"}, b={"type": "string", "x-mcp-header": "Region"}),

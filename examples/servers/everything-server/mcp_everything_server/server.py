@@ -6,6 +6,7 @@ Server implementing all MCP features for conformance testing based on Conformanc
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -493,7 +494,10 @@ def _unseal_state(state: str) -> str:
     expected = hmac.new(_STATE_HMAC_KEY, encoded.encode(), hashlib.sha256).hexdigest()
     if not sig or not hmac.compare_digest(sig, expected):
         raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification")
-    return base64.urlsafe_b64decode(encoded).decode()
+    try:
+        return base64.urlsafe_b64decode(encoded).decode()
+    except (binascii.Error, UnicodeDecodeError) as e:
+        raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification") from e
 
 
 @mcp.tool()
