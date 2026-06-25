@@ -104,7 +104,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     # The first PRM discovery GET carries the protocol-version header (an SDK behaviour, not a
     # spec requirement on discovery requests).
     prm_get = next(r for r in requests if r.url.path == "/.well-known/oauth-protected-resource/mcp")
-    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2025-11-25")
+    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2026-07-28")
 
     authorize = parse_qs(urlsplit(headless.authorize_url).query)
     assert authorize["response_type"] == ["code"]

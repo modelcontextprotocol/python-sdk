@@ -721,7 +721,7 @@ class TestServerResources:
         mcp = MCPServer(resources=[resource])
 
         async with Client(mcp) as client:
-            assert client.initialize_result.capabilities.resources is not None
+            assert client.server_capabilities.resources is not None
 
             resources = await client.list_resources()
             assert len(resources.resources) == 1
@@ -1120,7 +1120,7 @@ class TestContextInjection:
         mcp.add_tool(logging_tool)
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
-            async with Client(mcp) as client:
+            async with Client(mcp, mode="legacy") as client:
                 result = await client.call_tool("logging_tool", {"msg": "test"})
                 assert len(result.content) == 1
                 content = result.content[0]
@@ -1467,7 +1467,7 @@ class TestServerPrompts:
         """Test error when getting unknown prompt."""
         mcp = MCPServer()
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
@@ -1478,7 +1478,7 @@ class TestServerPrompts:
         @mcp.prompt()
         def prompt_fn(name: str) -> str: ...  # pragma: no branch
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 
@@ -1516,21 +1516,21 @@ def test_streamable_http_no_redirect() -> None:
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
 
 
-async def test_report_progress_passes_related_request_id():
-    """Test that report_progress passes the request_id as related_request_id.
+async def test_report_progress_delegates_to_session_report_progress():
+    """Context.report_progress delegates to ServerSession.report_progress unconditionally.
 
-    Without related_request_id, the streamable HTTP transport cannot route
-    progress notifications to the correct SSE stream, causing them to be
-    silently dropped. See #953 and #2001.
+    Stream routing (related_request_id, progress-token gating) is encapsulated in the
+    per-request DispatchContext that ServerSession holds, so Context never inspects
+    request metadata itself. See #953 and #2001 for the original streamable-HTTP routing bug.
     """
     mock_session = AsyncMock()
-    mock_session.send_progress_notification = AsyncMock()
+    mock_session.report_progress = AsyncMock()
 
     request_context = ServerRequestContext(
         request_id="req-abc-123",
         session=mock_session,
         method="tools/call",
-        meta={"progress_token": "tok-1"},
+        meta=None,
         lifespan_context=None,
         protocol_version="2025-11-25",
     )
@@ -1539,13 +1539,7 @@ async def test_report_progress_passes_related_request_id():
 
     await ctx.report_progress(50, 100, message="halfway")
 
-    mock_session.send_progress_notification.assert_awaited_once_with(
-        progress_token="tok-1",
-        progress=50,
-        total=100,
-        message="halfway",
-        related_request_id="req-abc-123",
-    )
+    mock_session.report_progress.assert_awaited_once_with(50, 100, "halfway")
 
 
 def _request_context(request: object | None) -> ServerRequestContext[None, object]:

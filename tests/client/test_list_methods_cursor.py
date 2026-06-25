@@ -64,7 +64,7 @@ async def test_list_methods_params_parameter(
 
     See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
-    async with Client(full_featured_server) as client:
+    async with Client(full_featured_server, mode="legacy") as client:
         spies = stream_spy()
 
         # Test without params (omitted)

@@ -45,4 +45,4 @@ def connect(request: pytest.FixtureRequest) -> Connect:
     transport, spec_version = request.param
     assert isinstance(transport, str)
     assert isinstance(spec_version, str)
-    return partial(_FACTORIES[transport], protocol_version=spec_version)
+    return partial(_FACTORIES[transport], spec_version=spec_version)

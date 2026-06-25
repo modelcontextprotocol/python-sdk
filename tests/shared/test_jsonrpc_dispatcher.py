@@ -1756,6 +1756,39 @@ def test_plan_outbound_with_resumption_token_returns_client_metadata_and_suppres
 
 
 @pytest.mark.anyio
+async def test_send_raw_request_projects_opts_headers_onto_message_metadata():
+    """`opts["headers"]` alone yields `ClientMessageMetadata(headers=...)` on the outbound `SessionMessage`
+    (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+
+            async def caller() -> None:
+                await client.send_raw_request("tools/list", None, {"headers": {"x-test": "v"}})
+
+            tg.start_soon(caller)
+            with anyio.fail_after(5):
+                outbound = await c2s_recv.receive()
+            assert isinstance(outbound, SessionMessage)
+            assert isinstance(outbound.message, JSONRPCRequest)
+            assert isinstance(outbound.metadata, ClientMessageMetadata)
+            assert outbound.metadata.headers == {"x-test": "v"}
+            assert outbound.metadata.resumption_token is None
+            await s2c_send.send(
+                SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=outbound.message.id, result={}))
+            )
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
 async def test_response_with_string_id_correlates_to_int_keyed_pending_request():
     """A peer that echoes the request ID as a JSON string still resolves the waiter."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -2324,7 +2357,7 @@ async def test_server_middleware_observes_cancelled_notification():
     server = Server("test-server", on_call_tool=handle_call_tool)
     server.middleware.append(observe)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as tg:  # pragma: no branch
 

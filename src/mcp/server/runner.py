@@ -33,23 +33,21 @@ from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
     INVALID_PARAMS,
-    LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
+    PROTOCOL_VERSION_META_KEY,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    JSONRPCError,
-    JSONRPCRequest,
-    JSONRPCResponse,
-    RequestId,
     RequestParams,
     RequestParamsMeta,
 )
@@ -63,11 +61,11 @@ __all__ = [
     "ServerMiddleware",
     "ServerRunner",
     "aclose_shielded",
+    "modern_on_request",
     "otel_middleware",
     "serve_connection",
     "serve_loop",
     "serve_one",
-    "to_jsonrpc_response",
 ]
 
 logger = logging.getLogger(__name__)
@@ -178,26 +176,6 @@ async def aclose_shielded(connection: Connection) -> None:
             "connection exit_stack cleanup exceeded %s seconds; abandoning remaining callbacks",
             _EXIT_STACK_CLOSE_TIMEOUT,
         )
-
-
-async def to_jsonrpc_response(request_id: RequestId, coro: Awaitable[dict[str, Any]]) -> JSONRPCResponse | JSONRPCError:
-    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
-
-    The exception-to-wire boundary for the request-per-call drivers
-    (`serve_one`, the modern HTTP entry). `MCPError` and `ValidationError`
-    map via the shared `handler_exception_to_error_data` ladder; any other
-    exception is logged and surfaced as `INTERNAL_ERROR` so handler internals
-    never reach the wire.
-    """
-    try:
-        result = await coro
-    except Exception as exc:
-        error = handler_exception_to_error_data(exc)
-        if error is None:
-            logger.exception("request handler raised")
-            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
-        return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
-    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
 def _apply_middleware(
@@ -414,7 +392,7 @@ class ServerRunner(Generic[LifespanT]):
         """Validate `initialize` params and pick the protocol version."""
         init = InitializeRequestParams.model_validate(params or {}, by_name=False)
         requested = init.protocol_version
-        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
+        negotiated = requested if requested in HANDSHAKE_PROTOCOL_VERSIONS else LATEST_HANDSHAKE_VERSION
         return init, negotiated
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
@@ -494,22 +472,49 @@ async def serve_loop(
 
 async def serve_one(
     server: Server[LifespanT],
-    request: JSONRPCRequest,
+    dctx: DispatchContext[TransportContext],
+    method: str,
+    params: Mapping[str, Any] | None,
     *,
     connection: Connection,
-    dctx: DispatchContext[TransportContext],
     lifespan_state: LifespanT,
-) -> JSONRPCResponse | JSONRPCError:
-    """Handle a single ``request`` and return its JSON-RPC reply.
+) -> dict[str, Any]:
+    """Handle a single request ``(method, params)`` and return its result dict.
 
-    The single-exchange driver: builds the kernel, runs `on_request` once for
-    `request` under `dctx`, maps the outcome to a `JSONRPCResponse` /
-    `JSONRPCError` via `to_jsonrpc_response`, and tears down
-    `connection.exit_stack` (shielded) on the way out. The entry constructs
-    the (born-ready) `Connection` and the `dctx`; this only consumes them.
+    The single-exchange driver: builds the kernel, runs `on_request` once under
+    `dctx`, and tears down `connection.exit_stack` (shielded) on the way out.
+    The entry constructs the (born-ready) `Connection` and the `dctx`; this
+    only consumes them.
+
+    Raises whatever the handler chain raises (`MCPError` / `ValidationError` /
+    unmapped); callers own the exception-to-wire mapping.
     """
     runner = ServerRunner(server, connection, lifespan_state)
     try:
-        return await to_jsonrpc_response(request.id, runner.on_request(dctx, request.method, request.params))
+        return await runner.on_request(dctx, method, params)
     finally:
         await aclose_shielded(connection)
+
+
+def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> OnRequest:
+    """Return an `OnRequest` callback that serves each call via `serve_one` with a fresh per-request `Connection`.
+
+    Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
+    in-process server on the modern per-request-envelope path (each request
+    carries protocol version, client info, and capabilities in `params._meta`;
+    no `initialize` handshake). Like `serve_one`, this raises whatever the
+    handler chain raises - the dispatcher owns the exception-to-error mapping.
+    """
+
+    async def handle(
+        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        meta = (params or {}).get("_meta", {})
+        connection = Connection.from_envelope(
+            meta.get(PROTOCOL_VERSION_META_KEY, LATEST_MODERN_VERSION),
+            meta.get(CLIENT_INFO_META_KEY),
+            meta.get(CLIENT_CAPABILITIES_META_KEY),
+        )
+        return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
+
+    return handle

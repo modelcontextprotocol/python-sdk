@@ -31,8 +31,8 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -70,7 +70,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        protocol_version: str = LATEST_PROTOCOL_VERSION,
+        spec_version: str = LATEST_HANDSHAKE_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
 
@@ -85,11 +85,17 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
-    """Yield a Client connected to the server over the in-memory transport."""
+    """Yield a Client connected to the server over the in-memory transport.
+
+    When `spec_version` is a modern (2026-07-28+) revision the Client is opened with
+    `mode=<version>`, which drives the server through the DirectDispatcher peer-pair
+    (per-request `serve_one`, no initialize handshake) instead of the legacy stream pair.
+    """
     async with Client(
         server,
+        mode=spec_version if spec_version in MODERN_PROTOCOL_VERSIONS else "legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,
@@ -97,7 +103,6 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
-        protocol_version=protocol_version,
     ) as client:
         yield client
 
@@ -117,7 +122,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
@@ -126,6 +131,10 @@ async def connect_over_streamable_http(
     transport-specific tests pass `json_response` to select the other server mode, and the
     resumability tests pass an `event_store` (with `retry_interval=0` so the client's
     reconnection wait is a no-op).
+
+    When `spec_version` is a modern (2026-07-28+) revision the Client is opened with
+    `mode=<version>`, which adopts a synthesized DiscoverResult instead of running the legacy
+    initialize handshake.
     """
     app = server.streamable_http_app(
         stateless_http=stateless_http,
@@ -138,7 +147,8 @@ async def connect_over_streamable_http(
         server.session_manager.run(),
         httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
         Client(
-            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client, protocol_version=protocol_version),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client),
+            mode=spec_version if spec_version in MODERN_PROTOCOL_VERSIONS else "legacy",
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=sampling_callback,
             list_roots_callback=list_roots_callback,
@@ -146,7 +156,6 @@ async def connect_over_streamable_http(
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
-            protocol_version=protocol_version,
         ) as client,
     ):
         yield client
@@ -229,6 +238,9 @@ async def client_via_http(
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
     async with Client(
         transport,
+        # Callers assert the legacy HTTP wire shape (session-id header, standalone GET stream,
+        # closing DELETE); the modern flow is sessionless and would silently change the subject.
+        mode="legacy",
         logging_callback=logging_callback,
         message_handler=message_handler,
         elicitation_callback=elicitation_callback,
@@ -260,14 +272,14 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
     """Standard request headers for raw-httpx streamable-HTTP tests.
 
     Every well-formed request carries these (Accept covering both response representations,
-    Content-Type for POST bodies, MCP-Protocol-Version at the latest revision, and the session
+    Content-Type for POST bodies, MCP-Protocol-Version at the newest handshake revision, and the session
     ID once one exists), so a test that wants to assert a specific rejection only varies the one
     header under test.
     """
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
-        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+        "mcp-protocol-version": LATEST_HANDSHAKE_VERSION,
     }
     if session_id is not None:
         headers["mcp-session-id"] = session_id
@@ -277,7 +289,7 @@ def base_headers(*, session_id: str | None = None) -> dict[str, str]:
 def initialize_body(request_id: int = 1) -> dict[str, object]:
     """A wire-level initialize JSON-RPC request body, exactly as an SDK client would send it."""
     params = InitializeRequestParams(
-        protocol_version=LATEST_PROTOCOL_VERSION,
+        protocol_version=LATEST_HANDSHAKE_VERSION,
         capabilities=ClientCapabilities(),
         client_info=Implementation(name="raw", version="0.0.0"),
     )
@@ -345,7 +357,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
     app, _ = build_sse_app(server)
@@ -369,6 +381,8 @@ async def connect_over_sse(
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
     async with Client(
         transport,
+        # SSE is a legacy-only transport; the modern path has no SSE story.
+        mode="legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,

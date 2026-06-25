@@ -75,7 +75,7 @@ def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
     with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
     any other exception so each caller applies its own catch-all -
     `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
-    `to_jsonrpc_response` uses `INTERNAL_ERROR`.
+    the modern HTTP entry uses `INTERNAL_ERROR`.
     """
     if isinstance(exc, MCPError):
         return exc.error
@@ -132,11 +132,11 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     def can_send_request(self) -> bool:
         return self.transport.can_send_request and not self._closed
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._closed:
             logger.debug("dropped %s: dispatch context closed", method)
             return
-        await self._dispatcher.notify(method, params, _related_request_id=self._request_id)
+        await self._dispatcher.notify(method, params, opts, _related_request_id=self._request_id)
 
     async def send_raw_request(
         self,
@@ -209,6 +209,7 @@ def _plan_outbound(related_request_id: RequestId | None, opts: CallOptions | Non
     cancel_on_abandon = opts.get("cancel_on_abandon", True)
     token = opts.get("resumption_token")
     on_token = opts.get("on_resumption_token")
+    headers = opts.get("headers")
     if related_request_id is not None:
         if token is not None or on_token is not None:
             logger.debug(
@@ -217,9 +218,11 @@ def _plan_outbound(related_request_id: RequestId | None, opts: CallOptions | Non
         return _OutboundPlan(ServerMessageMetadata(related_request_id=related_request_id), cancel_on_abandon)
     if token is not None or on_token is not None:
         return _OutboundPlan(
-            ClientMessageMetadata(resumption_token=token, on_resumption_token_update=on_token),
+            ClientMessageMetadata(resumption_token=token, on_resumption_token_update=on_token, headers=headers),
             cancel_on_abandon=False,
         )
+    if headers:
+        return _OutboundPlan(ClientMessageMetadata(headers=headers), cancel_on_abandon)
     return _OutboundPlan(None, cancel_on_abandon)
 
 
@@ -265,7 +268,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
         self._inline_methods = inline_methods
-        self._on_stream_exception = on_stream_exception
+        self.on_stream_exception = on_stream_exception
+        """Observer for ``Exception`` items on the read stream. Mutable so a session can
+        bind it after the dispatcher is built (e.g. ``ClientSession`` routing into
+        ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -395,6 +401,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self,
         method: str,
         params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
         *,
         _related_request_id: RequestId | None = None,
     ) -> None:
@@ -414,7 +421,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         else:
             msg = JSONRPCNotification(jsonrpc="2.0", method=method)
         try:
-            await self._write(msg, _plan_outbound(_related_request_id, None).metadata)
+            await self._write(msg, _plan_outbound(_related_request_id, opts).metadata)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             # Transport tore down before run() noticed EOF.
             logger.debug("dropped %s: write stream closed", method)
@@ -480,11 +487,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         are awaited; any other `await` would head-of-line block the read loop.
         """
         if isinstance(item, Exception):
-            if self._on_stream_exception is None:
+            if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
                 return
             try:
-                await self._on_stream_exception(item)
+                await self.on_stream_exception(item)
             except Exception:
                 logger.exception("on_stream_exception observer raised")
             return

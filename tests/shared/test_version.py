@@ -3,8 +3,9 @@
 import pytest
 
 from mcp.shared.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
     KNOWN_PROTOCOL_VERSIONS,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    MODERN_PROTOCOL_VERSIONS,
     is_version_at_least,
 )
 
@@ -51,7 +52,8 @@ def test_is_version_at_least_matches_lexicographic_for_known_versions(version: s
 
 def test_supported_versions_are_known() -> None:
     """Every negotiable revision must be in the ordering registry."""
-    assert set(SUPPORTED_PROTOCOL_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
+    assert set(HANDSHAKE_PROTOCOL_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
+    assert set(MODERN_PROTOCOL_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
 
 
 def test_known_versions_are_strictly_ordered() -> None:

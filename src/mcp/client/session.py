@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Protocol, cast
@@ -17,25 +17,73 @@ from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.inbound import (
+    MCP_METHOD_HEADER,
+    MCP_NAME_HEADER,
+    MCP_PROTOCOL_VERSION_HEADER,
+    encode_header_value,
+)
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOL_VERSIONS
+from mcp.shared.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     RequestId,
     RequestParamsMeta,
 )
 from mcp.types import methods as _methods
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+DISCOVER_TIMEOUT_SECONDS = 10.0
 
 logger = logging.getLogger("client")
+
+
+def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
+    # initialize/discover forbid cancellation; other pre-handshake requests (lowlevel
+    # ClientSession callers may skip the handshake entirely) keep the courtesy cancel.
+    if data["method"] in ("initialize", "server/discover"):
+        opts["cancel_on_abandon"] = False
+
+
+def _make_handshake_stamp(protocol_version: str) -> Callable[[dict[str, Any], CallOptions], None]:
+    def stamp(data: dict[str, Any], opts: CallOptions) -> None:
+        opts.setdefault("headers", {})[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
+
+    return stamp
+
+
+def _make_modern_stamp(
+    protocol_version: str, client_info: dict[str, Any], capabilities: dict[str, Any]
+) -> Callable[[dict[str, Any], CallOptions], None]:
+    def stamp(data: dict[str, Any], opts: CallOptions) -> None:
+        params = data.setdefault("params", {})
+        meta = params.setdefault("_meta", {})
+        meta[PROTOCOL_VERSION_META_KEY] = protocol_version
+        meta[CLIENT_INFO_META_KEY] = client_info
+        meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
+        opts["cancel_on_abandon"] = False
+        headers = opts.setdefault("headers", {})
+        headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
+        headers[MCP_METHOD_HEADER] = data["method"]
+        # TODO: also emit Mcp-Name for prompts/get (params.name) and resources/read (params.uri)
+        if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
+            headers[MCP_NAME_HEADER] = encode_header_value(name)
+
+    return stamp
+
 
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
@@ -149,14 +197,11 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
-        protocol_version: str | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
-        self._pinned_version = protocol_version
-        self._stateless_pinned = protocol_version in MODERN_PROTOCOL_VERSIONS
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
@@ -164,24 +209,23 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._initialize_result: types.InitializeResult | None
-        if self._stateless_pinned:
-            assert protocol_version is not None
-            # A stateless-pinned session is born initialized: there is no handshake
-            # at 2026-07-28+, so we synthesize the result locally. `server_info` is a
-            # placeholder until `server/discover` is implemented to populate it.
-            self._initialize_result = types.InitializeResult(
-                protocol_version=protocol_version,
-                capabilities=types.ServerCapabilities(),
-                server_info=types.Implementation(name="", version=""),
-            )
-        else:
-            self._initialize_result = None
+        self._initialize_result: types.InitializeResult | None = None
+        self._discover_result: types.DiscoverResult | None = None
+        self._negotiated_version: str | None = None
+        self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
             self._dispatcher: Dispatcher[Any] = dispatcher
+            if isinstance(dispatcher, JSONRPCDispatcher) and dispatcher.on_stream_exception is None:
+                # Route transport-level Exception items into message_handler — only
+                # stream-backed dispatchers carry these; DirectDispatcher has none.
+                # Don't clobber a caller-supplied hook.
+                # TODO(L78): this leaves a bound-method ref on the dispatcher after the
+                # session exits (memory pin) and a second wrap of the same dispatcher would
+                # skip install. The Transport-as-Dispatcher rework (L77) removes this seam.
+                dispatcher.on_stream_exception = self._on_stream_exception
         else:
             if read_stream is None or write_stream is None:
                 raise ValueError("read_stream and write_stream are required when no dispatcher is given")
@@ -242,19 +286,7 @@ class ClientSession:
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
-        if self._stateless_pinned:
-            params = data.setdefault("params", {})
-            envelope_meta = params.setdefault("_meta", {})
-            envelope_meta[PROTOCOL_VERSION_META_KEY] = self._pinned_version
-            envelope_meta[CLIENT_INFO_META_KEY] = self._client_info.model_dump(
-                by_alias=True, mode="json", exclude_none=True
-            )
-            envelope_meta[CLIENT_CAPABILITIES_META_KEY] = self._build_capabilities().model_dump(
-                by_alias=True, mode="json", exclude_none=True
-            )
-            # Stateless pinned mode: disconnect-as-cancel is the spec mechanism, so the
-            # dispatcher must not emit notifications/cancelled when the caller abandons.
-            opts["cancel_on_abandon"] = False
+        self._stamp(data, opts)
         timeout = (
             request_read_timeout_seconds
             if request_read_timeout_seconds is not None
@@ -269,12 +301,9 @@ class ClientSession:
                 opts["resumption_token"] = metadata.resumption_token
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
-        if method == "initialize":
-            # The spec forbids cancelling initialize.
-            opts["cancel_on_abandon"] = False
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
@@ -288,7 +317,9 @@ class ClientSession:
         dropped with a debug log instead of raising.
         """
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
-        await self._dispatcher.notify(data["method"], data.get("params"))
+        opts: CallOptions = {}
+        self._stamp(data, opts)
+        await self._dispatcher.notify(data["method"], data.get("params"), opts)
 
     def _build_capabilities(self) -> types.ClientCapabilities:
         sampling = (
@@ -314,56 +345,180 @@ class ClientSession:
     async def initialize(self) -> types.InitializeResult:
         if self._initialize_result is not None:
             return self._initialize_result
-        capabilities = self._build_capabilities()
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=self._pinned_version
-                    if self._pinned_version is not None
-                    else types.LATEST_PROTOCOL_VERSION,
-                    capabilities=capabilities,
+                    protocol_version=LATEST_HANDSHAKE_VERSION,
+                    capabilities=self._build_capabilities(),
                     client_info=self._client_info,
                 ),
             ),
             types.InitializeResult,
         )
 
-        if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+        if result.protocol_version not in HANDSHAKE_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
-        self._initialize_result = result
+        self.adopt(result)
 
         await self.send_notification(types.InitializedNotification())
 
         return result
 
+    def adopt(self, result: types.InitializeResult | types.DiscoverResult) -> None:
+        """Install negotiated state from a result the caller already holds (no wire traffic).
+
+        Clears the opposite slot, so at most one of `initialize_result` /
+        `discover_result` is ever non-None.
+
+        Raises:
+            RuntimeError: `result` is a `DiscoverResult` whose `supported_versions`
+                shares nothing with this client's `MODERN_PROTOCOL_VERSIONS`.
+        """
+        if isinstance(result, types.DiscoverResult):
+            # ordered oldest→newest via MODERN_PROTOCOL_VERSIONS
+            mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in result.supported_versions]
+            if not mutual:
+                raise RuntimeError(
+                    f"No mutually supported modern protocol version "
+                    f"(server: {result.supported_versions}, client: {list(MODERN_PROTOCOL_VERSIONS)})"
+                )
+            client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+            capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+            self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities)
+            self._discover_result = result
+            self._initialize_result = None
+            self._negotiated_version = mutual[-1]
+        else:
+            self._stamp = _make_handshake_stamp(result.protocol_version)
+            self._initialize_result = result
+            self._discover_result = None
+            self._negotiated_version = result.protocol_version
+
+    async def send_discover(self, version: str) -> dict[str, Any]:
+        """Send a single ``server/discover`` at ``version`` and return the raw result dict.
+
+        No retry, no ``adopt()``. The ``_meta`` envelope and the
+        ``Mcp-Protocol-Version`` header are stamped at ``version`` so the
+        server-side era router sees a coherent probe. Used by ``discover()`` and
+        the connect-time auto-negotiation policy.
+
+        Raises:
+            MCPError: The server returned a JSON-RPC error, or the transport
+                bounced the request at its own layer (a bare HTTP 4xx is
+                synthesized into a JSON-RPC error by the transport).
+        """
+        client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+        capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+        request = types.DiscoverRequest(
+            params=types.RequestParams(
+                _meta={
+                    PROTOCOL_VERSION_META_KEY: version,
+                    CLIENT_INFO_META_KEY: client_info,
+                    CLIENT_CAPABILITIES_META_KEY: capabilities,
+                }
+            )
+        )
+        data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        opts: CallOptions = {
+            "timeout": DISCOVER_TIMEOUT_SECONDS,
+            "cancel_on_abandon": False,
+            "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
+        }
+        return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+
+    async def discover(self) -> types.DiscoverResult:
+        """Probe `server/discover` and adopt the result.
+
+        Sends a single `server/discover` proposing the newest modern protocol
+        version. On `UNSUPPORTED_PROTOCOL_VERSION` (-32022) the server's
+        `supported` list is intersected with `MODERN_PROTOCOL_VERSIONS` and the
+        probe is retried once at the highest mutual version. Any other error —
+        including `METHOD_NOT_FOUND` (-32601) and `REQUEST_TIMEOUT` (-32001) —
+        propagates; the legacy `initialize()` fallback is the caller's policy.
+
+        Raises:
+            MCPError: The server rejected `server/discover`, the probe timed
+                out, or the -32022 retry found no mutual version / failed again.
+            RuntimeError: `adopt()` found no mutual version in the returned
+                `supported_versions`.
+        """
+        if self._discover_result is not None:
+            return self._discover_result
+
+        try:
+            raw = await self.send_discover(LATEST_MODERN_VERSION)
+        except MCPError as e:
+            if e.code != UNSUPPORTED_PROTOCOL_VERSION:
+                raise
+            try:
+                data = types.UnsupportedProtocolVersionErrorData.model_validate(e.error.data)
+            except ValidationError:
+                raise e from None
+            # ordered oldest→newest via MODERN_PROTOCOL_VERSIONS
+            mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in data.supported]
+            if not mutual:
+                raise
+            raw = await self.send_discover(mutual[-1])
+
+        result = types.DiscoverResult.model_validate(raw)
+        self.adopt(result)
+        return result
+
     @property
     def initialize_result(self) -> types.InitializeResult | None:
-        """The server's InitializeResult. None until initialize() has been called.
-
-        A stateless-pinned session (protocol_version >= 2026-07-28) is born
-        initialized: this property is populated at construction with a
-        synthesized result and `initialize()` returns it without touching the
-        wire. Contains server_info, capabilities, instructions, and the
-        negotiated protocol_version.
-        """
+        """The server's InitializeResult. None unless `initialize()` ran (or was adopted)."""
         return self._initialize_result
 
     @property
-    def protocol_version(self) -> str | None:
-        """Negotiated or pinned protocol version. None until initialize() unless pinned at construction.
+    def discover_result(self) -> types.DiscoverResult | None:
+        """The server's DiscoverResult. None unless `discover()` ran (or was adopted).
 
-        Once `initialize()` has completed, this is the version the server actually
-        negotiated (which can differ from a stateful pin); before that, the pin.
+        Retained intact (supported_versions, ttl_ms, cache_scope) so callers
+        can round-trip it as ``prior_discover=``.
         """
+        return self._discover_result
+
+    @property
+    def protocol_version(self) -> str | None:
+        """Negotiated protocol version. None until `initialize()`, `discover()`, or `adopt()`."""
+        return self._negotiated_version
+
+    @property
+    def server_info(self) -> types.Implementation | None:
+        """Server name/version. None until `initialize()`, `discover()`, or `adopt()`."""
+        if self._discover_result is not None:
+            return self._discover_result.server_info
         if self._initialize_result is not None:
-            return self._initialize_result.protocol_version
-        return self._pinned_version
+            return self._initialize_result.server_info
+        return None
+
+    @property
+    def server_capabilities(self) -> types.ServerCapabilities | None:
+        """Server capabilities. None until `initialize()`, `discover()`, or `adopt()`."""
+        if self._discover_result is not None:
+            return self._discover_result.capabilities
+        if self._initialize_result is not None:
+            return self._initialize_result.capabilities
+        return None
+
+    @property
+    def instructions(self) -> str | None:
+        """Server-provided instructions text, if any."""
+        if self._discover_result is not None:
+            return self._discover_result.instructions
+        if self._initialize_result is not None:
+            return self._initialize_result.instructions
+        return None
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
         return await self.send_request(types.PingRequest(params=types.RequestParams(_meta=meta)), types.EmptyResult)
 
+    @deprecated(
+        "Client-to-server progress is deprecated as of 2026-07-28; progress is server-to-client only.",
+        category=MCPDeprecationWarning,
+    )
     async def send_progress_notification(
         self,
         progress_token: str | int,
@@ -563,7 +718,7 @@ class ClientSession:
         # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
         # handshake (which only exists at <=2025) and stateless until the header
         # is plumbed; its meaning is fixed regardless of LATEST bumps.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             request = cast(types.ServerRequest, _methods.parse_server_request(method, version, params))
         except KeyError:
@@ -601,7 +756,7 @@ class ClientSession:
     ) -> None:
         """Route a server notification: validate, run the typed callback, tee to message_handler."""
         # Same fallback as `_on_request`: covers pre-handshake and stateless.
-        version = self.protocol_version or "2025-11-25"
+        version = self._negotiated_version or "2025-11-25"
         try:
             notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
         except KeyError:

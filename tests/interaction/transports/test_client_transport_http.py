@@ -181,7 +181,7 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
     ):
         transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
-            async with Client(transport) as client:  # pragma: no branch
+            async with Client(transport, mode="legacy") as client:  # pragma: no branch
                 result = await client.list_tools()
 
     assert [tool.name for tool in result.tools] == ["echo"]
@@ -240,7 +240,7 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
     ):
         transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
-            async with Client(transport) as client:  # pragma: no branch
+            async with Client(transport, mode="legacy") as client:  # pragma: no branch
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await client.list_tools()
 

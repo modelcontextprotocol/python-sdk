@@ -41,18 +41,9 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "download"
-        assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
-        assert token is not None
-        await ctx.session.send_progress_notification(
-            token, 1.0, total=3.0, message="first chunk", related_request_id=str(ctx.request_id)
-        )
-        await ctx.session.send_progress_notification(
-            token, 2.0, total=3.0, message="second chunk", related_request_id=str(ctx.request_id)
-        )
-        await ctx.session.send_progress_notification(
-            token, 3.0, total=3.0, message="done", related_request_id=str(ctx.request_id)
-        )
+        await ctx.session.report_progress(1.0, total=3.0, message="first chunk")
+        await ctx.session.report_progress(2.0, total=3.0, message="second chunk")
+        await ctx.session.report_progress(3.0, total=3.0, message="done")
         return CallToolResult(content=[TextContent(text="downloaded")])
 
     server = Server("downloader", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -130,7 +121,7 @@ async def test_client_progress_notification_reaches_server_handler(connect: Conn
     server = Server("observer", on_progress=on_progress)
 
     async with connect(server) as client:
-        await client.send_progress_notification("upload-1", 0.5, total=1.0, message="halfway")
+        await client.send_progress_notification("upload-1", 0.5, total=1.0, message="halfway")  # pyright: ignore[reportDeprecated]
         with anyio.fail_after(5):
             await delivered.wait()
 
@@ -147,12 +138,11 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
     token would be live at a time and the demultiplexing would never be exercised. The handlers each
     block until both have started and then hand control back and forth so the four progress
     notifications are emitted in strict a, b, a, b order on the wire. The two handlers send different
-    progress values so a stream swap (token A delivered to callback B and vice versa) would fail: each
-    callback receiving exactly its own values proves notifications are routed by token, not by arrival
-    order or by chance.
+    progress values so a stream swap (request A's progress delivered to callback B and vice versa)
+    would fail: each callback receiving exactly its own values proves notifications are routed
+    per-request, not by arrival order or by chance.
     """
     progress_values = {"a": (1.0, 2.0), "b": (10.0, 20.0)}
-    tokens: dict[str, ProgressToken] = {}
     entered = {"a": anyio.Event(), "b": anyio.Event()}
     # turns[n] is set to release the nth emission; each emission releases the next.
     turns = [anyio.Event() for _ in range(4)]
@@ -165,23 +155,15 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "report"
         assert params.arguments is not None
-        assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
-        assert token is not None
         label = params.arguments["label"]
-        tokens[label] = token
         entered[label].set()
         # The two handlers interleave by waiting on alternating turns: a takes 0 and 2, b takes 1 and 3.
         first, second = (0, 2) if label == "a" else (1, 3)
         await turns[first].wait()
-        await ctx.session.send_progress_notification(
-            token, progress_values[label][0], related_request_id=str(ctx.request_id)
-        )
+        await ctx.session.report_progress(progress_values[label][0])
         turns[first + 1].set()
         await turns[second].wait()
-        await ctx.session.send_progress_notification(
-            token, progress_values[label][1], related_request_id=str(ctx.request_id)
-        )
+        await ctx.session.report_progress(progress_values[label][1])
         if second + 1 < len(turns):
             turns[second + 1].set()
         return CallToolResult(content=[TextContent(text="done")])
@@ -210,7 +192,6 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
                 await entered["b"].wait()
                 turns[0].set()
 
-    assert tokens["a"] != tokens["b"]
     assert received_a == [1.0, 2.0]
     assert received_b == [10.0, 20.0]
 
@@ -285,12 +266,9 @@ async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: C
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "zigzag"
-        assert ctx.meta is not None
-        token = ctx.meta.get("progress_token")
-        assert token is not None
-        await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
-        await ctx.session.send_progress_notification(token, 0.3, related_request_id=str(ctx.request_id))
-        await ctx.session.send_progress_notification(token, 0.9, related_request_id=str(ctx.request_id))
+        await ctx.session.report_progress(0.5)
+        await ctx.session.report_progress(0.3)
+        await ctx.session.report_progress(0.9)
         return CallToolResult(content=[TextContent(text="done")])
 
     server = Server("zigzagger", on_list_tools=list_tools, on_call_tool=call_tool)

@@ -21,36 +21,13 @@
 # milestone.
 
 client:
-  # --- No stateless client path on main yet ---
-  # client.py drives the 2025 stateful lifecycle (initialize handshake +
-  # session). The 2026-mode mock server is stateless, so the call sequence
-  # never reaches the assertion. Unblocks when client.py's is_modern_protocol()
-  # branch takes the per-request _meta path.
-  - tools_call
-
-  # --- Auth scenarios cut short by the 2026 connection lifecycle ---
-  # The auth fixture flow drives the 2025 stateful lifecycle; the 2026-mode
-  # mock rejects the MCP POST before the scope-escalation behaviour these
-  # scenarios measure, so no authorization requests are observed. Unblocks
-  # when client.py's auth flow speaks the 2026 per-request lifecycle.
-  - auth/scope-step-up
-  - auth/scope-retry-limit
-
   # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
-  # SEP-2575 (request metadata / _meta envelope): client does not populate the
-  # _meta envelope or the MCP-Protocol-Version header semantics yet.
-  - request-metadata
   # SEP-2322 (multi-round-trip requests): client does not echo requestState /
   # handle IncompleteResult yet.
   - sep-2322-client-request-state
-  # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+  # SEP-2243 (HTTP standardization): no fixture handler / client Mcp-Param-* support yet.
   - http-custom-headers
   - http-invalid-tool-headers
-  # SEP-2352 (authorization server migration): the client re-registers and does not reuse the old
-  # AS credentials, but the 2026-mode mock rejects the MCP POST before the migration 401 fires
-  # (client.py drives the 2025 stateful lifecycle), so the re-register check is never reached.
-  # Unblocks with the 2026 stateless client lifecycle.
-  - auth/authorization-server-migration
   # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
   # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
   # (it is an extension scenario not carried into the 2026 wire), so it is

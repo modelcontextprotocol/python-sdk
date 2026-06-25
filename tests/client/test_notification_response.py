@@ -204,12 +204,19 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
 
 
 def _create_non_2xx_json_body_app(status: int, body: bytes) -> Starlette:
-    """Server that returns a fixed non-2xx status + ``application/json`` body for non-init requests."""
+    """Server that returns a fixed non-2xx status + ``application/json`` body for non-init requests.
+
+    The initialize response carries an ``mcp-session-id`` so the client treats subsequent
+    requests as part of an established session (needed for the 404 → session-terminated mapping).
+    """
 
     async def handle_mcp_request(request: Request) -> Response:
         data = json.loads(await request.body())
         if data.get("method") == "initialize":
-            return _init_json_response(data)
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE},
+                headers={"mcp-session-id": "test-session"},
+            )
         if "id" not in data:
             return Response(status_code=202)
         return Response(content=body, status_code=status, media_type="application/json")

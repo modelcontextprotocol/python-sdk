@@ -52,7 +52,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
     async with connect(mcp, logging_callback=collect) as client:
         result = await client.call_tool("narrate", {})
-        advertised_logging = client.initialize_result.capabilities.logging
+        advertised_logging = client.server_capabilities.logging
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
     assert received == snapshot(

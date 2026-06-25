@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
 
 import anyio
@@ -13,9 +13,14 @@ from inline_snapshot import snapshot
 
 from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -37,6 +42,7 @@ from mcp.types import (
     Tool,
     ToolsCapability,
 )
+from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
 
@@ -101,8 +107,8 @@ def app() -> MCPServer:
 
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
-    async with Client(app) as client:
-        assert client.initialize_result.capabilities == snapshot(
+    async with Client(app, mode="legacy") as client:
+        assert client.server_capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
                 prompts=PromptsCapability(list_changed=False),
@@ -110,13 +116,13 @@ async def test_client_is_initialized(app: MCPServer):
                 tools=ToolsCapability(list_changed=False),
             )
         )
-        assert client.initialize_result.server_info.name == "test"
+        assert client.server_info.name == "test"
 
 
-async def test_client_initialize_result_exposes_negotiated_protocol_version(app: MCPServer):
+async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
     """The negotiated protocol version is readable after initialization."""
-    async with Client(app) as client:
-        assert client.initialize_result.protocol_version == types.LATEST_PROTOCOL_VERSION
+    async with Client(app, mode="legacy") as client:
+        assert client.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -131,8 +137,8 @@ async def test_client_with_simple_server(simple_server: Server):
 
 
 async def test_client_send_ping(app: MCPServer):
-    async with Client(app) as client:
-        result = await client.send_ping()
+    async with Client(app, mode="legacy") as client:
+        result = await client.send_ping()  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 
@@ -200,6 +206,40 @@ async def test_read_resource_error_propagates():
         assert exc_info.value.error.code == 404
 
 
+async def test_raise_exceptions_propagates_handler_error_on_modern_inproc_path():
+    """`raise_exceptions=True` on the modern in-process path: an unmapped handler
+    exception reaches the client with its original type chained, instead of being
+    sanitized to an opaque `INTERNAL_ERROR`."""
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        raise ValueError("boom")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+    async with Client(server, mode="2026-07-28", raise_exceptions=True) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("explode", {})
+    # The original exception is chained — not swallowed into a generic "Internal server error".
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert str(exc_info.value.__cause__) == "boom"
+
+
+async def test_raise_exceptions_false_sanitizes_handler_error_on_modern_inproc_path():
+    """`raise_exceptions=False` (the default) on the modern in-process path: an
+    unmapped handler exception is sanitized to an opaque `INTERNAL_ERROR` so the
+    in-process path matches the wire path's leak guard."""
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        raise ValueError("boom")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+    async with Client(server, mode="2026-07-28", raise_exceptions=False) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("explode", {})
+    assert exc_info.value.error.code == types.INTERNAL_ERROR
+    assert exc_info.value.error.message == "Internal server error"
+    assert exc_info.value.__cause__ is None
+
+
 async def test_get_prompt(app: MCPServer):
     """Test getting a prompt."""
     async with Client(app) as client:
@@ -238,27 +278,28 @@ async def test_client_send_progress_notification():
 
     server = Server(name="test_server", on_progress=handle_progress)
 
-    async with Client(server) as client:
-        await client.send_progress_notification(progress_token="token123", progress=50.0)
-        await event.wait()
-        assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
+    with anyio.fail_after(5):
+        async with Client(server, mode="legacy") as client:
+            await client.send_progress_notification(progress_token="token123", progress=50.0)  # pyright: ignore[reportDeprecated]
+            await event.wait()
+            assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
 
 
 async def test_client_subscribe_resource(simple_server: Server):
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.subscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_unsubscribe_resource(simple_server: Server):
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.unsubscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_set_logging_level(simple_server: Server):
     """Test setting logging level."""
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.set_logging_level("debug")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
@@ -316,12 +357,12 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 def test_client_with_url_initializes_streamable_http_transport():
     with patch("mcp.client.client.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
-    mock.assert_called_once_with("http://localhost:8000/mcp", protocol_version=None)
+    mock.assert_called_once_with("http://localhost:8000/mcp")
 
 
 async def test_client_uses_transport_directly(app: MCPServer):
     transport = InMemoryTransport(app)
-    async with Client(transport) as client:
+    async with Client(transport, mode="legacy") as client:
         result = await client.call_tool("greet", {"name": "Transport"})
         assert result == snapshot(
             CallToolResult(
@@ -359,3 +400,83 @@ async def test_context_propagation():
     assert result.content[0].text == "client_value", (  # type: ignore[union-attr]
         "Server handler did not see the sender's contextvars.Context"
     )
+
+
+async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Server) -> None:
+    """`mode='auto'` over an in-process HTTP transport: the `server/discover` probe
+    reaches the modern entry and the negotiated protocol version is adopted without
+    an `initialize` handshake. Runs over HTTP because the in-memory runner gates
+    `server/discover` behind the init handshake."""
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(simple_server) as (http, _),
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
+        ):
+            assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+@pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.REQUEST_TIMEOUT, types.INTERNAL_ERROR])
+async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: int) -> None:
+    """`mode='auto'`: any JSON-RPC error from `server/discover` makes
+    `Client.__aenter__` run the legacy `initialize()` handshake and land at a
+    handshake-era protocol version. The denylist policy treats every server-sent
+    rpc-error as "not modern" — including INTERNAL_ERROR, since a legacy server
+    may crash on the unknown method before reaching its router. A real `Server`
+    always implements `server/discover`, so the server side is hand-played."""
+    methods_seen: list[str] = []
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        async for message in server_read:
+            assert isinstance(message, SessionMessage)
+            frame = message.message
+            assert isinstance(frame, types.JSONRPCRequest | types.JSONRPCNotification)
+            methods_seen.append(frame.method)
+            if isinstance(frame, types.JSONRPCNotification):
+                continue
+            if frame.method == "server/discover":
+                error = types.ErrorData(code=code, message="nope")
+                await server_write.send(SessionMessage(types.JSONRPCError(jsonrpc="2.0", id=frame.id, error=error)))
+            elif frame.method == "initialize":  # pragma: no branch
+                result = types.InitializeResult(
+                    protocol_version=LATEST_HANDSHAKE_VERSION,
+                    capabilities=ServerCapabilities(),
+                    server_info=types.Implementation(name="legacy-only", version="0.0.1"),
+                )
+                await server_write.send(
+                    SessionMessage(
+                        types.JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=frame.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+
+    @asynccontextmanager
+    async def scripted_transport() -> AsyncIterator[TransportStreams]:
+        async with (
+            create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(scripted_server, server_streams)
+            yield client_read, client_write
+            tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(scripted_transport(), mode="auto") as client:
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
+            assert client.server_info.name == "legacy-only"
+    assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
+
+
+def test_client_rejects_handshake_era_mode_at_construction() -> None:
+    """A handshake-era protocol-version string passed as `mode=` is rejected by
+    `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is
+    modern-only."""
+    server = MCPServer("test")
+    with pytest.raises(ValueError, match=r"handshake-era version — use mode='legacy'"):
+        Client(server, mode="2025-06-18")
+    with pytest.raises(ValueError, match=r"mode must be 'legacy', 'auto', or one of"):
+        Client(server, mode="not-a-version")

@@ -74,4 +74,9 @@ async def test_call_add_tool(client: Client):
 1. If you are using `trio`, you should set `"trio"` as the `anyio_backend`. Check more information in the [anyio documentation](https://anyio.readthedocs.io/en/stable/testing.html#specifying-the-backends-to-run-on).
 2. The `client` fixture creates a connected client that can be reused across multiple tests.
 
+!!! note
+    `Client(app)` connects in-process and is era-neutral by default — it probes the server and picks the
+    appropriate protocol path. Pin `mode='legacy'` if your test exercises legacy-specific semantics
+    (sampling/elicitation push, `message_handler`).
+
 There you go! You can now extend your tests to cover more scenarios.

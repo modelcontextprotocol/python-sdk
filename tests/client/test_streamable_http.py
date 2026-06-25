@@ -1,9 +1,9 @@
 """Unit tests for the streamable-HTTP client transport.
 
 The full client<->server round trip is pinned by the interaction suite under
-tests/interaction/transports/; these tests cover the transport's per-message header
-derivation directly because the headers are an HTTP-seam observation the public client
-never exposes.
+tests/interaction/transports/; these tests cover the transport's header encoding and the
+per-message metadata-headers merge directly because the headers are an HTTP-seam observation
+the public client never exposes.
 """
 
 import base64
@@ -14,56 +14,10 @@ import httpx
 import pytest
 from inline_snapshot import snapshot
 
-from mcp.client import ClientSession
-from mcp.client.streamable_http import (
-    MCP_PROTOCOL_VERSION,
-    StreamableHTTPTransport,
-    _encode_header_value,
-    streamable_http_client,
-)
-from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
-
-
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        (
-            JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "add", "arguments": {}}),
-            snapshot({"mcp-method": "tools/call", "mcp-name": "add"}),
-        ),
-        (
-            JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={}),
-            snapshot({"mcp-method": "tools/list"}),
-        ),
-        (
-            JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled"),
-            snapshot({"mcp-method": "notifications/cancelled"}),
-        ),
-        (
-            JSONRPCResponse(jsonrpc="2.0", id=3, result={}),
-            snapshot({}),
-        ),
-    ],
-)
-def test_per_message_headers_for_pinned_transport_carry_method_and_name(
-    message: JSONRPCMessage, expected: dict[str, str]
-) -> None:
-    """A 2026-07-28-pinned transport derives ``Mcp-Method`` (and ``Mcp-Name`` for tools/call) from the body.
-
-    ``MCP-Protocol-Version`` is not in the per-message set: ``_prepare_headers()`` adds it from the
-    pin for every request, so only the method/name advisory headers vary per POST. Responses yield
-    nothing because the spec only defines the headers for requests and notifications.
-    """
-    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2026-07-28")
-    assert transport._per_message_headers(message) == expected  # pyright: ignore[reportPrivateUsage]
-
-
-@pytest.mark.parametrize("protocol_version", [None, "2025-11-25"])
-def test_per_message_headers_are_empty_for_legacy_or_unpinned_transport(protocol_version: str | None) -> None:
-    """An unpinned or 2025-era transport emits no per-message headers, keeping the wire byte-identical to v1."""
-    transport = StreamableHTTPTransport("http://test/mcp", protocol_version=protocol_version)
-    message = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "add", "arguments": {}})
-    assert transport._per_message_headers(message) == {}  # pyright: ignore[reportPrivateUsage]
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
 @pytest.mark.parametrize(
@@ -89,7 +43,7 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
     or trailing space is wrapped because RFC 7230 forbids it in field-values (h11 rejects on real
     transports); an empty value is allowed and passes verbatim.
     """
-    encoded = _encode_header_value(raw)
+    encoded = encode_header_value(raw)
     assert encoded == expected
     if wrapped:
         assert encoded.startswith("=?base64?") and encoded.endswith("?=")
@@ -99,77 +53,104 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
 
 
 @pytest.mark.anyio
-async def test_pinned_transport_ignores_returned_session_id_and_never_opens_get_or_delete() -> None:
-    """A server-issued ``Mcp-Session-Id`` never reaches a pinned client's wire: only POSTs are sent.
+async def test_post_request_merges_per_message_metadata_headers() -> None:
+    """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
+    (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
+    recorded: list[httpx.Request] = []
 
-    The session-id capture, the standalone GET listening stream, and the DELETE-on-close are all
-    gated implicitly: a pinned ``ClientSession`` never sends ``initialize`` (no InitializeResult to
-    capture an id from) and never sends ``notifications/initialized`` (which is what triggers the
-    standalone GET), so even when a misbehaving peer volunteers a session id on every response the
-    recorded log stays POST-only and no request echoes the id back. The successful ``tools/call``
-    triggers the client's implicit ``tools/list`` output-schema fetch so there is a second POST
-    after the id was offered.
+    def handler(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={}),
+                    metadata=ClientMessageMetadata(headers={"x-test": "v"}),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert [r.method for r in recorded] == ["POST"]
+    assert recorded[0].headers["x-test"] == "v"
+
+
+@pytest.mark.anyio
+async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
+    """A bare HTTP 404 (no JSON-RPC body) before any session-id is held maps to METHOD_NOT_FOUND.
+
+    Gateways and legacy servers 404 at the HTTP layer for unknown methods; with no session yet,
+    "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_it() -> None:
+    """``initialize`` discards the cached protocol-version header; every other POST reads it.
+
+    Steps:
+    1. A stamped probe POST caches its ``MCP-Protocol-Version`` header.
+    2. An ``initialize`` POST clears that cache before building headers, so the fallback
+       handshake never carries a probe-stamped value.
+    3. A subsequent stamped POST re-seeds the cache with the negotiated version.
+    4. An unstamped POST (a JSON-RPC response written by the dispatcher, which never
+       passes through the session's stamp) then reads the cache and carries the
+       negotiated version — the spec MUST for all post-initialization HTTP requests.
     """
     recorded: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
         body = json.loads(request.content)
-        if body["method"] == "tools/list":
-            result: dict[str, object] = {
-                "tools": [{"name": "add", "inputSchema": {"type": "object"}}],
-                "resultType": "complete",
-                "ttlMs": 0,
-                "cacheScope": "public",
-            }
-        else:
-            result = {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
-        return httpx.Response(
-            200, json={"jsonrpc": "2.0", "id": body["id"], "result": result}, headers={"mcp-session-id": "srv-123"}
-        )
+        if "id" not in body or "result" in body:
+            return httpx.Response(202)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
             httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
-            streamable_http_client("http://test/mcp", http_client=http, protocol_version="2026-07-28") as (read, write),
-            ClientSession(read, write, protocol_version="2026-07-28") as session,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
-            await session.call_tool("add", {"a": 2, "b": 3})
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={}),
+                    metadata=ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: "2026-07-28"}),
+                )
+            )
+            await read.receive()
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="initialize", params={})))
+            await read.receive()
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"),
+                    metadata=ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: "2025-11-25"}),
+                )
+            )
+            # An unstamped JSON-RPC response — what the dispatcher writes when answering
+            # a server-initiated request (sampling/elicitation/roots).
+            await write.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=99, result={})))
 
-    assert [r.method for r in recorded] == snapshot(["POST", "POST"])
-    assert all("mcp-session-id" not in r.headers for r in recorded)
-
-
-def test_modern_constructor_pin_is_not_overwritten_by_an_initialize_result() -> None:
-    """A 2026-07-28+ pin wins over the InitializeResult snoop (no initialize is ever sent)."""
-    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2026-07-28")
-    init = JSONRPCResponse(
-        jsonrpc="2.0",
-        id=1,
-        result={
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "serverInfo": {"name": "s", "version": "0"},
-        },
-    )
-    transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
-    assert transport.protocol_version == "2026-07-28"
-
-
-def test_stateful_constructor_pin_is_ignored_and_the_negotiated_version_wins() -> None:
-    """A pre-2026 pin is a session-layer concern; the transport must not stamp it on the
-    initialize request and must adopt the server's negotiated version for later headers."""
-    transport = StreamableHTTPTransport("http://test/mcp", protocol_version="2025-06-18")
-    assert MCP_PROTOCOL_VERSION not in transport._prepare_headers()  # pyright: ignore[reportPrivateUsage]
-    init = JSONRPCResponse(
-        jsonrpc="2.0",
-        id=1,
-        result={
-            "protocolVersion": "2025-03-26",
-            "capabilities": {},
-            "serverInfo": {"name": "s", "version": "0"},
-        },
-    )
-    transport._maybe_extract_protocol_version_from_message(init)  # pyright: ignore[reportPrivateUsage]
-    assert transport.protocol_version == "2025-03-26"
-    assert transport._prepare_headers()[MCP_PROTOCOL_VERSION] == "2025-03-26"  # pyright: ignore[reportPrivateUsage]
+    assert [r.method for r in recorded] == ["POST", "POST", "POST", "POST"]
+    assert recorded[0].headers[MCP_PROTOCOL_VERSION_HEADER] == "2026-07-28"
+    assert MCP_PROTOCOL_VERSION_HEADER not in recorded[1].headers
+    assert recorded[2].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"
+    assert recorded[3].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"

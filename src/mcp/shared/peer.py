@@ -81,8 +81,8 @@ class ClientPeer:
     ) -> dict[str, Any]:
         return await self._outbound.send_raw_request(method, params, opts)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        await self._outbound.notify(method, params)
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        await self._outbound.notify(method, params, opts)
 
     @overload
     @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -30,9 +30,11 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import ERROR_CODE_HTTP_STATUS, InboundLadderRejection, classify_inbound_request
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
     ClientCapabilities,
@@ -77,7 +79,7 @@ class _SingleExchangeDispatchContext:
     ) -> dict[str, Any]:
         raise NoBackChannelError(method)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         # TODO(D-005a): buffer and stream as SSE once the JSON-vs-SSE response mode lands.
         return None
 
@@ -97,6 +99,27 @@ def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
         return model.model_validate(raw, by_name=False)
     except ValidationError:
         return None
+
+
+async def _to_jsonrpc_response(
+    request_id: RequestId, coro: Awaitable[dict[str, Any]]
+) -> JSONRPCResponse | JSONRPCError:
+    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
+
+    The exception-to-wire boundary for the modern HTTP entry, composed around
+    `serve_one`. `MCPError` and `ValidationError` map via the shared
+    `handler_exception_to_error_data` ladder; any other exception is logged and
+    surfaced as `INTERNAL_ERROR` so handler internals never reach the wire.
+    """
+    try:
+        result = await coro
+    except Exception as exc:
+        error = handler_exception_to_error_data(exc)
+        if error is None:
+            logger.exception("request handler raised")
+            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
+        return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
+    return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
 async def _write(
@@ -193,5 +216,7 @@ async def handle_modern_request(
         request_id=req.id,
         message_metadata=ServerMessageMetadata(request_context=request),
     )
-    msg = await serve_one(app, req, connection=connection, dctx=dctx, lifespan_state=lifespan_state)
+    msg = await _to_jsonrpc_response(
+        req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
+    )
     await _write(msg, scope, receive, send)

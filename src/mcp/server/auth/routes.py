@@ -17,8 +17,8 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
 def validate_issuer_url(url: AnyHttpUrl):

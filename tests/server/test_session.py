@@ -15,11 +15,10 @@ from pydantic import ValidationError
 from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
-from mcp.shared.dispatcher import CallOptions, Outbound
+from mcp.shared.dispatcher import CallOptions
 from mcp.shared.message import ServerMessageMetadata
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     SamplingCapability,
@@ -28,11 +27,21 @@ from mcp.types import (
 
 
 class StubOutbound:
-    """Records `send_raw_request` / `notify` calls and returns a canned result."""
+    """Records `send_raw_request` / `notify` / `progress` calls and returns a canned result.
+
+    Structurally a `DispatchContext[Any]` so it can stand in for the per-request channel.
+    """
+
+    transport: Any = None
+    can_send_request: bool = True
+    request_id: Any = None
+    message_metadata: Any = None
+    cancel_requested: Any = None
 
     def __init__(self, result: dict[str, Any] | None = None) -> None:
         self.requests: list[tuple[str, Mapping[str, Any] | None, CallOptions | None]] = []
         self.notifications: list[tuple[str, Mapping[str, Any] | None]] = []
+        self.progress_calls: list[tuple[float, float | None, str | None]] = []
         self.result = result if result is not None else {}
 
     async def send_raw_request(
@@ -44,15 +53,18 @@ class StubOutbound:
         self.requests.append((method, params, opts))
         return self.result
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         self.notifications.append((method, params))
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        self.progress_calls.append((progress, total, message))
 
 
 def _make_session(
     outbound: StubOutbound,
     *,
     capabilities: ClientCapabilities | None = None,
-    protocol_version: str = LATEST_PROTOCOL_VERSION,
+    protocol_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> ServerSession:
     """Single-channel session: the stub is both request and standalone outbound."""
     client_info = Implementation(name="c", version="0") if capabilities is not None else None
@@ -60,9 +72,9 @@ def _make_session(
     return ServerSession(outbound, conn)
 
 
-def _two_channel_session(request_ch: Outbound, standalone_ch: Outbound) -> ServerSession:
+def _two_channel_session(request_ch: StubOutbound, standalone_ch: StubOutbound) -> ServerSession:
     """Distinct request/standalone outbounds so routing assertions can tell the channels apart."""
-    conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None, outbound=standalone_ch)
+    conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None, outbound=standalone_ch)
     return ServerSession(request_ch, conn)
 
 
@@ -146,6 +158,19 @@ async def test_send_notification_routes_by_related_request_id():
 
 
 @pytest.mark.anyio
+async def test_report_progress_delegates_to_the_request_dispatch_context():
+    """`report_progress` calls the per-request `DispatchContext.progress` seam, never the
+    standalone channel: token gating and routing live in the dispatcher, not here."""
+    request_ch = StubOutbound()
+    standalone_ch = StubOutbound()
+    session = _two_channel_session(request_ch, standalone_ch)
+    await session.report_progress(0.5, total=1.0, message="halfway")
+    assert request_ch.progress_calls == [(0.5, 1.0, "halfway")]
+    assert standalone_ch.progress_calls == []
+    assert request_ch.notifications == []
+
+
+@pytest.mark.anyio
 async def test_send_request_validates_the_client_result_against_the_surface_schema():
     """A spec-method result that fails the per-version surface schema raises
     `ValidationError` even when the caller's `result_type` would accept it."""
@@ -167,7 +192,7 @@ async def test_send_request_passes_a_spec_valid_client_result():
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
     """Surface row absent for the connection's version: gate is bypassed and only
     `result_type` validates."""
-    session = _make_session(StubOutbound(result={}), protocol_version=MODERN_PROTOCOL_VERSIONS[0])
+    session = _make_session(StubOutbound(result={}), protocol_version=LATEST_MODERN_VERSION)
     result = await session.send_request(types.PingRequest(), types.EmptyResult)
     assert isinstance(result, types.EmptyResult)
 

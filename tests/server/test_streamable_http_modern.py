@@ -15,20 +15,31 @@ import pytest
 from starlette.types import Receive, Scope, Send
 
 from mcp.server import Server, ServerRequestContext, runner
-from mcp.server._streamable_http_modern import _SingleExchangeDispatchContext, handle_modern_request
+from mcp.server._streamable_http_modern import (
+    _SingleExchangeDispatchContext,
+    _to_jsonrpc_response,
+    handle_modern_request,
+)
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
+from mcp.shared.version import LATEST_MODERN_VERSION
 from mcp.types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
+    Tool,
 )
 
 pytestmark = pytest.mark.anyio
@@ -56,7 +67,7 @@ def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettin
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
-        headers={MCP_PROTOCOL_VERSION_HEADER: MODERN_PROTOCOL_VERSIONS[0]},
+        headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION},
     )
 
 
@@ -114,7 +125,7 @@ async def test_handle_modern_request_returns_transport_security_error_response()
 def _list_tools_body() -> dict[str, Any]:
     """A minimal valid 2026-07-28 ``tools/list`` request body, including the required ``_meta`` envelope."""
     meta = {
-        PROTOCOL_VERSION_META_KEY: MODERN_PROTOCOL_VERSIONS[0],
+        PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
         CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
         CLIENT_CAPABILITIES_META_KEY: {},
     }
@@ -198,3 +209,64 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
     assert response.status_code == 200  # pragma: lax no cover
     assert response.json()["result"]["tools"] == []  # pragma: lax no cover
     assert "abandoning remaining callbacks" in caplog.text  # pragma: lax no cover
+
+
+# --- _to_jsonrpc_response ------------------------------------------------------
+
+
+async def test_to_jsonrpc_response_wraps_success_as_jsonrpc_response() -> None:
+    """SDK-defined: a handler coroutine resolving to a result dict is wrapped as a
+    `JSONRPCResponse` carrying the supplied id and the dict verbatim as `result`."""
+
+    async def ok() -> dict[str, Any]:
+        return {"k": "v"}
+
+    reply = await _to_jsonrpc_response(7, ok())
+    assert isinstance(reply, JSONRPCResponse)
+    assert reply.id == 7
+    assert reply.result == {"k": "v"}
+
+
+async def test_to_jsonrpc_response_maps_mcp_error_to_jsonrpc_error() -> None:
+    """SDK-defined: an `MCPError` raised by the handler coroutine is wrapped as a
+    `JSONRPCError` whose `error` carries the same code, message, and data."""
+
+    async def fail() -> dict[str, Any]:
+        raise MCPError(code=METHOD_NOT_FOUND, message="nope", data="x")
+
+    reply = await _to_jsonrpc_response("rid", fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.id == "rid"
+    assert reply.error == ErrorData(code=METHOD_NOT_FOUND, message="nope", data="x")
+
+
+async def test_to_jsonrpc_response_maps_validation_error_to_invalid_params() -> None:
+    """SDK-defined: a pydantic `ValidationError` escaping the handler coroutine is
+    mapped to `INVALID_PARAMS` with a generic message (validator detail does not
+    reach the wire)."""
+
+    async def fail() -> dict[str, Any]:
+        Tool.model_validate({"name": 123})  # raises ValidationError
+        raise NotImplementedError
+
+    reply = await _to_jsonrpc_response(1, fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+
+
+async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SDK-defined: an unmapped exception is logged server-side and surfaced as
+    `INTERNAL_ERROR` with a generic message; the exception text never reaches the
+    wire."""
+
+    async def fail() -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    reply = await _to_jsonrpc_response(1, fail())
+    assert isinstance(reply, JSONRPCError)
+    assert reply.error.code == INTERNAL_ERROR
+    # Handler internals never reach the wire.
+    assert "boom" not in reply.error.message
+    assert "request handler raised" in caplog.text
