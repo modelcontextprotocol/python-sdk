@@ -43,7 +43,7 @@ async def call_tool_and_assert(
     text_contains: list[str] | None = None,
 ):
     """Helper to create session, call tool, and assert result."""
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool(tool_name, args)
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -122,7 +122,7 @@ async def test_elicitation_schema_validation():
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         # Test both invalid schemas
         for tool_name, field_name in [("invalid_list", "numbers"), ("nested_model", "nested")]:
             result = await client.call_tool(tool_name, {})

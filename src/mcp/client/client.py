@@ -78,10 +78,10 @@ def _connect_inproc(server: Server[Any]) -> _Connector:
             read_stream, write_stream = await exit_stack.enter_async_context(transport)
             return JSONRPCDispatcher(read_stream, write_stream)
         lifespan_state = await exit_stack.enter_async_context(server.lifespan(server))
-        client_disp, server_disp = create_direct_dispatcher_pair()
+        client_disp, server_disp = create_direct_dispatcher_pair(raise_handler_exceptions=raise_exceptions)
         tg = await exit_stack.enter_async_context(anyio.create_task_group())
         exit_stack.callback(server_disp.close)
-        on_request = modern_on_request(server, lifespan_state, raise_exceptions=raise_exceptions)
+        on_request = modern_on_request(server, lifespan_state)
         await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
         return client_disp
 
@@ -151,7 +151,7 @@ class Client:
     server: Server[Any] | MCPServer | Transport | str
     """The MCP server to connect to.
 
-    If the server is a `Server` or `MCPServer` instance, it will be wrapped in an `InMemoryTransport`.
+    If the server is a `Server` or `MCPServer` instance, it will be connected in-process.
     If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
     If the server is a `Transport` instance, it will be used directly.
     """
@@ -181,11 +181,14 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    # TODO(maxisbey): flip default to 'auto' once the in-proc test suite is era-decoupled.
-    mode: ConnectMode = "legacy"
-    """'legacy' performs the initialize handshake. 'auto' probes server/discover and falls back to initialize()
-    on legacy servers. A modern protocol-version string (e.g. '2026-07-28') adopts that version directly without
-    a handshake — supply prior_discover to reuse a known DiscoverResult, or omit it to synthesize a minimal one."""
+    mode: ConnectMode = "auto"
+    """How to negotiate the protocol version.
+
+    'auto' (the default) probes `server/discover` and falls back to the initialize handshake on legacy servers;
+    for an in-process `Server`/`MCPServer` it dispatches directly without JSON-RPC framing. 'legacy' forces the
+    initialize handshake (byte-identical pre-2026 behavior). A modern protocol-version string (e.g. '2026-07-28')
+    adopts that version directly without a probe — supply `prior_discover` to reuse a known DiscoverResult, or
+    omit it to synthesize a minimal one."""
 
     prior_discover: types.DiscoverResult | None = None
     """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
@@ -301,6 +304,10 @@ class Client:
         """Server-provided instructions text, if any."""
         return self.session.instructions
 
+    @deprecated(
+        "ping is removed as of 2026-07-28; the method only works under mode='legacy'.",
+        category=MCPDeprecationWarning,
+    )
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
         return await self.session.send_ping(meta=meta)

@@ -352,7 +352,15 @@ version = session.protocol_version
 
 The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always handshakes on enter.)
+On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
+
+### `Client` defaults to `mode='auto'`
+
+In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's byte-identical pre-2026 behavior, or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
+
+For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` instance), `mode='auto'` dispatches calls directly through `DirectDispatcher` with no JSON-RPC framing. Pass `mode='legacy'` if you need the in-memory JSON-RPC transport that v1 used.
+
+`Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
 ### `McpError` renamed to `MCPError`
 
@@ -832,7 +840,7 @@ async with Client(server) as client:
     result = await client.call_tool("my_tool", {"x": 1})
 ```
 
-`Client` accepts the same callback parameters the old helper did (`sampling_callback`, `list_roots_callback`, `logging_callback`, `message_handler`, `elicitation_callback`, `client_info`) plus `raise_exceptions` to surface server-side errors.
+`Client` accepts the same callback parameters the old helper did (`sampling_callback`, `list_roots_callback`, `logging_callback`, `message_handler`, `elicitation_callback`, `client_info`) plus `raise_exceptions` to surface server-side errors and `mode` to control version negotiation (`'auto'` by default; `'legacy'` reproduces v1's initialize-only handshake).
 
 If you need direct access to the underlying `ClientSession` and memory streams (e.g., for low-level transport testing), `create_client_server_memory_streams` is still available in `mcp.shared.memory`:
 

@@ -470,6 +470,7 @@ async def connect_with_oauth(
         )
         headless.bind(http_client)
         client = await stack.enter_async_context(
-            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client))
+            # The auth flow tests snapshot the legacy initialize-handshake HTTP shape.
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client), mode="legacy")
         )
         yield client, headless

@@ -107,7 +107,7 @@ def app() -> MCPServer:
 
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
-    async with Client(app) as client:
+    async with Client(app, mode="legacy") as client:
         assert client.server_capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
@@ -121,7 +121,7 @@ async def test_client_is_initialized(app: MCPServer):
 
 async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
     """The negotiated protocol version is readable after initialization."""
-    async with Client(app) as client:
+    async with Client(app, mode="legacy") as client:
         assert client.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
@@ -137,8 +137,8 @@ async def test_client_with_simple_server(simple_server: Server):
 
 
 async def test_client_send_ping(app: MCPServer):
-    async with Client(app) as client:
-        result = await client.send_ping()
+    async with Client(app, mode="legacy") as client:
+        result = await client.send_ping()  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 
@@ -278,27 +278,28 @@ async def test_client_send_progress_notification():
 
     server = Server(name="test_server", on_progress=handle_progress)
 
-    async with Client(server) as client:
-        await client.send_progress_notification(progress_token="token123", progress=50.0)  # pyright: ignore[reportDeprecated]
-        await event.wait()
-        assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
+    with anyio.fail_after(5):
+        async with Client(server, mode="legacy") as client:
+            await client.send_progress_notification(progress_token="token123", progress=50.0)  # pyright: ignore[reportDeprecated]
+            await event.wait()
+            assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
 
 
 async def test_client_subscribe_resource(simple_server: Server):
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.subscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_unsubscribe_resource(simple_server: Server):
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.unsubscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_set_logging_level(simple_server: Server):
     """Test setting logging level."""
-    async with Client(simple_server) as client:
+    async with Client(simple_server, mode="legacy") as client:
         result = await client.set_logging_level("debug")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
@@ -361,7 +362,7 @@ def test_client_with_url_initializes_streamable_http_transport():
 
 async def test_client_uses_transport_directly(app: MCPServer):
     transport = InMemoryTransport(app)
-    async with Client(transport) as client:
+    async with Client(transport, mode="legacy") as client:
         result = await client.call_tool("greet", {"name": "Transport"})
         assert result == snapshot(
             CallToolResult(

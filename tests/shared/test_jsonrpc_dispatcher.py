@@ -2357,7 +2357,7 @@ async def test_server_middleware_observes_cancelled_notification():
     server = Server("test-server", on_call_tool=handle_call_tool)
     server.middleware.append(observe)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as tg:  # pragma: no branch
 

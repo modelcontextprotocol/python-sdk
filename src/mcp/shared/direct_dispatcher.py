@@ -9,8 +9,10 @@ serialization, no JSON-RPC framing, and no streams. It exists to:
   (`ServerRunner`, `Context`, `Connection`) without wire-level moving parts
 * embed a server in-process when the JSON-RPC overhead is unnecessary
 
-Unlike `JSONRPCDispatcher`, exceptions raised in a handler propagate directly
-to the caller - there is no exception-to-`ErrorData` boundary here.
+Like `JSONRPCDispatcher`, this is an exception-to-error boundary: a handler
+exception surfaces to the caller as `MCPError`. The `raise_handler_exceptions`
+knob controls whether unmapped exceptions are sanitized (matching the wire
+path) or chained as ``__cause__`` for in-process debugging.
 """
 
 from __future__ import annotations
@@ -96,8 +98,9 @@ class DirectDispatcher:
     they are silently dropped.
     """
 
-    def __init__(self, transport_ctx: TransportContext):
+    def __init__(self, transport_ctx: TransportContext, *, raise_handler_exceptions: bool = True):
         self._transport_ctx = transport_ctx
+        self._raise_handler_exceptions = raise_handler_exceptions
         self._peer: DirectDispatcher | None = None
         self._on_request: OnRequest | None = None
         self._on_notify: OnNotify | None = None
@@ -235,7 +238,14 @@ class DirectDispatcher:
                     # tests see what runner-over-JSONRPC would.
                     raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="") from e
                 except Exception as e:
-                    raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
+                    # Single owner of the in-proc exception-to-error policy (mirrors
+                    # JSONRPCDispatcher / `_streamable_http_modern._to_jsonrpc_response`
+                    # for the wire paths). True chains the original for in-process
+                    # debugging; False sanitizes to match the wire path's leak guard.
+                    if self._raise_handler_exceptions:
+                        raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
+                    logger.exception("request handler raised")
+                    raise MCPError(code=INTERNAL_ERROR, message="Internal server error") from None
         except TimeoutError:
             raise MCPError(
                 code=REQUEST_TIMEOUT,
@@ -259,6 +269,7 @@ def create_direct_dispatcher_pair(
     *,
     can_send_request: bool = True,
     headers: Mapping[str, str] | None = None,
+    raise_handler_exceptions: bool = True,
 ) -> tuple[DirectDispatcher, DirectDispatcher]:
     """Create two `DirectDispatcher` instances wired to each other.
 
@@ -266,14 +277,19 @@ def create_direct_dispatcher_pair(
         can_send_request: Sets `TransportContext.can_send_request` on both
             sides. Pass `False` to simulate a transport with no back-channel.
         headers: Sets `TransportContext.headers` on both sides.
+        raise_handler_exceptions: When `True` (the default - this is an
+            in-process debugging substrate), an unmapped handler exception
+            reaches the caller as `MCPError` with the original chained as
+            ``__cause__``. When `False` it is sanitized to an opaque
+            `INTERNAL_ERROR` so the in-process path matches the wire.
 
     Returns:
         A `(client, server)` pair. The wiring is symmetric, so the roles
         are conventional only.
     """
     ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request, headers=headers)
-    client = DirectDispatcher(ctx)
-    server = DirectDispatcher(ctx)
+    client = DirectDispatcher(ctx, raise_handler_exceptions=raise_handler_exceptions)
+    server = DirectDispatcher(ctx, raise_handler_exceptions=raise_handler_exceptions)
     client.connect_to(server)
     server.connect_to(client)
     return client, server

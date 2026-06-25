@@ -220,6 +220,9 @@ filterwarnings = [
     # 2026-07-28 restricts progress to server->client; the client send path is
     # advisory-deprecated and a handful of tests still exercise it.
     "ignore:Client-to-server progress is deprecated as of 2026-07-28.*:mcp.MCPDeprecationWarning",
+    # 2026-07-28 drops ping; Client.send_ping() is advisory-deprecated and the
+    # legacy interaction/transport tests still drive it.
+    "ignore:ping is removed as of 2026-07-28.*:mcp.MCPDeprecationWarning",
 ]
 
 [tool.markdown.lint]

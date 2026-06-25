@@ -59,7 +59,7 @@ async def test_server_remains_functional_after_cancel():
 
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         # First request (will be cancelled)
         async def first_request():
             try:

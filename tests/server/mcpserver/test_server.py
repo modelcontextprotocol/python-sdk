@@ -1119,7 +1119,7 @@ class TestContextInjection:
         mcp.add_tool(logging_tool)
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
-            async with Client(mcp) as client:
+            async with Client(mcp, mode="legacy") as client:
                 result = await client.call_tool("logging_tool", {"msg": "test"})
                 assert len(result.content) == 1
                 content = result.content[0]
@@ -1466,7 +1466,7 @@ class TestServerPrompts:
         """Test error when getting unknown prompt."""
         mcp = MCPServer()
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
@@ -1477,7 +1477,7 @@ class TestServerPrompts:
         @mcp.prompt()
         def prompt_fn(name: str) -> str: ...  # pragma: no branch
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 

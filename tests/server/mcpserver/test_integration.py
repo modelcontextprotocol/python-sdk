@@ -185,7 +185,7 @@ async def test_tool_progress() -> None:
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-    async with Client(tool_progress.mcp, message_handler=message_handler) as client:
+    async with Client(tool_progress.mcp, message_handler=message_handler, mode="legacy") as client:
         # Test progress callback
         progress_updates = []
 
@@ -215,7 +215,7 @@ async def test_tool_progress() -> None:
 
 async def test_sampling() -> None:
     """Test sampling (LLM interaction) functionality."""
-    async with Client(sampling.mcp, sampling_callback=sampling_callback) as client:
+    async with Client(sampling.mcp, sampling_callback=sampling_callback, mode="legacy") as client:
         assert client.server_capabilities.tools is not None
 
         # Test sampling tool
@@ -227,7 +227,7 @@ async def test_sampling() -> None:
 
 async def test_elicitation() -> None:
     """Test elicitation (user interaction) functionality."""
-    async with Client(elicitation.mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(elicitation.mcp, elicitation_callback=elicitation_callback, mode="legacy") as client:
         # Test booking with unavailable date (triggers elicitation)
         booking_result = await client.call_tool(
             "book_table",
@@ -264,7 +264,7 @@ async def test_notifications() -> None:
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-    async with Client(notifications.mcp, message_handler=message_handler) as client:
+    async with Client(notifications.mcp, message_handler=message_handler, mode="legacy") as client:
         # Call tool that generates notifications
         tool_result = await client.call_tool("process_data", {"data": "test_data"})
         assert len(tool_result.content) == 1

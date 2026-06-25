@@ -1478,9 +1478,7 @@ class _ScriptedDispatcher:
         return item
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-        self.notifies.append(
-            method
-        )  # pragma: no cover — recorded so a wrongly-sent notification fails the == [] assert
+        self.notifies.append(method)
 
 
 def _discover_result_dict() -> dict[str, Any]:
@@ -1489,6 +1487,25 @@ def _discover_result_dict() -> dict[str, Any]:
         capabilities=ServerCapabilities(),
         server_info=Implementation(name="stub", version="0"),
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+@pytest.mark.anyio
+async def test_initialize_is_idempotent_and_returns_the_cached_result() -> None:
+    """A second `initialize()` returns the first call's result by identity and sends nothing
+    over the wire — the early-return guard short-circuits before the dispatcher is touched."""
+    init_result = InitializeResult(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(init_result)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            first = await session.initialize()
+            second = await session.initialize()
+    assert first is second
+    assert [method for method, _ in dispatcher.calls] == ["initialize"]
+    assert dispatcher.notifies == ["notifications/initialized"]
 
 
 @pytest.mark.anyio

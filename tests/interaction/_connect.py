@@ -238,6 +238,9 @@ async def client_via_http(
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
     async with Client(
         transport,
+        # Callers assert the legacy HTTP wire shape (session-id header, standalone GET stream,
+        # closing DELETE); the modern flow is sessionless and would silently change the subject.
+        mode="legacy",
         logging_callback=logging_callback,
         message_handler=message_handler,
         elicitation_callback=elicitation_callback,
@@ -378,6 +381,8 @@ async def connect_over_sse(
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
     async with Client(
         transport,
+        # SSE is a legacy-only transport; the modern path has no SSE story.
+        mode="legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
         list_roots_callback=list_roots_callback,

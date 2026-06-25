@@ -496,18 +496,14 @@ async def serve_one(
         await aclose_shielded(connection)
 
 
-def modern_on_request(
-    server: Server[LifespanT], lifespan_state: LifespanT, *, raise_exceptions: bool = False
-) -> OnRequest:
+def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> OnRequest:
     """Return an `OnRequest` callback that serves each call via `serve_one` with a fresh per-request `Connection`.
 
     Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
     in-process server on the modern per-request-envelope path (each request
     carries protocol version, client info, and capabilities in `params._meta`;
-    no `initialize` handshake). ``raise_exceptions`` lets unmapped handler
-    exceptions propagate to the caller for debuggable in-process testing;
-    otherwise they are sanitized to `MCPError(INTERNAL_ERROR)` so the in-process
-    path matches the wire path's leak guard.
+    no `initialize` handshake). Like `serve_one`, this raises whatever the
+    handler chain raises - the dispatcher owns the exception-to-error mapping.
     """
 
     async def handle(
@@ -519,16 +515,6 @@ def modern_on_request(
             meta.get(CLIENT_INFO_META_KEY),
             meta.get(CLIENT_CAPABILITIES_META_KEY),
         )
-        try:
-            return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
-        except (MCPError, ValidationError):
-            # DirectDispatcher's ladder maps these onward; this layer only owns the raise_exceptions
-            # decision for unmapped exceptions, which DirectDispatcher would otherwise leak via str(exc).
-            raise
-        except Exception:
-            if raise_exceptions:
-                raise
-            logger.exception("request handler raised")
-            raise MCPError(code=INTERNAL_ERROR, message="Internal server error") from None
+        return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
 
     return handle
