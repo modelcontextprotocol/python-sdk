@@ -17,6 +17,7 @@ from mcp.server.mcpserver import (
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.resolve import find_resolved_parameters
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
@@ -252,6 +253,14 @@ def test_cycle_detection_raises_at_registration():
 
     with pytest.raises(InvalidSignature, match="cyclic"):
         Tool.from_function(tool)
+
+
+def test_find_resolved_parameters_tolerates_unresolvable_hints():
+    def fn(x: int) -> int:
+        return x  # pragma: no cover
+
+    fn.__annotations__["x"] = "DoesNotExist"
+    assert find_resolved_parameters(fn) == {}
 
 
 def test_unresolvable_resolver_param_raises_at_registration():

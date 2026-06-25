@@ -85,6 +85,21 @@ class _ResolverPlan:
         self.is_async = is_async
 
 
+def _type_hints(fn: Callable[..., Any]) -> dict[str, Any]:
+    """Resolve type hints for a function or a callable object.
+
+    `typing.get_type_hints` raises on a callable *instance*; fall back to its
+    `__call__`. Returns an empty mapping when hints cannot be resolved, matching
+    `find_context_parameter`'s tolerance so callables without annotations (or with
+    unresolvable ones) simply have no resolved parameters.
+    """
+    target = fn if inspect.isroutine(fn) else getattr(type(fn), "__call__", fn)
+    try:
+        return typing.get_type_hints(target, include_extras=True)
+    except Exception:
+        return {}
+
+
 def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve, bool]]:
     """Find parameters of `fn` annotated `Annotated[_, Resolve(...)]`.
 
@@ -92,9 +107,8 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     `wants_union` is True when the annotated type is an `ElicitationResult` member
     (the consumer wants the full outcome rather than the unwrapped model).
     """
-    hints = typing.get_type_hints(fn, include_extras=True)
     resolved: dict[str, tuple[Resolve, bool]] = {}
-    for name, annotation in hints.items():
+    for name, annotation in _type_hints(fn).items():
         if get_origin(annotation) is not Annotated:
             continue
         type_arg, *metadata = get_args(annotation)
@@ -130,7 +144,7 @@ def build_resolver_plans(
         if key in plans:
             return
 
-        hints = typing.get_type_hints(fn, include_extras=True)
+        hints = _type_hints(fn)
         sig = inspect.signature(fn)
         params: dict[str, _ParamPlan] = {}
         nested: list[Callable[..., Any]] = []
