@@ -220,9 +220,9 @@ class ClientSession:
                 # Route transport-level Exception items into message_handler — only
                 # stream-backed dispatchers carry these; DirectDispatcher has none.
                 # Don't clobber a caller-supplied hook.
-                # TODO(maxisbey): this leaves a bound-method ref on the dispatcher after
-                # the session exits (memory pin) and a second wrap of the same dispatcher
-                # would skip install. The Transport-as-Dispatcher rework removes this seam.
+                # TODO(L78): this leaves a bound-method ref on the dispatcher after the
+                # session exits (memory pin) and a second wrap of the same dispatcher would
+                # skip install. The Transport-as-Dispatcher rework (L77) removes this seam.
                 dispatcher.on_stream_exception = self._on_stream_exception
         else:
             if read_stream is None or write_stream is None:
