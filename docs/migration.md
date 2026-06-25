@@ -8,6 +8,39 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Breaking Changes
 
+### `httpx` replaced by `httpx2`
+
+The SDK now depends on [`httpx2`](https://pypi.org/project/httpx2/) instead of
+`httpx` and `httpx-sse`. `httpx2` is the next-generation HTTP client (a fork of
+`httpx`) with server-sent events support built in, so the separate `httpx-sse`
+dependency is gone.
+
+The public API surface is unchanged in shape - `streamable_http_client` and
+`sse_client` still accept the same arguments - but the client type they expect
+is now `httpx2.AsyncClient`. If you construct your own client to pass as
+`http_client` (or build an `httpx.Auth` subclass for `auth`), import from
+`httpx2`:
+
+**Before (v1):**
+
+```python
+import httpx
+
+http_client = httpx.AsyncClient(follow_redirects=True)
+```
+
+**After (v2):**
+
+```python
+import httpx2
+
+http_client = httpx2.AsyncClient(follow_redirects=True)
+```
+
+`httpx2` is API-compatible with `httpx`, so usually only the import name
+changes. To consume SSE directly, use `httpx2.EventSource` (or
+`AsyncClient.sse()`) instead of the `httpx-sse` helpers.
+
 ### `MCPServer.call_tool()` returns `CallToolResult`
 
 `MCPServer.call_tool()` now returns a `CallToolResult` (or an
@@ -56,13 +89,13 @@ async with streamablehttp_client(
 **After (v2):**
 
 ```python
-import httpx
+import httpx2
 from mcp.client.streamable_http import streamable_http_client
 
-# Configure headers, timeout, and auth on the httpx.AsyncClient
-http_client = httpx.AsyncClient(
+# Configure headers, timeout, and auth on the httpx2.AsyncClient
+http_client = httpx2.AsyncClient(
     headers={"Authorization": "Bearer token"},
-    timeout=httpx.Timeout(30, read=300),
+    timeout=httpx2.Timeout(30, read=300),
     auth=my_auth,
     follow_redirects=True,
 )
@@ -75,7 +108,7 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
+v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx2.AsyncClient` to preserve that behavior.
 
 ### OAuth `callback_handler` returns `AuthorizationCodeResult`
 
@@ -110,7 +143,7 @@ Forward the `iss` query parameter from the redirect so the validation can run: o
 
 The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.
 
-If you need to capture the session ID (e.g., for session resumption testing), you can use httpx event hooks to capture it from the response headers:
+If you need to capture the session ID (e.g., for session resumption testing), you can use httpx2 event hooks to capture it from the response headers:
 
 **Before (v1):**
 
@@ -126,7 +159,7 @@ async with streamable_http_client(url) as (read_stream, write_stream, get_sessio
 **After (v2):**
 
 ```python
-import httpx
+import httpx2
 from mcp.client.streamable_http import streamable_http_client
 
 # Option 1: Simply ignore if you don't need the session ID
@@ -134,15 +167,15 @@ async with streamable_http_client(url) as (read_stream, write_stream):
     async with ClientSession(read_stream, write_stream) as session:
         await session.initialize()
 
-# Option 2: Capture session ID via httpx event hooks if needed
+# Option 2: Capture session ID via httpx2 event hooks if needed
 captured_session_ids: list[str] = []
 
-async def capture_session_id(response: httpx.Response) -> None:
+async def capture_session_id(response: httpx2.Response) -> None:
     session_id = response.headers.get("mcp-session-id")
     if session_id:
         captured_session_ids.append(session_id)
 
-http_client = httpx.AsyncClient(
+http_client = httpx2.AsyncClient(
     event_hooks={"response": [capture_session_id]},
     follow_redirects=True,
 )
@@ -156,7 +189,7 @@ async with http_client:
 
 ### `StreamableHTTPTransport` parameters removed
 
-The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
+The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx2.AsyncClient` instead (see example above).
 
 Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 

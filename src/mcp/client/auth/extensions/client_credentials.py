@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
 
-import httpx
+import httpx2
 import jwt
 from pydantic import BaseModel, Field
 
@@ -83,11 +83,11 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self) -> httpx2.Request:
         """Perform client_credentials authorization."""
         return await self._exchange_token_client_credentials()
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self) -> httpx2.Request:
         """Build token exchange request for client_credentials grant."""
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
@@ -105,7 +105,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx2.Request("POST", token_url, data=token_data, headers=headers)
 
 
 def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
@@ -297,7 +297,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         self.context.client_info = self._fixed_client_info
         self._initialized = True
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self) -> httpx2.Request:
         """Perform client_credentials authorization with private_key_jwt."""
         return await self._exchange_token_client_credentials()
 
@@ -315,7 +315,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
-    async def _exchange_token_client_credentials(self) -> httpx.Request:
+    async def _exchange_token_client_credentials(self) -> httpx2.Request:
         """Build token exchange request for client_credentials grant with private_key_jwt."""
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
@@ -333,7 +333,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx2.Request("POST", token_url, data=token_data, headers=headers)
 
 
 class JWTParameters(BaseModel):
@@ -421,14 +421,14 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
 
     async def _exchange_token_authorization_code(
         self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = None
-    ) -> httpx.Request:  # pragma: no cover
+    ) -> httpx2.Request:  # pragma: no cover
         """Build token exchange request for authorization_code flow."""
         token_data = token_data or {}
         if self.context.client_metadata.token_endpoint_auth_method == "private_key_jwt":
             self._add_client_authentication_jwt(token_data=token_data)
         return await super()._exchange_token_authorization_code(auth_code, code_verifier, token_data=token_data)
 
-    async def _perform_authorization(self) -> httpx.Request:  # pragma: no cover
+    async def _perform_authorization(self) -> httpx2.Request:  # pragma: no cover
         """Perform the authorization flow."""
         if "urn:ietf:params:oauth:grant-type:jwt-bearer" in self.context.client_metadata.grant_types:
             token_request = await self._exchange_token_jwt_bearer()
@@ -455,7 +455,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         # it represents the resource server that will validate the token
         token_data["audience"] = self.context.get_resource_url()
 
-    async def _exchange_token_jwt_bearer(self) -> httpx.Request:
+    async def _exchange_token_jwt_bearer(self) -> httpx2.Request:
         """Build token exchange request for JWT bearer grant."""
         if not self.context.client_info:
             raise OAuthFlowError("Missing client info")  # pragma: no cover
@@ -481,6 +481,6 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
             token_data["scope"] = self.context.client_metadata.scope
 
         token_url = self._get_token_endpoint()
-        return httpx.Request(
+        return httpx2.Request(
             "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
         )

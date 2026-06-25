@@ -39,7 +39,6 @@ build-constraints = [
     { name = "trove-classifiers", specifier = "==2026.1.14.14" },
     { name = "uv-dynamic-versioning", specifier = "==0.14.0" },
 ]
-
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -662,49 +661,41 @@ wheels = [
 ]
 
 [[package]]
-name = "httpcore"
-version = "1.0.9"
+name = "httpcore2"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "certifi" },
     { name = "h11" },
+    { name = "truststore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/06/5c12df521b5322fb1114a83d46911b2fbcb8855ddb3a635f11c01a214af5/httpcore2-2.5.0.tar.gz", hash = "sha256:88aa170137c17328d5ac44234f9fd10706466d5fb347f3edac4d39b91137b09d", size = 64808, upload-time = "2026-06-25T14:16:56.472Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/a1/7564199d1a8728fe737b0a72e5b3f8d92dfe085a74ddf7cdd83bce5f206d/httpcore2-2.5.0-py3-none-any.whl", hash = "sha256:5ce35188de461d31e8d000bfb8ef8bf22c6c16587a211e5571deaa5e9bdf842a", size = 80330, upload-time = "2026-06-25T14:16:53.634Z" },
 ]
 
 [[package]]
-name = "httpx"
-version = "0.28.1"
+name = "httpx2"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "certifi" },
-    { name = "httpcore" },
+    { name = "httpcore2" },
     { name = "idna" },
+    { name = "truststore" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d0/e2/b5dedc0cf35aa65de5f541ccd30d2bc1fd7f1d43c9ab09f8ed9a7342317b/httpx2-2.5.0.tar.gz", hash = "sha256:e2df9cb4611021527ff8a675b1c320b610a2ec397acc8d6fe6e91df2d9b33c29", size = 83121, upload-time = "2026-06-25T14:16:57.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
-]
-
-[[package]]
-name = "httpx-sse"
-version = "0.4.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6e/fa/66bd985dd0b7c109a3bcb89272ee0bfb7e2b4d06309ad7b38ff866734b2a/httpx_sse-0.4.1.tar.gz", hash = "sha256:8f44d34414bc7b21bf3602713005c5df4917884f76072479b21f68befa4ea26e", size = 12998, upload-time = "2025-06-24T13:21:05.71Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/25/0a/6269e3473b09aed2dab8aa1a600c70f31f00ae1349bee30658f7e358a159/httpx_sse-0.4.1-py3-none-any.whl", hash = "sha256:cba42174344c3a5b06f255ce65b350880f962d99ead85e776f23c6618a377a37", size = 8054, upload-time = "2025-06-24T13:21:04.772Z" },
+    { url = "https://files.pythonhosted.org/packages/31/22/859d8252dad9bc9adee34b52e62cde621ece07b042ccb2ab4da1be46695f/httpx2-2.5.0-py3-none-any.whl", hash = "sha256:3d2d4d9cf4b61f1a1f46a95947cfdb47e80cb56a2f91c6256ac8f58e4891df41", size = 76652, upload-time = "2026-06-25T14:16:55.23Z" },
 ]
 
 [[package]]
 name = "idna"
-version = "3.10"
+version = "3.18"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/70/7703c29685631f5a7590aa73f1f1d3fa9a380e654b86af429e0934a32f7d/idna-3.10.tar.gz", hash = "sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9", size = 190490, upload-time = "2024-09-15T18:07:39.745Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cd/63/9496c57188a2ee585e0f1db071d75089a11e98aa86eb99d9d7618fc1edce/idna-3.18.tar.gz", hash = "sha256:ffb385a7e039654cef1ab9ef32c6fafe283c0c0467bba1d9029738ce4a14a848", size = 196711, upload-time = "2026-06-02T14:34:07.794Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/c6/c88e154df9c4e1a2a66ccf0005a88dfb2650c1dffb6f5ce603dfbd452ce3/idna-3.10-py3-none-any.whl", hash = "sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3", size = 70442, upload-time = "2024-09-15T18:07:37.964Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/5e/d4e9f1a599fb8e573b7b87160658329fbf28d19eac2718f51fc3def3aa5a/idna-3.18-py3-none-any.whl", hash = "sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2", size = 65455, upload-time = "2026-06-02T14:34:06.319Z" },
 ]
 
 [[package]]
@@ -908,8 +899,7 @@ name = "mcp"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
+    { name = "httpx2" },
     { name = "jsonschema" },
     { name = "mcp-types" },
     { name = "opentelemetry-api" },
@@ -971,8 +961,7 @@ docs = [
 requires-dist = [
     { name = "anyio", marker = "python_full_version < '3.14'", specifier = ">=4.9" },
     { name = "anyio", marker = "python_full_version >= '3.14'", specifier = ">=4.10" },
-    { name = "httpx", specifier = ">=0.27.1,<1.0.0" },
-    { name = "httpx-sse", specifier = ">=0.4" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "mcp-types", editable = "src/mcp-types" },
     { name = "opentelemetry-api", specifier = ">=1.28.0" },
@@ -1031,7 +1020,7 @@ source = { editable = "examples/servers/everything-server" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1048,7 +1037,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1083,7 +1072,7 @@ source = { editable = "examples/servers/simple-auth" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1102,7 +1091,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
@@ -1184,7 +1173,7 @@ source = { editable = "examples/servers/simple-pagination" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -1199,7 +1188,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
 ]
 
@@ -1217,7 +1206,7 @@ source = { editable = "examples/servers/simple-prompt" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -1232,7 +1221,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
 ]
 
@@ -1250,7 +1239,7 @@ source = { editable = "examples/servers/simple-resource" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -1265,7 +1254,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
 ]
 
@@ -1283,7 +1272,7 @@ source = { editable = "examples/servers/simple-streamablehttp" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1300,7 +1289,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1320,7 +1309,7 @@ source = { editable = "examples/servers/simple-streamablehttp-stateless" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1337,7 +1326,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1357,7 +1346,7 @@ source = { editable = "examples/servers/simple-tool" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -1372,7 +1361,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
 ]
 
@@ -1430,7 +1419,7 @@ source = { editable = "examples/servers/sse-polling-demo" }
 dependencies = [
     { name = "anyio" },
     { name = "click" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -1447,7 +1436,7 @@ dev = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx2", specifier = ">=2.5.0" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -2763,6 +2752,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/76/8f/c6e36dd11201e2a565977d8b13f0b027ba4593c1a80bed5185489178e257/trio-0.31.0.tar.gz", hash = "sha256:f71d551ccaa79d0cb73017a33ef3264fde8335728eb4c6391451fe5d253a9d5b", size = 605825, upload-time = "2025-09-09T15:17:15.242Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/31/5b/94237a3485620dbff9741df02ff6d8acaa5fdec67d81ab3f62e4d8511bf7/trio-0.31.0-py3-none-any.whl", hash = "sha256:b5d14cd6293d79298b49c3485ffd9c07e3ce03a6da8c7dfbe0cb3dd7dc9a4774", size = 512679, upload-time = "2025-09-09T15:17:13.821Z" },
+]
+
+[[package]]
+name = "truststore"
+version = "0.10.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/a3/1585216310e344e8102c22482f6060c7a6ea0322b63e026372e6dcefcfd6/truststore-0.10.4.tar.gz", hash = "sha256:9d91bd436463ad5e4ee4aba766628dd6cd7010cf3e2461756b3303710eebc301", size = 26169, upload-time = "2025-08-12T18:49:02.73Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/truststore-0.10.4-py3-none-any.whl", hash = "sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981", size = 18660, upload-time = "2025-08-12T18:49:01.46Z" },
 ]
 
 [[package]]

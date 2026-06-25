@@ -7,9 +7,9 @@ import unittest.mock
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 import pytest
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
@@ -47,7 +47,7 @@ def app(oauth_provider: MockOAuthProvider):
 def client(app: Starlette):
     transport = ASGITransport(app=app)
     # Use base_url without a path since routes are directly on the app
-    return httpx.AsyncClient(transport=transport, base_url="http://localhost")
+    return httpx2.AsyncClient(transport=transport, base_url="http://localhost")
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ def pkce_challenge():
 
 
 @pytest.fixture
-async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
+async def registered_client(client: httpx2.AsyncClient) -> dict[str, Any]:
     """Create and register a test client."""
     # Default client metadata
     client_metadata = {
@@ -84,7 +84,7 @@ async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
 
 
 @pytest.mark.anyio
-async def test_registration_error_handling(client: httpx.AsyncClient, oauth_provider: MockOAuthProvider):
+async def test_registration_error_handling(client: httpx2.AsyncClient, oauth_provider: MockOAuthProvider):
     # Mock the register_client method to raise a registration error
     with unittest.mock.patch.object(
         oauth_provider,
@@ -118,7 +118,7 @@ async def test_registration_error_handling(client: httpx.AsyncClient, oauth_prov
 
 @pytest.mark.anyio
 async def test_authorize_error_handling(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
@@ -159,7 +159,7 @@ async def test_authorize_error_handling(
 
 @pytest.mark.anyio
 async def test_token_error_handling_auth_code(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
@@ -218,7 +218,7 @@ async def test_token_error_handling_auth_code(
 
 @pytest.mark.anyio
 async def test_token_error_handling_refresh_token(
-    client: httpx.AsyncClient,
+    client: httpx2.AsyncClient,
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],

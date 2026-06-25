@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -72,12 +72,12 @@ def _asgi_client(
     *,
     json_response: bool = True,
     accept: str = "application/json, text/event-stream",
-) -> httpx.AsyncClient:
+) -> httpx2.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         async with server.lifespan(server) as lifespan_state:
             await handle_modern_request(server, security_settings, json_response, lifespan_state, scope, receive, send)
 
-    return httpx.AsyncClient(
+    return httpx2.AsyncClient(
         transport=StreamingASGITransport(app),
         base_url="http://testserver",
         headers={

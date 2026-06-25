@@ -3206,7 +3206,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "including auth flows."
         ),
         transports=("streamable-http",),
-        note="Only observable over HTTP: the httpx client is HTTP-specific.",
+        note="Only observable over HTTP: the httpx2 client is HTTP-specific.",
     ),
     "client-transport:http:custom-headers": Requirement(
         source="sdk",
