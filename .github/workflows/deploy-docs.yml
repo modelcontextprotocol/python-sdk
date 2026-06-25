@@ -7,6 +7,9 @@ on:
       - v1.x
     paths:
       - docs/**
+      # docs pages include their code blocks from these files via `--8<--`, so a
+      # change here changes the rendered site even when no .md file moves.
+      - docs_src/**
       - mkdocs.yml
       - src/mcp/**
       - scripts/build-docs.sh

@@ -1,5 +1,5 @@
-site_name: MCP Server
-site_description: MCP Server
+site_name: MCP Python SDK
+site_description: The official Python SDK for the Model Context Protocol
 strict: true
 
 repo_name: modelcontextprotocol/python-sdk
@@ -11,14 +11,13 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 # copyright: © Model Context Protocol 2025 to present
 
 nav:
-  - Introduction: index.md
+  - MCP Python SDK: index.md
   - Installation: installation.md
+  - Tutorial - User Guide:
+      - tutorial/index.md
+      - Tools: tutorial/tools.md
+      - Testing: tutorial/testing.md
   - Migration Guide: migration.md
-  - Documentation:
-      - Concepts: concepts.md
-      - Low-Level Server: low-level-server.md
-      - Authorization: authorization.md
-      - Testing: testing.md
   - API Reference: api/
 
 theme:
@@ -78,7 +77,13 @@ markdown_extensions:
   - pymdownx.critic
   - pymdownx.mark
   - pymdownx.superfences
-  - pymdownx.snippets
+  # Code examples live as complete, importable, tested files under `docs_src/`
+  # and are included into pages with `--8<-- "docs_src/<chapter>/tutorialNNN.py"`
+  # (resolved against the repo root, the extension's default base_path).
+  # `check_paths: true` + `strict: true` turn a renamed/deleted example into a
+  # build failure instead of a silently empty code block.
+  - pymdownx.snippets:
+      check_paths: true
   - pymdownx.tilde
   - pymdownx.inlinehilite
   - pymdownx.highlight:
@@ -103,6 +108,7 @@ markdown_extensions:
 
 watch:
   - src/mcp
+  - docs_src
 
 plugins:
   - search

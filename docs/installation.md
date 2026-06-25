@@ -1,31 +1,52 @@
 # Installation
 
-The Python SDK is available on PyPI as [`mcp`](https://pypi.org/project/mcp/) so installation is as simple as:
+The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
+
+=== "uv"
+
+    ```bash
+    uv add "mcp[cli]"
+    ```
 
 === "pip"
 
     ```bash
-    pip install mcp
+    pip install "mcp[cli]"
     ```
-=== "uv"
+
+!!! warning "Pin the version while v2 is in alpha"
+    v2 is published as pre-releases (`2.0.0aN`), and installers never select a pre-release unless
+    you opt in — so a bare `uv add mcp` gives you the latest **v1.x** release, which these docs do
+    not describe.
+
+    Pin the newest alpha explicitly — find it in the
+    [release history](https://pypi.org/project/mcp/#history) and substitute it for `aN`:
 
     ```bash
-    uv add mcp
+    uv add "mcp[cli]==2.0.0aN"
     ```
 
-The following dependencies are automatically installed:
+    The same applies to one-off commands: `uv run --with "mcp==2.0.0aN" ...`, not `uv run --with mcp ...`.
 
-- [`httpx`](https://pypi.org/project/httpx/): HTTP client to handle HTTP Streamable and SSE transports.
-- [`httpx-sse`](https://pypi.org/project/httpx-sse/): HTTP client to handle SSE transport.
-- [`pydantic`](https://pypi.org/project/pydantic/): Types, JSON schema generation, data validation, and [more](https://docs.pydantic.dev/latest/).
-- [`starlette`](https://pypi.org/project/starlette/): Web framework used to build the HTTP transport endpoints.
-- [`python-multipart`](https://pypi.org/project/python-multipart/): Handle HTTP body parsing.
-- [`sse-starlette`](https://pypi.org/project/sse-starlette/): Server-Sent Events for Starlette, used to build the SSE transport endpoint.
-- [`pydantic-settings`](https://pypi.org/project/pydantic-settings/): Settings management used in MCPServer.
-- [`uvicorn`](https://pypi.org/project/uvicorn/): ASGI server used to run the HTTP transport endpoints.
-- [`jsonschema`](https://pypi.org/project/jsonschema/): JSON schema validation.
-- [`pywin32`](https://pypi.org/project/pywin32/): Windows specific dependencies for the CLI tools.
+    If your *package* depends on `mcp`, add a `<2` upper bound (for example `mcp>=1.27,<2`) before
+    the stable v2 lands so the major version bump doesn't surprise you.
 
-This package has the following optional groups:
+## What gets installed
 
-- `cli`: Installs `typer` and `python-dotenv` for the MCP CLI tools.
+You don't need to know any of this to use the SDK, but if you're wondering what each dependency is for:
+
+* [`anyio`](https://anyio.readthedocs.io/) — the async runtime. The whole SDK is written against anyio, so it runs on either `asyncio` or `trio`.
+* [`pydantic`](https://docs.pydantic.dev/) — every protocol type, all schema generation, and all validation.
+* [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) — server configuration via `MCP_*` environment variables and `.env` files.
+* [`httpx`](https://www.python-httpx.org/) and [`httpx-sse`](https://pypi.org/project/httpx-sse/) — the HTTP client behind the Streamable HTTP and SSE *client* transports.
+* [`starlette`](https://www.starlette.io/), [`uvicorn`](https://www.uvicorn.org/), [`sse-starlette`](https://pypi.org/project/sse-starlette/), and [`python-multipart`](https://pypi.org/project/python-multipart/) — the HTTP *server* transports.
+* [`jsonschema`](https://pypi.org/project/jsonschema/) — validates a tool's structured output against its declared output schema.
+* [`pyjwt[crypto]`](https://pyjwt.readthedocs.io/) — OAuth token handling for authorization.
+* [`opentelemetry-api`](https://opentelemetry-python.readthedocs.io/) — just the lightweight API, so the SDK's tracing middleware costs nothing unless you install an OpenTelemetry SDK and exporter yourself.
+* [`typing-extensions`](https://typing-extensions.readthedocs.io/) and `typing-inspection` — modern typing features on Python 3.10.
+* `pywin32` — Windows only, used for `stdio` subprocess management.
+
+## Optional extras
+
+* `mcp[cli]` adds [`typer`](https://typer.tiangolo.com/) and `python-dotenv` for the `mcp` command-line tool (`mcp dev`, `mcp run`, `mcp install`). You'll want this during development; you may not need it in a deployed server.
+* `mcp[rich]` adds [`rich`](https://rich.readthedocs.io/) for nicer server logs.

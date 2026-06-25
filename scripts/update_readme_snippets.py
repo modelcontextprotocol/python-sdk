@@ -43,11 +43,13 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
     file_path = match.group(2)
 
     try:
-        # Read the entire file
+        # Read the entire file. A missing source file must be fatal: a "Warning"
+        # that returns the stale block lets --check pass with exit 0, so a
+        # renamed or deleted snippet is invisible to CI. SystemExit deliberately
+        # escapes the `except Exception` below.
         file = Path(file_path)
         if not file.exists():
-            print(f"Warning: File not found: {file_path}")
-            return full_match
+            sys.exit(f"Error: snippet-source file not found: {file_path}")
 
         code = file.read_text().rstrip()
         github_url = get_github_url(file_path)
@@ -69,7 +71,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
             if existing_content is not None:
                 existing_lines = existing_content.strip().split("\n")
                 # Find code between ```python and ```
-                code_lines = []
+                code_lines: list[str] = []
                 in_code = False
                 for line in existing_lines:
                     if line.strip() == "```python":
