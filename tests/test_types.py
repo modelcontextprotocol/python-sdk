@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import ValidationError
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -436,4 +437,13 @@ def test_empty_result_dumps_result_type_only_when_explicitly_tagged():
 
 
 def test_input_required_result_dumps_its_discriminating_tag():
-    assert _wire_dump(InputRequiredResult()) == snapshot({"resultType": "input_required"})
+    assert _wire_dump(InputRequiredResult(request_state="s")) == snapshot(
+        {"resultType": "input_required", "requestState": "s"}
+    )
+
+
+def test_input_required_result_requires_at_least_one_of_input_requests_or_request_state():
+    with pytest.raises(ValidationError):
+        InputRequiredResult()
+    assert InputRequiredResult(input_requests={}).request_state is None
+    assert InputRequiredResult(request_state="s").input_requests is None
