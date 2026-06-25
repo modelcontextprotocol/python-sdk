@@ -2,7 +2,6 @@
 
 import pytest
 from inline_snapshot import snapshot
-
 from mcp_types import CallToolResult, TextContent, TextResourceContents
 
 from docs_src.index.tutorial001 import mcp

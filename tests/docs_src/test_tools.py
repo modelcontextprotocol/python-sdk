@@ -2,7 +2,6 @@
 
 import pytest
 from inline_snapshot import snapshot
-
 from mcp_types import TextContent, ToolAnnotations
 
 from docs_src.tools import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005

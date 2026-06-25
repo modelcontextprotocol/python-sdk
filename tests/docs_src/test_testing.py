@@ -6,7 +6,6 @@ is the only difference.
 
 import pytest
 from inline_snapshot import snapshot
-
 from mcp_types import CallToolResult, TextContent
 
 from docs_src.testing.tutorial001 import mcp

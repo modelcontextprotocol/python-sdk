@@ -74,14 +74,18 @@ There you go! You can now extend your tests to cover more scenarios.
 
 ## Why `raise_exceptions=True`?
 
-Over a real transport, an unhandled exception inside one of your tools is sanitised into a generic
-*"internal error"* before it reaches the client — you should never leak a traceback to a remote caller.
+Two different things can go wrong, and this flag only touches one of them.
 
-That is exactly what you **don't** want in a test.
+An exception inside one of **your tools** is not a protocol failure. It becomes a normal result with
+`is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that — with or
+without it, `call_tool` returns the same `is_error=True` result. There's a whole chapter on it:
+**Handling errors**.
 
-`raise_exceptions=True` only has an effect on the in-memory client, and it does one thing: an
-unhandled exception in your handler reaches your test with the original exception **chained**, so
-pytest shows you the real traceback instead of `is_error=True` and a useless message.
+A failure **outside** a tool body is different. On the connection `Client(mcp)` gives you, the
+server sanitises it into a generic `"Internal server error"` before the client sees it — you should
+never leak the details of an unexpected crash to a remote caller. In a test that is exactly what
+you *don't* want, and it is what `raise_exceptions=True` changes: your test sees the real message
+instead of the sanitised one.
 
 Leave it on in tests. It has no meaning in production code.
 
@@ -90,7 +94,9 @@ Leave it on in tests. It has no meaning in production code.
 !!! note
     `Client(mcp)` connects in-process and is **era-neutral** by default — it probes the server and
     picks the appropriate protocol path. Pin `mode="legacy"` if your test exercises legacy-specific
-    semantics (sampling or elicitation push, `message_handler`).
+    semantics (sampling or elicitation push, `message_handler`) — and drop `raise_exceptions=True`
+    there: a legacy connection never sanitises in the first place, and the flag re-raises the
+    failure inside the server task instead of in your test.
 
 That one line is also why the rest of this tutorial can promise you that its examples work: every
 example file is exercised by the SDK's own test suite through exactly this client. You're using the

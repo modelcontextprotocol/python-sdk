@@ -99,7 +99,17 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # pyright + ruff + tests/docs_src/.
 @pytest.mark.parametrize(
     "example",
-    list(find_examples("README.v2.md", "docs/index.md", "docs/installation.md", "docs/tutorial")),
+    list(
+        find_examples(
+            "README.v2.md",
+            "docs/index.md",
+            "docs/installation.md",
+            "docs/tutorial",
+            "docs/run",
+            "docs/client",
+            "docs/advanced",
+        )
+    ),
     ids=str,
 )
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):

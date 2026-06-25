@@ -15,8 +15,37 @@ nav:
   - Installation: installation.md
   - Tutorial - User Guide:
       - tutorial/index.md
+      - First steps: tutorial/first-steps.md
       - Tools: tutorial/tools.md
+      - Structured Output: tutorial/structured-output.md
+      - Resources: tutorial/resources.md
+      - Prompts: tutorial/prompts.md
+      - The Context: tutorial/context.md
+      - Handling errors: tutorial/handling-errors.md
+      - Lifespan: tutorial/lifespan.md
+      - Media: tutorial/media.md
+      - Completions: tutorial/completions.md
+      - Elicitation: tutorial/elicitation.md
+      - Progress: tutorial/progress.md
+      - Logging: tutorial/logging.md
       - Testing: tutorial/testing.md
+  - Running your server:
+      - run/index.md
+      - ASGI: run/asgi.md
+  - The Client:
+      - client/index.md
+      - Client callbacks: client/callbacks.md
+      - Client transports: client/transports.md
+      - Protocol versions: client/protocol-versions.md
+  - Advanced:
+      - Multi-round-trip requests: advanced/multi-round-trip.md
+      - The low-level Server: advanced/low-level-server.md
+      - Pagination: advanced/pagination.md
+      - Middleware: advanced/middleware.md
+      - Authorization: advanced/authorization.md
+      - OAuth clients: advanced/oauth-clients.md
+      - Session groups: advanced/session-groups.md
+      - Deprecated features: advanced/deprecated.md
   - Migration Guide: migration.md
   - API Reference: api/
 
