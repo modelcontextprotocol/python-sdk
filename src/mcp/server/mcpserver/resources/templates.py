@@ -19,6 +19,10 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
 
+# Matches a re.escape()'d "{param}" marker. re.escape escapes the braces to
+# "\{" / "\}" but leaves the parameter name (identifier chars) untouched.
+_PARAM_PATTERN = re.compile(r"\\\{([^}]+?)\\\}")
+
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -93,8 +97,11 @@ class ResourceTemplate(BaseModel):
 
         Extracted parameters are URL-decoded to handle percent-encoded characters.
         """
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+        # Convert template to regex pattern. Escape the template first so that
+        # regex-special characters in literal parts (e.g. ".", "?", "+") are
+        # treated literally, then replace the escaped "{param}" markers with
+        # named capture groups.
+        pattern = _PARAM_PATTERN.sub(lambda m: f"(?P<{m.group(1)}>[^/]+)", re.escape(self.uri_template))
         match = re.match(f"^{pattern}$", uri)
         if match:
             # URL-decode all extracted parameter values

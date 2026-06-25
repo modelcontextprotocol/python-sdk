@@ -50,6 +50,35 @@ class TestResourceTemplate:
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
+    def test_template_matches_escapes_regex_special_chars(self):
+        """Literal regex-special chars in a template must be matched literally.
+
+        Regression test for #2961: matches() built the regex via plain string
+        replacement, so unescaped ".", "?", "+" etc. in literal parts of the
+        template acted as regex metacharacters and produced false matches.
+        """
+
+        def my_func(name: str) -> str:  # pragma: no cover
+            return name
+
+        # "." must be literal, not "any char".
+        dot_template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="data://.well-known/{name}",
+            name="dot",
+        )
+        assert dot_template.matches("data://.well-known/hello") == {"name": "hello"}
+        assert dot_template.matches("data://Xwell-known/hello") is None
+
+        # "." in a literal suffix must be literal too.
+        suffix_template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="data://items/{name}.json",
+            name="suffix",
+        )
+        assert suffix_template.matches("data://items/123.json") == {"name": "123"}
+        assert suffix_template.matches("data://items/123Xjson") is None
+
     @pytest.mark.anyio
     async def test_create_resource(self):
         """Test creating a resource from a template."""
