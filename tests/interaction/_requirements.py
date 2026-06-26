@@ -178,13 +178,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The client does not check its own declared capabilities before sending notifications or "
-                "serving callbacks; nothing prevents a caller from violating the spec's MUST."
+                "The handler half is correct by construction -- the client derives its declared "
+                "capabilities from the callbacks registered at construction, so it cannot serve a "
+                "capability it did not declare. Only the deprecated send_roots_list_changed notification "
+                "is ungated: a caller can send it without having registered a roots callback."
             ),
         ),
         deferred=(
-            "Not implemented in the SDK: the client does not check its own declared capabilities before "
-            "sending notifications or serving callbacks."
+            "Not implemented in the SDK: the deprecated send_roots_list_changed notification is not "
+            "gated on a declared roots capability."
         ),
     ),
     "lifecycle:capability:server-not-advertised": Requirement(
@@ -300,6 +302,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Before initialization completes, the client sends no requests other than pings, and the "
             "server sends no requests other than pings and logging."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         divergence=Divergence(
             note=(
                 "The server's send methods (create_message / elicit_form / list_roots) do not check "
@@ -1071,12 +1075,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:annotations": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#annotations",
         behavior="Resource annotations supplied by the server round-trip to the client in the list result.",
-        divergence=Divergence(
-            note=(
-                "The SDK Annotations model is missing the schema's lastModified field; MCPModel uses the "
-                "pydantic default extra='ignore', so the value is silently dropped on parse."
-            ),
-        ),
     ),
     "resources:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#capabilities",
@@ -3163,8 +3161,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         divergence=Divergence(
             note=(
-                "The client surfaces the 404 as an error to the caller instead of re-initializing a new "
-                "session; the spec's MUST is not satisfied."
+                "The 404 is intentionally surfaced to the caller; this matches the TypeScript, C#, and "
+                "Go SDKs. The 2025-11-25 MUST was removed in the 2026 spec (SEP-2567), and the transport "
+                "layer cannot safely re-initialize without replaying the caller's request."
             ),
         ),
         deferred=(
