@@ -3372,6 +3372,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
     ),
+    "client-transport:http:custom-param-headers": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#custom-headers-from-tool-parameters",
+        behavior=(
+            "On a tools/call, a client mirrors each argument annotated with x-mcp-header in the tool's "
+            "inputSchema into an Mcp-Param-<name> header -- string as-is, integer as decimal, boolean as "
+            "true/false, base64-sentinel-wrapped when not header-safe -- omitting null or absent arguments and "
+            "never mirroring unannotated parameters. The schema is taken from the tool's last list_tools entry; "
+            "a tool the client never listed emits no Mcp-Param-* headers."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
+    ),
     "client-transport:http:stateless-ignores-session-id": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
         behavior=(

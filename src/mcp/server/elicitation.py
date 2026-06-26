@@ -113,7 +113,7 @@ async def elicit_with_validation(
         return AcceptedElicitation(data=validated_data)
     elif result.action == "decline":
         return DeclinedElicitation()
-    elif result.action == "cancel":  # pragma: no cover
+    elif result.action == "cancel":
         return CancelledElicitation()
     else:  # pragma: no cover
         # This should never happen, but handle it just in case

@@ -35,6 +35,13 @@ jobs:
           uv sync --group codegen --frozen
           uv run --frozen --group codegen python scripts/gen_surface_types.py --check
 
+      # Resolves only mcp-types' declared dependencies into an empty environment,
+      # so an import of the SDK or anything from its stack fails here.
+      - name: mcp-types installs and imports standalone
+        run: |
+          uv run --isolated --no-project --with ./src/mcp-types python -c \
+            "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types.v2025_11_25, mcp_types.v2026_07_28"
+
       # TODO(Max): Drop this in v2. Deliberate updates (e.g. the v2 status
       # banner) go through the 'override-readme-freeze' label.
       - name: Check README.md is not modified
@@ -79,6 +86,10 @@ jobs:
 
       - name: Run pytest with coverage
         shell: bash
+        env:
+          # tests/examples/test_stories_smoke.py is gated on this var; it spawns real
+          # stdio + uvicorn subprocesses, so run it on exactly one matrix cell.
+          MCP_EXAMPLES_SMOKE: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.dep-resolution.name == 'locked' && '1' || '' }}
         run: |
           uv run --frozen --no-sync coverage erase
           uv run --frozen --no-sync coverage run -m pytest -n auto
@@ -106,3 +117,26 @@ jobs:
 
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check --readme README.v2.md
+
+  # `mkdocs.yml` sets `strict: true` and `pymdownx.snippets: check_paths: true`,
+  # but until this job existed the docs were only ever built post-merge by
+  # `deploy-docs.yml`, so a broken link, a missing nav target, or a deleted
+  # `docs_src/` include went green on the PR and broke the next deploy of main.
+  # This is the check path; `deploy-docs.yml` stays the deploy path.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: 0.9.5
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras --python 3.10
+
+      - name: Build the docs in strict mode
+        run: uv run --frozen --no-sync mkdocs build --strict
