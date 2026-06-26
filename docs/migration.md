@@ -419,18 +419,13 @@ construction:
 ```python
 from mcp.server.mcpserver import MCPServer
 from mcp.server.apps import Apps
-from mcp.server.tasks import Tasks
 
-mcp = MCPServer("demo", extensions=[Apps(), Tasks()])
+mcp = MCPServer("demo", extensions=[Apps()])
 ```
 
-Two reference extensions ship in their own modules:
-
-- `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`) — binds a tool to a
-  `ui://` UI resource via `_meta.ui.resourceUri`; `client_supports_apps(ctx)`
-  gates the SEP-2133 text-only fallback.
-- `mcp.server.tasks.Tasks` (`io.modelcontextprotocol/tasks`) — intercepts
-  task-augmented `tools/call` and serves the `tasks/*` methods.
+The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
+it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
+`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback.
 
 Clients advertise extension support with the new `Client(extensions=...)` /
 `ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.
