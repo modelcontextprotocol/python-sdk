@@ -16,6 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
     "mcp",
     "uvicorn>=0.32.1",
 ]
