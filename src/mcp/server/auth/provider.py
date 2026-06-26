@@ -98,7 +98,7 @@ TokenErrorCode = Literal[
     "unauthorized_client",
     "unsupported_grant_type",
     "invalid_scope",
-    # RFC 8693 §2.2.2: the requested resource/audience target is unknown or unsupported.
+    # RFC 8707 §2: the requested resource (RFC 8707 indicator) is unknown or unsupported.
     "invalid_target",
 ]
 
@@ -302,6 +302,8 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
 
         - verify the JWT signature, ``iss``, and ``exp``, and that ``typ`` is ``oauth-id-jag+jwt``;
         - require ``aud`` to identify this authorization server (its own issuer);
+        - require a ``sub`` (RFC 7523 §3 makes it mandatory) identifying the end user;
+        - reject replays - enforce ``exp``, and track ``jti`` for the assertion's lifetime;
         - require the ID-JAG's ``client_id`` claim to match the authenticated ``client`` - do
           NOT derive authorization from ``client.client_id`` alone, which for a confidential
           client is authenticated but for any client is ultimately self-asserted in the request;
@@ -310,8 +312,8 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         - derive the granted scopes from the ID-JAG and policy rather than granting
           ``params.scopes`` verbatim.
 
-        The handler guarantees ``client`` is confidential (it rejects the ``none`` auth method
-        before calling this hook), but the ID-JAG remains the authoritative grant.
+        The handler guarantees ``client`` is confidential (it rejects clients without a stored
+        secret before calling this hook), but the ID-JAG remains the authoritative grant.
 
         Args:
             client: The authenticated client presenting the assertion.

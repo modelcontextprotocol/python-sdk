@@ -233,7 +233,7 @@ async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClien
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "invalid_client"
+    assert response.json()["error"] == "unauthorized_client"
     assert provider.last_params is None
 
 
@@ -261,7 +261,7 @@ async def test_identity_assertion_rejects_secretless_confidential_client(
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "invalid_client"
+    assert response.json()["error"] == "unauthorized_client"
     assert provider.last_params is None
 
 

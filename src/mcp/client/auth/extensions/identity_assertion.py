@@ -12,10 +12,11 @@ deployment-specific and out of scope for the SDK. The caller supplies it through
 ID-JAG must carry) and the MCP server's resource identifier (the `resource` the ID-JAG must carry,
 per ext-auth §4.3), and returns the ID-JAG.
 
-SEP-990 §5.1 requires a confidential client, so a `client_secret` is mandatory. The target
-authorization server is pinned via `expected_issuer`: the provider refuses to send the ID-JAG or
-client secret unless the issuer discovered from the (resource-server-controlled) metadata matches,
-preventing a hostile resource server from redirecting the credentials elsewhere.
+SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so
+`client_secret` is mandatory (the spec also permits e.g. `private_key_jwt`). The target
+authorization server is pinned via `expected_issuer`: the provider fixes authorization-server
+discovery to that issuer and refuses to send the ID-JAG or client secret to any other, preventing a
+hostile resource server from redirecting the credentials elsewhere.
 """
 
 from collections.abc import Awaitable, Callable
@@ -26,7 +27,7 @@ import httpx
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.client.auth.utils import union_scopes
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, ProtectedResourceMetadata
 
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
@@ -129,7 +130,27 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         """Load stored tokens and set pre-configured client_info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = self._fixed_client_info
+        # Pin the authorization server up front: the base flow otherwise takes the AS from the
+        # (untrusted) resource server's PRM / fetches ASM from the RS origin on the legacy path,
+        # where validate_metadata_issuer is skipped. Setting auth_server_url makes ASM discovery
+        # target the expected AS's well-known and run validate_metadata_issuer, so a hostile RS
+        # cannot forge a metadata document pointing the credentials elsewhere.
+        self.context.auth_server_url = self._expected_issuer
         self._initialized = True
+
+    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        """Reject a PRM that names an authorization server other than the pinned one.
+
+        On the PRM path the base flow would adopt `prm.authorization_servers[0]` as the AS and,
+        if it differs from the bound credentials, discard them and attempt DCR against it. Refusing
+        an unexpected AS here stops that before any client metadata is disclosed.
+        """
+        await super()._validate_resource_match(prm)
+        servers = [str(s) for s in prm.authorization_servers]
+        if self._expected_issuer not in servers:
+            raise OAuthFlowError(
+                f"Protected resource names authorization servers {servers}, not the expected {self._expected_issuer}"
+            )
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the jwt-bearer grant with the ID-JAG."""

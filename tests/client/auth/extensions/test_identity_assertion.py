@@ -8,7 +8,12 @@ from mcp.client.auth.extensions.identity_assertion import (
     JWT_BEARER_GRANT_TYPE,
     IdentityAssertionOAuthProvider,
 )
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 
 ISSUER = "https://auth.example.com"
 
@@ -233,3 +238,42 @@ def test_empty_expected_issuer_is_rejected(mock_storage: MockTokenStorage) -> No
             expected_issuer="",
             assertion_provider=assertion_provider,
         )
+
+
+@pytest.mark.anyio
+async def test_initialize_pins_auth_server_url(mock_storage: MockTokenStorage) -> None:
+    """`_initialize` pins auth_server_url to expected_issuer so ASM discovery targets the pinned AS."""
+    provider = make_provider(mock_storage)
+    await provider._initialize()
+    assert provider.context.auth_server_url == ISSUER
+
+
+@pytest.mark.anyio
+async def test_resource_match_rejects_prm_naming_an_unexpected_as(mock_storage: MockTokenStorage) -> None:
+    """A PRM whose authorization_servers omit the expected issuer is rejected before any DCR."""
+    provider = make_provider(mock_storage)
+    await provider._initialize()
+    prm = ProtectedResourceMetadata.model_validate(
+        {
+            "resource": "https://mcp.example.com/mcp",
+            "authorization_servers": ["https://attacker.example"],
+        }
+    )
+
+    with pytest.raises(OAuthFlowError, match="not the expected"):
+        await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_resource_match_accepts_prm_naming_the_expected_as(mock_storage: MockTokenStorage) -> None:
+    """A PRM that lists the expected issuer among its authorization_servers is accepted."""
+    provider = make_provider(mock_storage)
+    await provider._initialize()
+    prm = ProtectedResourceMetadata.model_validate(
+        {
+            "resource": "https://mcp.example.com/mcp",
+            "authorization_servers": [ISSUER],
+        }
+    )
+
+    await provider._validate_resource_match(prm)  # does not raise

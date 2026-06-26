@@ -255,9 +255,11 @@ class TokenHandler:
                 # method registered without a secret (which `ClientAuthenticator` does not actually
                 # verify), so an effectively unauthenticated client never reaches the provider hook.
                 if not client_info.client_secret:
+                    # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
+                    # unauthorized_client (not invalid_client, which is for failed authentication).
                     return self.response(
                         TokenErrorResponse(
-                            error="invalid_client",
+                            error="unauthorized_client",
                             error_description="The JWT bearer grant requires a confidential client",
                         )
                     )

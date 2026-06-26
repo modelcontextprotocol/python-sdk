@@ -18,7 +18,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import ListToolsResult, Tool
 
-from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
@@ -201,12 +201,11 @@ async def test_assertion_callback_receives_issuer_audience_and_resource() -> Non
 
 @requirement("client-auth:identity-assertion:issuer-pinning")
 async def test_unexpected_issuer_aborts_before_sending_credentials() -> None:
-    """If the discovered AS issuer differs from expected_issuer, no assertion or secret is sent.
+    """If the resource server names an AS other than expected_issuer, the flow aborts before any DCR.
 
-    Pinning `_fixed_client_info.issuer` to the expected AS makes the base SEP-2352 guard discard the
-    pre-provisioned credentials when the resource server points at a different AS; the registration-
-    less client then has nothing to fall back to, so the flow aborts before any /token request - the
-    callback is never invoked and the provider never sees an assertion.
+    The client pins discovery to its `expected_issuer`; when the resource server's PRM names a
+    different AS, `_validate_resource_match` rejects it during PRM discovery, before the base flow
+    can disclose client metadata via DCR or send the ID-JAG/secret. The callback is never invoked.
     """
     record: list[tuple[str, str]] = []
     provider = InMemoryAuthorizationServerProvider()
@@ -218,7 +217,7 @@ async def test_unexpected_issuer_aborts_before_sending_credentials() -> None:
     )
 
     with anyio.fail_after(5):
-        with pytest.RaisesGroup(pytest.RaisesExc(OAuthRegistrationError), flatten_subgroups=True):
+        with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError, match="not the expected"), flatten_subgroups=True):
             await connect_with_oauth(
                 server,
                 provider=provider,
