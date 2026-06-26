@@ -5,6 +5,7 @@ so these tests assert against the default-configured server rather than appendin
 the middleware by hand.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -19,6 +20,7 @@ from mcp_types import (
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
+    RequestParamsMeta,
     Tool,
 )
 from opentelemetry.trace import SpanKind, StatusCode
@@ -165,16 +167,17 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
     assert "jsonrpc.request.id" not in span.attributes
 
 
-def _ambient_span(call_next: Any) -> Any:
-    """Dispatch-tier wrapper that opens an ambient SERVER span around the whole
-    request, so the context-tier span has a current span to nest under when the
-    inbound message carries no traceparent."""
+def _ambient(rewrite_meta: Callable[[RequestParamsMeta | None], RequestParamsMeta | None]) -> Any:
+    """A middleware placed outside `OpenTelemetryMiddleware` (head of
+    `Server.middleware`) that opens an ambient SERVER span around the request
+    and rewrites `ctx.meta` via `rewrite_meta`, so the context-tier span sees
+    the no-traceparent path yet has a current span to nest under."""
 
-    async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
+    async def middleware(ctx: Ctx, call_next: CallNext) -> Any:
         with otel_span("ambient", kind=SpanKind.SERVER):
-            return await call_next(dctx, method, params)
+            return await call_next(replace(ctx, meta=rewrite_meta(ctx.meta)))
 
-    return wrapped
+    return middleware
 
 
 @pytest.mark.anyio
@@ -183,16 +186,10 @@ async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans:
     parent to the ambient current span rather than become an orphan root.
     SDK-defined: SEP-414 only covers the traceparent-present case."""
 
-    def strip_meta(call_next: Any) -> Any:
-        # The in-process client always injects `_meta.traceparent`; strip it so
-        # the span sees the no-carrier path.
-        async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
-            stripped = {k: v for k, v in (params or {}).items() if k != "_meta"}
-            return await call_next(dctx, method, stripped or None)
-
-        return wrapped
-
-    async with connected_runner(server, dispatch_middleware=[_ambient_span, strip_meta]) as (client, _):
+    # The in-process client always injects `_meta.traceparent`; drop it so the
+    # span sees the no-carrier path.
+    server.middleware.insert(0, _ambient(lambda _meta: None))
+    async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", None)
     server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
@@ -212,14 +209,8 @@ async def test_nests_under_ambient_span_when_meta_lacks_traceparent(server: SrvT
     would orphan the span; the middleware must fall through to ambient
     parenting just as if `_meta` were absent."""
 
-    def replace_meta(call_next: Any) -> Any:
-        async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
-            rewritten = {**(params or {}), "_meta": {"progressToken": "tok"}}
-            return await call_next(dctx, method, rewritten)
-
-        return wrapped
-
-    async with connected_runner(server, dispatch_middleware=[_ambient_span, replace_meta]) as (client, _):
+    server.middleware.insert(0, _ambient(lambda _meta: {"progressToken": "tok"}))
+    async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", None)
     server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
