@@ -3,68 +3,91 @@
 !!! info "You are viewing the in-development v2 documentation"
     For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
 
-The **Model Context Protocol (MCP)** allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction.
+The **Model Context Protocol (MCP)** lets applications provide context to LLMs in a standardized way, separating the concern of *providing* context from the LLM interaction itself.
 
-This Python SDK implements the full MCP specification, making it easy to:
+This is the official Python SDK for it. With it you can:
 
-- **Build MCP servers** that expose resources, prompts, and tools
-- **Create MCP clients** that can connect to any MCP server
-- **Use standard transports** like stdio, SSE, and Streamable HTTP
+* **Build MCP servers** that expose tools, resources, and prompts to any MCP host.
+* **Build MCP clients** that connect to any MCP server.
+* Speak every standard transport: stdio, Streamable HTTP, and SSE.
 
-If you want to read more about the specification, please visit the [MCP documentation](https://modelcontextprotocol.io).
+## Requirements
 
-## Quick Example
+Python 3.10+.
 
-Here's a simple MCP server that exposes a tool, resource, and prompt:
+## Installation
+
+=== "uv"
+
+    ```bash
+    uv add "mcp[cli]==2.0.0a3"
+    ```
+
+=== "pip"
+
+    ```bash
+    pip install "mcp[cli]==2.0.0a3"
+    ```
+
+The `[cli]` extra gives you the `mcp` command; you'll want it for development.
+
+!!! warning "Pin the version while v2 is in alpha"
+    Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
+    gives you the latest **v1.x** release, which this documentation does not describe. Check
+    [PyPI](https://pypi.org/project/mcp/#history) for the newest alpha before you copy the line
+    above. See [Installation](installation.md) for the details.
+
+## Example
+
+### Create it
+
+Create a file `server.py`:
 
 ```python title="server.py"
-from mcp.server.mcpserver import MCPServer
-
-mcp = MCPServer("Test Server", json_response=True)
-
-
-@mcp.tool()
-def add(a: int, b: int) -> int:
-    """Add two numbers"""
-    return a + b
-
-
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Get a personalized greeting"""
-    return f"Hello, {name}!"
-
-
-@mcp.prompt()
-def greet_user(name: str, style: str = "friendly") -> str:
-    """Generate a greeting prompt"""
-    return f"Write a {style} greeting for someone named {name}."
-
-
-if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+--8<-- "docs_src/index/tutorial001.py"
 ```
 
-Run the server:
+That's a complete MCP server.
 
-```bash
-uv run --with mcp server.py
+It exposes one **tool**, `add`, and one templated **resource**, `greeting://{name}`.
+
+### Run it
+
+```console
+uv run mcp dev server.py
 ```
 
-Then open the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and connect to `http://localhost:8000/mcp`:
+This starts your server and opens the [MCP Inspector](https://github.com/modelcontextprotocol/inspector), an interactive UI for poking at it. Open the URL it prints.
 
-```bash
-npx -y @modelcontextprotocol/inspector
+!!! note
+    The Inspector is a Node.js app, so `mcp dev` needs `npx` on your `PATH`.
+
+### Try it
+
+In the Inspector, go to **Tools** and call `add` with `a=1`, `b=2`.
+
+You get `3` back. ✨
+
+The Inspector built that form (a required integer field for `a`, another for `b`) from your type hints. So will Claude, and every other MCP host.
+
+Now go to **Resources** and read `greeting://World`:
+
+```text
+Hello, World!
 ```
 
-## Getting Started
+### Recap
 
-<!-- TODO(Marcelo): automatically generate the follow references with a header on each of those files. -->
-1. **[Install](installation.md)** the MCP SDK
-2. **[Learn concepts](concepts.md)** - understand the three primitives and architecture
-3. **[Explore authorization](authorization.md)** - add security to your servers
-4. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+Look again at what you did **not** write:
 
-## API Reference
+* No JSON Schema. `a: int, b: int` *is* the schema.
+* No request parsing, no serialization, no validation code.
+* No protocol handling at all.
 
-Full API documentation is available in the [API Reference](api/mcp/index.md).
+You wrote two Python functions with type hints and a docstring. The SDK does the rest.
+
+## Where to go next
+
+* The **[Tutorial](tutorial/index.md)** walks through everything a server can do, one small step at a time.
+* Migrating from v1? Start with the **[Migration Guide](migration.md)**.
+* Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.

@@ -26,6 +26,9 @@ from mcp_types.jsonrpc import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from mcp.shared.inbound import (
+    _SUBSCHEMA_LIST,
+    _SUBSCHEMA_MAP,
+    _SUBSCHEMA_SINGLE,
     ERROR_CODE_HTTP_STATUS,
     MCP_METHOD_HEADER,
     MCP_NAME_HEADER,
@@ -37,6 +40,8 @@ from mcp.shared.inbound import (
     decode_header_value,
     encode_header_value,
     find_invalid_x_mcp_header,
+    mcp_param_headers,
+    x_mcp_header_map,
 )
 
 CLIENT_INFO = {"name": "t", "version": "0"}
@@ -379,6 +384,10 @@ def _schema(**props: Any) -> dict[str, Any]:
             id="annotation-lookalike-in-const-is-data",
         ),
         pytest.param(
+            _schema(a={"type": "string", "enum": [{"x-mcp-header": "ignored"}]}),
+            id="annotation-lookalike-in-enum-is-data",
+        ),
+        pytest.param(
             {"properties": {"a": {"type": "string", "x-mcp-header": "R"}}, "$ref": "#/$defs/loop"},
             id="ref-is-not-dereferenced",
         ),
@@ -404,12 +413,14 @@ def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_sch
         pytest.param(_schema(a={"type": "string", "x-mcp-header": "Région"}), id="non-ascii"),
         pytest.param(_schema(a={"type": "string", "x-mcp-header": "Region\t1"}), id="control-char"),
         pytest.param(_schema(a={"type": "string", "x-mcp-header": 42}), id="non-string"),
+        pytest.param(_schema(a={"type": "string", "x-mcp-header": 10**5000}), id="oversized-int-header"),
         pytest.param(_schema(a={"type": "object", "x-mcp-header": "Data"}), id="on-object"),
         pytest.param(_schema(a={"type": "array", "x-mcp-header": "Items"}), id="on-array"),
         pytest.param(_schema(a={"type": "null", "x-mcp-header": "Nil"}), id="on-null"),
         pytest.param(_schema(a={"type": "number", "x-mcp-header": "Ratio"}), id="on-number"),
         pytest.param(_schema(a={"type": ["string", "null"], "x-mcp-header": "Maybe"}), id="array-type"),
         pytest.param(_schema(a={"type": {"not": "valid"}, "x-mcp-header": "Bad"}), id="dict-type"),
+        pytest.param(_schema(a={"type": 10**5000, "x-mcp-header": "Big"}), id="oversized-int-type"),
         pytest.param(_schema(a={"x-mcp-header": "NoType"}), id="missing-type"),
         pytest.param(
             _schema(a={"type": "string", "x-mcp-header": "Region"}, b={"type": "string", "x-mcp-header": "Region"}),
@@ -420,28 +431,8 @@ def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_sch
             id="duplicate-diff-case",
         ),
         pytest.param(
-            _schema(a={"type": "array", "items": {"type": "string", "x-mcp-header": "X"}}),
-            id="under-items",
-        ),
-        pytest.param(
-            {"allOf": [{"properties": {"a": {"type": "string", "x-mcp-header": "X"}}}]},
-            id="under-allOf",
-        ),
-        pytest.param(
-            {"oneOf": [{"type": "string", "x-mcp-header": "X"}]},
-            id="under-oneOf",
-        ),
-        pytest.param(
-            _schema(a={"if": {"type": "string", "x-mcp-header": "X"}}),
-            id="under-if",
-        ),
-        pytest.param(
-            {"$defs": {"T": {"type": "string", "x-mcp-header": "X"}}, "properties": {}},
-            id="under-defs",
-        ),
-        pytest.param(
-            {"patternProperties": {"^a": {"type": "string", "x-mcp-header": "X"}}},
-            id="under-patternProperties",
+            {"allOf": [{"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "X"}}}]},
+            id="properties-chain-not-restored-below-an-applicator",
         ),
         pytest.param(
             {"type": "string", "x-mcp-header": "X"},
@@ -470,8 +461,116 @@ def test_find_invalid_x_mcp_header_rejects_malformed_annotations(input_schema: d
     assert isinstance(find_invalid_x_mcp_header(input_schema), str)
 
 
+# Keyword → a value of that keyword's own JSON Schema shape carrying an annotated subschema.
+# Deliberately a literal table, independent of the `_SUBSCHEMA_*` sets in `inbound.py`:
+# dropping a keyword from the walk must FAIL its case here, not shrink the parametrization.
+_ANNOTATED = {"type": "string", "x-mcp-header": "Region"}
+_APPLICATOR_CASES: dict[str, Any] = {
+    "$defs": {"T": _ANNOTATED},
+    "additionalProperties": _ANNOTATED,
+    "allOf": [_ANNOTATED],
+    "anyOf": [_ANNOTATED],
+    "contains": _ANNOTATED,
+    "contentSchema": _ANNOTATED,
+    "definitions": {"T": _ANNOTATED},
+    "dependentSchemas": {"k": _ANNOTATED},
+    "else": _ANNOTATED,
+    "if": _ANNOTATED,
+    "items": _ANNOTATED,
+    "not": _ANNOTATED,
+    "oneOf": [_ANNOTATED],
+    "patternProperties": {"^a": _ANNOTATED},
+    "prefixItems": [_ANNOTATED],
+    "propertyNames": _ANNOTATED,
+    "then": _ANNOTATED,
+    "unevaluatedItems": _ANNOTATED,
+    "unevaluatedProperties": _ANNOTATED,
+}
+
+
+@pytest.mark.parametrize("keyword", sorted(_APPLICATOR_CASES))
+def test_find_invalid_x_mcp_header_rejects_annotations_under_every_non_properties_applicator(keyword: str) -> None:
+    """Spec-mandated: a property reached through any applicator other than `properties` is not
+    statically reachable, so its annotation invalidates the whole tool definition."""
+    schema = _schema(ok={"type": "string"}) | {keyword: _APPLICATOR_CASES[keyword]}
+    assert isinstance(find_invalid_x_mcp_header(schema), str)
+
+
+def test_schema_walk_applicator_keywords_match_the_pinned_reject_cases() -> None:
+    """SDK-defined: a keyword added to the walk must gain a literal reject case above (a removed
+    keyword already fails its case there)."""
+    assert _SUBSCHEMA_LIST | _SUBSCHEMA_MAP | _SUBSCHEMA_SINGLE == set(_APPLICATOR_CASES)
+
+
 def test_find_invalid_x_mcp_header_reports_dotted_path_for_nested_property() -> None:
     """SDK-defined: the reason string names the nested property by its dotted `properties` path."""
     schema = _schema(outer={"type": "object", "properties": {"r": {"type": "object", "x-mcp-header": "R"}}})
     reason = find_invalid_x_mcp_header(schema)
     assert reason is not None and "'outer.r'" in reason
+
+
+# --- x_mcp_header_map ----------------------------------------------------------
+
+
+def test_x_mcp_header_map_keys_top_level_and_nested_properties_by_path() -> None:
+    """Each annotated property maps to its token under its full `properties` path; unannotated props are absent."""
+    schema = _schema(
+        region={"type": "string", "x-mcp-header": "Region"},
+        query={"type": "string"},
+        outer={"type": "object", "properties": {"inner": {"type": "string", "x-mcp-header": "Inner"}}},
+    )
+    assert x_mcp_header_map(schema) == {("region",): "Region", ("outer", "inner"): "Inner"}
+
+
+@pytest.mark.parametrize("input_schema", [None, "not-a-mapping", {"type": "object"}])
+def test_x_mcp_header_map_empty_for_schemas_without_annotations(input_schema: Any) -> None:
+    assert x_mcp_header_map(input_schema) == {}
+
+
+# --- mcp_param_headers ---------------------------------------------------------
+
+
+def test_mcp_param_headers_renders_primitive_types_per_spec() -> None:
+    """String verbatim, integer as decimal, boolean as lowercase `true`/`false`, header named `Mcp-Param-<token>`."""
+    header_map = {("region",): "Region", ("priority",): "Priority", ("verbose",): "Verbose", ("debug",): "Debug"}
+    arguments = {"region": "us-west1", "priority": 42, "verbose": False, "debug": True}
+    assert mcp_param_headers(header_map, arguments) == {
+        "Mcp-Param-Region": "us-west1",
+        "Mcp-Param-Priority": "42",
+        "Mcp-Param-Verbose": "false",
+        "Mcp-Param-Debug": "true",
+    }
+
+
+@pytest.mark.parametrize(
+    ("value", "encoded"),
+    [
+        pytest.param("us-west1", "us-west1", id="plain-ascii"),
+        pytest.param("Hello, 世界", "=?base64?SGVsbG8sIOS4lueVjA==?=", id="non-ascii"),
+        pytest.param(" padded ", "=?base64?IHBhZGRlZCA=?=", id="edge-whitespace"),
+        pytest.param("line1\nline2", "=?base64?bGluZTEKbGluZTI=?=", id="control-char"),
+        pytest.param("=?base64?literal?=", "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=", id="sentinel-lookalike"),
+    ],
+)
+def test_mcp_param_headers_base64_wraps_header_unsafe_strings(value: str, encoded: str) -> None:
+    """Matches the spec's Value Encoding table: a non-header-safe string is base64-sentinel wrapped."""
+    assert mcp_param_headers({("v",): "Val"}, {"v": value}) == {"Mcp-Param-Val": encoded}
+
+
+def test_mcp_param_headers_omits_absent_or_null_arguments() -> None:
+    """A path that hits a missing key or a `None` value emits no header (spec: omit when no value is present)."""
+    header_map = {("present",): "Present", ("missing",): "Missing", ("nulled",): "Nulled"}
+    assert mcp_param_headers(header_map, {"present": "x", "nulled": None}) == {"Mcp-Param-Present": "x"}
+
+
+def test_mcp_param_headers_reads_nested_argument_path() -> None:
+    """A nested annotated property reads its value at the matching nested `arguments` path."""
+    headers = mcp_param_headers({("outer", "inner"): "Inner"}, {"outer": {"inner": "deep"}})
+    assert headers == {"Mcp-Param-Inner": "deep"}
+
+
+def test_mcp_param_headers_omits_when_nested_path_is_broken() -> None:
+    """A nested path through a non-mapping or missing intermediate node yields no header."""
+    header_map = {("outer", "inner"): "Inner"}
+    assert mcp_param_headers(header_map, {"outer": "not-a-mapping"}) == {}
+    assert mcp_param_headers(header_map, {}) == {}

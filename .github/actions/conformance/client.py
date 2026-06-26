@@ -335,6 +335,34 @@ async def run_http_invalid_tool_headers(server_url: str) -> None:
                 logger.exception(f"call_tool({tool.name!r}) failed")
 
 
+@register("http-custom-headers")
+async def run_http_custom_headers(server_url: str) -> None:
+    """List tools, then replay the harness's `toolCalls` so x-mcp-header args mirror into headers (SEP-2243).
+
+    The scenario supplies the exact arguments to send (including the null/edge-case values that
+    exercise omission and Base64 encoding) via the context `toolCalls`; using them verbatim is
+    what drives every per-parameter check. `list_tools` first so the SDK caches each tool's
+    annotations; a tool the SDK dropped (invalid annotations) is skipped. Per-call failures are
+    logged and skipped rather than aborting the run.
+    """
+    tool_calls: list[dict[str, Any]] = []
+    if os.environ.get("MCP_CONFORMANCE_CONTEXT"):
+        tool_calls = get_conformance_context().get("toolCalls", [])
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        surfaced = {tool.name for tool in listed.tools}
+        logger.debug(f"Surfaced tools: {sorted(surfaced)}")
+        for call in tool_calls:
+            name = call["name"]
+            if name not in surfaced:
+                logger.debug(f"skipping {name!r}: not surfaced by list_tools")
+                continue
+            try:
+                await client.call_tool(name, call.get("arguments") or {})
+            except Exception:
+                logger.exception(f"call_tool({name!r}) failed")
+
+
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
@@ -526,8 +554,6 @@ def main() -> None:
         elif scenario.startswith("auth/"):
             asyncio.run(run_auth_code_client(server_url))
         else:
-            # Unhandled scenarios:
-            #  - http-custom-headers (SEP-2243 / S8: Mcp-Param-* emission)
             print(f"Unknown scenario: {scenario}", file=sys.stderr)
             sys.exit(1)
     else:

@@ -38,6 +38,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import MCPError
+from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
@@ -388,3 +389,164 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     assert len(responses) == len(requests)
     assert all("mcp-session-id" not in r.headers for r in requests)
     assert all("mcp-session-id" not in r.headers for r in responses)
+
+
+_CUSTOM_HEADER_TOOL = Tool(
+    name="run",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "region": {"type": "string", "x-mcp-header": "Region"},
+            "priority": {"type": "integer", "x-mcp-header": "Priority"},
+            "verbose": {"type": "boolean", "x-mcp-header": "Verbose"},
+            "note": {"type": "string", "x-mcp-header": "Note"},
+            "query": {"type": "string"},
+        },
+        "required": ["region"],
+    },
+)
+
+
+def _custom_header_server() -> Server:
+    """A server with one tool whose schema annotates four args with `x-mcp-header` and leaves `query` plain."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[_CUSTOM_HEADER_TOOL], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    return Server("custom-headers", on_list_tools=list_tools, on_call_tool=call_tool)
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() -> None:
+    """A tools/call mirrors the tool's `x-mcp-header` arguments into `Mcp-Param-*` headers.
+
+    After `list_tools` caches the tool's annotations, the client renders each annotated argument into
+    its header per the spec's Value Encoding rules: `region` verbatim, `priority` as a decimal, `verbose`
+    as `false`, and the non-ASCII `note` base64-sentinel-wrapped. The unannotated `query` and the omitted
+    `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
+    at the wire because the client never surfaces the outgoing headers.
+    """
+    requests: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="srv", version="0"),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            await client.list_tools()
+            await client.call_tool("run", {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"})
+
+    call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
+    assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
+        {
+            "mcp-param-region": "us-west1",
+            "mcp-param-priority": "42",
+            "mcp-param-verbose": "false",
+            "mcp-param-note": "=?base64?aMOpbGxv?=",
+        }
+    )
+    # Mirroring is additive: the arguments are unchanged in the body.
+    assert json.loads(call.content)["params"]["arguments"] == snapshot(
+        {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"}
+    )
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> None:
+    """A `tools/call` for a tool the client never listed carries no `Mcp-Param-*` headers.
+
+    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
+    The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
+    implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
+    """
+    requests: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        if json.loads(request.content)["method"] == "tools/call":
+            requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="srv", version="0"),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            await client.call_tool("run", {"region": "us-west1"})
+
+    assert not any(k.startswith("mcp-param-") for k in requests[0].headers)
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() -> None:
+    """A re-list that drops a previously valid tool stops mirroring its `x-mcp-header` args.
+
+    The tool is first listed with a valid annotation (so a call mirrors `Mcp-Param-Region`), then re-listed
+    with an invalid annotation -- the modern client drops it and evicts the cached map, so a later `tools/call`
+    by name carries no `Mcp-Param-*` header. Asserted at the wire, where the eviction is observable.
+    """
+    schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}}
+    bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
+    valid = Tool(name="run", input_schema=schema)
+    invalid = Tool(name="run", input_schema=bad_schema)
+    listings = iter([valid, invalid])
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[next(listings)], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("evict", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    tool_calls: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        if json.loads(request.content)["method"] == "tools/call":
+            tool_calls.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="srv", version="0"),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            assert [t.name for t in (await client.list_tools()).tools] == ["run"]
+            await client.call_tool("run", {"a": "x"})
+
+            assert [t.name for t in (await client.list_tools()).tools] == []
+            await client.call_tool("run", {"a": "x"})
+
+    before, after = tool_calls
+    assert before.headers.get("mcp-param-region") == "x"
+    assert not any(k.startswith("mcp-param-") for k in after.headers)

@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "mcp",
     "mcp-everything-server",
+    "mcp-example-stories",
     "mcp-simple-auth",
     "mcp-simple-auth-client",
     "mcp-simple-chatbot",
@@ -943,6 +944,7 @@ dev = [
     { name = "inline-snapshot" },
     { name = "logfire" },
     { name = "mcp", extra = ["cli"] },
+    { name = "mcp-example-stories" },
     { name = "opentelemetry-sdk" },
     { name = "pillow" },
     { name = "pyright" },
@@ -953,6 +955,7 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
     { name = "strict-no-cover" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "trio" },
 ]
 docs = [
@@ -998,6 +1001,7 @@ dev = [
     { name = "inline-snapshot", specifier = ">=0.23.0" },
     { name = "logfire", specifier = ">=3.0.0" },
     { name = "mcp", extras = ["cli"], editable = "." },
+    { name = "mcp-example-stories", editable = "examples" },
     { name = "opentelemetry-sdk", specifier = ">=1.39.1" },
     { name = "pillow", specifier = ">=12.0" },
     { name = "pyright", specifier = ">=1.1.400" },
@@ -1008,6 +1012,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.8.5" },
     { name = "strict-no-cover", git = "https://github.com/pydantic/strict-no-cover" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [
@@ -1044,7 +1049,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1054,6 +1059,21 @@ dev = [
     { name = "pyright", specifier = ">=1.1.378" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-example-stories"
+version = "0.0.0"
+source = { editable = "examples" }
+dependencies = [
+    { name = "mcp" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mcp", editable = "." },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
 
 [[package]]
@@ -1083,7 +1103,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
@@ -1116,7 +1136,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1145,7 +1165,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "uvicorn", specifier = ">=0.32.1" },
 ]
@@ -1180,7 +1200,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1213,7 +1233,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1246,7 +1266,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1281,7 +1301,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1318,7 +1338,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1353,7 +1373,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1372,7 +1392,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", editable = "." }]
+requires-dist = [{ name = "mcp" }]
 
 [[package]]
 name = "mcp-sse-polling-client"
@@ -1393,7 +1413,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
 ]
 
 [package.metadata.requires-dev]
@@ -1428,7 +1448,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1449,7 +1469,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", editable = "." }]
+requires-dist = [{ name = "mcp" }]
 
 [[package]]
 name = "mcp-types"

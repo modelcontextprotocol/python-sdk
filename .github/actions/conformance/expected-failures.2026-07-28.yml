@@ -21,9 +21,7 @@
 # milestone.
 
 client:
-  # SEP-2243 (HTTP standardization): no client Mcp-Param-* support yet — needs the
-  # tool-schema-cache vs per-call tool_definition design (S8).
-  - http-custom-headers
+  []
   # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
   # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
   # (it is an extension scenario not carried into the 2026 wire), so it is
