@@ -43,8 +43,10 @@ kill "$SERVER_PID"
   your own ingress.
 - `server.py` `classify_era` — the tri-state wrapper. `InboundModernRoute` →
   `"modern"`; rung-1 `INVALID_PARAMS` (no envelope keys) → `"legacy"`; any
-  other `InboundLadderRejection` (header mismatch, unsupported version) is a
-  malformed-modern request to **reject**, not route to legacy.
+  other `InboundLadderRejection` is a malformed-modern request to **reject**,
+  not route to legacy. When headers are supplied, both `Mcp-Protocol-Version`
+  and `Mcp-Method` must mirror the body — a disagreement (or an unsupported
+  version) is what produces that third arm; `client.py` shows both.
 - `server.py` `build_app` — `streamable_http_app()` + `CORSMiddleware`. The
   `which_arm` tool reads `ctx.request_context.protocol_version` to prove which
   path the built-in router took.
