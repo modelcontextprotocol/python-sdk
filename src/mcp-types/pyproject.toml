@@ -47,5 +47,8 @@ vcs = "git"
 style = "pep440"
 bump = true
 
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
+
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_types"]
