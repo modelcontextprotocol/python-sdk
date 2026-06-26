@@ -1,4 +1,4 @@
-"""`docs/tutorial/structured-output.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/structured-output.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -42,7 +42,7 @@ async def test_scalar_return_is_wrapped() -> None:
 
 
 async def test_basemodel_is_the_schema() -> None:
-    """tutorial002: a `BaseModel` return type is the output schema itself — no wrapper."""
+    """tutorial002: a `BaseModel` return type is the output schema itself: no wrapper."""
     async with Client(tutorial002.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(

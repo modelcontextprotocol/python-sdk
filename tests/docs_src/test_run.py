@@ -1,4 +1,4 @@
-"""`docs/run/index.md` — every claim the page makes that is observable without a transport."""
+"""`docs/run/index.md`: every claim the page makes that is observable without a transport."""
 
 from typing import Any
 

@@ -1,4 +1,4 @@
-"""`docs/run/asgi.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/run/asgi.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 
@@ -151,7 +151,7 @@ async def test_custom_route_lands_next_to_the_mcp_endpoint() -> None:
 
 
 async def test_the_health_check_answers_outside_the_protocol() -> None:
-    """tutorial006: `GET /health` is ordinary HTTP — no session manager, no MCP."""
+    """tutorial006: `GET /health` is ordinary HTTP, with no session manager and no MCP."""
     transport = httpx.ASGITransport(app=tutorial006.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         response = await http.get("/health")

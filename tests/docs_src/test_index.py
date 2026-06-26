@@ -1,4 +1,4 @@
-"""`docs/index.md` — the landing-page server does exactly what the page says it does."""
+"""`docs/index.md`: the landing-page server does exactly what the page says it does."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -11,7 +11,7 @@ from mcp import Client
 # SDK still calls those methods internally. A documentation example must never lean on
 # that allowance, so every test that runs one re-arms the warning as an error. This is a
 # per-module mark, not a conftest hook, because `pytest_collection_modifyitems` receives
-# every item in the session — a hook here would break unrelated tests across the repo.
+# every item in the session. A hook here would break unrelated tests across the repo.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
 
 

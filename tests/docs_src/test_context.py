@@ -1,4 +1,4 @@
-"""`docs/tutorial/context.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/context.md`: every claim the page makes, proved against the real SDK."""
 
 import re
 

@@ -1,4 +1,4 @@
-"""`docs/tutorial/elicitation.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/elicitation.md`: every claim the page makes, proved against the real SDK."""
 
 from typing import Literal
 
@@ -224,7 +224,7 @@ async def test_the_docs_client_callback_handles_both_modes() -> None:
 
 
 async def test_a_client_without_the_callback_cannot_be_asked() -> None:
-    """`!!! check`: no `elicitation_callback` means no `elicitation` capability — the call is a protocol error."""
+    """`!!! check`: no `elicitation_callback` means no `elicitation` capability; the call is a protocol error."""
     async with Client(tutorial001.mcp, mode="legacy") as client:
         with pytest.raises(MCPError, match="Elicitation not supported"):
             await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})

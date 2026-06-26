@@ -1,4 +1,4 @@
-"""`docs/tutorial/progress.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/progress.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 
@@ -56,7 +56,7 @@ def test_progress_callback_is_per_call_not_per_client() -> None:
 
 
 async def test_omitting_total_reaches_the_callback_as_none() -> None:
-    """tutorial002: a report without `total` arrives as `total=None` — activity, not a percentage."""
+    """tutorial002: a report without `total` arrives as `total=None`: activity, not a percentage."""
     updates: list[tuple[float, float | None, str | None]] = []
 
     async def show(progress: float, total: float | None, message: str | None) -> None:

@@ -1,4 +1,4 @@
-"""`docs/advanced/authorization.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/authorization.md`: every claim the page makes, proved against the real SDK."""
 
 import httpx
 import pytest

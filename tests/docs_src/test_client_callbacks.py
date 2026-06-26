@@ -1,4 +1,4 @@
-"""`docs/client/callbacks.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/client/callbacks.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -34,7 +34,7 @@ async def test_the_callback_answers_the_servers_question() -> None:
 
 
 async def test_the_callback_receives_the_servers_question_as_form_params() -> None:
-    """tutorial002: the callback gets `ElicitRequestFormParams` — the message and the requested schema."""
+    """tutorial002: the callback gets `ElicitRequestFormParams` (the message and the requested schema)."""
     received: list[ElicitRequestParams] = []
 
     async def recording(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:

@@ -1,4 +1,4 @@
-"""`docs/advanced/low-level-server.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/low-level-server.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_input_schema_on_the_wire_is_the_dict_you_wrote() -> None:
-    """tutorial001: nothing is derived — `tools/list` returns the literal `input_schema` dict."""
+    """tutorial001: nothing is derived. `tools/list` returns the literal `input_schema` dict."""
     async with Client(tutorial001.server) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.name == "search_books"
@@ -127,7 +127,7 @@ async def test_add_request_handler_registers_a_method_the_constructor_does_not_k
 
 
 async def test_a_custom_method_never_changes_the_advertised_capabilities() -> None:
-    """tutorial006: only the spec's method families map to capabilities — `bookshop/reindex` is invisible."""
+    """tutorial006: only the spec's method families map to capabilities. `bookshop/reindex` is invisible."""
     async with Client(tutorial006.server) as client:
         assert client.server_capabilities.model_dump(exclude_none=True) == snapshot({"tools": {"list_changed": False}})
 

@@ -1,4 +1,4 @@
-"""`docs/advanced/middleware.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/middleware.md`: every claim the page makes, proved against the real SDK."""
 
 import logging
 import re
@@ -35,7 +35,7 @@ def test_timing_record_predicate() -> None:
 
 
 async def test_middleware_observes_every_inbound_message(caplog: pytest.LogCaptureFixture) -> None:
-    """tutorial001: two client calls produce three timed lines — `server/discover` is wrapped too."""
+    """tutorial001: two client calls produce three timed lines. `server/discover` is wrapped too."""
     with caplog.at_level(logging.INFO, logger=tutorial001.logger.name):
         async with Client(tutorial001.server) as client:
             await client.list_tools()
@@ -107,7 +107,7 @@ async def test_an_unhandled_method_raises_through_the_middleware() -> None:
 
 
 async def test_initialize_cannot_be_replaced_only_wrapped() -> None:
-    """`add_request_handler("initialize", ...)` is rejected — middleware is the sanctioned hook."""
+    """`add_request_handler("initialize", ...)` is rejected: middleware is the sanctioned hook."""
     expected = (
         "'initialize' is handled by the server runner and cannot be overridden; "
         "use Server.middleware to observe or wrap initialization"

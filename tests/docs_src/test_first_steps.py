@@ -1,4 +1,4 @@
-"""`docs/tutorial/first-steps.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/first-steps.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -47,7 +47,7 @@ async def test_each_decorator_registers_one_primitive() -> None:
 
 
 async def test_call_the_tool() -> None:
-    """tutorial001: the Inspector walkthrough — `add` with 1 and 2 answers 3."""
+    """tutorial001: the Inspector walkthrough. `add` with 1 and 2 answers 3."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("add", {"a": 1, "b": 2})
         assert not result.is_error
@@ -81,9 +81,8 @@ async def test_get_the_prompt() -> None:
 async def test_the_three_primitive_capabilities_are_always_declared() -> None:
     """tutorial001: `MCPServer` always declares tools/resources/prompts; only `completions` follows your code.
 
-    The page used to claim the three were "derived from what you registered" — an
-    `MCPServer` with nothing registered declares the identical three, so the claim
-    was false and nothing caught it. This is the test that would have.
+    An `MCPServer` with nothing registered declares the same three, which is why the
+    page ties registration to the *optional* capabilities only.
     """
     async with Client(tutorial001.mcp) as client:
         declared = client.server_capabilities

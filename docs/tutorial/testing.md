@@ -27,12 +27,11 @@ To run the test below you'll need two extra (development) dependencies:
     ```
 
 !!! info
-    I think [`pytest`](https://docs.pytest.org/en/stable/) is a pretty standard testing framework,
-    so I won't go into details here.
+    These docs assume you already know [`pytest`](https://docs.pytest.org/en/stable/).
 
-    [`inline-snapshot`](https://15r10nk.github.io/inline-snapshot/latest/) is a library that lets you
-    take snapshots of the output of your tests, which makes it much easier to write tests for your
-    server. You don't need to use it, but we are spreading the word for best practices.
+    [`inline-snapshot`](https://15r10nk.github.io/inline-snapshot/latest/) is optional: it records
+    the output of a test as the `snapshot(...)` literal you see below, which makes a test that
+    asserts on a whole result object much faster to write. A plain `assert` works too.
 
 Now the test:
 

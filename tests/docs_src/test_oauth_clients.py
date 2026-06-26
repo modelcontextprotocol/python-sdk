@@ -1,4 +1,4 @@
-"""`docs/advanced/oauth-clients.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/oauth-clients.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 
@@ -20,14 +20,14 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_in_memory_storage_satisfies_the_token_storage_protocol() -> None:
-    """tutorial001: `TokenStorage` is a Protocol — four async methods, no base class."""
+    """tutorial001: `TokenStorage` is a Protocol: four async methods, no base class."""
     storage: TokenStorage = tutorial001.InMemoryTokenStorage()
     assert await storage.get_tokens() is None
     assert await storage.get_client_info() is None
 
 
 async def test_storage_round_trips_tokens_and_client_info() -> None:
-    """tutorial001: whatever the provider stores, it gets back — the whole persistence contract."""
+    """tutorial001: whatever the provider stores, it gets back: the whole persistence contract."""
     storage = tutorial001.InMemoryTokenStorage()
     tokens = OAuthToken(access_token="at-123", refresh_token="rt-456", expires_in=3600, scope="user")
     client_info = OAuthClientInformationFull(
@@ -46,7 +46,7 @@ async def test_the_provider_is_an_httpx_auth() -> None:
 
 
 async def test_the_metadata_defaults_are_the_authorization_code_flow() -> None:
-    """tutorial001: `grant_types` and `response_types` default to code + refresh — nothing to set."""
+    """tutorial001: `grant_types` and `response_types` default to code + refresh: nothing to set."""
     metadata = tutorial001.oauth.context.client_metadata
     assert metadata.grant_types == ["authorization_code", "refresh_token"]
     assert metadata.response_types == ["code"]
@@ -120,7 +120,7 @@ async def test_every_oauth_error_is_an_oauth_flow_error() -> None:
 
 
 async def test_not_everything_is_a_flow_error() -> None:
-    """A bad argument is a `ValueError`, not an `OAuthFlowError` — the page says *OAuth* failures."""
+    """A bad argument is a `ValueError`, not an `OAuthFlowError`: the page says *OAuth* failures."""
     with pytest.raises(ValueError, match="client_metadata_url must be a valid HTTPS URL") as exc_info:
         OAuthClientProvider(
             server_url="http://localhost:8001/mcp",

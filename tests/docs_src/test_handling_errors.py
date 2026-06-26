@@ -1,4 +1,4 @@
-"""`docs/tutorial/handling-errors.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/handling-errors.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from mcp_types import INVALID_PARAMS, ErrorData, TextContent, TextResourceContents
@@ -39,7 +39,7 @@ async def test_a_bad_argument_never_reaches_the_function() -> None:
 
 
 async def test_mcp_error_makes_the_call_itself_fail() -> None:
-    """tutorial002: `MCPError` is not caught — it surfaces as a JSON-RPC error, with `code` and `message` intact."""
+    """tutorial002: `MCPError` is not caught. It surfaces as a JSON-RPC error, with `code` and `message` intact."""
     async with Client(tutorial002.mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("get_author", {"title": "Nothing"})

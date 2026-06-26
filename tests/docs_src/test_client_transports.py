@@ -1,4 +1,4 @@
-"""`docs/client/transports.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/client/transports.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 
@@ -20,7 +20,7 @@ async def test_the_in_memory_program_on_the_page_runs(capsys: pytest.CaptureFixt
 
 
 async def test_in_memory_client_talks_to_the_server_object() -> None:
-    """tutorial001: passing the server object connects in-process — no subprocess, no port."""
+    """tutorial001: passing the server object connects in-process. No subprocess, no port."""
     async with Client(tutorial001.mcp) as client:
         assert client.server_info.name == "Bookshop"
         assert client.protocol_version == "2026-07-28"

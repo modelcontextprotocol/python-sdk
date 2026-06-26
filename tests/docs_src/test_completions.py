@@ -1,4 +1,4 @@
-"""`docs/tutorial/completions.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/completions.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -40,7 +40,7 @@ async def test_completing_without_a_handler_is_method_not_found() -> None:
 
 
 async def test_registering_the_handler_advertises_the_capability() -> None:
-    """tutorial002: `@mcp.completion()` is the whole declaration — the capability is derived from it."""
+    """tutorial002: `@mcp.completion()` is the whole declaration; the capability is derived from it."""
     async with Client(tutorial002.mcp) as client:
         assert client.server_capabilities.completions == CompletionsCapability()
 
@@ -91,7 +91,7 @@ async def test_the_typed_prefix_still_filters_a_dependent_parameter() -> None:
 
 
 def test_context_arguments_is_optional() -> None:
-    """tutorial003: `context.arguments` is `dict[str, str] | None` — the handler's `None` guard is required."""
+    """tutorial003: `context.arguments` is `dict[str, str] | None`; the handler's `None` guard is required."""
     assert CompletionContext.model_fields["arguments"].annotation == (dict[str, str] | None)
     assert CompletionContext().arguments is None
 

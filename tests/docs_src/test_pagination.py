@@ -1,4 +1,4 @@
-"""`docs/advanced/pagination.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/pagination.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from mcp_types import Resource
@@ -25,7 +25,7 @@ async def test_mcpserver_never_pages() -> None:
 
 
 async def test_first_page_has_ten_resources_and_a_cursor() -> None:
-    """tutorial001: no cursor means page one — ten resources and a `next_cursor` the client may ignore."""
+    """tutorial001: no cursor means page one: ten resources and a `next_cursor` the client may ignore."""
     async with Client(tutorial001.server) as client:
         page = await client.list_resources()
         assert [resource.name for resource in page.resources] == [f"book-{n}" for n in range(1, 11)]

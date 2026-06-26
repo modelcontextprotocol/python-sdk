@@ -1,4 +1,4 @@
-"""`docs/tutorial/logging.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/logging.md`: every claim the page makes, proved against the real SDK."""
 
 import logging
 
@@ -25,7 +25,7 @@ async def test_the_tool_logs_through_the_standard_library(caplog: pytest.LogCapt
 
 
 async def test_the_log_line_never_reaches_the_client() -> None:
-    """tutorial001: the result is only the return value — log output is invisible to the model."""
+    """tutorial001: the result is only the return value. Log output is invisible to the model."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
         assert result == snapshot(

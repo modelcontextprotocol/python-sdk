@@ -1,4 +1,4 @@
-"""`docs/client/protocol-versions.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/client/protocol-versions.md`: every claim the page makes, proved against the real SDK."""
 
 import re
 
@@ -48,7 +48,7 @@ def test_handshake_era_version_is_not_a_valid_pin() -> None:
         ValueError,
         match=re.escape(
             "mode must be 'legacy', 'auto', or one of ['2026-07-28']; "
-            "got '2025-06-18' ('2025-06-18' is a handshake-era version — use mode='legacy')"
+            "got '2025-06-18' ('2025-06-18' is a handshake-era version; use mode='legacy')"
         ),
     ):
         Client(tutorial003.mcp, mode="2025-06-18")

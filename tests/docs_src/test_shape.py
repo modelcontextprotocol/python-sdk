@@ -39,11 +39,12 @@ symbol is still exported.
 _INCLUDE_DIRECTIVE = re.compile(r"(?:--8<--\s*\"|<!-- snippet-source\s+)(docs_src/[^\s\"]+)")
 """A `--8<-- "docs_src/..."` mkdocs include or a `<!-- snippet-source docs_src/... -->` README marker."""
 
-_TYPOGRAPHIC_NON_ASCII = re.compile("[—–→…‘’“” ≤≥§]")
-"""Typographic characters the documentation never uses: em/en dash, arrow, ellipsis, curly quotes,
-no-break space, comparison signs, section sign.
+_TYPOGRAPHIC_NON_ASCII = re.compile("[\u2014\u2013\u2192\u2026\u2018\u2019\u201c\u201d\u00a0\u2264\u2265\u00a7]")
+"""Typographic characters the documentation never uses: em/en dash, arrow, ellipsis, curly
+quotes, no-break space, comparison signs, section sign. They are written as escapes so this
+file satisfies the very check it implements.
 
-Plain ASCII punctuation is a deliberate style rule, and one of these is also a real bug: a `…`
+Plain ASCII punctuation is a deliberate style rule, and one of these is also a real bug: a U+2026
 inside a fenced example breaks the fence linter on Windows, where the example source is piped to
 ruff in the platform encoding rather than UTF-8. Emoji are not banned; this is about typography.
 """
@@ -60,6 +61,9 @@ BOOK_PAGES = sorted(
     }
 )
 """Every page of the tutorial book plus the README: the files this directory's tests stand behind."""
+
+DOCS_TEST_FILES = sorted(Path(__file__).parent.glob("*.py"))
+"""This directory itself. The prose in these modules' docstrings follows the same typography rule."""
 
 
 def _rel(path: Path) -> str:
@@ -131,8 +135,8 @@ def test_retired_name_detector() -> None:
 
 def test_typographic_char_detector() -> None:
     """The detector flags banned typography and allows plain ASCII and emoji."""
-    assert _typographic_chars("a — b → c…") == ["—", "→", "…"]
-    assert _typographic_chars("plain ASCII with a ✨ is fine") == []
+    assert _typographic_chars("a \u2014 b \u2192 c\u2026") == ["\u2014", "\u2192", "\u2026"]
+    assert _typographic_chars("plain ASCII with a \u2728 emoji is fine") == []
 
 
 @pytest.mark.parametrize("path", EXAMPLE_FILES, ids=_rel)
@@ -140,7 +144,7 @@ def test_example_imports(path: Path) -> None:
     """The example imports cleanly against the current SDK.
 
     A renamed symbol, a moved import path, or a changed keyword argument breaks an
-    example at import time — long before anyone reads the page it appears on.
+    example at import time, long before anyone reads the page it appears on.
 
     Honest scope: an example another test in this directory already imported is a
     `sys.modules` cache hit here and its real coverage is that behavioural test.
@@ -161,9 +165,9 @@ def test_example_avoids_retired_api(path: Path) -> None:
     assert not _retired_names_used(path.read_text(encoding="utf-8")), f"{_rel(path)} uses a retired API"
 
 
-@pytest.mark.parametrize("path", [*BOOK_PAGES, *EXAMPLE_FILES], ids=_rel)
+@pytest.mark.parametrize("path", [*BOOK_PAGES, *EXAMPLE_FILES, *DOCS_TEST_FILES], ids=_rel)
 def test_page_uses_plain_ascii_punctuation(path: Path) -> None:
-    """A page or example never uses em-dashes, arrows, ellipses, or other typographic non-ASCII."""
+    """A page, example, or docs test never uses em-dashes, arrows, ellipses, or other typographic non-ASCII."""
     found = _typographic_chars(path.read_text(encoding="utf-8"))
     assert not found, f"{_rel(path)} contains non-ASCII typography: {sorted(set(found))}"
 

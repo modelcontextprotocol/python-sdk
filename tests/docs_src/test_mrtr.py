@@ -1,4 +1,4 @@
-"""`docs/advanced/multi-round-trip.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/advanced/multi-round-trip.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -97,7 +97,7 @@ async def test_a_pre_2026_session_has_nowhere_to_put_the_result() -> None:
 
 
 def test_fulfil_refuses_a_request_it_cannot_answer() -> None:
-    """tutorial002: `fulfil` is the dispatch point — this client only knows how to answer an `ElicitRequest`."""
+    """tutorial002: `fulfil` is the dispatch point. This client only knows how to answer an `ElicitRequest`."""
     request = CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=64))
     with pytest.raises(NotImplementedError, match="sampling/createMessage"):
         tutorial002.fulfil(request)

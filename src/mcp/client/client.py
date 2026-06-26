@@ -207,7 +207,7 @@ class Client:
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
             hint = (
-                f" ({self.mode!r} is a handshake-era version — use mode='legacy')"
+                f" ({self.mode!r} is a handshake-era version; use mode='legacy')"
                 if self.mode in HANDSHAKE_PROTOCOL_VERSIONS
                 else ""
             )

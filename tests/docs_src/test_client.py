@@ -1,4 +1,4 @@
-"""`docs/client/index.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/client/index.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot
@@ -35,7 +35,7 @@ async def test_connected_properties_are_populated_inside_the_block() -> None:
 
 
 async def test_a_client_is_not_reusable_after_the_block_ends() -> None:
-    """tutorial001: `async with` is the whole lifecycle — construct a new Client per connection."""
+    """tutorial001: `async with` is the whole lifecycle. Construct a new Client per connection."""
     client = Client(tutorial001.mcp)
     async with client:
         assert client.server_info.name == "Bookshop"

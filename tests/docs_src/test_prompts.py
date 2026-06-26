@@ -1,4 +1,4 @@
-"""`docs/tutorial/prompts.md` — every claim the page makes, proved against the real SDK."""
+"""`docs/tutorial/prompts.md`: every claim the page makes, proved against the real SDK."""
 
 import traceback
 
@@ -48,13 +48,13 @@ async def test_returned_string_becomes_one_user_message() -> None:
 
 
 async def test_missing_required_argument_is_a_protocol_error() -> None:
-    """tutorial001: omitting a required argument fails the request itself — there is no error result."""
+    """tutorial001: omitting a required argument fails the request itself. There is no error result."""
     async with Client(tutorial001.mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("review_code")
         assert exc_info.value.code == -32603
         assert exc_info.value.message == "Internal server error"
-        # The line a traceback prints, exactly as the page quotes it — the code is not in the message.
+        # The line a traceback prints, exactly as the page quotes it: the code is not in the message.
         assert traceback.format_exception_only(exc_info.value) == snapshot(
             ["mcp.shared.exceptions.MCPError: Internal server error\n"]
         )
