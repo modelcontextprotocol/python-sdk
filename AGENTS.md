@@ -45,6 +45,8 @@
 
 ## Testing
 
+- When writing or reviewing tests, conform to `.claude/skills/test-quality/SKILL.md`
+  — it defines the bar for naming, abstraction level, assertions, and determinism.
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
 - Do not use `Test` prefixed classes — write plain top-level `test_*` functions.
