@@ -136,8 +136,6 @@ markdown_extensions:
   - sane_lists # this means you can start a list from any number
 
 watch:
-  - src/mcp
-  - src/mcp-types
   - docs_src
 
 plugins:

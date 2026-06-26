@@ -28,8 +28,10 @@ version, and the `mcp` wheel exact-pins `mcp-types`. Before the first release
 that includes both, the `mcp-types` PyPI project must be given the same
 trusted publisher as `mcp` (this repository, workflow `publish-pypi.yml`,
 environment `release`) and the same owners — without it the `mcp-types`
-upload is rejected. The publish workflow uploads `mcp-types` first so that a
-failed upload stops the job before anything `mcp`-named has been published.
+upload is rejected. If only some of the files upload, fix the cause and re-run
+the publish job — `skip-existing` makes it skip whatever already landed. The
+`Development Status` classifier in both `pyproject.toml` files is permanently
+`5 - Production/Stable`; it is not bumped as part of any release.
 
 1. Check the full test matrix is green on the release commit. The matrix runs
    with `continue-on-error`, so a green workflow run does not mean the tests
