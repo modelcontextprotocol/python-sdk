@@ -149,5 +149,6 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
 * `result.action` is `"accept"`, `"decline"` or `"cancel"`; `result.data` exists only on accept.
 * `await ctx.elicit_url(message, url, elicitation_id)` is for everything that must not pass through the model; `ctx.session.send_elicit_complete(elicitation_id)` says the out-of-band part is done.
 * The client answers with one `elicitation_callback`, branching on the params type; registering it is what declares the capability.
+* On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **Multi-round-trip requests**.
 
 A tool that can ask is good. A tool that says how far along it is (**Progress**) is next.

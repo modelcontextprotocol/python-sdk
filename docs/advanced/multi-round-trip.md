@@ -41,7 +41,7 @@ Register the callbacks the server might ask for (`elicitation_callback`, `sampli
 --8<-- "docs_src/mrtr/tutorial003.py"
 ```
 
-* That `elicitation_callback` is the same one a pre-2026 server's back-channel `elicitation/create` would have hit. One callback serves both eras.
+* That `elicitation_callback` is the same one a pre-2026 server's back-channel `elicitation/create` would have hit. The same is true of `sampling_callback` for `sampling/createMessage` and `list_roots_callback` for `roots/list`: at 2026-07-28 the standalone server->client RPCs are gone, but the identical `ElicitRequest` / `CreateMessageRequest` / `ListRootsRequest` payloads ride inside `input_requests` and dispatch to the same three callbacks. One set of callbacks serves both eras.
 * `call_tool` returns a plain `CallToolResult`. The intermediate rounds are invisible to the caller.
 * `get_prompt` and `read_resource` drive the same loop.
 
@@ -54,7 +54,13 @@ The loop is bounded. `Client(..., input_required_max_rounds=10)` is the default 
 
 ### Driving the loop yourself
 
-The auto-loop holds nothing between calls. If you need to see each round (to persist `request_state` across a process restart, to show the user what was asked, to bail early) drop to the underlying session, where `allow_input_required=True` hands you the union directly:
+The auto-loop is enough for a single-process client. Own the loop instead when:
+
+* Your client is **distributed**: the process that renders the question to the user is not the process that called `call_tool`, so a different worker issues the retry. `request_state` is the persistable token you carry across that boundary, through your own storage, and `input_responses` is what the other side sends back with it.
+* You want to **inspect** each round: log or audit every `input_requests` entry, refuse certain request kinds, or apply your own backoff between legs.
+* You want a **wall-clock** bound rather than a round-count bound: wrap your own loop in `anyio.fail_after(...)` instead of relying on `input_required_max_rounds`.
+
+Drop to the underlying session, where `allow_input_required=True` hands you the union directly:
 
 ```python title="client.py" hl_lines="13 14 20"
 --8<-- "docs_src/mrtr/tutorial002.py"
