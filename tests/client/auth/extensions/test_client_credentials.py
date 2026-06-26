@@ -20,6 +20,7 @@ from mcp.shared.auth import (
     OAuthMetadata,
     OAuthToken,
 )
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 class MockTokenStorage:
@@ -68,7 +69,7 @@ def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: M
         return AuthorizationCodeResult(code="test_auth_code", state="test_state")
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
         return RFC7523OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
             client_metadata=client_metadata,
