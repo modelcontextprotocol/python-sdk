@@ -294,8 +294,12 @@ def func_metadata(
             return FuncMetadata(arg_model=arguments_model)
         if len(residual) != len(args):
             # PEP 604 has no syntax for "union of a runtime tuple"; Union[...] is the only spelling.
-            return_type_expr = residual[0] if len(residual) == 1 else Union[residual]  # noqa: UP007
-            effective_annotation = return_type_expr
+            effective_annotation = residual[0] if len(residual) == 1 else Union[residual]  # noqa: UP007
+            # Re-normalize so the residual is processed exactly as if it had been the declared
+            # return annotation: unwraps a top-level Annotated[...] arm and re-derives metadata,
+            # so the CallToolResult/BaseModel/TypedDict dispatch below sees the bare type.
+            inspected_return_ann = inspect_annotation(effective_annotation, annotation_source=AnnotationSource.FUNCTION)
+            return_type_expr = inspected_return_ann.type
         if len(residual) > 1 and any(
             isinstance(a, type) and issubclass(a, CallToolResult) for a in residual if a is not type(None)
         ):

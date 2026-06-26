@@ -10,7 +10,8 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ### `MCPServer.call_tool()` returns `CallToolResult`
 
-`MCPServer.call_tool()` now always returns a `CallToolResult`. It previously
+`MCPServer.call_tool()` now returns a `CallToolResult` (or an
+`InputRequiredResult` when a multi-round tool requests further input). It previously
 advertised `Sequence[ContentBlock] | dict[str, Any]` and leaked the internal
 conversion shapes (a bare content sequence or a `(content, structured_content)`
 tuple), forcing callers to re-assemble a `CallToolResult` themselves.

@@ -862,6 +862,29 @@ def test_tool_call_result_annotated_is_structured_and_converted():
     assert isinstance(meta.convert_result(func_returning_annotated_tool_call_result()), CallToolResult)
 
 
+def test_tool_call_result_annotated_unioned_with_input_required_result_is_equivalent_to_the_bare_annotated_form():
+    """Stripping `InputRequiredResult` makes the residual behave exactly as if it were the
+    declared return annotation, including the `Annotated[CallToolResult, Model]` special case
+    — the schema derives from `Model` and `convert_result` validates `structured_content`
+    against it instead of wrapping the whole `CallToolResult`."""
+
+    class PersonClass(BaseModel):
+        name: str
+
+    def fn_bare() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
+
+    def fn_iir() -> Annotated[CallToolResult, PersonClass] | InputRequiredResult:
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
+
+    bare = func_metadata(fn_bare)
+    iir = func_metadata(fn_iir)
+    assert iir.output_schema == bare.output_schema
+    assert iir.wrap_output == bare.wrap_output
+    assert isinstance(bare.convert_result(fn_bare()), CallToolResult)
+    assert isinstance(iir.convert_result(fn_iir()), CallToolResult)
+
+
 def test_tool_call_result_annotated_is_structured_and_invalid():
     class PersonClass(BaseModel):
         name: str
