@@ -1,6 +1,6 @@
 """MCPServer - A more ergonomic interface for MCP servers."""
 
-from mcp.types import Icon
+from mcp_types import Icon
 
 from .context import Context
 from .resolve import (

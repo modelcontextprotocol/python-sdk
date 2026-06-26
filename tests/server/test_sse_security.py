@@ -7,6 +7,7 @@ import anyio
 import httpx
 import pytest
 import sse_starlette.sse
+from mcp_types import JSONRPCRequest, JSONRPCResponse
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -20,7 +21,6 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest, JSONRPCResponse
 from tests.interaction.transports import StreamingASGITransport
 
 logger = logging.getLogger(__name__)

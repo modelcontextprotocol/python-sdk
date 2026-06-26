@@ -4,11 +4,12 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
 import pydantic_core
+from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -24,9 +25,12 @@ from typing_inspection.introspection import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+
+def _is_input_required_type(obj: Any) -> bool:
+    return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -103,8 +107,12 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> CallToolResult:
+    def convert_result(self, result: Any) -> CallToolResult | InputRequiredResult:
         """Convert a function call result into a `CallToolResult`.
+
+        An `InputRequiredResult` is passed through unchanged so the multi-round
+        flow surfaces on the wire as `resultType: "input_required"` rather than
+        being JSON-dumped into a text block.
 
         Note: we build unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of
@@ -113,6 +121,8 @@ class FuncMetadata(BaseModel):
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
         """
+        if isinstance(result, InputRequiredResult):
+            return result
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
@@ -281,10 +291,33 @@ def func_metadata(
     # unknown (i.e. a bare `Final`).
     assert return_type_expr is not UNKNOWN
 
+    if _is_input_required_type(return_type_expr):
+        # A tool annotated to return only InputRequiredResult never produces structured content.
+        return FuncMetadata(arg_model=arguments_model)
+
+    # The annotation fed to schema derivation. Starts as the raw return annotation (preserving any
+    # Annotated[...] wrapper) and is narrowed below if InputRequiredResult arms are stripped.
+    effective_annotation: Any = sig.return_annotation
+
     if is_union_origin(get_origin(return_type_expr)):
         args = get_args(return_type_expr)
-        # Check if CallToolResult appears in the union (excluding None for Optional check)
-        if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
+        # InputRequiredResult is a control-flow signal, not data: strip it so the residual arms
+        # drive schema derivation. convert_result short-circuits on an InputRequiredResult instance
+        # before output validation, so the schema only ever sees the data arms at runtime.
+        residual = tuple(a for a in args if not _is_input_required_type(a))
+        if not residual:
+            return FuncMetadata(arg_model=arguments_model)
+        if len(residual) != len(args):
+            # PEP 604 has no syntax for "union of a runtime tuple"; Union[...] is the only spelling.
+            effective_annotation = residual[0] if len(residual) == 1 else Union[residual]  # noqa: UP007
+            # Re-normalize so the residual is processed exactly as if it had been the declared
+            # return annotation: unwraps a top-level Annotated[...] arm and re-derives metadata,
+            # so the CallToolResult/BaseModel/TypedDict dispatch below sees the bare type.
+            inspected_return_ann = inspect_annotation(effective_annotation, annotation_source=AnnotationSource.FUNCTION)
+            return_type_expr = inspected_return_ann.type
+        if len(residual) > 1 and any(
+            isinstance(a, type) and issubclass(a, CallToolResult) for a in residual if a is not type(None)
+        ):
             raise InvalidSignature(
                 f"Function {func.__name__}: CallToolResult cannot be used in Union or Optional types. "
                 "To return empty results, use: CallToolResult(content=[])"
@@ -310,7 +343,7 @@ def func_metadata(
         else:
             return FuncMetadata(arg_model=arguments_model)
     else:
-        original_annotation = sig.return_annotation
+        original_annotation = effective_annotation
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
         original_annotation, return_type_expr, func.__name__

@@ -3,8 +3,9 @@
 This module provides validation logic for sampling and elicitation requests.
 """
 
+from mcp_types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
+
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:

@@ -2,6 +2,7 @@ import re
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
+from mcp_types import LATEST_PROTOCOL_VERSION
 from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
@@ -13,7 +14,6 @@ from mcp.shared.auth import (
     ProtectedResourceMetadata,
 )
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.types import LATEST_PROTOCOL_VERSION
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:

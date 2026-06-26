@@ -9,10 +9,10 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, LoggingMessageNotificationParams, TextContent
 
 from mcp.client.session import LoggingFnT
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import CallToolResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import client_via_http, connect_over_sse, mounted_app
 from tests.interaction._requirements import requirement
 

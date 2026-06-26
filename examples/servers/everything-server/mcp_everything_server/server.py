@@ -6,8 +6,12 @@ Server implementing all MCP features for conformance testing based on Conformanc
 
 import asyncio
 import base64
+import binascii
+import hashlib
+import hmac
 import json
 import logging
+from typing import Any
 
 import click
 from mcp.server import ServerRequestContext
@@ -15,15 +19,25 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     Completion,
     CompletionArgument,
     CompletionContext,
+    CreateMessageRequest,
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmbeddedResource,
     EmptyResult,
     ImageContent,
+    InputRequest,
+    InputRequiredResult,
     JSONRPCMessage,
+    ListRootsRequest,
+    ListRootsResult,
     PromptReference,
     ResourceTemplateReference,
     SamplingMessage,
@@ -33,7 +47,7 @@ from mcp.types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
-from mcp.types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+from mcp_types.jsonrpc import INVALID_PARAMS, MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -331,6 +345,231 @@ async def test_missing_capability(ctx: Context) -> str:
             data={"requiredCapabilities": ["sampling"]},
         )
     return "Client declared sampling capability; proceeding."
+
+
+# SEP-2322 InputRequiredResult fixtures (multi-round-trip / ephemeral workflow)
+
+NAME_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
+
+
+def _name_elicitation(message: str = "What is your name?") -> ElicitRequest:
+    return ElicitRequest(params=ElicitRequestFormParams(message=message, requested_schema=NAME_SCHEMA))
+
+
+@mcp.tool()
+async def test_input_required_result_elicitation(ctx: Context) -> str | InputRequiredResult:
+    """Tests InputRequiredResult with a single elicitation request"""
+    responses = ctx.input_responses
+    if responses and "user_name" in responses:
+        answer = responses["user_name"]
+        name = answer.content.get("name", "stranger") if isinstance(answer, ElicitResult) and answer.content else "?"
+        return f"Hello, {name}!"
+    return InputRequiredResult(input_requests={"user_name": _name_elicitation()})
+
+
+@mcp.tool()
+async def test_input_required_result_sampling(ctx: Context) -> str | InputRequiredResult:
+    """Tests InputRequiredResult with a single sampling request"""
+    responses = ctx.input_responses
+    if responses and "capital_question" in responses:
+        answer = responses["capital_question"]
+        text = answer.content.text if isinstance(answer, CreateMessageResult) and answer.content.type == "text" else "?"
+        return f"Model said: {text}"
+    return InputRequiredResult(
+        input_requests={
+            "capital_question": CreateMessageRequest(
+                params=CreateMessageRequestParams(
+                    messages=[
+                        SamplingMessage(
+                            role="user", content=TextContent(type="text", text="What is the capital of France?")
+                        )
+                    ],
+                    max_tokens=100,
+                )
+            )
+        }
+    )
+
+
+@mcp.tool()
+async def test_input_required_result_list_roots(ctx: Context) -> str | InputRequiredResult:
+    """Tests InputRequiredResult with a single roots/list request"""
+    responses = ctx.input_responses
+    if responses and "client_roots" in responses:
+        answer = responses["client_roots"]
+        count = len(answer.roots) if isinstance(answer, ListRootsResult) else 0
+        return f"Client exposed {count} root(s)."
+    return InputRequiredResult(input_requests={"client_roots": ListRootsRequest()})
+
+
+@mcp.tool()
+async def test_input_required_result_request_state(ctx: Context) -> str | InputRequiredResult:
+    """Tests requestState round-tripping in the InputRequiredResult flow"""
+    responses = ctx.input_responses
+    if responses and "confirm" in responses and ctx.request_state == "request-state-nonce":
+        return "state-ok: confirmation received"
+    confirm = ElicitRequest(
+        params=ElicitRequestFormParams(
+            message="Please confirm",
+            requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        )
+    )
+    return InputRequiredResult(input_requests={"confirm": confirm}, request_state="request-state-nonce")
+
+
+@mcp.tool()
+async def test_input_required_result_multiple_inputs(ctx: Context) -> str | InputRequiredResult:
+    """Tests InputRequiredResult carrying elicitation, sampling and roots requests together"""
+    responses = ctx.input_responses
+    if responses and {"user_name", "greeting", "client_roots"} <= responses.keys():
+        return "All inputs received."
+    return InputRequiredResult(
+        input_requests={
+            "user_name": _name_elicitation(),
+            "greeting": CreateMessageRequest(
+                params=CreateMessageRequestParams(
+                    messages=[
+                        SamplingMessage(role="user", content=TextContent(type="text", text="Generate a greeting"))
+                    ],
+                    max_tokens=50,
+                )
+            ),
+            "client_roots": ListRootsRequest(),
+        },
+        request_state="multiple-inputs",
+    )
+
+
+@mcp.tool()
+async def test_input_required_result_multi_round(ctx: Context) -> str | InputRequiredResult:
+    """Tests a three-round InputRequiredResult flow with evolving requestState"""
+    state = json.loads(ctx.request_state) if ctx.request_state else {"round": 0}
+    responses = ctx.input_responses or {}
+
+    if state["round"] == 0:
+        return InputRequiredResult(
+            input_requests={"step1": _name_elicitation("Step 1: What is your name?")},
+            request_state=json.dumps({"round": 1}),
+        )
+
+    if state["round"] == 1 and "step1" in responses:
+        step1 = responses["step1"]
+        name = step1.content.get("name") if isinstance(step1, ElicitResult) and step1.content else None
+        color_schema = {"type": "object", "properties": {"color": {"type": "string"}}, "required": ["color"]}
+        return InputRequiredResult(
+            input_requests={
+                "step2": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="Step 2: What is your favorite color?", requested_schema=color_schema
+                    )
+                )
+            },
+            request_state=json.dumps({"round": 2, "name": name}),
+        )
+
+    if state["round"] == 2 and "step2" in responses:
+        step2 = responses["step2"]
+        color = step2.content.get("color") if isinstance(step2, ElicitResult) and step2.content else None
+        return f"{state.get('name')} likes {color}."
+
+    # Missing or out-of-order response: re-request from the start.
+    return InputRequiredResult(
+        input_requests={"step1": _name_elicitation("Step 1: What is your name?")},
+        request_state=json.dumps({"round": 1}),
+    )
+
+
+# Fixed key for the conformance fixture; a real server would derive or rotate this.
+_STATE_HMAC_KEY = b"everything-server-fixture-key"
+
+
+def _seal_state(payload: str) -> str:
+    encoded = base64.urlsafe_b64encode(payload.encode()).decode()
+    sig = hmac.new(_STATE_HMAC_KEY, encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{sig}"
+
+
+def _unseal_state(state: str) -> str:
+    encoded, _, sig = state.partition(".")
+    expected = hmac.new(_STATE_HMAC_KEY, encoded.encode(), hashlib.sha256).hexdigest()
+    if not sig or not hmac.compare_digest(sig, expected):
+        raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification")
+    try:
+        return base64.urlsafe_b64decode(encoded).decode()
+    except (binascii.Error, UnicodeDecodeError) as e:
+        raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification") from e
+
+
+@mcp.tool()
+async def test_input_required_result_tampered_state(ctx: Context) -> str | InputRequiredResult:
+    """Tests that the server rejects a requestState that fails HMAC verification"""
+    if ctx.request_state is None:
+        confirm = ElicitRequest(
+            params=ElicitRequestFormParams(
+                message="Please confirm",
+                requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+            )
+        )
+        return InputRequiredResult(input_requests={"confirm": confirm}, request_state=_seal_state("round-1"))
+    payload = _unseal_state(ctx.request_state)
+    return f"state-ok: {payload}"
+
+
+@mcp.tool()
+async def test_input_required_result_capabilities(ctx: Context) -> InputRequiredResult:
+    """Tests that inputRequests only include methods the client declared support for"""
+    caps = ctx.client_capabilities
+    requests: dict[str, InputRequest] = {}
+    if caps is None or caps.sampling is not None:
+        requests["sample"] = CreateMessageRequest(
+            params=CreateMessageRequestParams(
+                messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Say hello"))],
+                max_tokens=50,
+            )
+        )
+    if caps is None or caps.elicitation is not None:
+        requests["ask"] = _name_elicitation()
+    return InputRequiredResult(input_requests=requests, request_state="capability-gated")
+
+
+# SEP-1613 / SEP-2106 JSON Schema 2020-12 fixture: a tool whose inputSchema carries
+# the full set of 2020-12 keywords the conformance scenario asserts on.
+
+JSON_SCHEMA_2020_12_INPUT_SCHEMA: dict[str, Any] = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "$defs": {
+        "address": {
+            "$anchor": "addressDef",
+            "type": "object",
+            "properties": {"street": {"type": "string"}, "city": {"type": "string"}},
+        }
+    },
+    "properties": {
+        "name": {"type": "string"},
+        "address": {"$ref": "#/$defs/address"},
+        "contactMethod": {"type": "string", "enum": ["phone", "email"]},
+        "phone": {"type": "string"},
+        "email": {"type": "string"},
+    },
+    "allOf": [{"anyOf": [{"required": ["phone"]}, {"required": ["email"]}]}],
+    "if": {"properties": {"contactMethod": {"const": "phone"}}, "required": ["contactMethod"]},
+    "then": {"required": ["phone"]},
+    "else": {"required": ["email"]},
+    "additionalProperties": False,
+}
+
+
+@mcp.tool(name="json_schema_2020_12_tool")
+def json_schema_2020_12_tool() -> str:
+    """Tests JSON Schema 2020-12 keyword preservation in tools/list (inputSchema installed below)."""
+    return "json_schema_2020_12_tool"
+
+
+# TODO(felix): replace with a public input_schema= override once MCPServer.tool() grows one.
+mcp._tool_manager._tools["json_schema_2020_12_tool"].parameters = (  # pyright: ignore[reportPrivateUsage]
+    JSON_SCHEMA_2020_12_INPUT_SCHEMA
+)
 
 
 @mcp.tool()

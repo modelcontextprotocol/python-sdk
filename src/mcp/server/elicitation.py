@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Generic, Literal, TypeVar
 
+from mcp_types import RequestId
+
+# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
+from mcp_types.v2025_11_25 import PrimitiveSchemaDefinition
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
 
 from mcp.server.session import ServerSession
-from mcp.types import RequestId
-
-# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp.types.v2025_11_25 import PrimitiveSchemaDefinition
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 

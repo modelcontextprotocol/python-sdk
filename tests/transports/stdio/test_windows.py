@@ -19,11 +19,11 @@ from pathlib import Path
 import anyio
 import anyio.abc
 import pytest
+from mcp_types import JSONRPCRequest, JSONRPCResponse
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest, JSONRPCResponse
 from tests.transports.stdio._liveness import (
     accept_alive,
     assert_stream_closed,

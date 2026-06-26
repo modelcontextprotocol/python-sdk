@@ -17,17 +17,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ValidationError
-
-from mcp import types
-from mcp.client.session import ClientSession
-from mcp.shared.exceptions import MCPError
-from mcp.shared.version import (
+import mcp_types as types
+from mcp_types import UNSUPPORTED_PROTOCOL_VERSION
+from mcp_types.version import (
     HANDSHAKE_PROTOCOL_VERSIONS,
     LATEST_MODERN_VERSION,
     MODERN_PROTOCOL_VERSIONS,
 )
-from mcp.types import UNSUPPORTED_PROTOCOL_VERSION
+from pydantic import ValidationError
+
+from mcp.client.session import ClientSession
+from mcp.shared.exceptions import MCPError
 
 
 def _parse_supported(data: Any) -> list[str] | None:

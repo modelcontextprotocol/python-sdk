@@ -20,7 +20,9 @@ Scenarios:
     json-schema-ref-no-deref                - Connect, list tools (no $ref deref)
     request-metadata                        - Connect with all callbacks; client stamps _meta
     http-standard-headers                   - Connect, call a tool (Mcp-* headers checked)
+    http-invalid-tool-headers               - List tools, call every surfaced tool (x-mcp-header filter)
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
+    sep-2322-client-request-state           - Drive the manual MRTR retry surface
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
     auth/*                                  - Authorization code flow (default for auth scenarios)
@@ -36,9 +38,10 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import mcp_types as types
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AnyUrl
 
-from mcp import types
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
@@ -49,7 +52,6 @@ from mcp.client.client import Client
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -296,6 +298,43 @@ async def run_http_standard_headers(server_url: str) -> None:
         logger.debug(f"add_numbers result: {result}")
 
 
+def _stub_required_args(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """Minimal arguments satisfying a tool inputSchema's required list."""
+    by_type: dict[str, Any] = {
+        "string": "x",
+        "integer": 0,
+        "number": 0,
+        "boolean": False,
+        "object": {},
+        "array": [],
+        "null": None,
+    }
+    properties = input_schema.get("properties", {})
+    return {name: by_type.get(properties.get(name, {}).get("type"), "x") for name in input_schema.get("required", [])}
+
+
+@register("http-invalid-tool-headers")
+async def run_http_invalid_tool_headers(server_url: str) -> None:
+    """List tools, then call every tool the SDK surfaces (SEP-2243).
+
+    The harness mock advertises one valid tool plus several with malformed
+    x-mcp-header annotations (empty, non-primitive type, duplicate, invalid
+    chars). The scenario passes if valid_tool is called and the malformed
+    ones are not -- so a conforming client filters them out of the list_tools
+    result and the loop below never sees them. The scenario sets
+    allowClientError, so a per-call failure is logged and skipped rather
+    than aborting the whole run.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        logger.debug(f"Surfaced tools: {[t.name for t in listed.tools]}")
+        for tool in listed.tools:
+            try:
+                await client.call_tool(tool.name, _stub_required_args(tool.input_schema))
+            except Exception:
+                logger.exception(f"call_tool({tool.name!r}) failed")
+
+
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
@@ -303,6 +342,53 @@ async def run_elicitation_defaults(server_url: str) -> None:
         await client.list_tools()
         result = await client.call_tool("test_client_elicitation_defaults", {})
         logger.debug(f"test_client_elicitation_defaults result: {result}")
+
+
+@register("sep-2322-client-request-state")
+async def run_mrtr_client(server_url: str) -> None:
+    """Drive the manual MRTR retry surface against the SEP-2322 client mock.
+
+    The mock speaks the modern lifecycle (server/discover, no initialize) and
+    inspects the wire params of each tools/call round, so this exercises the
+    explicit allow_input_required=True path rather than an auto-loop: round 1
+    receives an InputRequiredResult, the fixture fulfils the elicitation
+    locally, then round 2 retries with input_responses + the echoed
+    request_state. Passing request_state straight off the typed result -- a
+    str when the server sent one, None when it didn't -- lets the
+    serializer's exclude_none drop the key in the no-state case without a
+    branch here. The unrelated call between rounds proves MRTR params don't
+    leak across tools, and the no-result-type call must parse as a complete
+    CallToolResult with no retry.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        await client.list_tools()
+        confirm = {"confirm": types.ElicitResult(action="accept", content={"confirmed": True})}
+
+        r1 = await client.call_tool("test_mrtr_echo_state", {}, allow_input_required=True)
+        assert isinstance(r1, types.InputRequiredResult)
+
+        await client.call_tool("test_mrtr_unrelated", {})
+
+        await client.call_tool(
+            "test_mrtr_echo_state",
+            {},
+            input_responses=confirm,
+            request_state=r1.request_state,
+            allow_input_required=True,
+        )
+
+        r2 = await client.call_tool("test_mrtr_no_state", {}, allow_input_required=True)
+        assert isinstance(r2, types.InputRequiredResult)
+        await client.call_tool(
+            "test_mrtr_no_state",
+            {},
+            input_responses=confirm,
+            request_state=r2.request_state,
+            allow_input_required=True,
+        )
+
+        result = await client.call_tool("test_mrtr_no_result_type", {})
+        assert isinstance(result, types.CallToolResult)
 
 
 @register("auth/client-credentials-jwt")
@@ -441,8 +527,7 @@ def main() -> None:
             asyncio.run(run_auth_code_client(server_url))
         else:
             # Unhandled scenarios:
-            #  - sep-2322-client-request-state (SEP-2322 / S6: MRTR client loop)
-            #  - http-custom-headers, http-invalid-tool-headers (SEP-2243 / S8: Mcp-Param-* headers)
+            #  - http-custom-headers (SEP-2243 / S8: Mcp-Param-* emission)
             print(f"Unknown scenario: {scenario}", file=sys.stderr)
             sys.exit(1)
     else:

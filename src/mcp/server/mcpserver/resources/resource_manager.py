@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import Annotations, Icon
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.server.mcpserver.resources.templates import ResourceTemplate
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT

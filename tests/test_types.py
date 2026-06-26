@@ -2,9 +2,7 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import ValidationError
-
-from mcp.types import (
+from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     CallToolResult,
     ClientCapabilities,
@@ -38,6 +36,7 @@ from mcp.types import (
     client_request_adapter,
     jsonrpc_message_adapter,
 )
+from pydantic import ValidationError
 
 
 @pytest.mark.anyio

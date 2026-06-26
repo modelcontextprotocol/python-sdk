@@ -2,10 +2,7 @@
 
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     ErrorData,
     GetPromptResult,
     ListPromptsResult,
@@ -14,6 +11,9 @@ from mcp.types import (
     PromptMessage,
     TextContent,
 )
+
+from mcp import MCPError
+from mcp.server.mcpserver import MCPServer
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 

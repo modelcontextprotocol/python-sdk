@@ -4,36 +4,13 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast, overload
 
 import anyio
 import anyio.abc
 import anyio.lowlevel
-from pydantic import BaseModel, TypeAdapter, ValidationError
-from typing_extensions import Self, TypeVar, deprecated
-
-from mcp import types
-from mcp.client._transport import ReadStream, WriteStream
-from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
-from mcp.shared.inbound import (
-    MCP_METHOD_HEADER,
-    MCP_NAME_HEADER,
-    MCP_PROTOCOL_VERSION_HEADER,
-    encode_header_value,
-)
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.shared.transport_context import TransportContext
-from mcp.shared.version import (
-    HANDSHAKE_PROTOCOL_VERSIONS,
-    LATEST_HANDSHAKE_VERSION,
-    LATEST_MODERN_VERSION,
-    MODERN_PROTOCOL_VERSIONS,
-)
-from mcp.types import (
+import mcp_types as types
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
@@ -43,7 +20,32 @@ from mcp.types import (
     RequestId,
     RequestParamsMeta,
 )
-from mcp.types import methods as _methods
+from mcp_types import methods as _methods
+from mcp_types.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from typing_extensions import Self, TypeVar, deprecated
+
+from mcp.client._transport import ReadStream, WriteStream
+from mcp.shared._compat import resync_tracer
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.inbound import (
+    MCP_METHOD_HEADER,
+    MCP_NAME_HEADER,
+    MCP_PROTOCOL_VERSION_HEADER,
+    NAME_BEARING_METHODS,
+    encode_header_value,
+    find_invalid_x_mcp_header,
+)
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.session import RequestResponder
+from mcp.shared.transport_context import TransportContext
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
@@ -78,8 +80,8 @@ def _make_modern_stamp(
         headers = opts.setdefault("headers", {})
         headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
         headers[MCP_METHOD_HEADER] = data["method"]
-        # TODO: also emit Mcp-Name for prompts/get (params.name) and resources/read (params.uri)
-        if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
+        name_key = NAME_BEARING_METHODS.get(data["method"])
+        if name_key is not None and isinstance(name := params.get(name_key), str):
             headers[MCP_NAME_HEADER] = encode_header_value(name)
 
     return stamp
@@ -172,6 +174,10 @@ async def _default_logging_callback(
 
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
+
+_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult] = TypeAdapter(
+    types.CallToolResult | types.InputRequiredResult
+)
 
 
 class ClientSession:
@@ -269,7 +275,7 @@ class ClientSession:
     async def send_request(
         self,
         request: types.ClientRequest,
-        result_type: type[ReceiveResultT],
+        result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
         request_read_timeout_seconds: float | None = None,
         metadata: ClientMessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
@@ -308,6 +314,8 @@ class ClientSession:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
             pass
+        if isinstance(result_type, TypeAdapter):
+            return result_type.validate_python(raw, by_name=False)
         return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
@@ -423,7 +431,7 @@ class ClientSession:
         opts: CallOptions = {
             "timeout": DISCOVER_TIMEOUT_SECONDS,
             "cancel_on_abandon": False,
-            "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
+            "headers": {MCP_PROTOCOL_VERSION_HEADER: version, MCP_METHOD_HEADER: data["method"]},
         }
         return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
 
@@ -596,6 +604,7 @@ class ClientSession:
             types.EmptyResult,
         )
 
+    @overload
     async def call_tool(
         self,
         name: str,
@@ -603,22 +612,75 @@ class ClientSession:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-    ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        allow_input_required: Literal[False] = False,
+    ) -> types.CallToolResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.CallToolResult | types.InputRequiredResult:
+        """Send a tools/call request with optional progress callback support.
+
+        Args:
+            input_responses: Responses to a prior `InputRequiredResult.input_requests`.
+            request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            allow_input_required: When ``False`` (default), an `InputRequiredResult`
+                from the server raises `RuntimeError`; when ``True``, it is returned
+                so the caller can resolve the requests and retry.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                ``allow_input_required`` is ``False``.
+        """
 
         result = await self.send_request(
             types.CallToolRequest(
-                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
+                params=types.CallToolRequestParams(
+                    name=name,
+                    arguments=arguments,
+                    input_responses=input_responses,
+                    request_state=request_state,
+                    _meta=meta,
+                ),
             ),
-            types.CallToolResult,
+            _CallToolResultAdapter,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
         )
 
-        if not result.is_error:
+        if isinstance(result, types.CallToolResult) and not result.is_error:
             await self._validate_tool_result(name, result)
 
+        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
+            raise RuntimeError(
+                "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
+                "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
+            )
         return result
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
@@ -698,6 +760,16 @@ class ClientSession:
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
+
+        if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
+            # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
+            kept: list[types.Tool] = []
+            for tool in result.tools:
+                if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
+                    logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
+                    continue
+                kept.append(tool)
+            result.tools = kept
 
         # Cache tool output schemas for future validation
         # Note: don't clear the cache, as we may be using a cursor

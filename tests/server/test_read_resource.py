@@ -1,15 +1,15 @@
 import base64
 
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     ReadResourceRequestParams,
     ReadResourceResult,
     TextResourceContents,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 pytestmark = pytest.mark.anyio
 

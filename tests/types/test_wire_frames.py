@@ -3,9 +3,7 @@
 from typing import Any
 
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-
-from mcp.types import (
+from mcp_types import (
     METHOD_NOT_FOUND,
     CallToolRequest,
     CallToolRequestParams,
@@ -24,6 +22,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from pydantic import BaseModel
 
 
 def _body(model: BaseModel) -> dict[str, Any]:

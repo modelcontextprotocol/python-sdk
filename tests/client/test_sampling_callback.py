@@ -1,10 +1,5 @@
 import pytest
-
-from mcp import Client
-from mcp.client import ClientRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     INVALID_REQUEST,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -13,6 +8,11 @@ from mcp.types import (
     TextContent,
     ToolUseContent,
 )
+
+from mcp import Client
+from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 
 
 @pytest.mark.anyio

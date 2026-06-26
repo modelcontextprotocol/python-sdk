@@ -10,7 +10,8 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ### `MCPServer.call_tool()` returns `CallToolResult`
 
-`MCPServer.call_tool()` now always returns a `CallToolResult`. It previously
+`MCPServer.call_tool()` now returns a `CallToolResult` (or an
+`InputRequiredResult` when a multi-round tool requests further input). It previously
 advertised `Sequence[ContentBlock] | dict[str, Any]` and leaked the internal
 conversion shapes (a bare content sequence or a `(content, structured_content)`
 tuple), forcing callers to re-assemble a `CallToolResult` themselves.
@@ -209,9 +210,38 @@ named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
 
+### `mcp.types` moved to the `mcp-types` package
+
+The protocol wire types now live in a standalone distribution, `mcp-types`, imported as
+`mcp_types`. It depends only on `pydantic`, so code that just needs to (de)serialize MCP
+traffic can install it without the full SDK. The `mcp` package depends on `mcp-types` and
+continues to re-export the type names at the top level, so `from mcp import Tool` is
+unchanged. Only the `mcp.types` submodule and `mcp.shared.version` were removed.
+
+**Why:** keeping the wire types in their own package lets tooling and lightweight clients
+depend on the protocol schema without pulling in `httpx`, `starlette`, `uvicorn`, and the
+rest of the server/transport stack.
+
+**Before (v1):**
+
+```python
+from mcp.types import Tool, CallToolResult
+from mcp.shared.version import LATEST_PROTOCOL_VERSION
+```
+
+**After (v2):**
+
+```python
+from mcp_types import Tool, CallToolResult
+from mcp_types.version import LATEST_PROTOCOL_VERSION
+
+# Top-level re-exports are unchanged:
+from mcp import Tool, CallToolResult
+```
+
 ### Removed type aliases and classes
 
-The following deprecated type aliases and classes have been removed from `mcp.types`:
+The following deprecated type aliases and classes have been removed from `mcp_types`:
 
 | Removed | Replacement |
 |---------|-------------|
@@ -231,13 +261,13 @@ from mcp.types import Content, ResourceReference, Cursor
 **After (v2):**
 
 ```python
-from mcp.types import ContentBlock, ResourceTemplateReference
+from mcp_types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### Field names changed from camelCase to snake_case
 
-All Pydantic model fields in `mcp.types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — serialization still uses camelCase via Pydantic aliases.
+All Pydantic model fields in `mcp_types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — serialization still uses camelCase via Pydantic aliases.
 
 **Before (v1):**
 
@@ -287,7 +317,7 @@ Results returned from server handlers are now validated against the negotiated p
 
 ### Client validates inbound traffic against the protocol schema
 
-`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp_types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
@@ -326,7 +356,7 @@ result = await session.list_tools(cursor="next_page_token")
 **After (v2):**
 
 ```python
-from mcp.types import PaginatedRequestParams
+from mcp_types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
@@ -363,6 +393,10 @@ In v1, connecting to a server always performed the `initialize` handshake. In v2
 For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` instance), `mode='auto'` dispatches calls directly through `DirectDispatcher` with no JSON-RPC framing. Pass `mode='legacy'` if you need the in-memory JSON-RPC transport that v1 used.
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
+
+### `call_tool` can return `InputRequiredResult` (opt-in)
+
+For protocol 2026-07-28, a `tools/call` request may return an `InputRequiredResult` asking the client to supply additional input and retry. By default `call_tool` (on `ClientSession`, `Client`, and `ClientSessionGroup`) still returns `CallToolResult` and raises `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then retry with `input_responses=` / `request_state=`.
 
 ### `McpError` renamed to `MCPError`
 
@@ -411,7 +445,7 @@ raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_REQUEST
+from mcp_types import INVALID_REQUEST
 
 raise MCPError(INVALID_REQUEST, "bad input")
 # or, if you already have an ErrorData:
@@ -586,7 +620,7 @@ In v2, the lowlevel `Server` supports arbitrary request handlers directly via `a
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp.types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
+from mcp_types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
 
 
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
@@ -659,7 +693,7 @@ actual_notification = notification.root
 **After (v2):**
 
 ```python
-from mcp.types import client_request_adapter, server_notification_adapter
+from mcp_types import client_request_adapter, server_notification_adapter
 
 # Using TypeAdapter.validate_python()
 request = client_request_adapter.validate_python(data)
@@ -697,7 +731,7 @@ await session.send_request(PingRequest(), EmptyResult)
 | `ServerResult` | `server_result_adapter` |
 | `JSONRPCMessage` | `jsonrpc_message_adapter` |
 
-All adapters are exported from `mcp.types`.
+All adapters are exported from `mcp_types`.
 
 ### `RequestParams.Meta` replaced with `RequestParamsMeta` TypedDict
 
@@ -877,7 +911,7 @@ resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validatio
 **After (v2):**
 
 ```python
-from mcp.types import Resource
+from mcp_types import Resource
 
 # Plain strings accepted
 resource = Resource(name="test", uri="users/me")  # Works
@@ -1034,7 +1068,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -1083,13 +1117,13 @@ All handlers receive `ctx: ServerRequestContext` as the first argument. The seco
 | `@server.progress_notification()` | `on_progress` | `ProgressNotificationParams` | `None` |
 | — | `on_roots_list_changed` | `NotificationParams \| None` | `None` |
 
-All `params` and return types are importable from `mcp.types`.
+All `params` and return types are importable from `mcp_types`.
 
 **Notification handlers:**
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import ProgressNotificationParams
+from mcp_types import ProgressNotificationParams
 
 
 async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
@@ -1214,7 +1248,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1286,7 +1320,7 @@ Behavior changes:
 
 ### Experimental Tasks support removed
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions.
+Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions.
 
 Tasks are expected to return as a separate MCP extension in a future release.
 
@@ -1354,7 +1388,7 @@ In v1, MCP protocol types were configured with `extra="allow"`: unknown fields p
 In v2, MCP types silently ignore extra fields. Unknown constructor keyword arguments and unknown keys in wire data are dropped during validation — no error is raised, and the values do not round-trip:
 
 ```python
-from mcp.types import CallToolRequestParams
+from mcp_types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
@@ -1400,7 +1434,7 @@ Under OIDC, omitting `application_type` defaults to `"web"`, which an authorizat
 
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 
-`mcp.types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.
+`mcp_types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.
 
 ### `streamable_http_app()` available on lowlevel Server
 
@@ -1408,7 +1442,7 @@ The `streamable_http_app()` method is now available directly on the lowlevel `Se
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp.types import ListToolsResult, PaginatedRequestParams
+from mcp_types import ListToolsResult, PaginatedRequestParams
 
 
 async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

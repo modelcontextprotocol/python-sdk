@@ -5,15 +5,7 @@ from typing import Any
 
 import anyio
 import pytest
-from opentelemetry.trace import SpanKind, StatusCode
-
-from mcp.server._otel import OpenTelemetryMiddleware
-from mcp.server.context import CallNext
-from mcp.server.lowlevel.server import Server
-from mcp.server.runner import otel_middleware
-from mcp.shared._otel import inject_trace_context
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
@@ -24,6 +16,14 @@ from mcp.types import (
     PaginatedRequestParams,
     Tool,
 )
+from opentelemetry.trace import SpanKind, StatusCode
+
+from mcp.server._otel import OpenTelemetryMiddleware
+from mcp.server.context import CallNext
+from mcp.server.lowlevel.server import Server
+from mcp.server.runner import otel_middleware
+from mcp.shared._otel import inject_trace_context
+from mcp.shared.exceptions import MCPError
 
 from .conftest import SpanCapture
 from .test_runner import Ctx, SrvT, connected_runner
@@ -92,7 +92,9 @@ async def test_tool_error_model_result_sets_error_type(server: SrvT, spans: Span
 
 
 @pytest.mark.anyio
-async def test_tool_error_snake_case_dict_result_sets_error_type(server: SrvT, spans: SpanCapture):
+async def test_snake_case_dict_result_is_not_a_tool_error(server: SrvT, spans: SpanCapture):
+    # `is_error` is alias-only on the wire, so serialization drops it; the result reaches the
+    # client as a success and the span must not contradict that.
     async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
         return {"content": [], "is_error": True}
 
@@ -100,11 +102,12 @@ async def test_tool_error_snake_case_dict_result_sets_error_type(server: SrvT, s
     server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
-        await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
+        result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
+    assert result == {"content": []}
     [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
     assert span.attributes is not None
-    assert span.attributes["error.type"] == "tool_error"
-    assert span.status.status_code == StatusCode.ERROR
+    assert "error.type" not in span.attributes
+    assert span.status.status_code == StatusCode.UNSET
 
 
 @pytest.mark.anyio

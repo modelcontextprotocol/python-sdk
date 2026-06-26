@@ -10,24 +10,7 @@ from typing import Any
 import anyio
 import anyio.lowlevel
 import pytest
-from trio.testing import MockClock
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared._compat import resync_tracer
-from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext
-from mcp.shared.exceptions import MCPError, NoBackChannelError
-from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
-    JSONRPCDispatcher,
-    _coerce_id,
-    _OutboundPlan,
-    _Pending,
-    _plan_outbound,
-)
-from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
-from mcp.shared.transport_context import TransportContext
-from mcp.types import (
+from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -45,6 +28,23 @@ from mcp.types import (
     RequestId,
     Tool,
 )
+from trio.testing import MockClock
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared._compat import resync_tracer
+from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
+from mcp.shared.dispatcher import CallOptions, DispatchContext
+from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
+    JSONRPCDispatcher,
+    _coerce_id,
+    _OutboundPlan,
+    _Pending,
+    _plan_outbound,
+)
+from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_context import TransportContext
 
 from .conftest import jsonrpc_pair
 from .test_dispatcher import Recorder, echo_handlers, running_pair

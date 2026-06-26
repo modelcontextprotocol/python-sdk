@@ -3,17 +3,17 @@
 import anyio
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import Client
-from mcp.client import ClientRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     CreateMessageRequestParams,
     CreateMessageResult,
     SamplingMessage,
     TextContent,
 )
+
+from mcp import Client
+from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import Context, MCPServer
 
 pytestmark = pytest.mark.anyio
 

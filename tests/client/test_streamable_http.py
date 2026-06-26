@@ -13,11 +13,11 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,36 @@ from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
+from mcp_types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    Annotations,
+    BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
+    CompleteRequestParams,
+    CompleteResult,
+    Completion,
+    GetPromptRequestParams,
+    GetPromptResult,
+    Icon,
+    InputRequiredResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
+from mcp_types import Prompt as MCPPrompt
+from mcp_types import PromptArgument as MCPPromptArgument
+from mcp_types import Resource as MCPResource
+from mcp_types import ResourceTemplate as MCPResourceTemplate
+from mcp_types import Tool as MCPTool
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -42,35 +72,6 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.types import (
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    Annotations,
-    BlobResourceContents,
-    CallToolRequestParams,
-    CallToolResult,
-    CompleteRequestParams,
-    CompleteResult,
-    Completion,
-    GetPromptRequestParams,
-    GetPromptResult,
-    Icon,
-    ListPromptsResult,
-    ListResourcesResult,
-    ListResourceTemplatesResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    ToolAnnotations,
-)
-from mcp.types import Prompt as MCPPrompt
-from mcp.types import PromptArgument as MCPPromptArgument
-from mcp.types import Resource as MCPResource
-from mcp.types import ResourceTemplate as MCPResourceTemplate
-from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
@@ -306,8 +307,8 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
-    ) -> CallToolResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> CallToolResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -323,7 +324,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
@@ -365,7 +366,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -387,7 +388,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult:
+    ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)

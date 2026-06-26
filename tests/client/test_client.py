@@ -8,20 +8,10 @@ from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client._memory import InMemoryTransport
-from mcp.client._transport import TransportStreams
-from mcp.client.client import Client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
-from mcp.shared.memory import MessageStream, create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     EmptyResult,
     GetPromptResult,
@@ -42,6 +32,17 @@ from mcp.types import (
     Tool,
     ToolsCapability,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp import MCPError
+from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import TransportStreams
+from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
@@ -469,6 +470,38 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
             assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert client.server_info.name == "legacy-only"
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
+
+
+@pytest.mark.anyio
+async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legacy_does_not() -> None:
+    """At 2026-07-28 the spec requires clients to exclude tools whose `x-mcp-header`
+    annotation is malformed; handshake-era sessions surface them unchanged. Two
+    tools are advertised — one valid, one with a non-RFC-9110-token header name —
+    and the modern client sees only the valid one."""
+    valid = types.Tool(
+        name="ok",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}},
+    )
+    bad = types.Tool(
+        name="dropme",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}},
+    )
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[valid, bad])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            result = await client.list_tools()
+        assert [t.name for t in result.tools] == ["ok"]
+
+        async with Client(server, mode="legacy") as client:
+            result = await client.list_tools()
+        assert [t.name for t in result.tools] == ["ok", "dropme"]
 
 
 def test_client_rejects_handshake_era_mode_at_construction() -> None:

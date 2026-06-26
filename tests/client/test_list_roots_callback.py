@@ -1,11 +1,11 @@
 import pytest
+from mcp_types import INVALID_REQUEST, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_REQUEST, ListRootsResult, Root, TextContent
 
 
 @pytest.mark.anyio

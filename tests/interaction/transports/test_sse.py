@@ -13,11 +13,11 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import EmptyResult
 
 from mcp.client.client import Client
 from mcp.client.sse import sse_client
 from mcp.server import Server
-from mcp.types import EmptyResult
 from tests.interaction._connect import BASE_URL, build_sse_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport

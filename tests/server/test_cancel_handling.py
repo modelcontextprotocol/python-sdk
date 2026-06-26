@@ -2,13 +2,7 @@
 
 import anyio
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import SessionMessage
-from mcp.shared.version import LATEST_HANDSHAKE_VERSION
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -24,6 +18,12 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio

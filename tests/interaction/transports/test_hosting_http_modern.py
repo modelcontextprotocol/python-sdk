@@ -15,13 +15,7 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.version import LATEST_MODERN_VERSION
-from mcp.types import (
+from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -41,6 +35,12 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from mcp_types.version import LATEST_MODERN_VERSION
+
+from mcp import MCPError
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import BASE_URL, base_headers, initialize_via_http, mounted_app
 from tests.interaction._requirements import requirement
 

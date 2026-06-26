@@ -21,48 +21,19 @@
 # milestone.
 
 client:
-  # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
-  # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-  # handle IncompleteResult yet.
-  - sep-2322-client-request-state
-  # SEP-2243 (HTTP standardization): no fixture handler / client Mcp-Param-* support yet.
+  # SEP-2243 (HTTP standardization): no client Mcp-Param-* support yet — needs the
+  # tool-schema-cache vs per-call tool_definition design (S8).
   - http-custom-headers
-  - http-invalid-tool-headers
   # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
   # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
   # (it is an extension scenario not carried into the 2026 wire), so it is
   # neither run nor evaluated on this leg.
 
 server:
-  # --- Carried-forward 2025-era scenarios still failing on the 2026 wire ---
   # The stateless 2026 path now reaches handlers for plain request/response
   # scenarios; tools-call-with-progress still fails because the stateless
   # server has no channel for server→client progress notifications.
   - tools-call-with-progress
-  # SEP-2106 (JSON Schema 2020-12 in tool inputSchema): the fixture tool's
-  # schema has none of the 2020-12 keywords the scenario checks. The scenario
-  # is in `--suite all` but not `--suite active`, so this is the only leg that
-  # runs it; it fails identically at 2025-11-25 (not a 2026-path regression).
-  - json-schema-2020-12
-
-  # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
-  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
-  - input-required-result-basic-elicitation
-  - input-required-result-basic-sampling
-  - input-required-result-basic-list-roots
-  - input-required-result-request-state
-  - input-required-result-multiple-input-requests
-  - input-required-result-multi-round
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
+  # cannot return InputRequiredResult from MCPServer yet (tools/call can).
   - input-required-result-non-tool-request
-  - input-required-result-result-type
-  - input-required-result-tampered-state
-  - input-required-result-capability-check
-  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
-  # against the request body is not implemented.
-  - http-header-validation
-  # WARNING-only entries: these scenarios emit no FAILURE checks but the
-  # expected-failures evaluator counts WARNINGs as failures (the summary line
-  # only shows passed/failed, not warnings, so a local re-probe can mis-read
-  # these as stale).
-  - input-required-result-missing-input-response
-  - input-required-result-validate-input

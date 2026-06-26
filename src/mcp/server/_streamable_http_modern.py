@@ -19,21 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import anyio
-from pydantic import BaseModel, ValidationError
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
-
-from mcp.server.connection import Connection
-from mcp.server.runner import serve_one
-from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
-from mcp.shared.dispatcher import CallOptions
-from mcp.shared.exceptions import NoBackChannelError
-from mcp.shared.inbound import ERROR_CODE_HTTP_STATUS, InboundLadderRejection, classify_inbound_request
-from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata
-from mcp.shared.transport_context import TransportContext
-from mcp.types import (
+from mcp_types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
@@ -45,6 +31,24 @@ from mcp.types import (
     JSONRPCResponse,
     RequestId,
 )
+from pydantic import BaseModel, ValidationError
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.types import Receive, Scope, Send
+
+from mcp.server.connection import Connection
+from mcp.server.runner import serve_one
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.inbound import (
+    ERROR_CODE_HTTP_STATUS,
+    InboundLadderRejection,
+    classify_inbound_request,
+)
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata
+from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server

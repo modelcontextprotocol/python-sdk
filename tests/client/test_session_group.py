@@ -2,10 +2,10 @@ import contextlib
 from unittest import mock
 
 import httpx
+import mcp_types as types
 import pytest
 
 import mcp
-from mcp import types
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
@@ -82,8 +82,25 @@ async def test_client_session_group_call_tool():
         arguments={"name": "value1", "args": {}},
         read_timeout_seconds=None,
         progress_callback=None,
+        input_responses=None,
+        request_state=None,
         meta=None,
+        allow_input_required=False,
     )
+
+
+@pytest.mark.anyio
+async def test_client_session_group_call_tool_forwards_allow_input_required():
+    mock_session = mock.AsyncMock()
+    mcp_session_group = ClientSessionGroup()
+    mcp_session_group._tools = {"my_tool": types.Tool(name="my_tool", input_schema={})}
+    mcp_session_group._tool_to_session = {"my_tool": mock_session}
+    mock_session.call_tool.return_value = types.InputRequiredResult(request_state="s")
+
+    result = await mcp_session_group.call_tool(name="my_tool", arguments={}, allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "s"
+    assert mock_session.call_tool.call_args.kwargs["allow_input_required"] is True
 
 
 @pytest.mark.anyio

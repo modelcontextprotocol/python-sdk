@@ -3,7 +3,7 @@
 One model per protocol construct, carrying every field from every supported
 protocol version, so application code sees a single set of types regardless of
 the negotiated version. Per-field docstrings note version availability. The
-`mcp.types.v*` surface packages carry the schema-exact wire shapes.
+`mcp_types.v*` surface packages carry the schema-exact wire shapes.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, Self, TypedDict
 
-from mcp.types.jsonrpc import RequestId
+from mcp_types.jsonrpc import RequestId
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
 """The default negotiated version of the Model Context Protocol when no version is specified.
@@ -122,7 +122,7 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
     """Base class for JSON-RPC requests.
 
     The JSON-RPC envelope (`jsonrpc`, `id`) is attached by the session layer
-    (see `mcp.types.jsonrpc`), not carried here.
+    (see `mcp_types.jsonrpc`), not carried here.
     """
 
     method: MethodT
@@ -2073,7 +2073,7 @@ GetPromptRequestParams.model_rebuild()
 CallToolRequestParams.model_rebuild()
 
 # Top-level message unions: superset across all supported protocol versions.
-# Per-version validity is recorded in `mcp.types.methods`, not enforced here.
+# Per-version validity is recorded in `mcp_types.methods`, not enforced here.
 
 ClientRequest = (
     PingRequest

@@ -10,14 +10,14 @@ See: https://github.com/modelcontextprotocol/python-sdk/issues/1097
 from collections.abc import Mapping
 from typing import Any
 
+import mcp_types as types
 import pytest
+from mcp_types import LATEST_PROTOCOL_VERSION
 
-from mcp import types
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
-from mcp.types import LATEST_PROTOCOL_VERSION
 
 
 class StubOutbound:

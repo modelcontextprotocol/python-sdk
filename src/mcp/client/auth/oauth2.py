@@ -16,6 +16,7 @@ from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
 import httpx
+from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, Field, ValidationError
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
@@ -54,7 +55,6 @@ from mcp.shared.auth_utils import (
     resource_url_from_server_url,
 )
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.version import is_version_at_least
 
 logger = logging.getLogger(__name__)
 

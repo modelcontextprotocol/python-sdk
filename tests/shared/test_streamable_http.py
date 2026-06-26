@@ -17,15 +17,32 @@ from urllib.parse import urlparse
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import ServerSentEvent
+from mcp_types import (
+    DEFAULT_NEGOTIATED_VERSION,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    CallToolRequestParams,
+    CallToolResult,
+    InitializeResult,
+    JSONRPCRequest,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
 from starlette.types import Message, Scope
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
@@ -48,22 +65,6 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import (
-    DEFAULT_NEGOTIATED_VERSION,
-    INVALID_PARAMS,
-    INVALID_REQUEST,
-    CallToolRequestParams,
-    CallToolResult,
-    InitializeResult,
-    JSONRPCRequest,
-    ListToolsResult,
-    PaginatedRequestParams,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
 from tests.interaction.transports import StreamingASGITransport
 
 # Test constants

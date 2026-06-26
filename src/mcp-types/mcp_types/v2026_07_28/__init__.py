@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from mcp.types._wire_base import WireModel
+from mcp_types._wire_base import WireModel
 from pydantic import ConfigDict, Field, RootModel
 
 

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from mcp.types import JSONRPCMessage, RequestId
+from mcp_types import JSONRPCMessage, RequestId
 
 ResumptionToken = str
 

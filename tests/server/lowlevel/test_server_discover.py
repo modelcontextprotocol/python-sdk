@@ -8,11 +8,11 @@ the handler's contract in isolation from the dispatch pipeline.
 import importlib.metadata
 from typing import Any, cast
 
+import mcp_types as types
 import pytest
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.version import MODERN_PROTOCOL_VERSIONS
 
 # `Server._handle_discover` ignores its `ctx` argument entirely (it derives the
 # result from server state), so a sentinel keeps the call site type-correct
