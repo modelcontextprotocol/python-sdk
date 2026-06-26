@@ -1530,6 +1530,8 @@ The `confirm_delete` resolver reads the tool's own `path` argument by name, list
 
 Resolved parameters are omitted from the tool's input schema, so the client never supplies them. Resolver parameters that cannot be classified, and cyclic resolver dependencies, raise at registration time.
 
+`ElicitationResult` is now a subscriptable generic alias (so `ElicitationResult[T]` works in annotations) instead of a plain union. A runtime `isinstance(result, ElicitationResult)` therefore raises `TypeError`; check against the member classes directly - `isinstance(result, AcceptedElicitation)` (or `DeclinedElicitation` / `CancelledElicitation`).
+
 ## Need Help?
 
 If you encounter issues during migration:
