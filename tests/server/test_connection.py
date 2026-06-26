@@ -21,6 +21,7 @@ from mcp_types import (
     CreateMessageRequestParams,
     ElicitationCapability,
     EmptyResult,
+    FormElicitationCapability,
     Implementation,
     ListRootsRequest,
     ListRootsResult,
@@ -31,6 +32,7 @@ from mcp_types import (
     SamplingCapability,
     SamplingContextCapability,
     SamplingToolsCapability,
+    UrlElicitationCapability,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from pydantic import BaseModel, ValidationError
@@ -364,6 +366,36 @@ def test_connection_check_capability_false_when_no_client_params_recorded():
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
         (ClientCapabilities(experimental={"a": {"x": 1}}), ClientCapabilities(experimental={"a": {"x": 2}}), False),
         (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"a": {}}), True),
+        (
+            ClientCapabilities(elicitation=None),
+            ClientCapabilities(elicitation=ElicitationCapability()),
+            False,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            False,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            True,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability())),
+            True,
+        ),
+        (
+            ClientCapabilities(elicitation=ElicitationCapability(url=UrlElicitationCapability())),
+            ClientCapabilities(elicitation=ElicitationCapability()),
+            True,
+        ),
     ],
 )
 def test_check_capability_per_field_branches(have: ClientCapabilities, want: ClientCapabilities, expected: bool):
