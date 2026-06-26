@@ -131,6 +131,13 @@ changes softened by a backwards-compatibility shim. Include:
 Search for related sections in the migration guide and group related changes together
 rather than adding new standalone sections.
 
+## Documentation
+
+When a change affects public API or user-visible behaviour, update the relevant
+page(s) under `docs/` in the same PR. Docs are organised by topic
+(`tutorial/`, `client/`, `run/`, `advanced/`) — find the page covering the
+feature you touched rather than adding a new one.
+
 ## Formatting & Type Checking
 
 - Format: `uv run --frozen ruff format .`
