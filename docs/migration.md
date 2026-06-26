@@ -1462,7 +1462,9 @@ The lowlevel `Server` also now exposes a `session_manager` property to access th
 
 ### Resolver dependency injection for tools (`Resolve` / `Elicit`)
 
-A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the resolver `fn` before the tool body, instead of by the calling LLM. Resolvers form a dependency graph: a resolver may declare its own `Resolve(...)` dependencies, read the `Context` (including `ctx.headers`), and receive the tool's own arguments by name. A resolver may return `Elicit[T]` to ask the client; the SDK runs the elicitation and injects the answer. Each resolver runs at most once per `tools/call`.
+A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the resolver `fn` before the tool body, instead of by the calling LLM. Resolvers form a dependency graph: a resolver may declare its own `Resolve(...)` dependencies, read the `Context` (including `ctx.headers`), and receive the tool's own arguments by name. A resolver may return `Elicit[T]` to ask the client; the SDK runs the elicitation and injects the answer. A resolver only elicits when it needs to - it can also resolve a value directly and skip the question. Each resolver runs at most once per `tools/call`.
+
+The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Confirm, Resolve(confirm)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead - so the tool can react to decline and cancel - annotate `ElicitationResult[Confirm]` (or an explicit `AcceptedElicitation[Confirm] | DeclinedElicitation | CancelledElicitation` union):
 
 ```python
 from typing import Annotated
@@ -1472,58 +1474,46 @@ from pydantic import BaseModel
 from mcp.server.mcpserver import (
     AcceptedElicitation,
     CancelledElicitation,
-    Context,
     DeclinedElicitation,
     Elicit,
+    ElicitationResult,
     MCPServer,
     Resolve,
 )
 
-mcp = MCPServer(name="github")
-
-
-class Login(BaseModel):
-    username: str
+mcp = MCPServer(name="files")
 
 
 class Confirm(BaseModel):
     ok: bool
 
 
-async def login(ctx: Context) -> Login | Elicit[Login]:
-    if username := (ctx.headers or {}).get("x-github-user"):
-        return Login(username=username)  # resolved from context, no question
-    return Elicit("GitHub username?", Login)  # must ask
-
-
-async def confirm(repo: str, login: Annotated[Login, Resolve(login)]) -> Elicit[Confirm]:
-    return Elicit(f"Star {repo} as {login.username}?", Confirm)
+async def confirm_delete(path: str) -> Confirm | Elicit[Confirm]:
+    file_count = len(list_files(path))
+    if file_count == 0:
+        return Confirm(ok=True)  # empty folder: nothing to confirm, no question
+    return Elicit(f"{path} has {file_count} file(s). Delete anyway?", Confirm)
 
 
 @mcp.tool()
-async def star_repo(
-    repo: str,
-    login: Annotated[Login, Resolve(login)],
-    confirm: Annotated[Confirm, Resolve(confirm)],
+async def delete_folder(
+    path: str,
+    confirm: Annotated[ElicitationResult[Confirm], Resolve(confirm_delete)],
 ) -> str:
-    """Star a GitHub repo."""
-    return f"starred {repo} as {login.username}" if confirm.ok else "cancelled"
+    """Delete a folder, asking for confirmation when it is not empty."""
+    match confirm:
+        case AcceptedElicitation(data=Confirm(ok=True)):
+            delete(path)
+            return f"deleted {path}"
+        case AcceptedElicitation():
+            return "kept the folder"
+        case DeclinedElicitation():
+            return "declined: folder not deleted"
+        case CancelledElicitation():
+            return "cancelled: folder not deleted"
 ```
 
-The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Login, Resolve(login)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead, annotate `ElicitationResult[Login]` (or an explicit `AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation` union):
-
-```python
-from mcp.server.mcpserver import ElicitationResult
-
-
-@mcp.tool()
-async def whoami(login: Annotated[ElicitationResult[Login], Resolve(login)]) -> str:
-    match login:
-        case AcceptedElicitation(data=data):
-            return f"hi {data.username}"
-        case _:
-            return "no username provided"
-```
+The `confirm_delete` resolver reads the tool's own `path` argument by name, lists the folder, and only elicits when the folder is non-empty - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client. Because `delete_folder` annotates the result union, it handles every outcome: the user accepting and confirming, accepting but declining to delete (`ok=False`), declining the elicitation, or cancelling it.
 
 Resolved parameters are omitted from the tool's input schema, so the client never supplies them. Resolver parameters that cannot be classified, and cyclic resolver dependencies, raise at registration time.
 

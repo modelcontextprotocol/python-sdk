@@ -1,6 +1,6 @@
 """Tests for resolver dependency injection (MRTR) on MCPServer tools."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pytest
 from mcp_types import ElicitRequestParams, ElicitResult, TextContent
@@ -473,3 +473,73 @@ def test_resolver_key_is_stable_for_methods_and_distinct_callables():
     def fn() -> None: ...  # pragma: no cover
 
     assert _resolver_key(fn) == _resolver_key(fn)
+
+
+def _delete_folder_server() -> tuple[MCPServer, dict[str, list[str]]]:
+    """The `delete_folder` example from docs/migration.md, wired to an in-memory fs."""
+    mcp = MCPServer(name="files")
+    fs: dict[str, list[str]] = {}
+
+    async def confirm_delete(path: str) -> Confirm | Elicit[Confirm]:
+        file_count = len(fs.get(path, []))
+        if file_count == 0:
+            return Confirm(ok=True)
+        return Elicit(f"{path} has {file_count} file(s). Delete anyway?", Confirm)
+
+    @mcp.tool()
+    async def delete_folder(
+        path: str,
+        confirm: Annotated[ElicitationResult[Confirm], Resolve(confirm_delete)],
+    ) -> str:
+        match confirm:
+            case AcceptedElicitation(data=Confirm(ok=True)):
+                fs.pop(path, None)
+                return f"deleted {path}"
+            case AcceptedElicitation():
+                return "kept the folder"
+            case DeclinedElicitation():
+                return "declined: folder not deleted"
+            case CancelledElicitation():  # pragma: no branch
+                return "cancelled: folder not deleted"
+
+    return mcp, fs
+
+
+@pytest.mark.anyio
+async def test_delete_empty_folder_does_not_elicit():
+    mcp, fs = _delete_folder_server()
+    fs["/empty"] = []
+
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+        raise AssertionError("should not elicit for an empty folder")
+
+    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
+        assert await _text(client, "delete_folder", {"path": "/empty"}) == "deleted /empty"
+    assert "/empty" not in fs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("action", "content", "expected"),
+    [
+        ("accept", {"ok": True}, "deleted /docs"),
+        ("accept", {"ok": False}, "kept the folder"),
+        ("decline", None, "declined: folder not deleted"),
+        ("cancel", None, "cancelled: folder not deleted"),
+    ],
+)
+async def test_delete_non_empty_folder_handles_every_outcome(
+    action: Literal["accept", "decline", "cancel"],
+    content: dict[str, str | int | float | bool | list[str] | None] | None,
+    expected: str,
+):
+    mcp, fs = _delete_folder_server()
+    fs["/docs"] = ["a.txt", "b.txt"]
+
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        assert "/docs has 2 file(s)" in params.message
+        return ElicitResult(action=action, content=content)
+
+    async with Client(mcp, mode="legacy", elicitation_callback=callback) as client:
+        assert await _text(client, "delete_folder", {"path": "/docs"}) == expected
+    assert ("/docs" in fs) is (expected != "deleted /docs")
