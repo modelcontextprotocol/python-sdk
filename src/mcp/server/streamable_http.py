@@ -76,6 +76,24 @@ EventId = str
 SSEEvent = dict[str, Any]
 
 
+def check_accept_headers(request: Request) -> tuple[bool, bool]:
+    """Return (has_json, has_sse) for the request's Accept header, with RFC 7231 wildcard handling.
+
+    Supports wildcard media types per RFC 7231, section 5.3.2:
+    - */* matches any media type
+    - application/* matches any application/ subtype
+    - text/* matches any text/ subtype
+    """
+    accept_header = request.headers.get("accept", "")
+    accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
+
+    has_wildcard = "*/*" in accept_types
+    has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)
+    has_sse = has_wildcard or any(t in (CONTENT_TYPE_SSE, "text/*") for t in accept_types)
+
+    return has_json, has_sse
+
+
 @dataclass
 class EventMessage:
     """A JSONRPCMessage with an optional event ID for stream resumability."""
@@ -415,23 +433,6 @@ class StreamableHTTPServerTransport:
         else:
             await self._handle_unsupported_request(request, send)
 
-    def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
-        """Check if the request accepts the required media types.
-
-        Supports wildcard media types per RFC 7231, section 5.3.2:
-        - */* matches any media type
-        - application/* matches any application/ subtype
-        - text/* matches any text/ subtype
-        """
-        accept_header = request.headers.get("accept", "")
-        accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
-
-        has_wildcard = "*/*" in accept_types
-        has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)
-        has_sse = has_wildcard or any(t in (CONTENT_TYPE_SSE, "text/*") for t in accept_types)
-
-        return has_json, has_sse
-
     def _check_content_type(self, request: Request) -> bool:
         """Check if the request has the correct Content-Type."""
         content_type = request.headers.get("content-type", "")
@@ -441,7 +442,7 @@ class StreamableHTTPServerTransport:
 
     async def _validate_accept_header(self, request: Request, scope: Scope, send: Send) -> bool:
         """Validate Accept header based on response mode. Returns True if valid."""
-        has_json, has_sse = self._check_accept_headers(request)
+        has_json, has_sse = check_accept_headers(request)
         if self.is_json_response_enabled:
             # For JSON-only responses, only require application/json
             if not has_json:
@@ -661,7 +662,7 @@ class StreamableHTTPServerTransport:
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
 
         # Validate Accept header - must include text/event-stream
-        _, has_sse = self._check_accept_headers(request)
+        _, has_sse = check_accept_headers(request)
 
         if not has_sse:
             response = self._create_error_response(

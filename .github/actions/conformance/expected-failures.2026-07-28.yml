@@ -28,10 +28,6 @@ client:
   # neither run nor evaluated on this leg.
 
 server:
-  # The stateless 2026 path now reaches handlers for plain request/response
-  # scenarios; tools-call-with-progress still fails because the stateless
-  # server has no channel for server→client progress notifications.
-  - tools-call-with-progress
   # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
   # cannot return InputRequiredResult from MCPServer yet (tools/call can).
   - input-required-result-non-tool-request

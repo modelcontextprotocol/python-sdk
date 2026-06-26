@@ -31,8 +31,6 @@ era              = "dual-in-body"
 multi_connection = true
 
 [story.streaming]
-# progress + log notifications dropped on the modern streamable-HTTP path pending SSE wiring
-xfail = ["http-asgi:modern"]
 
 [story.mrtr]
 era = "modern"

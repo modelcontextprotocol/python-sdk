@@ -17,15 +17,11 @@ uv run python -m stories.streaming.client
 uv run python -m stories.streaming.client --server server_lowlevel
 
 # HTTP — the client self-hosts the server on a free port, runs, then tears it
-# down (--legacy: see the note below)
-uv run python -m stories.streaming.client --http --legacy
+# down
+uv run python -m stories.streaming.client --http
 # same, against the lowlevel-API server variant
-uv run python -m stories.streaming.client --http --legacy --server server_lowlevel
+uv run python -m stories.streaming.client --http --server server_lowlevel
 ```
-
-The modern HTTP leg (drop `--legacy`) is `xfail` until the SSE wiring lands —
-mid-call progress and log notifications are currently dropped there (see
-Caveats).
 
 ## What to look at
 
@@ -60,9 +56,6 @@ Caveats).
   OpenTelemetry instead of `notifications/message`. It is shown here because
   servers still need to support 2025-era clients during that window. Progress
   and cancellation are **not** deprecated. TODO(maxisbey): revisit before beta.
-- On the modern (2026-07-28) streamable-HTTP path, mid-call progress and log
-  notifications are currently dropped pending the SSE wiring; the
-  `http-asgi:modern` leg of this story is `xfail` until that lands.
 - When a request is cancelled the server currently replies with
   `ErrorData(code=0, message="Request cancelled")`; the spec says it should not
   reply at all. The client never observes it (its awaiting task is already

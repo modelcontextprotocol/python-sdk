@@ -170,7 +170,9 @@ class StreamableHTTPSessionManager:
         header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
         if pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS:
-            await handle_modern_request(self.app, self.security_settings, self._lifespan_state, scope, receive, send)
+            await handle_modern_request(
+                self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
+            )
             return
 
         # Dispatch to the appropriate handler
