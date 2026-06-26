@@ -1476,13 +1476,14 @@ async def star_repo(
     return f"starred {repo} as {login.username}" if confirm.ok else "cancelled"
 ```
 
-The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Login, Resolve(login)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead, annotate the elicitation result union:
+The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Login, Resolve(login)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead, annotate `ElicitationResult[Login]` (or an explicit `AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation` union):
 
 ```python
+from mcp.server.mcpserver import ElicitationResult
+
+
 @mcp.tool()
-async def whoami(
-    login: Annotated[AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation, Resolve(login)],
-) -> str:
+async def whoami(login: Annotated[ElicitationResult[Login], Resolve(login)]) -> str:
     match login:
         case AcceptedElicitation(data=data):
             return f"hi {data.username}"

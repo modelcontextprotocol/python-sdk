@@ -13,6 +13,7 @@ from mcp.server.mcpserver import (
     Context,
     DeclinedElicitation,
     Elicit,
+    ElicitationResult,
     MCPServer,
     Resolve,
 )
@@ -28,6 +29,10 @@ class Login(BaseModel):
 
 class Confirm(BaseModel):
     ok: bool
+
+
+async def _alias_login(ctx: Context) -> Login:
+    return Login(username="x")  # pragma: no cover - only the signature is inspected
 
 
 def _accept(content: dict[str, str | int | float | bool | list[str] | None]):
@@ -92,9 +97,7 @@ async def test_consumer_receives_result_union_and_branches():
         return Elicit("GitHub username?", Login)
 
     @mcp.tool()
-    async def whoami(
-        login: Annotated[AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation, Resolve(login)],
-    ) -> str:
+    async def whoami(login: Annotated[ElicitationResult[Login], Resolve(login)]) -> str:
         match login:
             case AcceptedElicitation(data=data):
                 return f"hi {data.username}"
@@ -261,6 +264,20 @@ def test_find_resolved_parameters_tolerates_unresolvable_hints():
 
     fn.__annotations__["x"] = "DoesNotExist"
     assert find_resolved_parameters(fn) == {}
+
+
+def test_elicitation_result_alias_resolves_under_postponed_annotations():
+    # Reproduces the case where `from __future__ import annotations` stringifies
+    # `Annotated[ElicitationResult[Login], Resolve(_alias_login)]`: the alias must be
+    # subscriptable so the resolver is detected (not silently dropped) and the
+    # consumer is recognized as wanting the result union.
+    def tool(login: str) -> str:
+        return login  # pragma: no cover
+
+    tool.__annotations__["login"] = "Annotated[ElicitationResult[Login], Resolve(_alias_login)]"
+    resolved = find_resolved_parameters(tool)
+    assert "login" in resolved
+    assert resolved["login"][1] is True  # wants_union
 
 
 def test_unresolvable_resolver_param_raises_at_registration():

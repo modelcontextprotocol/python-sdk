@@ -126,7 +126,16 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
 
 
 def _wants_union(type_arg: Any) -> bool:
-    """True when `type_arg` is an `ElicitationResult` member (or a union of them)."""
+    """True when `type_arg` is an `ElicitationResult` member (or a union of them).
+
+    Handles the bare `ElicitationResult[T]` alias (a `TypeAliasType` carrying the
+    union on `__value__`), an explicit `AcceptedElicitation[T] | ... ` union, and a
+    single member.
+    """
+    origin = get_origin(type_arg)
+    value = getattr(origin, "__value__", None)
+    if value is not None:
+        type_arg = value
     members = get_args(type_arg) if get_origin(type_arg) is not None else (type_arg,)
     return any(isinstance(m, type) and issubclass(m, _ELICITATION_RESULT_MEMBERS) for m in members)
 
