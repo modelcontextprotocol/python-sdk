@@ -6,9 +6,11 @@ path for earlier protocol revisions.
 
 A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
 `Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. JSON
-mode handles the request directly in the ASGI task; SSE mode runs the handler
-as a sibling task inside an `EventSourceResponse` so request-scoped
-notifications stream before the terminal response.
+mode handles the request directly in the ASGI task. SSE mode runs the handler
+as a sibling task and defers committing to `text/event-stream` until the
+handler actually emits a notification: a handler that completes (or raises)
+without emitting still gets a JSON response with the table-mapped HTTP
+status, so the spec's `404`/`400` MUSTs hold for kernel-dispatch errors.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import json
 import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Final, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
@@ -36,7 +38,6 @@ from mcp_types import (
     RequestId,
 )
 from pydantic import BaseModel, ValidationError
-from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -80,7 +81,7 @@ class _SingleExchangeDispatchContext:
     request_id: RequestId
     message_metadata: MessageMetadata
     progress_token: ProgressToken | None = None
-    sink: MemoryObjectSendStream[dict[str, str]] | None = None
+    sink: MemoryObjectSendStream[bytes] | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     can_send_request: bool = field(default=False, init=False)
 
@@ -146,14 +147,23 @@ async def _to_jsonrpc_response(
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
-def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> dict[str, str]:
-    """Serialise a JSON-RPC message as an sse-starlette event dict.
+_SSE_HEADERS: Final[list[tuple[bytes, bytes]]] = [
+    (b"content-type", b"text/event-stream"),
+    (b"cache-control", b"no-store"),
+    (b"connection", b"keep-alive"),
+    (b"x-accel-buffering", b"no"),
+]
 
-    SSE mode begins after the request body has parsed, so a `JSONRPCError` here
+
+def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> bytes:
+    """Serialise a JSON-RPC message as one SSE `event: message` frame.
+
+    SSE mode begins after the handler has emitted, so a `JSONRPCError` here
     always carries the request's id; the `id: null` case lives in `_write`.
     """
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
-    return {"event": "message", "data": json.dumps(body, separators=(",", ":"))}
+    data = json.dumps(body, separators=(",", ":"))
+    return f"event: message\r\ndata: {data}\r\n\r\n".encode()
 
 
 async def _write(
@@ -263,18 +273,40 @@ async def handle_modern_request(
         await _write(msg, scope, receive, send)
         return
 
-    send_ch, recv_ch = anyio.create_memory_object_stream[dict[str, str]](0)
+    send_ch, recv_ch = anyio.create_memory_object_stream[bytes](0)
     dctx.sink = send_ch
+    result: list[JSONRPCResponse | JSONRPCError] = []
 
     async def run_handler() -> None:
         async with send_ch:
-            msg = await _to_jsonrpc_response(
-                req.id,
-                serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state),
+            result.append(
+                await _to_jsonrpc_response(
+                    req.id,
+                    serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state),
+                )
             )
-            await send_ch.send(_sse_event(msg))
 
-    try:
-        await EventSourceResponse(content=recv_ch, data_sender_callable=run_handler)(scope, receive, send)
-    finally:
-        await recv_ch.aclose()
+    async def watch_disconnect(cancel_scope: anyio.CancelScope) -> None:
+        while (await receive()).get("type") != "http.disconnect":
+            pass  # pragma: no cover
+        cancel_scope.cancel()
+
+    async with recv_ch, anyio.create_task_group() as tg:
+        tg.start_soon(run_handler)
+        tg.start_soon(watch_disconnect, tg.cancel_scope)
+
+        try:
+            first = await recv_ch.receive()
+        except anyio.EndOfStream:
+            first = None
+
+        if first is None:
+            await _write(result[0], scope, receive, send)
+        else:
+            await send({"type": "http.response.start", "status": _OK_STATUS, "headers": _SSE_HEADERS})
+            await send({"type": "http.response.body", "body": first, "more_body": True})
+            async for event in recv_ch:
+                await send({"type": "http.response.body", "body": event, "more_body": True})
+            await send({"type": "http.response.body", "body": _sse_event(result[0]), "more_body": False})
+
+        tg.cancel_scope.cancel()

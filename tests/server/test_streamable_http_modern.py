@@ -415,10 +415,10 @@ async def test_json_mode_drops_progress() -> None:
     assert "notifications/progress" not in response.text
 
 
-async def test_sse_mode_handler_error_is_event() -> None:
-    """SSE mode: a handler-raised `MCPError` is delivered as the terminal SSE event (HTTP 200).
-    SDK-defined: SSE responses commit headers before the handler runs, so the error rides the
-    event stream rather than the HTTP status line."""
+async def test_sse_mode_error_before_any_notify_is_json_with_mapped_status() -> None:
+    """SSE mode: an error raised before the handler emits any notification is written as
+    `application/json` with the table-mapped HTTP status — SSE has not committed yet.
+    Spec-mandated: METHOD_NOT_FOUND MUST be `404 Not Found`."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         raise MCPError(code=METHOD_NOT_FOUND, message="nope")
@@ -427,17 +427,37 @@ async def test_sse_mode_handler_error_is_event() -> None:
         with anyio.fail_after(5):
             response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
 
+    assert response.status_code == 404
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    assert response.json() == {"jsonrpc": "2.0", "id": 1, "error": {"code": METHOD_NOT_FOUND, "message": "nope"}}
+
+
+async def test_sse_mode_error_after_notify_is_sse_event() -> None:
+    """SSE mode: an error raised after the handler has emitted is delivered as the terminal SSE
+    event (HTTP 200) — `text/event-stream` headers were committed on the first notification."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1.0)
+        raise MCPError(code=INTERNAL_ERROR, message="boom")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post(
+                "/mcp", json=_list_tools_body_with_token("tok"), headers={MCP_METHOD_HEADER: "tools/list"}
+            )
+
     assert response.status_code == 200
     assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
     events = _sse_payloads(response.text)
-    assert len(events) == 1
-    assert events[0] == {"jsonrpc": "2.0", "id": 1, "error": {"code": METHOD_NOT_FOUND, "message": "nope"}}
+    assert len(events) == 2
+    assert events[0]["method"] == "notifications/progress"
+    assert events[1] == {"jsonrpc": "2.0", "id": 1, "error": {"code": INTERNAL_ERROR, "message": "boom"}}
 
 
-async def test_sse_mode_no_token_progress_noop() -> None:
-    """SSE mode: with no `progressToken` in `_meta`, `report_progress` is a no-op and the stream
-    carries only the terminal event. Spec-mandated: progress notifications are sent only against a
-    caller-supplied token."""
+async def test_sse_mode_no_notify_response_is_json() -> None:
+    """SSE mode: a handler that emits nothing (here `report_progress` is a no-op because no
+    `progressToken` was supplied) gets a plain `application/json` response. SDK-defined: SSE only
+    commits once there is something to stream."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         await ctx.session.report_progress(1, total=2)
@@ -447,9 +467,9 @@ async def test_sse_mode_no_token_progress_noop() -> None:
         with anyio.fail_after(5):
             response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
 
-    events = _sse_payloads(response.text)
-    assert len(events) == 1
-    assert "result" in events[0]
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    assert response.json()["result"]["tools"] == []
 
 
 async def test_accept_missing_sse_406_in_sse_mode() -> None:
@@ -496,7 +516,7 @@ async def test_accept_wildcard_satisfies_both_response_modes(json_response: bool
 async def test_late_notify_after_terminal_dropped() -> None:
     """SDK-defined: a `notify()` after the SSE sink has closed is silently dropped — the closed
     stream must not propagate as an exception out of the dispatch context."""
-    send_ch, recv_ch = anyio.create_memory_object_stream[dict[str, str]](0)
+    send_ch, recv_ch = anyio.create_memory_object_stream[bytes](0)
     dctx = _SingleExchangeDispatchContext(
         transport=TransportContext(kind="streamable-http", can_send_request=False),
         request_id=1,
@@ -556,7 +576,7 @@ async def test_disconnect_cancels_handler_and_runs_exit_stack() -> None:
         await handler_started.wait()
         return {"type": "http.disconnect"}
 
-    async def send(message: Message) -> None:
+    async def send(message: Message) -> None:  # pragma: no cover
         pass
 
     with anyio.fail_after(5):
