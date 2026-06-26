@@ -40,11 +40,23 @@ async def test_call_returns_text_and_structured_content() -> None:
 
 
 async def test_default_value_makes_the_argument_optional() -> None:
-    """tutorial002: a plain Python default drops the argument from `required` and lands in the schema."""
+    """tutorial002: a plain Python default drops the argument from `required` and lands in the schema.
+
+    The whole schema is pinned because the page quotes it verbatim.
+    """
     async with Client(tutorial002.mcp) as client:
         (tool,) = (await client.list_tools()).tools
-        assert tool.input_schema["required"] == ["query"]
-        assert tool.input_schema["properties"]["limit"] == {"default": 10, "title": "Limit", "type": "integer"}
+        assert tool.input_schema == snapshot(
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"title": "Query", "type": "string"},
+                    "limit": {"default": 10, "title": "Limit", "type": "integer"},
+                },
+                "required": ["query"],
+                "title": "search_booksArguments",
+            }
+        )
         result = await client.call_tool("search_books", {"query": "dune"})
         assert result.structured_content == {"result": "Found 3 books matching 'dune' (showing up to 10)."}
 

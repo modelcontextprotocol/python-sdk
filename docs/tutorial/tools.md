@@ -27,11 +27,12 @@ From those type hints the SDK generates a JSON Schema and sends it to the client
     "query": {"title": "Query", "type": "string"},
     "limit": {"title": "Limit", "type": "integer"}
   },
-  "required": ["query", "limit"]
+  "required": ["query", "limit"],
+  "title": "search_booksArguments"
 }
 ```
 
-Both arguments are in `required` because neither has a default. You'll fix that in a moment.
+Both arguments are in `required` because neither has a default. You'll fix that in a moment. (The `title` keys are Pydantic artifacts; the properties, their types, and `required` are the contract.)
 
 !!! tip
     Type hints aren't documentation here. They are **the contract**. If a client sends `"limit": "ten"`,
@@ -74,11 +75,13 @@ The schema follows:
 
 ```json
 {
+  "type": "object",
   "properties": {
     "query": {"title": "Query", "type": "string"},
     "limit": {"default": 10, "title": "Limit", "type": "integer"}
   },
-  "required": ["query"]
+  "required": ["query"],
+  "title": "search_booksArguments"
 }
 ```
 
