@@ -656,10 +656,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "Intentional, not a gap to close: no MCP SDK (typescript, go, csharp) validates "
-                "sender-side progress monotonicity, and this one does not either. The spec MUST "
-                "binds the handler author, not the transport; non-increasing values are forwarded "
-                "to the callback unchanged so the receiving application sees what the sender sent. "
-                "docs/tutorial/progress.md states the author's obligation."
+                "sender-side progress monotonicity, and this one does not either. The spec MUST is "
+                "a contract on the handler author, not on the transport; non-increasing values are "
+                "forwarded to the callback unchanged so the receiving application sees what the "
+                "sender sent, and the test pins that pass-through. docs/tutorial/progress.md "
+                "states the author's obligation."
             ),
         ),
     ),
@@ -3651,9 +3652,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "Intentional, not a gap to close: the SDK's own writes are pure, but sys.stdout is not "
+                "redirected, so handler code that calls print() writes into the protocol stream and "
+                "corrupts the framing. This matches every other MCP SDK -- none redirects stdout. A "
+                "redirect would only catch print(): os.write(1, ...) and C extensions that write to file "
+                "descriptor 1 bypass sys.stdout entirely, so it would be a partial guard rather than a "
+                "structural fix. docs/tutorial/logging.md tells server authors to log to stderr and "
+                "never print() in a stdio server."
             ),
         ),
     ),
