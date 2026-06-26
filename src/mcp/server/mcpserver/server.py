@@ -24,6 +24,7 @@ from mcp_types import (
     GetPromptRequestParams,
     GetPromptResult,
     Icon,
+    InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -306,8 +307,8 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
-    ) -> CallToolResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> CallToolResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -323,7 +324,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
@@ -365,7 +366,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -387,7 +388,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> CallToolResult:
+    ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)

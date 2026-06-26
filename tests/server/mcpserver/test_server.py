@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -11,15 +12,21 @@ from mcp_types import (
     AudioContent,
     BlobResourceContents,
     CallToolResult,
+    ClientCapabilities,
     Completion,
     CompletionArgument,
     CompletionContext,
     ContentBlock,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmbeddedResource,
     GetPromptResult,
     Icon,
     ImageContent,
+    InputRequiredResult,
     ListPromptsResult,
+    ListRootsRequest,
     Prompt,
     PromptArgument,
     PromptMessage,
@@ -1570,3 +1577,98 @@ async def test_read_resource_template_not_found():
 
         assert exc_info.value.error.code == INVALID_PARAMS
         assert exc_info.value.error.data == {"uri": "resource://users/999"}
+
+
+async def test_tool_returning_input_required_result_reaches_client_unchanged():
+    mcp = MCPServer()
+
+    @mcp.tool()
+    async def ask(ctx: Context) -> str | InputRequiredResult:
+        return InputRequiredResult(input_requests={"roots": ListRootsRequest()}, request_state="round-1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            result = await client.call_tool("ask", allow_input_required=True)
+
+    assert isinstance(result, InputRequiredResult)
+    assert result.request_state == "round-1"
+    assert result.input_requests is not None
+    assert result.input_requests["roots"].method == "roots/list"
+
+
+async def test_tool_reads_input_responses_and_request_state_from_context_on_retry():
+    mcp = MCPServer()
+
+    @mcp.tool()
+    async def greet(ctx: Context) -> str | InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "who" in responses:
+            who = responses["who"]
+            assert isinstance(who, ElicitResult) and who.content is not None
+            return f"Hello, {who.content['name']}! (state={ctx.request_state})"
+        return InputRequiredResult(
+            input_requests={
+                "who": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="What is your name?",
+                        requested_schema={
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "required": ["name"],
+                        },
+                    )
+                )
+            },
+            request_state="r1",
+        )
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.call_tool("greet", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
+            assert r1.input_requests is not None and "who" in r1.input_requests
+
+            r2 = await client.call_tool(
+                "greet",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                request_state=r1.request_state,
+                allow_input_required=True,
+            )
+    assert isinstance(r2, CallToolResult)
+    block = r2.content[0]
+    assert isinstance(block, TextContent)
+    assert block.text == "Hello, Alice! (state=r1)"
+
+
+async def test_context_exposes_client_capabilities_from_connection():
+    mcp = MCPServer()
+    seen: list[ClientCapabilities | None] = []
+
+    @mcp.tool()
+    async def probe(ctx: Context) -> str:
+        seen.append(ctx.client_capabilities)
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            await client.call_tool("probe")
+
+    assert len(seen) == 1
+    assert isinstance(seen[0], ClientCapabilities)
+
+
+async def test_context_input_responses_and_request_state_are_none_on_initial_round():
+    mcp = MCPServer()
+    captured: dict[str, Any] = {}
+
+    @mcp.tool()
+    async def probe(ctx: Context) -> str:
+        captured["responses"] = ctx.input_responses
+        captured["state"] = ctx.request_state
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            await client.call_tool("probe")
+
+    assert captured == {"responses": None, "state": None}

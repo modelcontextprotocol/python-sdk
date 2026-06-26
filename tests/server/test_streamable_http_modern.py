@@ -15,6 +15,7 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -39,7 +40,7 @@ from mcp.server._streamable_http_modern import (
 )
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError, NoBackChannelError
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
 
 pytestmark = pytest.mark.anyio
@@ -67,7 +68,10 @@ def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettin
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://testserver",
-        headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION},
+        headers={
+            MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION,
+            "content-type": "application/json",
+        },
     )
 
 
@@ -150,7 +154,7 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
     body["method"] = "custom/greet"
     body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     async with _asgi_client(server) as http:
-        response = await http.post("/mcp", json=body, headers={"content-type": "application/json"})
+        response = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "custom/greet"})
     assert response.status_code == 200
     assert response.json()["result"] == {"ok": True}
     assert seen == [None]
@@ -175,7 +179,7 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_rais
 
     with caplog.at_level(logging.ERROR, logger=runner.__name__):
         async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
-            response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
 
     assert response.status_code == 200
     assert response.json()["result"]["tools"] == []
@@ -203,7 +207,7 @@ async def test_handle_modern_request_sends_response_when_exit_stack_cleanup_hang
 
     with anyio.fail_after(5), caplog.at_level(logging.WARNING, logger=runner.__name__):
         async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
-            response = await http.post("/mcp", json=_list_tools_body(), headers={"content-type": "application/json"})
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
     # coverage.py on Python 3.11 misreports the lines below as unhit (the test passes there);
     # the shielded-cancel path inside the request task disrupts the tracer in this frame.
     assert response.status_code == 200  # pragma: lax no cover
@@ -270,3 +274,30 @@ async def test_to_jsonrpc_response_maps_unmapped_exception_to_internal_error_and
     # Handler internals never reach the wire.
     assert "boom" not in reply.error.message
     assert "request handler raised" in caplog.text
+
+
+# --- header cross-check at the wire --------------------------------------------
+
+
+async def test_handle_modern_request_rejects_mismatched_method_header_with_400_and_header_mismatch() -> None:
+    """Spec-mandated: an `Mcp-Method` header that disagrees with `body.method` is rejected at the
+    boundary as HTTP 400 with JSON-RPC error code HEADER_MISMATCH; the handler never runs."""
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "prompts/list"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH
+
+
+async def test_handle_modern_request_rejects_mismatched_name_header_with_400_and_header_mismatch() -> None:
+    """Spec-mandated: for a name-bearing method, an `Mcp-Name` header that disagrees with the body's
+    named param is rejected as HTTP 400 with JSON-RPC error code HEADER_MISMATCH."""
+    body = _list_tools_body()
+    body["method"] = "tools/call"
+    body["params"]["name"] = "real"
+    body["params"]["arguments"] = {}
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post(
+            "/mcp", json=body, headers={MCP_METHOD_HEADER: "tools/call", MCP_NAME_HEADER: "wrong"}
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH

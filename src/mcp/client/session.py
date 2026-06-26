@@ -38,7 +38,9 @@ from mcp.shared.inbound import (
     MCP_METHOD_HEADER,
     MCP_NAME_HEADER,
     MCP_PROTOCOL_VERSION_HEADER,
+    NAME_BEARING_METHODS,
     encode_header_value,
+    find_invalid_x_mcp_header,
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -78,8 +80,8 @@ def _make_modern_stamp(
         headers = opts.setdefault("headers", {})
         headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
         headers[MCP_METHOD_HEADER] = data["method"]
-        # TODO: also emit Mcp-Name for prompts/get (params.name) and resources/read (params.uri)
-        if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
+        name_key = NAME_BEARING_METHODS.get(data["method"])
+        if name_key is not None and isinstance(name := params.get(name_key), str):
             headers[MCP_NAME_HEADER] = encode_header_value(name)
 
     return stamp
@@ -429,7 +431,7 @@ class ClientSession:
         opts: CallOptions = {
             "timeout": DISCOVER_TIMEOUT_SECONDS,
             "cancel_on_abandon": False,
-            "headers": {MCP_PROTOCOL_VERSION_HEADER: version},
+            "headers": {MCP_PROTOCOL_VERSION_HEADER: version, MCP_METHOD_HEADER: data["method"]},
         }
         return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
 
@@ -758,6 +760,16 @@ class ClientSession:
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
+
+        if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
+            # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
+            kept: list[types.Tool] = []
+            for tool in result.tools:
+                if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
+                    logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
+                    continue
+                kept.append(tool)
+            result.tools = kept
 
         # Cache tool output schemas for future validation
         # Note: don't clear the cache, as we may be using a cursor

@@ -10,7 +10,8 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ### `MCPServer.call_tool()` returns `CallToolResult`
 
-`MCPServer.call_tool()` now always returns a `CallToolResult`. It previously
+`MCPServer.call_tool()` now returns a `CallToolResult` (or an
+`InputRequiredResult` when a multi-round tool requests further input). It previously
 advertised `Sequence[ContentBlock] | dict[str, Any]` and leaked the internal
 conversion shapes (a bare content sequence or a `(content, structured_content)`
 tuple), forcing callers to re-assemble a `CallToolResult` themselves.
@@ -1371,6 +1372,14 @@ the `/authorize` and token-exchange requests. RFC 6749 §3.1.2.3 requires author
 match redirect URIs by exact string comparison, so if you registered such a URI with a previous SDK
 release (with the trailing slash) and the registration is persisted in `TokenStorage`, re-register
 the client so the stored value matches what the SDK now transmits.
+
+`AuthSettings` now sets `url_preserve_empty_path=True` for the same reason: a path-less
+`issuer_url` (or `resource_server_url`) passed as a string keeps its empty path, so the authorization
+server advertises `issuer` as `https://as.example.com` rather than `https://as.example.com/` in its
+metadata. Previously the trailing slash was added before the model saw the value, leaving the served
+issuer inconsistent with what clients compare against under RFC 8414 / RFC 9207. Passing an
+already-built `AnyHttpUrl` object still normalizes at construction; pass a string to get the
+preserved form.
 
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
