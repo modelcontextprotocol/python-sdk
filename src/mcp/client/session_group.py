@@ -8,7 +8,7 @@ This abstraction can handle naming collisions using a custom user-provided hook.
 
 import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Literal, TypeAlias, overload
@@ -65,6 +65,28 @@ class StreamableHttpParameters(BaseModel):
 
 
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
+
+
+async def _drain_paginated(
+    fetch_page: Callable[..., Awaitable[Any]],
+    attribute: str,
+) -> list[Any]:
+    """Drain a paginated `session.list_*` call across `next_cursor` pages.
+
+    `fetch_page` is one of the ClientSession `list_*` methods that takes a
+    `params=PaginatedRequestParams(...)` keyword. `attribute` is the name of
+    the list attribute on the result (e.g. `"tools"`, `"prompts"`).
+    """
+    items: list[Any] = []
+    cursor: str | None = None
+    while True:
+        params = types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None
+        result = await fetch_page(params=params)
+        items.extend(getattr(result, attribute))
+        next_cursor = getattr(result, "next_cursor", None)
+        if next_cursor is None:
+            return items
+        cursor = next_cursor
 
 
 # Use dataclass instead of Pydantic BaseModel
@@ -383,9 +405,11 @@ class ClientSessionGroup:
         tools_temp: dict[str, types.Tool] = {}
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
-        # Query the server for its prompts and aggregate to list.
+        # Query the server for its prompts and aggregate to list. Drain
+        # pagination so we don't drop later pages on servers that split
+        # results across multiple `next_cursor` responses.
         try:
-            prompts = (await session.list_prompts()).prompts
+            prompts = await _drain_paginated(session.list_prompts, "prompts")
             for prompt in prompts:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
@@ -395,7 +419,7 @@ class ClientSessionGroup:
 
         # Query the server for its resources and aggregate to list.
         try:
-            resources = (await session.list_resources()).resources
+            resources = await _drain_paginated(session.list_resources, "resources")
             for resource in resources:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
@@ -405,7 +429,7 @@ class ClientSessionGroup:
 
         # Query the server for its tools and aggregate to list.
         try:
-            tools = (await session.list_tools()).tools
+            tools = await _drain_paginated(session.list_tools, "tools")
             for tool in tools:
                 name = self._component_name(tool.name, server_info)
                 tools_temp[name] = tool
