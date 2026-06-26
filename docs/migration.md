@@ -1373,6 +1373,14 @@ match redirect URIs by exact string comparison, so if you registered such a URI 
 release (with the trailing slash) and the registration is persisted in `TokenStorage`, re-register
 the client so the stored value matches what the SDK now transmits.
 
+`AuthSettings` now sets `url_preserve_empty_path=True` for the same reason: a path-less
+`issuer_url` (or `resource_server_url`) passed as a string keeps its empty path, so the authorization
+server advertises `issuer` as `https://as.example.com` rather than `https://as.example.com/` in its
+metadata. Previously the trailing slash was added before the model saw the value, leaving the served
+issuer inconsistent with what clients compare against under RFC 8414 / RFC 9207. Passing an
+already-built `AnyHttpUrl` object still normalizes at construction; pass a string to get the
+preserved form.
+
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
