@@ -106,7 +106,7 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
         "method": "tools/call",
         "params": {"name": "add", "arguments": {"a": 2, "b": 3}, "_meta": _meta_envelope()},
     }
-    async with mounted_app(_server()) as (http, _):
+    async with mounted_app(_server(), json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="tools/call", name="add"))
 
     assert response.status_code == 200
@@ -151,7 +151,7 @@ async def test_modern_initialize_is_method_not_found() -> None:
     negative.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"_meta": _meta_envelope()}}
-    async with mounted_app(_server()) as (http, _):
+    async with mounted_app(_server(), json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="initialize"))
 
     assert response.status_code == 404
@@ -199,7 +199,7 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
         "method": "tools/call",
         "params": {"name": "boom", "arguments": {}, "_meta": _meta_envelope()},
     }
-    async with mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _):
+    async with mounted_app(Server("modern", on_call_tool=call_tool), json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="tools/call", name="boom"))
 
     assert response.status_code == 200
@@ -218,7 +218,7 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
     the raw result body.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
-    async with mounted_app(_server()) as (http, _):
+    async with mounted_app(_server(), json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="server/discover"))
 
     assert response.status_code == 200
@@ -238,7 +238,7 @@ async def test_modern_removed_method_is_method_not_found_at_http_404() -> None:
     wire because the HTTP status is the assertion.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"_meta": _meta_envelope()}}
-    async with mounted_app(_server()) as (http, _):
+    async with mounted_app(_server(), json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="ping"))
 
     assert response.status_code == 404
@@ -285,7 +285,7 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
     server = _server()
     server.add_request_handler("test/cap-check", RequestParams, cap_check)
     body = {"jsonrpc": "2.0", "id": 1, "method": "test/cap-check", "params": {"_meta": _meta_envelope()}}
-    async with mounted_app(server) as (http, _):
+    async with mounted_app(server, json_response=True) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="test/cap-check"))
 
     assert response.status_code == 400

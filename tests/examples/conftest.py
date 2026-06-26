@@ -99,7 +99,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     for leg, cfg in _legs():
         marks: list[pytest.MarkDecorator] = []
         if f"{leg.transport}:{leg.era}" in cfg["xfail"]:
-            marks.append(pytest.mark.xfail(strict=True, reason="manifest xfail"))
+            marks.append(pytest.mark.xfail(strict=True, reason="manifest xfail"))  # pragma: lax no cover
         params.append(pytest.param(leg, marks=marks, id=leg.id))
     metafunc.parametrize("leg", params)
 

@@ -6,6 +6,7 @@ the closed back-channel on the dispatch context, and the request-validation ladd
 ``handle_modern_request``.
 """
 
+import json
 import logging
 from typing import Any
 
@@ -26,11 +27,13 @@ from mcp_types import (
     JSONRPCError,
     JSONRPCResponse,
     ListToolsResult,
+    LoggingMessageNotification,
+    LoggingMessageNotificationParams,
     PaginatedRequestParams,
     Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp.server import Server, ServerRequestContext, runner
 from mcp.server._streamable_http_modern import (
@@ -42,12 +45,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.transport_context import TransportContext
+from tests.interaction.transports import StreamingASGITransport
 
 pytestmark = pytest.mark.anyio
 
 
 async def test_single_exchange_dispatch_context_has_no_back_channel() -> None:
-    """The per-request dispatch context refuses server-initiated requests and drops notify/progress."""
+    """The per-request dispatch context refuses server-initiated requests; without an SSE sink,
+    notify/progress are no-ops."""
     dctx = _SingleExchangeDispatchContext(
         transport=TransportContext(kind="streamable-http", can_send_request=False),
         request_id=1,
@@ -60,17 +65,24 @@ async def test_single_exchange_dispatch_context_has_no_back_channel() -> None:
     assert await dctx.progress(0.5, total=1.0, message="half") is None
 
 
-def _asgi_client(server: Server[Any], security_settings: TransportSecuritySettings | None = None) -> httpx.AsyncClient:
+def _asgi_client(
+    server: Server[Any],
+    security_settings: TransportSecuritySettings | None = None,
+    *,
+    json_response: bool = True,
+    accept: str = "application/json, text/event-stream",
+) -> httpx.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         async with server.lifespan(server) as lifespan_state:
-            await handle_modern_request(server, security_settings, lifespan_state, scope, receive, send)
+            await handle_modern_request(server, security_settings, json_response, lifespan_state, scope, receive, send)
 
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
+        transport=StreamingASGITransport(app),
         base_url="http://testserver",
         headers={
             MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION,
             "content-type": "application/json",
+            "accept": accept,
         },
     )
 
@@ -301,3 +313,255 @@ async def test_handle_modern_request_rejects_mismatched_name_header_with_400_and
         )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == HEADER_MISMATCH
+
+
+# --- SSE response mode ---------------------------------------------------------
+
+
+def _sse_payloads(body: str) -> list[dict[str, Any]]:
+    """Parse an SSE body into the list of JSON `data:` payloads, in delivery order."""
+    return [
+        json.loads(line.removeprefix("data:").strip())
+        for line in body.replace("\r\n", "\n").splitlines()
+        if line.startswith("data:")
+    ]
+
+
+def _list_tools_body_with_token(token: str | int) -> dict[str, Any]:
+    body = _list_tools_body()
+    body["params"]["_meta"]["progressToken"] = token
+    return body
+
+
+async def test_sse_mode_streams_progress_then_result() -> None:
+    """SSE mode: a handler's `report_progress` calls stream as `notifications/progress` events
+    (carrying the request's progressToken) before the terminal JSON-RPC response event.
+
+    Spec-mandated: `notifications/progress` carries the caller's token; the per-request SSE stream
+    closes after the terminal response. Asserted at the wire because Content-Type and event order
+    are the contract.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1.0, total=3.0)
+        await ctx.session.report_progress(2.0, total=3.0, message="almost")
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post(
+                "/mcp", json=_list_tools_body_with_token("tok-1"), headers={MCP_METHOD_HEADER: "tools/list"}
+            )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert len(events) == 3
+    assert events[0] == {
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {"progressToken": "tok-1", "progress": 1.0, "total": 3.0},
+    }
+    assert events[1] == {
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {"progressToken": "tok-1", "progress": 2.0, "total": 3.0, "message": "almost"},
+    }
+    assert events[2]["id"] == 1
+    assert events[2]["result"]["tools"] == []
+
+
+async def test_sse_mode_streams_log_notification() -> None:
+    """SSE mode: a request-scoped `notifications/message` emitted by the handler precedes the
+    terminal response on the same stream. SDK-defined: notifications sent on the request's outbound
+    channel reach the per-request SSE response."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.send_notification(
+            LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="hello")),
+            related_request_id=ctx.request_id,
+        )
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert len(events) == 2
+    assert events[0]["method"] == "notifications/message"
+    assert events[0]["params"] == {"level": "info", "data": "hello"}
+    assert events[1]["result"]["tools"] == []
+
+
+async def test_json_mode_drops_progress() -> None:
+    """JSON mode: `report_progress` is a no-op (no sink); the response is a plain
+    `application/json` body carrying only the terminal result. SDK-defined."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1, total=2)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=True) as http:
+        response = await http.post(
+            "/mcp", json=_list_tools_body_with_token("tok"), headers={MCP_METHOD_HEADER: "tools/list"}
+        )
+
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    body = response.json()
+    assert body["id"] == 1
+    assert body["result"]["tools"] == []
+    assert "notifications/progress" not in response.text
+
+
+async def test_sse_mode_handler_error_is_event() -> None:
+    """SSE mode: a handler-raised `MCPError` is delivered as the terminal SSE event (HTTP 200).
+    SDK-defined: SSE responses commit headers before the handler runs, so the error rides the
+    event stream rather than the HTTP status line."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise MCPError(code=METHOD_NOT_FOUND, message="nope")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert len(events) == 1
+    assert events[0] == {"jsonrpc": "2.0", "id": 1, "error": {"code": METHOD_NOT_FOUND, "message": "nope"}}
+
+
+async def test_sse_mode_no_token_progress_noop() -> None:
+    """SSE mode: with no `progressToken` in `_meta`, `report_progress` is a no-op and the stream
+    carries only the terminal event. Spec-mandated: progress notifications are sent only against a
+    caller-supplied token."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1, total=2)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+
+    events = _sse_payloads(response.text)
+    assert len(events) == 1
+    assert "result" in events[0]
+
+
+async def test_accept_missing_sse_406_in_sse_mode() -> None:
+    """SDK-defined: in SSE mode the client must accept both `application/json` and
+    `text/event-stream`; an Accept header naming only JSON is rejected at HTTP 406 before any
+    JSON-RPC parsing."""
+    async with _asgi_client(Server("test"), json_response=False, accept="application/json") as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 406
+    assert response.content == b""
+
+
+async def test_accept_missing_sse_ok_in_json_mode() -> None:
+    """SDK-defined: in JSON mode only `application/json` need be acceptable; an Accept header that
+    omits `text/event-stream` still routes (200 + result)."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(
+        Server("test", on_list_tools=list_tools), json_response=True, accept="application/json"
+    ) as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+
+
+@pytest.mark.parametrize("json_response", [True, False])
+async def test_accept_wildcard_satisfies_both_response_modes(json_response: bool) -> None:
+    """SDK-defined: `Accept: */*` satisfies both representations (RFC 7231 wildcard) in either
+    response mode."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(
+        Server("test", on_list_tools=list_tools), json_response=json_response, accept="*/*"
+    ) as http:
+        with anyio.fail_after(5):
+            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 200
+
+
+async def test_late_notify_after_terminal_dropped() -> None:
+    """SDK-defined: a `notify()` after the SSE sink has closed is silently dropped — the closed
+    stream must not propagate as an exception out of the dispatch context."""
+    send_ch, recv_ch = anyio.create_memory_object_stream[dict[str, str]](0)
+    dctx = _SingleExchangeDispatchContext(
+        transport=TransportContext(kind="streamable-http", can_send_request=False),
+        request_id=1,
+        message_metadata=None,
+        sink=send_ch,
+    )
+    await recv_ch.aclose()
+    # Neither raises despite the receiver being gone (BrokenResourceError caught and dropped).
+    assert await dctx.notify("notifications/message", {"level": "info", "data": "late"}) is None
+    dctx.progress_token = "tok"
+    assert await dctx.progress(1.0) is None
+    await send_ch.aclose()
+
+
+async def test_disconnect_cancels_handler_and_runs_exit_stack() -> None:
+    """SSE mode: when the client disconnects mid-stream the handler task is cancelled and
+    `connection.exit_stack` still unwinds. SDK-defined: `serve_one`'s shielded cleanup runs in the
+    cancellation path so handler-registered teardown is not skipped on disconnect."""
+    handler_started = anyio.Event()
+    cleanup_ran = anyio.Event()
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        ctx.session._connection.exit_stack.callback(cleanup_ran.set)
+        handler_started.set()
+        await anyio.Event().wait()
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    server: Server[Any] = Server("test", on_list_tools=list_tools)
+    body = json.dumps(_list_tools_body()).encode()
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "server": ("testserver", 80),
+        "client": ("127.0.0.1", 1234),
+        "path": "/mcp",
+        "raw_path": b"/mcp",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"accept", b"application/json, text/event-stream"),
+            (MCP_PROTOCOL_VERSION_HEADER.encode(), LATEST_MODERN_VERSION.encode()),
+            (MCP_METHOD_HEADER.encode(), b"tools/list"),
+        ],
+    }
+    request_delivered = anyio.Event()
+
+    async def receive() -> Message:
+        # First call delivers the request body; once the handler is parked, deliver disconnect.
+        if not request_delivered.is_set():
+            request_delivered.set()
+            return {"type": "http.request", "body": body, "more_body": False}
+        await handler_started.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        pass
+
+    with anyio.fail_after(5):
+        async with server.lifespan(server) as lifespan_state:
+            await handle_modern_request(server, None, False, lifespan_state, scope, receive, send)
+        await cleanup_ran.wait()
+
+    assert handler_started.is_set()

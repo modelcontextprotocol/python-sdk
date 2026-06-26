@@ -5,9 +5,10 @@ The legacy streamable-HTTP transport is untouched and remains the supported
 path for earlier protocol revisions.
 
 A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
-`Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. This
-module handles such a request directly in the ASGI task - no memory streams,
-no per-request task group, no `JSONRPCDispatcher`.
+`Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. JSON
+mode handles the request directly in the ASGI task; SSE mode runs the handler
+as a sibling task inside an `EventSourceResponse` so request-scoped
+notifications stream before the terminal response.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import anyio
+from anyio.streams.memory import MemoryObjectSendStream
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
@@ -27,17 +29,21 @@ from mcp_types import (
     ErrorData,
     Implementation,
     JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ProgressToken,
     RequestId,
 )
 from pydantic import BaseModel, ValidationError
+from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_one
+from mcp.server.streamable_http import check_accept_headers
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
@@ -46,7 +52,7 @@ from mcp.shared.inbound import (
     InboundLadderRejection,
     classify_inbound_request,
 )
-from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data, progress_token_from_params
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 
@@ -66,12 +72,15 @@ class _SingleExchangeDispatchContext:
 
     Structurally satisfies `mcp.shared.dispatcher.DispatchContext`. The
     back-channel is closed by construction: a 2026-07-28 server cannot send
-    requests to the client.
+    requests to the client. The SSE sink, when present, carries request-scoped
+    notifications onto this request's response stream.
     """
 
     transport: TransportContext
     request_id: RequestId
     message_metadata: MessageMetadata
+    progress_token: ProgressToken | None = None
+    sink: MemoryObjectSendStream[dict[str, str]] | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     can_send_request: bool = field(default=False, init=False)
 
@@ -84,12 +93,23 @@ class _SingleExchangeDispatchContext:
         raise NoBackChannelError(method)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-        # TODO(D-005a): buffer and stream as SSE once the JSON-vs-SSE response mode lands.
-        return None
+        if self.sink is None:
+            return
+        body = dict(params) if params is not None else None
+        try:
+            await self.sink.send(_sse_event(JSONRPCNotification(jsonrpc="2.0", method=method, params=body)))
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+            logger.debug("dropped %s: response stream closed", method)
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        # TODO(D-005a): no progressToken plumbing yet; ships with the SSE response mode.
-        return None
+        if self.progress_token is None:
+            return
+        params: dict[str, Any] = {"progressToken": self.progress_token, "progress": progress}
+        if total is not None:
+            params["total"] = total
+        if message is not None:
+            params["message"] = message
+        await self.notify("notifications/progress", params)
 
 
 def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
@@ -126,6 +146,16 @@ async def _to_jsonrpc_response(
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
+def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> dict[str, str]:
+    """Serialise a JSON-RPC message as an sse-starlette event dict.
+
+    SSE mode begins after the request body has parsed, so a `JSONRPCError` here
+    always carries the request's id; the `id: null` case lives in `_write`.
+    """
+    body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
+    return {"event": "message", "data": json.dumps(body, separators=(",", ":"))}
+
+
 async def _write(
     msg: JSONRPCResponse | JSONRPCError,
     scope: Scope,
@@ -149,6 +179,7 @@ async def _write(
 async def handle_modern_request(
     app: Server[Any],
     security_settings: TransportSecuritySettings | None,
+    json_response: bool,
     lifespan_state: Any,
     scope: Scope,
     receive: Receive,
@@ -169,12 +200,15 @@ async def handle_modern_request(
         await err(scope, receive, send)
         return
 
-    # TODO(D-005a): validate Accept once the JSON-vs-SSE response mode is settled.
-
     if request.method != "POST":
         # HTTP-layer rejection (Allow accompanies 405 per RFC 9110) — happens
         # before JSON-RPC parsing, so it doesn't go through `_write`.
         await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
+        return
+
+    has_json, has_sse = check_accept_headers(request)
+    if not has_json or (not json_response and not has_sse):
+        await Response(status_code=406)(scope, receive, send)
         return
 
     body = await request.body()
@@ -219,8 +253,28 @@ async def handle_modern_request(
         transport=TransportContext(kind="streamable-http", can_send_request=False, headers=request.headers),
         request_id=req.id,
         message_metadata=ServerMessageMetadata(request_context=request),
+        progress_token=progress_token_from_params(req.params),
     )
-    msg = await _to_jsonrpc_response(
-        req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
-    )
-    await _write(msg, scope, receive, send)
+
+    if json_response:
+        msg = await _to_jsonrpc_response(
+            req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
+        )
+        await _write(msg, scope, receive, send)
+        return
+
+    send_ch, recv_ch = anyio.create_memory_object_stream[dict[str, str]](0)
+    dctx.sink = send_ch
+
+    async def run_handler() -> None:
+        async with send_ch:
+            msg = await _to_jsonrpc_response(
+                req.id,
+                serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state),
+            )
+            await send_ch.send(_sse_event(msg))
+
+    try:
+        await EventSourceResponse(content=recv_ch, data_sender_callable=run_handler)(scope, receive, send)
+    finally:
+        await recv_ch.aclose()
