@@ -7,7 +7,7 @@ from mcp_types import CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOC
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
 from mcp.client import Client
-from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER, InboundLadderRejection
+from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_PROTOCOL_VERSION_HEADER, InboundLadderRejection
 from stories._harness import TargetFactory, run_client
 
 from .server import classify_era
@@ -31,9 +31,9 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
         assert _arm(await legacy.call_tool("which_arm", {})) == "legacy"
 
-    # ── the exported predicate, shown directly. A body carrying the 2026 _meta
-    # envelope classifies as modern; a bare initialize body classifies as legacy;
-    # a 2026 envelope whose header disagrees is a rejection (NOT legacy).
+    # ── the exported predicate, shown directly. A 2026 _meta envelope whose
+    # `Mcp-Protocol-Version`/`Mcp-Method` headers mirror it is modern; a bare
+    # initialize body is legacy; a header that disagrees is a rejection (NOT legacy).
     modern_body: dict[str, Any] = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -46,12 +46,15 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
             }
         },
     }
-    assert classify_era(modern_body, headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION}) == "modern"
+    modern_headers = {MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION, MCP_METHOD_HEADER: "tools/list"}
+    assert classify_era(modern_body, headers=modern_headers) == "modern"
 
     legacy_body: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
     assert classify_era(legacy_body, headers={}) == "legacy"
 
-    mismatched = classify_era(modern_body, headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_HANDSHAKE_VERSION})
+    # The SAME complete header set, with only the protocol version disagreeing with the body.
+    mismatched_headers = modern_headers | {MCP_PROTOCOL_VERSION_HEADER: LATEST_HANDSHAKE_VERSION}
+    mismatched = classify_era(modern_body, headers=mismatched_headers)
     assert isinstance(mismatched, InboundLadderRejection), mismatched
 
 
