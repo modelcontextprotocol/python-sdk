@@ -67,6 +67,7 @@ def create_auth_routes(
     service_documentation_url: AnyHttpUrl | None = None,
     client_registration_options: ClientRegistrationOptions | None = None,
     revocation_options: RevocationOptions | None = None,
+    token_exchange_enabled: bool = False,
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
@@ -77,6 +78,7 @@ def create_auth_routes(
         service_documentation_url,
         client_registration_options,
         revocation_options,
+        supports_token_exchange=token_exchange_enabled,
     )
     client_authenticator = ClientAuthenticator(provider)
 
@@ -103,7 +105,7 @@ def create_auth_routes(
         Route(
             TOKEN_PATH,
             endpoint=cors_middleware(
-                TokenHandler(provider, client_authenticator).handle,
+                TokenHandler(provider, client_authenticator, token_exchange_enabled=token_exchange_enabled).handle,
                 ["POST", "OPTIONS"],
             ),
             methods=["POST", "OPTIONS"],
@@ -147,9 +149,18 @@ def build_metadata(
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
+    supports_token_exchange: bool = False,
 ) -> OAuthMetadata:
     authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
     token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
+
+    grant_types_supported = ["authorization_code", "refresh_token"]
+    token_endpoint_auth_methods_supported = ["client_secret_post", "client_secret_basic"]
+    if supports_token_exchange:
+        grant_types_supported.append("urn:ietf:params:oauth:grant-type:token-exchange")
+        # SEP-990 clients commonly authenticate as public clients (the ID-JAG carries the
+        # user identity), so advertise the `none` method alongside the secret-based ones.
+        token_endpoint_auth_methods_supported.append("none")
 
     # Create metadata
     metadata = OAuthMetadata(
@@ -159,8 +170,8 @@ def build_metadata(
         scopes_supported=client_registration_options.valid_scopes,
         response_types_supported=["code"],
         response_modes_supported=None,
-        grant_types_supported=["authorization_code", "refresh_token"],
-        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
+        grant_types_supported=grant_types_supported,
+        token_endpoint_auth_methods_supported=token_endpoint_auth_methods_supported,
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
         ui_locales_supported=None,

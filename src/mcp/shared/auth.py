@@ -22,6 +22,17 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+class TokenExchangeToken(OAuthToken):
+    """Successful RFC 8693 token-exchange response.
+
+    Extends the RFC 6749 token response with `issued_token_type`, which RFC 8693 §2.2.1
+    requires in every token-exchange success response to identify the type of the issued
+    token. For SEP-990 this is an MCP bearer access token.
+    """
+
+    issued_token_type: str = "urn:ietf:params:oauth:token-type:access_token"
+
+
 class AuthorizationCodeResult(BaseModel):
     """Authorization-code-grant redirect parameters returned by a callback handler.
 

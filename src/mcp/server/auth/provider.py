@@ -16,6 +16,24 @@ class AuthorizationParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator
 
 
+class TokenExchangeParams(BaseModel):
+    """Validated parameters of an RFC 8693 token-exchange request.
+
+    Passed to ``OAuthAuthorizationServerProvider.exchange_token``. The subject token is the
+    security token the client is exchanging - for SEP-990 this is the ID-JAG issued by the
+    enterprise identity provider.
+    """
+
+    subject_token: str  # RFC 8693 §2.1: the security token being exchanged
+    subject_token_type: str  # RFC 8693 §2.1: type identifier of the subject token
+    requested_token_type: str | None = None  # RFC 8693 §2.1: desired type of the issued token
+    actor_token: str | None = None  # RFC 8693 §2.1: token of the acting party, for delegation
+    actor_token_type: str | None = None  # RFC 8693 §2.1: type identifier of the actor token
+    scopes: list[str] | None = None
+    resource: str | None = None  # RFC 8707 resource indicator
+    audience: str | None = None  # RFC 8693 §2.1: logical name of the target service
+
+
 class AuthorizationCode(BaseModel):
     code: str
     scopes: list[str]
@@ -85,6 +103,8 @@ TokenErrorCode = Literal[
     "unauthorized_client",
     "unsupported_grant_type",
     "invalid_scope",
+    # RFC 8693 §2.2.2: the requested resource/audience target is unknown or unsupported.
+    "invalid_target",
 ]
 
 
@@ -269,6 +289,41 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Args:
             token: The token to revoke.
         """
+
+    async def exchange_token(
+        self,
+        client: OAuthClientInformationFull,
+        params: TokenExchangeParams,
+    ) -> OAuthToken:
+        """Exchanges a security token for an access token (RFC 8693 token exchange).
+
+        This implements the OAuth 2.0 Token Exchange grant
+        (``urn:ietf:params:oauth:grant-type:token-exchange``), which MCP uses to let a
+        client present a security token issued by an enterprise identity provider - such
+        as the Identity Assertion Authorization Grant (ID-JAG) from SEP-990 - and receive
+        an access token for this MCP server. Validating the subject token (signature,
+        issuer, audience, expiry, policy) is the responsibility of the implementation.
+
+        The default implementation rejects every request as an unsupported grant type.
+        Override it to enable token exchange for this authorization server.
+
+        Args:
+            client: The client performing the exchange.
+            params: The validated token-exchange request parameters.
+
+        Returns:
+            The OAuth token, containing the issued access token. Return a
+            ``TokenExchangeToken`` to set RFC 8693's ``issued_token_type``; if a plain
+            ``OAuthToken`` is returned, the handler defaults it to the access-token type.
+
+        Raises:
+            TokenError: If the subject token or request is invalid. Use ``invalid_target``
+                for an unknown or unsupported ``resource``/``audience``.
+        """
+        raise TokenError(
+            error="unsupported_grant_type",
+            error_description="Token exchange is not supported by this authorization server",
+        )
 
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:

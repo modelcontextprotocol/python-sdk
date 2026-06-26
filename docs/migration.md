@@ -1431,6 +1431,35 @@ client_metadata = OAuthClientMetadata(
 
 Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
 
+### Token exchange for enterprise IdP flows (SEP-990)
+
+The SDK now supports the RFC 8693 token-exchange grant (`urn:ietf:params:oauth:grant-type:token-exchange`), the wire mechanism behind SEP-990's enterprise identity-provider policy controls. A client presents a security token issued by an enterprise IdP - the Identity Assertion Authorization Grant (ID-JAG) - to the MCP authorization server, which validates it and returns an MCP access token. This is additive and opt-in on both sides; existing flows are unchanged.
+
+On the client, `TokenExchangeOAuthProvider` (in `mcp.client.auth.extensions.token_exchange`) is an `httpx.Auth` that posts the exchange request, mirroring the `client_credentials` extension. The ID-JAG is supplied lazily through an async `subject_token_provider(audience)` callback - the SDK does not implement IdP login or the first exchange against the IdP, which are deployment-specific:
+
+```python
+from mcp.client.auth.extensions.token_exchange import TokenExchangeOAuthProvider
+
+
+async def fetch_id_jag(audience: str) -> str:
+    # `audience` is the authorization server's issuer; the ID-JAG must carry it as `aud`.
+    return await my_idp.exchange_id_token_for_id_jag(audience=audience)
+
+
+provider = TokenExchangeOAuthProvider(
+    server_url="https://mcp.example.com/mcp",
+    storage=my_token_storage,
+    client_id="enterprise-mcp-client",
+    subject_token_provider=fetch_id_jag,
+)
+```
+
+The client defaults to a public client (`token_endpoint_auth_method="none"`); pass a `client_secret` (optionally with `token_endpoint_auth_method="client_secret_basic"`) for a confidential client. `requested_token_type` defaults to `urn:ietf:params:oauth:token-type:access_token` since the SEP-990 output is an MCP access token; pass `None` to omit it.
+
+On the authorization server, set `AuthSettings(token_exchange_enabled=True)` (or pass `token_exchange_enabled=True` to `create_auth_routes`) and implement `exchange_token` on your `OAuthAuthorizationServerProvider`. The method receives a `TokenExchangeParams` (subject token, token types, scopes, resource, audience), validates the subject token, decides which scopes to grant, and returns an `OAuthToken` (or a `TokenExchangeToken` to set RFC 8693's `issued_token_type`, which the handler otherwise defaults to the access-token type). The flag gates both metadata advertisement and the token endpoint: when it is off, `/token` rejects the grant with `unsupported_grant_type` even if the provider implements `exchange_token`. When on, the authorization server also advertises the `none` token-endpoint auth method for the common public-client case. The base `exchange_token` rejects every request with `unsupported_grant_type`, and `TokenError` now includes RFC 8693's `invalid_target` for unknown `resource`/`audience` targets.
+
+The provider owns scope decisions: requested scopes must never be granted verbatim, since a valid ID-JAG could otherwise be exchanged for arbitrary access. Derive the granted scopes from the validated ID-JAG and policy and narrow the request against them (see `examples/snippets/servers/token_exchange_server.py`). Note also that the bundled Dynamic Client Registration handler still requires `authorization_code` in `grant_types`, so a token-exchange client must register both grants (or be pre-registered).
+
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 
 `mcp_types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.

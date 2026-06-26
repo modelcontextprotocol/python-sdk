@@ -3,7 +3,17 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, TokenExchangeToken
+
+
+def test_token_exchange_token_defaults_issued_token_type():
+    """TokenExchangeToken defaults issued_token_type to the access-token type (RFC 8693 §2.2.1)."""
+    token = TokenExchangeToken(access_token="abc")
+    assert token.issued_token_type == "urn:ietf:params:oauth:token-type:access_token"
+    assert token.token_type == "Bearer"
+
+    custom = TokenExchangeToken(access_token="abc", issued_token_type="urn:ietf:params:oauth:token-type:jwt")
+    assert custom.issued_token_type == "urn:ietf:params:oauth:token-type:jwt"
 
 
 def test_oauth():

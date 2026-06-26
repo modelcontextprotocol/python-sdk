@@ -4,14 +4,21 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError, model_validator
 from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenError, TokenErrorCode
-from mcp.shared.auth import OAuthToken
+from mcp.server.auth.provider import (
+    OAuthAuthorizationServerProvider,
+    TokenError,
+    TokenErrorCode,
+    TokenExchangeParams,
+)
+from mcp.shared.auth import OAuthToken, TokenExchangeToken
+
+TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 
 
 class AuthorizationCodeRequest(BaseModel):
@@ -40,7 +47,39 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-TokenRequest = Annotated[AuthorizationCodeRequest | RefreshTokenRequest, Field(discriminator="grant_type")]
+class TokenExchangeRequest(BaseModel):
+    # RFC 8693 OAuth 2.0 Token Exchange. Used by SEP-990 to exchange an enterprise
+    # IdP-issued grant (the ID-JAG) for an MCP access token.
+    grant_type: Literal["urn:ietf:params:oauth:grant-type:token-exchange"]
+    # See https://datatracker.ietf.org/doc/html/rfc8693#section-2.1
+    subject_token: str = Field(..., description="The security token being exchanged")
+    subject_token_type: str = Field(..., description="Type identifier of the subject token")
+    requested_token_type: str | None = Field(None, description="Desired type of the issued token")
+    actor_token: str | None = Field(None, description="Token of the acting party, for delegation")
+    actor_token_type: str | None = Field(None, description="Type identifier of the actor token")
+    scope: str | None = Field(None, description="Optional scope parameter")
+    audience: str | None = Field(None, description="Logical name of the target service")
+    client_id: str
+    # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
+    client_secret: str | None = None
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
+
+    @model_validator(mode="after")
+    def _validate_actor_token_pairing(self) -> "TokenExchangeRequest":
+        # RFC 8693 §2.1: actor_token_type is required when actor_token is present, and must be
+        # absent otherwise.
+        if self.actor_token is not None and self.actor_token_type is None:
+            raise ValueError("actor_token_type is required when actor_token is provided")
+        if self.actor_token is None and self.actor_token_type is not None:
+            raise ValueError("actor_token_type must not be provided without actor_token")
+        return self
+
+
+TokenRequest = Annotated[
+    AuthorizationCodeRequest | RefreshTokenRequest | TokenExchangeRequest,
+    Field(discriminator="grant_type"),
+]
 token_request_adapter = TypeAdapter[TokenRequest](TokenRequest)
 
 
@@ -62,6 +101,7 @@ TokenSuccessResponse = OAuthToken
 class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
     client_authenticator: ClientAuthenticator
+    token_exchange_enabled: bool = False
 
     def response(self, obj: TokenSuccessResponse | TokenErrorResponse):
         status_code = 200
@@ -98,7 +138,7 @@ class TokenHandler:
             form_data = await request.form()
             # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
             token_request = token_request_adapter.validate_python(dict(form_data))
-        except ValidationError as validation_error:  # pragma: no cover
+        except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",
@@ -106,7 +146,7 @@ class TokenHandler:
                 )
             )
 
-        if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
+        if token_request.grant_type not in client_info.grant_types:
             return self.response(
                 TokenErrorResponse(
                     error="unsupported_grant_type",
@@ -178,7 +218,7 @@ class TokenHandler:
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
-            case RefreshTokenRequest():  # pragma: no branch
+            case RefreshTokenRequest():
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
                     # if token belongs to different client, pretend it doesn't exist
@@ -215,5 +255,37 @@ class TokenHandler:
                     tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
+
+            case TokenExchangeRequest():  # pragma: no branch
+                if not self.token_exchange_enabled:
+                    return self.response(
+                        TokenErrorResponse(
+                            error="unsupported_grant_type",
+                            error_description="Token exchange is not supported by this authorization server",
+                        )
+                    )
+
+                params = TokenExchangeParams(
+                    subject_token=token_request.subject_token,
+                    subject_token_type=token_request.subject_token_type,
+                    requested_token_type=token_request.requested_token_type,
+                    actor_token=token_request.actor_token,
+                    actor_token_type=token_request.actor_token_type,
+                    scopes=token_request.scope.split(" ") if token_request.scope else None,
+                    resource=token_request.resource,
+                    audience=token_request.audience,
+                )
+                try:
+                    exchanged = await self.provider.exchange_token(client_info, params)
+                except TokenError as e:
+                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
+
+                # RFC 8693 §2.2.1 requires issued_token_type in the response. Providers may
+                # return a TokenExchangeToken to set it; otherwise default it so the response
+                # is compliant regardless of provider.
+                if isinstance(exchanged, TokenExchangeToken):
+                    tokens = exchanged
+                else:
+                    tokens = TokenExchangeToken.model_validate(exchanged.model_dump(exclude_none=True))
 
         return self.response(tokens)
