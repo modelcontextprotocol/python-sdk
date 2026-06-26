@@ -646,7 +646,14 @@ class StreamableHTTPServerTransport:
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            await writer.send(Exception(err))
+            # The session's read stream may already be closed (e.g. the session task
+            # crashed and tore down its streams before this handler ran). Sending into a
+            # closed/broken stream here would raise a secondary error that masks the
+            # original one and surfaces as "Exception in ASGI application". Guard it.
+            try:
+                await writer.send(Exception(err))
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: lax no cover
+                pass
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
