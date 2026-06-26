@@ -331,3 +331,23 @@ async def test_sync_fn_runs_in_worker_thread():
     assert isinstance(resource, FunctionResource)
     assert await resource.read() == "hello world"
     assert fn_thread[0] != main_thread
+
+
+def test_matches_treats_template_specials_literally():
+    def fn(id: str) -> str:  # pragma: no cover
+        return id
+
+    template = ResourceTemplate.from_function(fn=fn, uri_template="resource://a.b+c/{id}", name="t")
+
+    assert template.matches("resource://a.b+c/42") == {"id": "42"}
+    assert template.matches("resource://aXbYc/42") is None
+
+
+def test_matches_does_not_interpret_template_as_regex():
+    def fn(id: str) -> str:  # pragma: no cover
+        return id
+
+    template = ResourceTemplate.from_function(fn=fn, uri_template="resource://(.*)/{id}", name="t")
+
+    assert template.matches("resource://(.*)/7") == {"id": "7"}
+    assert template.matches("resource://anything/7") is None

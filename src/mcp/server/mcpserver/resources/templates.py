@@ -93,8 +93,10 @@ class ResourceTemplate(BaseModel):
 
         Extracted parameters are URL-decoded to handle percent-encoded characters.
         """
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+        # Escape the template so literal text matches literally, then turn {param}
+        # placeholders into capture groups. re.escape may backslash the braces, so
+        # the placeholder pattern tolerates an optional backslash on each side.
+        pattern = re.sub(r"\\?\{(\w+)\\?\}", r"(?P<\1>[^/]+)", re.escape(self.uri_template))
         match = re.match(f"^{pattern}$", uri)
         if match:
             # URL-decode all extracted parameter values
