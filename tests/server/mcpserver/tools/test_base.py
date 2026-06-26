@@ -2,6 +2,7 @@ import pytest
 
 from mcp import Client, types
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError
 
@@ -54,3 +55,30 @@ async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_err
 
     assert isinstance(result, types.CallToolResult)
     assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_tool_error_with_content_attaches_that_content_to_the_is_error_result():
+    """SDK-defined: a tool can raise ``ToolError(content=...)`` to return a
+    ``CallToolResult(isError=True)`` carrying arbitrary content - e.g. an image -
+    rather than only the error message as text. The content survives the wrap the
+    tool layer applies to exceptions."""
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    async def render() -> str:
+        raise ToolError(
+            "rendering failed",
+            content=[types.ImageContent(type="image", data="aGVsbG8=", mime_type="image/png")],
+        )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("render", {})
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.is_error is True
+    assert len(result.content) == 1
+    block = result.content[0]
+    assert isinstance(block, types.ImageContent)
+    assert block.data == "aGVsbG8="
+    assert block.mime_type == "image/png"

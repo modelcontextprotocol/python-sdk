@@ -118,5 +118,10 @@ class Tool(BaseModel):
             # it as a top-level JSON-RPC error rather than wrapping it as a
             # `CallToolResult(isError=True)` execution failure.
             raise
+        except ToolError as e:
+            # The tool deliberately signalled an error. Preserve any content it
+            # attached (e.g. an image) so it survives to the `CallToolResult`,
+            # while keeping the execution-failure prefix on the message.
+            raise ToolError(f"Error executing tool {self.name}: {e}", content=e.content) from e
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
