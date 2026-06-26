@@ -42,6 +42,7 @@ __all__ = [
     "InboundModernRoute",
     "MCP_METHOD_HEADER",
     "MCP_NAME_HEADER",
+    "MCP_PARAM_HEADER_PREFIX",
     "MCP_PROTOCOL_VERSION_HEADER",
     "NAME_BEARING_METHODS",
     "X_MCP_HEADER_KEY",
@@ -49,6 +50,8 @@ __all__ = [
     "decode_header_value",
     "encode_header_value",
     "find_invalid_x_mcp_header",
+    "mcp_param_headers",
+    "x_mcp_header_map",
 ]
 
 MCP_PROTOCOL_VERSION_HEADER: Final = "mcp-protocol-version"
@@ -191,10 +194,20 @@ def find_invalid_x_mcp_header(input_schema: Any) -> str | None:
             return f"{X_MCP_HEADER_KEY} found at a schema position not reachable via a pure `properties` chain"
         where = ".".join(path)
         header = schema[X_MCP_HEADER_KEY]
-        if not isinstance(header, str) or not _RFC9110_TOKEN.fullmatch(header):
+        # Wrong type and malformed value are distinct failures with distinct messages: the
+        # non-str arm returns before any interpolation, because `repr` of an arbitrary
+        # schema value is not total (a large `int` exceeds `sys.get_int_max_str_digits`).
+        if not isinstance(header, str):
+            return f"property {where!r}: {X_MCP_HEADER_KEY} must be a string, not {type(header).__name__}"
+        if not _RFC9110_TOKEN.fullmatch(header):
             return f"property {where!r}: {X_MCP_HEADER_KEY} {header!r} is not an RFC 9110 token"
         prop_type = schema.get("type")
-        if not isinstance(prop_type, str) or prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
+        if not isinstance(prop_type, str):
+            return (
+                f"property {where!r}: {X_MCP_HEADER_KEY} is only permitted on "
+                f"integer/string/boolean properties (the type keyword is {type(prop_type).__name__}, not a string)"
+            )
+        if prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
             return (
                 f"property {where!r}: {X_MCP_HEADER_KEY} is only permitted on "
                 f"integer/string/boolean properties (got {prop_type!r})"
@@ -204,6 +217,56 @@ def find_invalid_x_mcp_header(input_schema: Any) -> str | None:
             return f"{X_MCP_HEADER_KEY} {header!r} on property {where!r} duplicates property {seen[lower]!r}"
         seen[lower] = where
     return None
+
+
+MCP_PARAM_HEADER_PREFIX: Final = "Mcp-Param-"
+"""Prefix the `x-mcp-header` token is joined to, forming the per-parameter HTTP header name."""
+
+
+def x_mcp_header_map(input_schema: Any) -> dict[tuple[str, ...], str]:
+    """Map each property carrying a valid `x-mcp-header` to its annotation token, keyed by property path.
+
+    The key is the chain of `properties` keys from the schema root to the
+    annotated property; a top-level property has a one-element path, a nested
+    one a longer path. Call only on a schema that
+    :func:`find_invalid_x_mcp_header` accepts; an invalid schema yields an
+    undefined subset.
+    """
+    mapping: dict[tuple[str, ...], str] = {}
+    for path, schema in _walk_schema_positions(input_schema):
+        if path and isinstance(header := schema.get(X_MCP_HEADER_KEY), str):
+            mapping[path] = header
+    return mapping
+
+
+def mcp_param_headers(header_map: Mapping[tuple[str, ...], str], arguments: Mapping[str, Any]) -> dict[str, str]:
+    """Build the `Mcp-Param-*` headers a `tools/call` mirrors from its arguments.
+
+    For each `(path, token)` in `header_map`, read the value at that property
+    path in `arguments` and, when it is present and not `None`, emit
+    `Mcp-Param-<token>` carrying it: `bool` as `true`/`false`, other scalars via
+    `str`, each passed through :func:`encode_header_value` so a non-token value
+    is base64-wrapped. A path that hits a missing key or a non-mapping node is
+    skipped, matching the spec's "omit the header when no value is present".
+    """
+    headers: dict[str, str] = {}
+    for path, token in header_map.items():
+        value = _value_at_path(arguments, path)
+        if value is None:
+            continue
+        rendered = ("true" if value else "false") if isinstance(value, bool) else str(value)
+        headers[f"{MCP_PARAM_HEADER_PREFIX}{token}"] = encode_header_value(rendered)
+    return headers
+
+
+def _value_at_path(arguments: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    """Read the value at a `properties`-key path in `arguments`, or `None` if any step is missing or non-mapping."""
+    node: Any = arguments
+    for key in path:
+        if not isinstance(node, Mapping):
+            return None
+        node = cast("Mapping[str, Any]", node).get(key)
+    return node
 
 
 # INTERNAL_ERROR is deliberately unmapped (→ HTTP 200): the spec assigns no status to

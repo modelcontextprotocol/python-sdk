@@ -18,7 +18,18 @@ env:
   # Use a published version, e.g. @modelcontextprotocol/conformance@0.2.0-alpha.7.
   # Bump deliberately and reconcile both
   # .github/actions/conformance/expected-failures*.yml files in the same change.
-  CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.7"
+  #
+  # Temporarily pinned to the pkg.pr.new build of conformance main@b18aa918
+  # (the merge of #371, which fixes the http-custom-headers fixture's
+  # spec-forbidden `number`-typed x-mcp-header annotations) — no published
+  # release includes it yet. Pinned by commit SHA so the tarball cannot move
+  # under us; CONFORMANCE_PKG_SHA256 pins the bytes and the fetch-and-verify
+  # step below downloads, checks the digest, and repoints CONFORMANCE_PKG at the
+  # verified local copy. Repin to the next published @modelcontextprotocol/
+  # conformance release (>0.2.0-alpha.7) once it ships, then drop
+  # CONFORMANCE_PKG_SHA256 and the fetch-and-verify steps.
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@b18aa918"
+  CONFORMANCE_PKG_SHA256: "e9f6bc25085b4692e988cbdbd024a4203d54a52a6aaa065376cf8ecaa09bb680"
 
 jobs:
   server-conformance:
@@ -34,6 +45,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp-everything-server
       - name: Run server conformance (active suite)
         run: >-
@@ -65,6 +89,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp
       - name: Run client conformance (all suite)
         # The harness runs all scenarios via unbounded Promise.all; with 40

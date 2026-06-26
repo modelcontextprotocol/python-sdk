@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 class ClientCredentialsOAuthProvider(OAuthClientProvider):
@@ -412,7 +413,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         warnings.warn(
             "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
             "or PrivateKeyJWTOAuthProvider instead.",
-            DeprecationWarning,
+            MCPDeprecationWarning,
             stacklevel=2,
         )
         super().__init__(server_url, client_metadata, storage, redirect_handler, callback_handler, timeout)

@@ -1,5 +1,5 @@
-site_name: MCP Server
-site_description: MCP Server
+site_name: MCP Python SDK
+site_description: The official Python SDK for the Model Context Protocol
 strict: true
 
 repo_name: modelcontextprotocol/python-sdk
@@ -11,14 +11,43 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 # copyright: © Model Context Protocol 2025 to present
 
 nav:
-  - Introduction: index.md
+  - MCP Python SDK: index.md
   - Installation: installation.md
+  - Tutorial - User Guide:
+      - tutorial/index.md
+      - First steps: tutorial/first-steps.md
+      - Tools: tutorial/tools.md
+      - Structured Output: tutorial/structured-output.md
+      - Resources: tutorial/resources.md
+      - Prompts: tutorial/prompts.md
+      - The Context: tutorial/context.md
+      - Handling errors: tutorial/handling-errors.md
+      - Lifespan: tutorial/lifespan.md
+      - Media: tutorial/media.md
+      - Completions: tutorial/completions.md
+      - Elicitation: tutorial/elicitation.md
+      - Progress: tutorial/progress.md
+      - Logging: tutorial/logging.md
+      - Testing: tutorial/testing.md
+  - Running your server:
+      - run/index.md
+      - ASGI: run/asgi.md
+  - The Client:
+      - client/index.md
+      - Client callbacks: client/callbacks.md
+      - Client transports: client/transports.md
+      - Protocol versions: client/protocol-versions.md
+  - Advanced:
+      - Multi-round-trip requests: advanced/multi-round-trip.md
+      - The low-level Server: advanced/low-level-server.md
+      - Pagination: advanced/pagination.md
+      - Middleware: advanced/middleware.md
+      - OpenTelemetry: advanced/opentelemetry.md
+      - Authorization: advanced/authorization.md
+      - OAuth clients: advanced/oauth-clients.md
+      - Session groups: advanced/session-groups.md
+      - Deprecated features: advanced/deprecated.md
   - Migration Guide: migration.md
-  - Documentation:
-      - Concepts: concepts.md
-      - Low-Level Server: low-level-server.md
-      - Authorization: authorization.md
-      - Testing: testing.md
   - API Reference: api/
 
 theme:
@@ -78,7 +107,13 @@ markdown_extensions:
   - pymdownx.critic
   - pymdownx.mark
   - pymdownx.superfences
-  - pymdownx.snippets
+  # Code examples live as complete, importable, tested files under `docs_src/`
+  # and are included into pages with `--8<-- "docs_src/<chapter>/tutorialNNN.py"`
+  # (resolved against the repo root, the extension's default base_path).
+  # `check_paths: true` + `strict: true` turn a renamed/deleted example into a
+  # build failure instead of a silently empty code block.
+  - pymdownx.snippets:
+      check_paths: true
   - pymdownx.tilde
   - pymdownx.inlinehilite
   - pymdownx.highlight:
@@ -102,7 +137,8 @@ markdown_extensions:
   - sane_lists # this means you can start a list from any number
 
 watch:
-  - src/mcp
+  - src
+  - docs_src
 
 plugins:
   - search
@@ -117,7 +153,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src]
+          paths: [src, src/mcp-types]
           options:
             relative_crossrefs: true
             members_order: source
