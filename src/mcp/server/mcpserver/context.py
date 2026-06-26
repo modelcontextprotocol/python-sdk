@@ -233,6 +233,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         return str(self.request_context.request_id)
 
     @property
+    def protocol_version(self) -> str | None:
+        """The negotiated protocol version, or `None` outside of an active request."""
+        return self._request_context.protocol_version if self._request_context is not None else None
+
+    @property
     def input_responses(self) -> InputResponses | None:
         """Client responses to a prior `InputRequiredResult.input_requests`.
 

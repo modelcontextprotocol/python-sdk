@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 import pytest
 from mcp_types import (
     CallToolResult,
+    CreateMessageResult,
     ElicitRequestFormParams,
     ElicitRequestParams,
     ElicitResult,
@@ -766,21 +767,14 @@ def test_state_round_trips_accept_decline_cancel():
 
 
 def test_elicit_return_schema_extraction():
-    async def with_elicit(ctx: Context) -> Login | Elicit[Login]:
-        return Elicit("?", Login)  # pragma: no cover
-
-    async def without_elicit(ctx: Context) -> Login:
-        return Login(username="x")  # pragma: no cover
-
-    assert _elicit_return_schema(Login | Elicit[Login]) is Login
-    assert _elicit_return_schema(Login) is None
+    assert _elicit_return_schema(Elicit[Login]) is Login  # bare Elicit[T]
+    assert _elicit_return_schema(Login | Elicit[Login]) is Login  # union arm
+    assert _elicit_return_schema(Login) is None  # no Elicit arm
     assert _elicit_return_schema(None) is None
 
 
 @pytest.mark.anyio
 async def test_non_elicitation_response_raises():
-    from mcp_types import CreateMessageResult, TextContent
-
     mcp = MCPServer(name="WrongResponse")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -809,3 +803,175 @@ async def test_non_elicitation_response_raises():
         assert r2.is_error
         assert isinstance(r2.content[0], TextContent)
         assert "non-elicitation response" in r2.content[0].text
+
+
+@pytest.mark.anyio
+async def test_direct_call_tool_with_non_eliciting_resolver():
+    # `MCPServer.call_tool()` called directly builds a Context with no request, so
+    # `ctx.protocol_version` is None. A tool whose resolvers never elicit must still
+    # work there (regression: it used to raise "Context is not available").
+    mcp = MCPServer(name="Direct")
+
+    async def whoami(ctx: Context) -> Login:
+        return Login(username="direct")
+
+    @mcp.tool()
+    async def tool(login: Annotated[Login, Resolve(whoami)]) -> str:
+        return login.username
+
+    result = await mcp.call_tool("tool", {}, Context(mcp_server=mcp))
+    assert isinstance(result, CallToolResult)
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "direct"
+
+
+@pytest.mark.anyio
+async def test_two_instances_of_one_method_do_not_collide():
+    mcp = MCPServer(name="Instances")
+
+    class Service:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def who(self, ctx: Context) -> Login:
+            return Login(username=self.name)
+
+    alice, bob = Service("alice"), Service("bob")
+
+    @mcp.tool()
+    async def both(
+        a: Annotated[Login, Resolve(alice.who)],
+        b: Annotated[Login, Resolve(bob.who)],
+    ) -> str:
+        return f"{a.username},{b.username}"
+
+    result = await mcp.call_tool("both", {}, Context(mcp_server=mcp))
+    assert isinstance(result, CallToolResult)
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "alice,bob"
+
+
+@pytest.mark.anyio
+async def test_non_serializable_sibling_resolver_does_not_break_rounds():
+    from datetime import datetime
+
+    mcp = MCPServer(name="NonSerializable")
+
+    async def clock(ctx: Context) -> datetime:
+        return datetime(2026, 1, 1)
+
+    async def ask(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("ok?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        when: Annotated[datetime, Resolve(clock)],
+        confirm: Annotated[Confirm, Resolve(ask)],
+    ) -> str:
+        return f"{when.year}:{confirm.ok}"
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp) as client:
+        result = await _drive_mrtr(client, "act", {}, answer)
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "2026:True"
+
+
+@pytest.mark.anyio
+async def test_bare_elicit_dependency_restored_as_model():
+    # A `-> Elicit[Login]` (bare, no union) resolver feeds a dependent resolver. After
+    # the round-trip the dependency must come back as a Login model, not a raw dict.
+    mcp = MCPServer(name="BareElicitDep")
+
+    async def login(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    async def confirm(login: Annotated[Login, Resolve(login)]) -> Elicit[Confirm]:
+        return Elicit(f"as {login.username}?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        login: Annotated[Login, Resolve(login)],
+        confirm: Annotated[Confirm, Resolve(confirm)],
+    ) -> str:
+        return f"{login.username}:{confirm.ok}"
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        if "user" in params.message:
+            return ElicitResult(action="accept", content={"username": "octocat"})
+        assert "as octocat?" in params.message  # proves login was a real model
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp) as client:
+        result = await _drive_mrtr(client, "act", {}, answer)
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_accept_with_no_content_is_an_error_not_a_cancel():
+    mcp = MCPServer(name="AcceptNoContent")
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover
+
+    async with Client(mcp) as client:
+        r1 = await client.call_tool("tool", {}, allow_input_required=True)
+        assert isinstance(r1, InputRequiredResult)
+        assert r1.input_requests is not None
+        (key,) = r1.input_requests
+        r2 = await client.call_tool(
+            "tool",
+            {},
+            input_responses={key: ElicitResult(action="accept", content=None)},
+            request_state=r1.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(r2, CallToolResult)
+        assert r2.is_error
+        assert isinstance(r2.content[0], TextContent)
+        assert "no content" in r2.content[0].text
+
+
+@pytest.mark.anyio
+async def test_independent_nested_deps_batch_into_one_round():
+    mcp = MCPServer(name="NestedBatch")
+
+    async def ask_a(ctx: Context) -> Elicit[Login]:
+        return Elicit("A name?", Login)
+
+    async def ask_b(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("B confirm?", Confirm)
+
+    # `combine` depends on two independent eliciting resolvers; both must be asked
+    # in the same round, not serialized across two InputRequiredResult rounds.
+    async def combine(
+        a: Annotated[Login, Resolve(ask_a)],
+        b: Annotated[Confirm, Resolve(ask_b)],
+    ) -> Login:
+        return Login(username=f"{a.username}:{b.ok}")
+
+    @mcp.tool()
+    async def tool(combined: Annotated[Login, Resolve(combine)]) -> str:
+        return combined.username
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        if "name" in params.message:
+            return ElicitResult(action="accept", content={"username": "octocat"})
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp) as client:
+        first = await client.call_tool("tool", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        assert len(first.input_requests) == 2  # batched, not serialized
+
+        result = await _drive_mrtr(client, "tool", {}, answer)
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "octocat:True"

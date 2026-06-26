@@ -12,8 +12,9 @@ The framework picks the elicitation transport from the negotiated protocol. At
 and resumes when the client retries with `input_responses`/`request_state`
 (independent resolvers are asked in one round; a resolver depending on another's
 answer is asked in a later round). At <= 2025-11-25 it issues a synchronous
-`elicitation/create` request mid-call. Resolved outcomes are carried in
-`request_state` across rounds, so each resolver resolves once per logical call.
+`elicitation/create` request mid-call. Only *elicited* outcomes are carried in
+`request_state` across rounds (so the user is asked each question once); a
+resolver that returns a value without eliciting is pure and may re-run each round.
 
 Whether the consumer receives the unwrapped model or the full
 `ElicitationResult` union is decided by the consumer's annotation:
@@ -26,6 +27,7 @@ Whether the consumer receives the unwrapped model or the full
 from __future__ import annotations
 
 import inspect
+import types
 import typing
 from collections.abc import Callable, Hashable, Mapping
 from typing import Annotated, Any, Generic, Literal, TypeGuard, get_args, get_origin
@@ -39,7 +41,7 @@ from mcp_types import (
     InputRequiredResult,
     InputResponses,
 )
-from mcp_types.version import LATEST_MODERN_VERSION, is_version_at_least
+from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
@@ -61,7 +63,8 @@ _ELICITATION_RESULT_MEMBERS = (AcceptedElicitation, DeclinedElicitation, Cancell
 
 # First protocol revision whose `tools/call` carries elicitation inside
 # `InputRequiredResult` rather than as a standalone server-to-client request.
-_INPUT_REQUIRED_VERSION = LATEST_MODERN_VERSION  # "2026-07-28"
+# Pinned (not `LATEST_MODERN_VERSION`, which moves when newer revisions are added).
+_INPUT_REQUIRED_VERSION = "2026-07-28"
 _STATE_VERSION = 1
 
 
@@ -158,16 +161,22 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
 def _elicit_return_schema(return_annotation: Any) -> type[BaseModel] | None:
     """Extract `T` from a resolver return type's `Elicit[T]` arm, if present.
 
-    Lets an outcome restored from `request_state` (a plain dict) be re-validated
-    into its model so dependent resolvers and tools receive a typed value.
+    Handles a bare `-> Elicit[T]` and a `-> T | Elicit[T]` union. Lets an elicited
+    outcome restored from `request_state` (a plain dict) be re-validated into its
+    model so dependent resolvers and tools receive a typed value.
     """
-    candidates = get_args(return_annotation) if get_origin(return_annotation) is not None else (return_annotation,)
+    # A bare `Elicit[T]` is itself a candidate; a union contributes its members.
+    candidates = get_args(return_annotation) if _is_union(return_annotation) else (return_annotation,)
     for candidate in candidates:
         if get_origin(candidate) is Elicit:
             schema = get_args(candidate)[0]
             if isinstance(schema, type) and issubclass(schema, BaseModel):  # pragma: no branch
                 return schema
     return None
+
+
+def _is_union(annotation: Any) -> bool:
+    return get_origin(annotation) in (typing.Union, types.UnionType)
 
 
 def _wants_union(type_arg: Any) -> bool:
@@ -296,19 +305,26 @@ class _Resolution:
         self.input_required = input_required
         self.answers: InputResponses = context.input_responses or {} if input_required else {}
         self.state = _decode_state(context.request_state) if input_required else {}
-        self.cache: dict[str, ElicitationResult[Any]] = {}
+        # In-call dedup keyed by resolver identity (distinguishes two instances of
+        # the same bound method); `elicited` holds only outcomes that came from an
+        # elicitation, keyed by their wire key - these are what `request_state`
+        # persists, since pure resolvers are cheap to re-run each round.
+        self.cache: dict[Hashable, ElicitationResult[Any]] = {}
+        self.elicited: dict[str, ElicitationResult[Any]] = {}
         self.pending: InputRequests = {}
 
 
 def _state_key(fn: Callable[..., Any]) -> str:
-    """Process-stable wire key for a resolver.
+    """Process-stable wire key for a resolver's elicitation.
 
-    `id`-based keys aren't stable across `input_required` rounds (a retry may land
-    on a different worker), so memoize and key `input_requests`/`request_state` by
-    the resolver's `module:qualname`. Two consumers of the same resolver therefore
-    share one cache entry, one question, and one stored outcome.
+    `id(fn)` isn't stable across `input_required` rounds, so key `input_requests` /
+    `request_state` by `module:qualname`. Bound methods add their `__self__` id so
+    two instances of the same method get distinct questions and stored outcomes
+    (the registered `Resolve(...)` holds the instance for the call's lifetime).
     """
-    return f"{getattr(fn, '__module__', '')}:{getattr(fn, '__qualname__', fn)}"
+    base = f"{getattr(fn, '__module__', '')}:{getattr(fn, '__qualname__', fn)!s}"
+    bound_self = getattr(fn, "__self__", None)
+    return f"{base}#{id(bound_self)}" if bound_self is not None else base
 
 
 async def resolve_arguments(
@@ -324,14 +340,19 @@ async def resolve_arguments(
     negotiated protocol is >= 2026-07-28), returns an `InputRequiredResult`
     carrying the batched questions instead; the tool body is not run.
 
-    Each resolver runs at most once per logical call - across multiple
-    `input_required` rounds, resolved outcomes are carried in `request_state`.
+    An eliciting resolver asks its question once - its answer is carried in
+    `request_state` across rounds - while a resolver that resolves without
+    eliciting is pure and may re-run on each round.
 
     Raises:
         ToolError: If an elicited value is declined or cancelled and the consumer
             asked for the unwrapped model (rather than the result union).
     """
-    res = _Resolution(plans, tool_args, context, uses_input_required(context.request_context.protocol_version))
+    # `ctx.protocol_version` is `None` outside an active request: `MCPServer.call_tool()`
+    # called directly builds such a `Context`, and a tool whose resolvers never elicit
+    # must still work there. A missing version means the synchronous (non-input_required)
+    # transport, which never reaches a server-to-client request anyway.
+    res = _Resolution(plans, tool_args, context, uses_input_required(context.protocol_version))
     injected: dict[str, Any] = {}
     for name, (marker, wants_union) in resolved_params.items():
         try:
@@ -341,30 +362,32 @@ async def resolve_arguments(
         injected[name] = outcome if wants_union else _unwrap(outcome, name)
 
     if res.pending:
-        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.cache))
+        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.elicited))
     return injected
 
 
 async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResult[Any]:
-    """Resolve one resolver, memoized by its process-stable state key.
+    """Resolve one resolver, deduped within the call by its resolver identity.
 
     Raises `_Pending` when the resolver (or one of its dependencies) needs client
     input that has not arrived yet.
     """
-    key = _state_key(fn)
-    if key in res.cache:
-        return res.cache[key]
-    if key in res.pending:
+    cache_key = _resolver_key(fn)
+    if cache_key in res.cache:
+        return res.cache[cache_key]
+
+    plan = res.plans[cache_key]
+    wire_key = _state_key(fn)
+    if wire_key in res.pending:
         # Already asked this round by another consumer; don't run the resolver again.
         raise _Pending
-
-    plan = res.plans[_resolver_key(fn)]
-    if key in res.state:
-        outcome = _outcome_from_state(res.state[key], plan.elicit_schema)
-        res.cache[key] = outcome
+    if wire_key in res.state:
+        outcome = _outcome_from_state(res.state[wire_key], plan.elicit_schema)
+        res.cache[cache_key] = outcome
         return outcome
 
     kwargs: dict[str, Any] = {}
+    dep_pending = False
     for param_name, param_plan in plan.params.items():
         if param_plan.kind == "context":
             kwargs[param_name] = res.context
@@ -372,8 +395,16 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
             kwargs[param_name] = res.tool_args[param_name]
         else:
             assert param_plan.resolve is not None
-            dep_outcome = await _resolve(param_plan.resolve.fn, res)
+            try:
+                # Visit every dependency so independent ones that need input are all
+                # collected into `res.pending` and batched into a single round.
+                dep_outcome = await _resolve(param_plan.resolve.fn, res)
+            except _Pending:
+                dep_pending = True
+                continue
             kwargs[param_name] = dep_outcome if param_plan.wants_union else _unwrap(dep_outcome, param_name)
+    if dep_pending:
+        raise _Pending
 
     result: Any
     if plan.is_async:
@@ -382,13 +413,15 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
         result = await anyio.to_thread.run_sync(lambda: fn(**kwargs))
 
     if _is_elicit(result):
-        outcome = await _elicit(result, key, res)
+        outcome = await _elicit(result, wire_key, res)
+        res.elicited[wire_key] = outcome
     else:
         # A resolver may return any type (not just `BaseModel`), so accept it as the
-        # outcome without validating against the schema bound.
+        # outcome without validating against the schema bound. Plain outcomes are not
+        # persisted in `request_state`; the resolver re-runs next round instead.
         outcome = _accepted(result)
 
-    res.cache[key] = outcome
+    res.cache[cache_key] = outcome
     return outcome
 
 
@@ -403,7 +436,9 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
         raise _Pending
     if not isinstance(answer, ElicitResult):
         raise ToolError(f"Resolver {key!r} received a non-elicitation response")
-    if answer.action == "accept" and answer.content is not None:
+    if answer.action == "accept":
+        if answer.content is None:
+            raise ToolError(f"Resolver {key!r} received an accepted elicitation with no content")
         return AcceptedElicitation(data=elicit.schema.model_validate(answer.content))
     if answer.action == "decline":
         return DeclinedElicitation()
