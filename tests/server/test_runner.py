@@ -19,6 +19,7 @@ import pytest
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     ClientCapabilities,
@@ -173,6 +174,30 @@ async def test_runner_initialize_opens_gate_but_event_fires_only_after_initializ
         assert not runner.connection.initialized.is_set()
         await client.notify("notifications/initialized", None)
         await runner.connection.initialized.wait()
+
+
+@pytest.mark.anyio
+async def test_runner_rejects_a_second_initialize_and_preserves_the_committed_handshake(server: SrvT):
+    """A second `initialize` on an already-initialized connection is rejected with
+    INVALID_REQUEST and the first handshake's committed `client_params` and
+    `protocol_version` survive unchanged.
+
+    SDK-defined (no spec MUST mandates the rejection). Regression lock for python-sdk#2605,
+    where the repeat was answered as a fresh handshake and silently overwrote both."""
+    impostor = InitializeRequestParams(
+        protocol_version=OLDEST_SUPPORTED_VERSION,
+        capabilities=ClientCapabilities(),
+        client_info=Implementation(name="impostor", version="9.9"),
+    ).model_dump(by_alias=True, exclude_none=True)
+    # `connected_runner(server)` already performed the real initialize (client name
+    # "test-client", protocol version LATEST_HANDSHAKE_VERSION) before yielding.
+    async with connected_runner(server) as (client, runner):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", impostor)
+        assert exc.value.error == ErrorData(code=INVALID_REQUEST, message="Session already initialized")
+        assert runner.connection.client_params is not None
+        assert runner.connection.client_params.client_info.name == "test-client"
+        assert runner.connection.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio

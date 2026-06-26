@@ -26,6 +26,7 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     ErrorData,
@@ -177,6 +178,15 @@ class ServerRunner(Generic[LifespanT]):
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
+                # The handshake commits at most once per connection: a repeat would
+                # silently overwrite the negotiated `client_params` and
+                # `protocol_version` at the commit at the bottom of `_on_request`
+                # (#2605). The discriminator is `client_params`, not
+                # `initialize_accepted`: a born-ready `from_envelope` connection
+                # (the legacy stateless path) is already past the gate but has no
+                # peer info yet, and its one `initialize` must still be accepted.
+                if self.connection.client_params is not None:
+                    raise MCPError(code=INVALID_REQUEST, message="Session already initialized")
                 return self._serialize(method, version, self._handle_initialize(params))
             # Methods without a handler are METHOD_NOT_FOUND regardless of
             # initialization state: JSON-RPC 2.0 reserves -32601 for "not

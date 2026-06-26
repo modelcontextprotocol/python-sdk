@@ -12,7 +12,7 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
+from mcp_types import INVALID_REQUEST, JSONRPCError, JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
 
 from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import (
@@ -142,20 +142,38 @@ async def test_terminating_one_session_leaves_others_working() -> None:
 
 
 @requirement("hosting:session:reinitialize")
-async def test_second_initialize_on_an_existing_session_is_accepted() -> None:
-    """A second initialize POST carrying an existing session ID is processed rather than rejected.
+async def test_second_initialize_on_an_existing_session_is_rejected_and_the_session_survives() -> None:
+    """A second initialize POST on an existing session is answered with INVALID_REQUEST,
+    and the established session keeps serving.
 
-    See the divergence on the requirement: the entry expects a rejection, but the SDK forwards the
-    second initialize to the running server, which answers it as a fresh handshake.
+    SDK-defined, no spec MUST: closes the gap where the server answered a repeated initialize as a
+    fresh handshake and silently overwrote the session's committed client_params (python-sdk#2605;
+    the kernel-level proof that the committed state survives is in tests/server/test_runner.py).
+    Raw HTTP because the SDK Client performs exactly one handshake and cannot be made to repeat it.
+
+    Steps:
+      1. A real handshake establishes the session.
+      2. A second initialize on that session ID routes to the existing transport (the instance
+         count stays 1) and is rejected at the JSON-RPC layer. The HTTP status is still 200: in
+         legacy SSE mode the response stream is committed before dispatch, so the rejection
+         arrives as a JSONRPCError event on it.
+      3. tools/list on the same session still answers, proving the rejection tore nothing down.
     """
     async with mounted_app(_server()) as (http, manager):
         session_id = await initialize_via_http(http)
+
         response, messages = await post_jsonrpc(http, initialize_body(request_id=2), session_id=session_id)
         assert len(manager._server_instances) == 1
+        assert response.status_code == snapshot(200)
+        assert isinstance(messages[0], JSONRPCError)
+        assert messages[0].id == 2
+        assert messages[0].error.code == INVALID_REQUEST
+        assert messages[0].error.message == snapshot("Session already initialized")
 
-    assert response.status_code == snapshot(200)
-    assert isinstance(messages[0], JSONRPCResponse)
-    assert messages[0].id == 2
+        _, after = await post_jsonrpc(http, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, session_id=session_id)
+
+    assert isinstance(after[0], JSONRPCResponse)
+    assert after[0].result["tools"][0]["name"] == "noop"
 
 
 @requirement("hosting:stateless:no-session-id")

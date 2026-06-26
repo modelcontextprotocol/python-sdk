@@ -49,6 +49,23 @@ per the spec's SHOULD. v1 answered the cancelled request with an error
 with anyio cancellation when its scope is cancelled, so no reply is needed to
 unblock it.
 
+### A second `initialize` on an already-initialized session is rejected
+
+A server that has already completed the `initialize` handshake on a connection now answers a
+repeated `initialize` request on that same connection with JSON-RPC error `-32600`
+(`INVALID_REQUEST`, message `"Session already initialized"`) instead of re-running the handshake.
+Previously the repeat was answered as a fresh handshake and silently overwrote the session's
+recorded `client_params` and negotiated protocol version, so a `check_capability` call made after
+that point answered against the second client's declared capabilities
+([#2605](https://github.com/modelcontextprotocol/python-sdk/issues/2605)).
+
+No compliant client is affected: the spec makes initialization the first interaction of a session,
+and the SDK's own `ClientSession.initialize()` is idempotent (a repeat call returns the first
+result without sending anything). A peer that needs a fresh handshake should open a new
+connection — on streamable HTTP, a `POST` without an `Mcp-Session-Id` header. This applies only to
+the legacy (2025-11-25 and earlier) handshake; the 2026-07-28 protocol removes `initialize`
+entirely.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.

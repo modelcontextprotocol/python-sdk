@@ -2527,12 +2527,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A second initialize on an already-initialized session transport is rejected.",
         transports=("streamable-http",),
-        divergence=Divergence(
-            note=(
-                "The transport forwards a second initialize carrying the existing session ID to the running "
-                "server, which answers it as a fresh handshake; nothing rejects re-initialization."
-            ),
-        ),
         removed_in="2026-07-28",
         note=(
             "removed in 2026-07-28 (SEP-2567); per-session initialize guard retired with Mcp-Session-Id, no "
