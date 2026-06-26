@@ -388,3 +388,112 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     assert len(responses) == len(requests)
     assert all("mcp-session-id" not in r.headers for r in requests)
     assert all("mcp-session-id" not in r.headers for r in responses)
+
+
+_CUSTOM_HEADER_TOOL = Tool(
+    name="run",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "region": {"type": "string", "x-mcp-header": "Region"},
+            "priority": {"type": "integer", "x-mcp-header": "Priority"},
+            "verbose": {"type": "boolean", "x-mcp-header": "Verbose"},
+            "note": {"type": "string", "x-mcp-header": "Note"},
+            "query": {"type": "string"},
+        },
+        "required": ["region"],
+    },
+)
+
+
+def _custom_header_server() -> Server:
+    """A server with one tool whose schema annotates four args with `x-mcp-header` and leaves `query` plain."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[_CUSTOM_HEADER_TOOL], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    return Server("custom-headers", on_list_tools=list_tools, on_call_tool=call_tool)
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() -> None:
+    """A tools/call mirrors the tool's `x-mcp-header` arguments into `Mcp-Param-*` headers.
+
+    After `list_tools` caches the tool's annotations, the client renders each annotated argument into
+    its header per the spec's Value Encoding rules: `region` verbatim, `priority` as a decimal, `verbose`
+    as `false`, and the non-ASCII `note` base64-sentinel-wrapped. The unannotated `query` and the omitted
+    `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
+    at the wire because the client never surfaces the outgoing headers.
+    """
+    requests: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        requests.append(request)
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            session.adopt(
+                DiscoverResult(
+                    supported_versions=[LATEST_MODERN_VERSION],
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="srv", version="0"),
+                )
+            )
+            await session.list_tools()
+            await session.call_tool("run", {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"})
+
+    call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
+    assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
+        {
+            "mcp-param-region": "us-west1",
+            "mcp-param-priority": "42",
+            "mcp-param-verbose": "false",
+            "mcp-param-note": "=?base64?aMOpbGxv?=",
+        }
+    )
+    # Mirroring is additive: the arguments are unchanged in the body.
+    assert json.loads(call.content)["params"]["arguments"] == snapshot(
+        {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"}
+    )
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_emits_no_param_headers_for_uncached_tool_then_mirrors_with_tool_override() -> None:
+    """Without a cached schema the client sends no `Mcp-Param-*`; a `tool=` override supplies it for the next call.
+
+    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers, and
+    pre-load definitions by other means. The first `call_tool` (no prior `list_tools`, no `tool=`) carries no
+    `Mcp-Param-*` header; the second passes the tool definition via `tool=` and mirrors `region`.
+    """
+    requests: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        if json.loads(request.content)["method"] == "tools/call":
+            requests.append(request)
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            session.adopt(
+                DiscoverResult(
+                    supported_versions=[LATEST_MODERN_VERSION],
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="srv", version="0"),
+                )
+            )
+            await session.call_tool("run", {"region": "us-west1"})
+            await session.call_tool("run", {"region": "us-west1"}, tool=_CUSTOM_HEADER_TOOL)
+
+    uncached, overridden = requests
+    assert not any(k.startswith("mcp-param-") for k in uncached.headers)
+    assert overridden.headers.get("mcp-param-region") == "us-west1"

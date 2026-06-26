@@ -41,6 +41,8 @@ from mcp.shared.inbound import (
     NAME_BEARING_METHODS,
     encode_header_value,
     find_invalid_x_mcp_header,
+    mcp_param_headers,
+    x_mcp_header_map,
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -68,7 +70,10 @@ def _make_handshake_stamp(protocol_version: str) -> Callable[[dict[str, Any], Ca
 
 
 def _make_modern_stamp(
-    protocol_version: str, client_info: dict[str, Any], capabilities: dict[str, Any]
+    protocol_version: str,
+    client_info: dict[str, Any],
+    capabilities: dict[str, Any],
+    resolve_param_headers: Callable[[str, Mapping[str, Any]], dict[str, str]],
 ) -> Callable[[dict[str, Any], CallOptions], None]:
     def stamp(data: dict[str, Any], opts: CallOptions) -> None:
         params = data.setdefault("params", {})
@@ -83,6 +88,8 @@ def _make_modern_stamp(
         name_key = NAME_BEARING_METHODS.get(data["method"])
         if name_key is not None and isinstance(name := params.get(name_key), str):
             headers[MCP_NAME_HEADER] = encode_header_value(name)
+        if data["method"] == "tools/call" and isinstance(name := params.get("name"), str):
+            headers.update(resolve_param_headers(name, params.get("arguments") or {}))
 
     return stamp
 
@@ -215,6 +222,7 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
         self._negotiated_version: str | None = None
@@ -393,7 +401,7 @@ class ClientSession:
                 )
             client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
             capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
-            self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities)
+            self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities, self._resolve_param_headers)
             self._discover_result = result
             self._initialize_result = None
             self._negotiated_version = mutual[-1]
@@ -615,6 +623,7 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        tool: types.Tool | None = None,
         allow_input_required: Literal[False] = False,
     ) -> types.CallToolResult: ...
 
@@ -629,6 +638,7 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        tool: types.Tool | None = None,
         allow_input_required: bool,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
 
@@ -642,6 +652,7 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        tool: types.Tool | None = None,
         allow_input_required: bool = False,
     ) -> types.CallToolResult | types.InputRequiredResult:
         """Send a tools/call request with optional progress callback support.
@@ -649,6 +660,12 @@ class ClientSession:
         Args:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            tool: The tool's definition, e.g. from an earlier `list_tools`. On a
+                modern (2026-07-28) connection its `x-mcp-header` annotations are
+                mirrored into `Mcp-Param-*` request headers; pass it when the
+                session has not listed the tool itself. Annotations seen by
+                `list_tools` are cached, so this is only needed to supply or
+                override them.
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
@@ -657,6 +674,11 @@ class ClientSession:
             RuntimeError: If the server returns an `InputRequiredResult` and
                 ``allow_input_required`` is ``False``.
         """
+        if tool is not None:
+            if (reason := find_invalid_x_mcp_header(tool.input_schema)) is None:
+                self._register_x_mcp_headers(tool)
+            else:
+                logger.warning("not mirroring headers for tool %r: invalid x-mcp-header (%s)", tool.name, reason)
 
         result = await self.send_request(
             types.CallToolRequest(
@@ -682,6 +704,21 @@ class ClientSession:
                 "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
             )
         return result
+
+    def _register_x_mcp_headers(self, tool: types.Tool) -> None:
+        """Cache `tool`'s argument→`x-mcp-header` map so `tools/call` can mirror them into headers.
+
+        A tool with no annotations records an empty map, which still pins the
+        tool as known so a later call emits no `Mcp-Param-*` headers for it.
+        """
+        self._x_mcp_header_maps[tool.name] = x_mcp_header_map(tool.input_schema)
+
+    def _resolve_param_headers(self, name: str, arguments: Mapping[str, Any]) -> dict[str, str]:
+        """`Mcp-Param-*` headers for a `tools/call`, or empty when the tool was never listed."""
+        header_map = self._x_mcp_header_maps.get(name)
+        if header_map is None:
+            return {}
+        return mcp_param_headers(header_map, arguments)
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""
@@ -768,6 +805,7 @@ class ClientSession:
                 if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
                     logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
                     continue
+                self._register_x_mcp_headers(tool)
                 kept.append(tool)
             result.tools = kept
 

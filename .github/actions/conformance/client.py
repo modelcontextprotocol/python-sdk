@@ -335,6 +335,43 @@ async def run_http_invalid_tool_headers(server_url: str) -> None:
                 logger.exception(f"call_tool({tool.name!r}) failed")
 
 
+def _stub_args_for_custom_headers(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """Arguments exercising every `x-mcp-header`-annotated property in a tool schema.
+
+    Each annotated property gets a type-appropriate value so the SDK mirrors it into an
+    `Mcp-Param-*` header; required properties without an annotation get a placeholder so
+    the call is well-formed.
+    """
+    by_type: dict[str, Any] = {"string": "us-west1", "integer": 42, "boolean": False, "number": 3.14}
+    properties: dict[str, Any] = input_schema.get("properties", {})
+    arguments: dict[str, Any] = {}
+    for name, schema in properties.items():
+        if "x-mcp-header" in schema:
+            arguments[name] = by_type.get(schema.get("type"), "x")
+    for name in input_schema.get("required", []):
+        arguments.setdefault(name, by_type.get(properties.get(name, {}).get("type"), "x"))
+    return arguments
+
+
+@register("http-custom-headers")
+async def run_http_custom_headers(server_url: str) -> None:
+    """List tools, then call each surfaced tool so its `x-mcp-header` args mirror into headers (SEP-2243).
+
+    A conforming client drops tools with invalid annotations during `list_tools` (e.g. the
+    harness's `number`-typed properties, which the spec forbids), so the loop only calls tools
+    whose annotations are valid; for those, the SDK emits the `Mcp-Param-*` headers the scenario
+    checks. Per-call failures are logged and skipped rather than aborting the run.
+    """
+    async with Client(server_url, mode=client_mode()) as client:
+        listed = await client.list_tools()
+        logger.debug(f"Surfaced tools: {[t.name for t in listed.tools]}")
+        for tool in listed.tools:
+            try:
+                await client.call_tool(tool.name, _stub_args_for_custom_headers(tool.input_schema))
+            except Exception:
+                logger.exception(f"call_tool({tool.name!r}) failed")
+
+
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
@@ -526,8 +563,6 @@ def main() -> None:
         elif scenario.startswith("auth/"):
             asyncio.run(run_auth_code_client(server_url))
         else:
-            # Unhandled scenarios:
-            #  - http-custom-headers (SEP-2243 / S8: Mcp-Param-* emission)
             print(f"Unknown scenario: {scenario}", file=sys.stderr)
             sys.exit(1)
     else:
