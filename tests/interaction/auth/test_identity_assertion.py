@@ -77,7 +77,7 @@ def identity_assertion_provider(
     storage: InMemoryTokenStorage,
     *,
     assertion: str = VALID_ASSERTION,
-    expected_issuer: str = EXPECTED_ISSUER,
+    issuer: str = EXPECTED_ISSUER,
     record: list[tuple[str, str]] | None = None,
 ) -> IdentityAssertionOAuthProvider:
     async def assertion_provider(audience: str, resource: str) -> str:
@@ -90,9 +90,9 @@ def identity_assertion_provider(
         storage=storage,
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
-        expected_issuer=expected_issuer,
+        issuer=issuer,
         assertion_provider=assertion_provider,
-        scopes="mcp",
+        scope="mcp",
     )
 
 
@@ -125,6 +125,9 @@ async def test_identity_assertion_obtains_a_token_and_authorizes_the_request() -
     assert headless.authorize_url is None
     assert find(recorded, "GET", "/authorize") == []
     assert find(recorded, "POST", "/register") == []
+    # The AS is configuration: PRM is never fetched, so the resource server has no input into where
+    # the credentials go.
+    assert not any(r.path.startswith("/.well-known/oauth-protected-resource") for r in recorded)
 
     [token_req] = find(recorded, "POST", "/token")
     body = form_body(token_req)
@@ -133,9 +136,9 @@ async def test_identity_assertion_obtains_a_token_and_authorizes_the_request() -
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": "valid-id-jag",
             "client_id": "enterprise-mcp-client",
-            "client_secret": "enterprise-secret",
             "resource": "http://127.0.0.1:8000/mcp",
             "scope": "mcp",
+            "client_secret": "enterprise-secret",
         }
     )
 
@@ -147,13 +150,12 @@ async def test_identity_assertion_obtains_a_token_and_authorizes_the_request() -
 
 
 @requirement("client-auth:identity-assertion")
-async def test_configured_scope_survives_server_scope_selection() -> None:
-    """The caller's requested scope reaches the wire even when the AS advertises a broader set.
+async def test_configured_scope_is_sent_regardless_of_server_advertised_scopes() -> None:
+    """The caller's configured scope reaches the wire; server-advertised scopes have no effect.
 
-    The base 401 flow's scope-selection step overwrites `client_metadata.scope` with the
-    server-advertised scopes; the provider must send the configured scope regardless. Here the AS
-    advertises `mcp extra` but the client requested only `mcp`, so the recorded `/token` body must
-    carry `scope=mcp`, not the advertised superset.
+    The provider has no scope-selection step, so this is true by construction; the test pins it.
+    Here the AS advertises `mcp extra` but the client requested only `mcp`, so the recorded `/token`
+    body must carry `scope=mcp`, not the advertised superset.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -201,32 +203,36 @@ async def test_assertion_callback_receives_issuer_audience_and_resource() -> Non
 
 @requirement("client-auth:identity-assertion:issuer-pinning")
 async def test_unexpected_issuer_aborts_before_sending_credentials() -> None:
-    """If the resource server names an AS other than expected_issuer, the flow aborts before any DCR.
+    """When the configured issuer's metadata fails RFC 8414 validation, no credential is sent.
 
-    The client pins discovery to its `expected_issuer`; when the resource server's PRM names a
-    different AS, `_validate_resource_match` rejects it during PRM discovery, before the base flow
-    can disclose client metadata via DCR or send the ID-JAG/secret. The callback is never invoked.
+    The AS issuer is configuration; metadata is fetched from that issuer's well-known and validated
+    per RFC 8414 section 3.3. Here the in-process server's metadata has a different issuer than the
+    one the client is configured for, so validation fails before the assertion callback is invoked
+    or any credential is posted. PRM is never fetched and no DCR is attempted.
     """
+    recorded, on_request = record_requests()
     record: list[tuple[str, str]] = []
     provider = InMemoryAuthorizationServerProvider()
     preregister_confidential_client(provider)
     server = Server("guarded", on_list_tools=list_tools)
-    # The real AS issuer is BASE_URL/, but the client was provisioned for a different one.
-    auth = identity_assertion_provider(
-        InMemoryTokenStorage(), expected_issuer="https://corp-as.example/", record=record
-    )
+    # The served AS metadata has issuer BASE_URL/, but the client is configured for a different one.
+    auth = identity_assertion_provider(InMemoryTokenStorage(), issuer="https://corp-as.example/", record=record)
 
     with anyio.fail_after(5):
-        with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError, match="not the expected"), flatten_subgroups=True):
+        with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError, match="issuer mismatch"), flatten_subgroups=True):
             await connect_with_oauth(
                 server,
                 provider=provider,
                 settings=auth_settings(identity_assertion_enabled=True),
                 auth=auth,
+                on_request=on_request,
             ).__aenter__()
 
     assert record == []
     assert provider.last_assertion_params is None
+    assert find(recorded, "POST", "/token") == []
+    assert find(recorded, "POST", "/register") == []
+    assert not any(r.path.startswith("/.well-known/oauth-protected-resource") for r in recorded)
 
 
 @requirement("client-auth:identity-assertion:disabled-rejected")

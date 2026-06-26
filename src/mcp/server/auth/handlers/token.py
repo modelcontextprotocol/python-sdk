@@ -18,8 +18,6 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthToken
 
-JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
-
 
 class AuthorizationCodeRequest(BaseModel):
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
@@ -250,10 +248,10 @@ class TokenHandler:
                         )
                     )
 
-                # SEP-990 §5.1: only confidential clients may present an ID-JAG. Require a stored
-                # client secret: this rejects the public `none` method and also a secret-based
-                # method registered without a secret (which `ClientAuthenticator` does not actually
-                # verify), so an effectively unauthenticated client never reaches the provider hook.
+                # SEP-990 §5.1: only confidential clients may present an ID-JAG. ClientAuthenticator
+                # already rejects a secret-based method with no stored secret; this additionally
+                # rejects the public `none` method so an unauthenticated client never reaches the
+                # provider hook.
                 if not client_info.client_secret:
                     # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
                     # unauthorized_client (not invalid_client, which is for failed authentication).

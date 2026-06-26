@@ -1,36 +1,46 @@
 """SEP-990 Identity Assertion Authorization Grant (RFC 7523 jwt-bearer) client provider.
 
-Provides `IdentityAssertionOAuthProvider`, the client side of SEP-990 leg 2: it presents an
-Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise identity
-provider - to the MCP authorization server's token endpoint using the RFC 7523 jwt-bearer grant
+`IdentityAssertionOAuthProvider` is the client side of SEP-990 leg 2: it presents an Identity
+Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise identity provider -
+to the MCP authorization server's token endpoint using the RFC 7523 jwt-bearer grant
 (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, ID-JAG as `assertion`), and receives an
 MCP access token.
 
+The authorization server is configuration, not discovery. SEP-990's trust model is the inverse of
+the default OAuth client's: the AS issuer is supplied at construction, authorization-server metadata
+is fetched from that issuer's own RFC 8414 well-known, and the resource server is never asked which
+AS to use - so it cannot redirect the ID-JAG or client secret elsewhere. There is no protected
+resource metadata fetch, no dynamic client registration, and no server-driven scope selection.
+
 Obtaining the ID-JAG (logging into the IdP and the leg-1 token exchange against it) is
 deployment-specific and out of scope for the SDK. The caller supplies it through the
-`assertion_provider` callback, which receives the MCP authorization server's issuer (the `aud` the
-ID-JAG must carry) and the MCP server's resource identifier (the `resource` the ID-JAG must carry,
-per ext-auth §4.3), and returns the ID-JAG.
-
-SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so
-`client_secret` is mandatory (the spec also permits e.g. `private_key_jwt`). The target
-authorization server is pinned via `expected_issuer`: the provider fixes authorization-server
-discovery to that issuer and refuses to send the ID-JAG or client secret to any other, preventing a
-hostile resource server from redirecting the credentials elsewhere.
+`assertion_provider` callback, which receives the configured issuer (the `aud` the ID-JAG must
+carry) and the MCP server's resource identifier (the `resource` claim it must carry, per ext-auth
+section 4.3), and returns the ID-JAG.
 """
 
-from collections.abc import Awaitable, Callable
-from typing import Any, Literal
-from urllib.parse import urlsplit
+import base64
+import time
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from typing import Literal
+from urllib.parse import quote, urlsplit
 
+import anyio
 import httpx
 
-from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
-from mcp.client.auth.utils import union_scopes
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, ProtectedResourceMetadata
-
-JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
-
+from mcp.client.auth import OAuthFlowError, OAuthTokenError, TokenStorage
+from mcp.client.auth.utils import (
+    build_oauth_authorization_server_metadata_discovery_urls,
+    create_oauth_metadata_request,
+    extract_field_from_www_auth,
+    extract_scope_from_www_auth,
+    handle_auth_metadata_response,
+    handle_token_response_scopes,
+    union_scopes,
+    validate_metadata_issuer,
+)
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth_utils import calculate_token_expiry, resource_url_from_server_url
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
 
@@ -46,19 +56,20 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     return (parsed.scheme, parsed.hostname or "", port)
 
 
-class IdentityAssertionOAuthProvider(OAuthClientProvider):
-    """OAuth provider for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant).
+class IdentityAssertionOAuthProvider(httpx.Auth):
+    """`httpx.Auth` for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant) against a configured AS.
 
-    Presents an ID-JAG as the `assertion` of a jwt-bearer token request, bypassing the
-    interactive authorization-code flow and dynamic client registration. The ID-JAG is fetched
-    lazily from `assertion_provider` so a fresh assertion is used on each exchange.
+    The authorization server `issuer` is fixed at construction; metadata is fetched from its
+    RFC 8414 well-known and the ID-JAG and client secret are sent only to that issuer's token
+    endpoint. The resource server is never consulted for AS selection. The ID-JAG is fetched lazily
+    from `assertion_provider` so a fresh assertion is used on each exchange.
 
     Example:
         ```python
         async def fetch_id_jag(audience: str, resource: str) -> str:
-            # `audience` is the MCP authorization server's issuer (the ID-JAG `aud`); `resource`
-            # is the MCP server's identifier (the ID-JAG `resource` claim). Obtaining the ID-JAG
-            # from the enterprise IdP is deployment-specific and not handled by the SDK.
+            # `audience` is the configured issuer (the ID-JAG `aud`); `resource` is the MCP
+            # server's identifier (the ID-JAG `resource` claim). Obtaining the ID-JAG from the
+            # enterprise IdP is deployment-specific and not handled by the SDK.
             return await my_idp.issue_id_jag(audience=audience, resource=resource)
 
 
@@ -67,11 +78,13 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             client_secret="my-client-secret",
-            expected_issuer="https://auth.example.com",
+            issuer="https://auth.example.com",
             assertion_provider=fetch_id_jag,
         )
         ```
     """
+
+    requires_response_body = True
 
     def __init__(
         self,
@@ -79,9 +92,9 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         storage: TokenStorage,
         client_id: str,
         client_secret: str,
-        expected_issuer: str,
+        issuer: str,
         assertion_provider: Callable[[str, str], Awaitable[str]],
-        scopes: str | None = None,
+        scope: str | None = None,
         token_endpoint_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_post",
     ) -> None:
         """Initialize the identity-assertion OAuth provider.
@@ -90,134 +103,111 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
             server_url: The MCP server URL.
             storage: Token storage implementation.
             client_id: The OAuth client ID registered with the MCP authorization server.
-            client_secret: The client secret. SEP-990 §5.1 requires a confidential client.
-            expected_issuer: The issuer identifier of the MCP authorization server this client is
-                provisioned for. The provider refuses to send the ID-JAG or secret unless the
-                discovered metadata issuer matches this value.
-            assertion_provider: Async callback taking `(audience, resource)` - the authorization
-                server's issuer and the MCP server's resource identifier - and returning the ID-JAG.
-            scopes: Optional space-separated list of scopes to request. Sent verbatim on the
-                exchange; not overridden by server-advertised scopes.
-            token_endpoint_auth_method: Confidential-client auth method, either
-                `client_secret_post` (default) or `client_secret_basic`.
-
-        Raises:
-            ValueError: If `client_secret` or `expected_issuer` is empty.
+            client_secret: The client secret. SEP-990 section 5.1 requires a confidential client.
+            issuer: The issuer identifier of the MCP authorization server this client is provisioned
+                for. Authorization-server metadata is fetched from this issuer's well-known and the
+                ID-JAG and secret are sent only to its token endpoint.
+            assertion_provider: Async callback taking `(audience, resource)` - the configured issuer
+                and the MCP server's resource identifier - and returning the ID-JAG.
+            scope: Optional space-separated list of scopes to request.
+            token_endpoint_auth_method: Confidential-client auth method, either `client_secret_post`
+                (default) or `client_secret_basic`.
         """
         if not client_secret:
             raise ValueError("client_secret is required: SEP-990 mandates a confidential client")
-        if not expected_issuer:
-            raise ValueError("expected_issuer is required to pin the authorization server")
-        client_metadata = OAuthClientMetadata(
-            redirect_uris=None,
-            grant_types=[JWT_BEARER_GRANT_TYPE],
-            token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
-        )
-        super().__init__(server_url, client_metadata, storage, None, None, 300.0)
+        if not issuer:
+            raise ValueError("issuer is required: the authorization server is configuration, not discovery")
+        self._resource = resource_url_from_server_url(server_url)
+        self._storage = storage
+        self._issuer = issuer
         self._assertion_provider = assertion_provider
-        self._expected_issuer = expected_issuer
-        # The caller's requested scope. The base 401 flow's scope-selection step overwrites
-        # `client_metadata.scope` with server-advertised scopes (and the 403 step-up unions in the
-        # challenged scope); `_exchange_assertion` folds this back so the caller's request is
-        # honoured while still picking up a step-up challenge.
-        self._scopes = scopes
-        self._fixed_client_info = OAuthClientInformationFull(
-            redirect_uris=None,
+        self._scope = scope
+        self._client = OAuthClientInformationFull(
             client_id=client_id,
             client_secret=client_secret,
+            redirect_uris=None,
             grant_types=[JWT_BEARER_GRANT_TYPE],
             token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
-            # SEP-2352 binding: pin these pre-provisioned credentials to the expected AS so the
-            # base flow's credentials_match_issuer guard discards them if the discovered AS differs.
-            issuer=expected_issuer,
+            issuer=issuer,
         )
+        self._token_endpoint: str | None = None
+        self._tokens: OAuthToken | None = None
+        self._expiry: float | None = None
+        self._lock = anyio.Lock()
+        self._initialized = False
 
-    async def _initialize(self) -> None:
-        """Load stored tokens and set pre-configured client_info."""
-        self.context.current_tokens = await self.context.storage.get_tokens()
-        self.context.client_info = self._fixed_client_info
-        # Pin the authorization server up front: the base flow otherwise takes the AS from the
-        # (untrusted) resource server's PRM / fetches ASM from the RS origin on the legacy path,
-        # where validate_metadata_issuer is skipped. Setting auth_server_url makes ASM discovery
-        # target the expected AS's well-known and run validate_metadata_issuer, so a hostile RS
-        # cannot forge a metadata document pointing the credentials elsewhere.
-        self.context.auth_server_url = self._expected_issuer
-        self._initialized = True
-
-    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
-        """Reject a PRM that names an authorization server other than the pinned one.
-
-        On the PRM path the base flow would adopt `prm.authorization_servers[0]` as the AS and,
-        if it differs from the bound credentials, discard them and attempt DCR against it. Refusing
-        an unexpected AS here stops that before any client metadata is disclosed.
-        """
-        await super()._validate_resource_match(prm)
-        servers = [str(s) for s in prm.authorization_servers]
-        if self._expected_issuer not in servers:
-            raise OAuthFlowError(
-                f"Protected resource names authorization servers {servers}, not the expected {self._expected_issuer}"
-            )
-
-    async def _perform_authorization(self) -> httpx.Request:
-        """Perform the jwt-bearer grant with the ID-JAG."""
-        return await self._exchange_assertion()
-
-    async def _exchange_assertion(self) -> httpx.Request:
-        """Build the RFC 7523 jwt-bearer token request carrying the ID-JAG."""
-        if not self.context.oauth_metadata:
-            # Reachable when both PRM and ASM discovery 404 (legacy server): the pinned client_info
-            # skips registration, so the flow reaches here with no metadata.
-            raise OAuthFlowError("Missing OAuth metadata for identity assertion grant")
-        if not self.context.client_info:
-            raise OAuthFlowError("Missing client info for identity assertion grant")  # pragma: no cover
-
-        # Pin the authorization server: both its metadata issuer AND the token endpoint the
-        # credentials are POSTed to are discovered via the (untrusted) resource server. Checking the
-        # issuer alone is not enough - on the legacy no-PRM path a hostile RS can serve the expected
-        # issuer with an attacker-controlled token_endpoint. Require both to be on the expected
-        # issuer's origin before releasing the ID-JAG or secret.
-        issuer = str(self.context.oauth_metadata.issuer)
-        if issuer != self._expected_issuer:
-            raise OAuthFlowError(
-                f"Authorization server issuer {issuer} does not match expected {self._expected_issuer}"
-            )
-        token_url = self._get_token_endpoint()
-        if _origin(token_url) != _origin(self._expected_issuer):
-            raise OAuthFlowError(
-                f"Token endpoint {token_url} is not on the expected issuer origin {self._expected_issuer}"
-            )
-
-        resource = self.context.get_resource_url()
-        assertion = await self._assertion_provider(issuer, resource)
-
-        token_data: dict[str, Any] = {
+    def _build_token_request(self, scope: str | None, assertion: str) -> httpx.Request:
+        """Build the RFC 7523 jwt-bearer token request, applying confidential-client auth."""
+        assert self._token_endpoint is not None
+        assert self._client.client_id is not None and self._client.client_secret is not None
+        data: dict[str, str] = {
             "grant_type": JWT_BEARER_GRANT_TYPE,
             "assertion": assertion,
-            "client_id": self.context.client_info.client_id,
+            "client_id": self._client.client_id,
+            "resource": self._resource,
         }
-
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_data, headers = self.context.prepare_token_auth(token_data, headers)
-
-        if self.context.should_include_resource_param(self.context.protocol_version):
-            token_data["resource"] = resource
-
-        # Scope handling. On the initial exchange send exactly the caller's requested scope: the
-        # base 401 scope-selection step overwrites client_metadata.scope with the server-advertised
-        # set, which must NOT silently broaden the request. On a 403 insufficient_scope step-up the
-        # base flow re-runs this with client_metadata.scope already holding the SEP-2350 union of the
-        # prior and challenged scopes; honour that so the retry actually escalates. The two are told
-        # apart by whether a token already exists (a step-up only happens after one was issued).
-        if self.context.current_tokens is None:
-            scope = self._scopes
-        else:
-            scope = union_scopes(self._scopes, self.context.client_metadata.scope)
-        # Write it back so the base _handle_token_response RFC 6749 §5.1 backfill records the same
-        # value on the stored token rather than the server-advertised set.
-        self.context.client_metadata.scope = scope
         if scope:
-            token_data["scope"] = scope
+            data["scope"] = scope
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if self._client.token_endpoint_auth_method == "client_secret_basic":
+            # RFC 6749 section 2.3.1: URL-encode each part, then base64 the colon-joined pair.
+            encoded_id = quote(self._client.client_id, safe="")
+            encoded_secret = quote(self._client.client_secret, safe="")
+            credentials = base64.b64encode(f"{encoded_id}:{encoded_secret}".encode()).decode()
+            headers["Authorization"] = f"Basic {credentials}"
+        else:
+            data["client_secret"] = self._client.client_secret
+        return httpx.Request("POST", self._token_endpoint, data=data, headers=headers)
 
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        async with self._lock:
+            if not self._initialized:
+                self._tokens = await self._storage.get_tokens()
+                self._expiry = calculate_token_expiry(self._tokens.expires_in) if self._tokens else None
+                self._initialized = True
+
+            if self._tokens and (self._expiry is None or time.time() <= self._expiry):
+                request.headers["Authorization"] = f"Bearer {self._tokens.access_token}"
+            response = yield request
+
+            if response.status_code == 401:
+                scope_to_request = self._scope
+            elif response.status_code == 403 and extract_field_from_www_auth(response, "error") == "insufficient_scope":
+                scope_to_request = union_scopes(self._scope, extract_scope_from_www_auth(response))
+            else:
+                return
+
+            # Discover ASM from the configured issuer's well-known. The RS is not consulted: both
+            # arguments are the issuer, so even the helper's legacy fallback resolves there.
+            if self._token_endpoint is None:
+                for url in build_oauth_authorization_server_metadata_discovery_urls(self._issuer, self._issuer):
+                    asm_response = yield create_oauth_metadata_request(url)
+                    ok, asm = await handle_auth_metadata_response(asm_response)
+                    if not ok:
+                        break
+                    if asm is not None:
+                        validate_metadata_issuer(asm, self._issuer)
+                        token_endpoint = str(asm.token_endpoint)
+                        if _origin(token_endpoint) != _origin(self._issuer):
+                            raise OAuthFlowError(
+                                f"Token endpoint {token_endpoint} is not on the configured issuer origin {self._issuer}"
+                            )
+                        self._token_endpoint = token_endpoint
+                        break
+                if self._token_endpoint is None:
+                    raise OAuthFlowError(f"No authorization server metadata at configured issuer {self._issuer}")
+
+            assertion = await self._assertion_provider(self._issuer, self._resource)
+            token_response = yield self._build_token_request(scope_to_request, assertion)
+            if token_response.status_code != 200:
+                body = (await token_response.aread()).decode(errors="replace")
+                raise OAuthTokenError(f"Token exchange failed ({token_response.status_code}): {body}")
+            tokens = await handle_token_response_scopes(token_response)
+            if tokens.scope is None:
+                tokens.scope = scope_to_request
+            self._tokens = tokens
+            self._expiry = calculate_token_expiry(tokens.expires_in)
+            await self._storage.set_tokens(tokens)
+
+            request.headers["Authorization"] = f"Bearer {tokens.access_token}"
+            yield request

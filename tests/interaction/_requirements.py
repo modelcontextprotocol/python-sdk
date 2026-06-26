@@ -3699,9 +3699,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:identity-assertion:issuer-pinning": Requirement(
         source="sdk",
         behavior=(
-            "The identity-assertion provider refuses to send the ID-JAG or client secret when the "
-            "discovered authorization-server issuer does not match the configured expected issuer, so a "
-            "hostile resource server cannot redirect the credentials."
+            "The identity-assertion provider's authorization server is configuration: metadata is "
+            "fetched only from the configured issuer's RFC 8414 well-known, the resource server is "
+            "never consulted for AS selection, and the ID-JAG and client secret are not sent unless "
+            "that metadata validates."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

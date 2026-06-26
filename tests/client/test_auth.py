@@ -12,7 +12,7 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
-from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -2858,6 +2858,17 @@ async def test_handle_token_response_backfills_omitted_scope_from_request(
     stored = await mock_storage.get_tokens()
     assert stored is not None
     assert stored.scope == "read admin"
+
+
+@pytest.mark.anyio
+async def test_handle_token_response_raises_on_non_2xx_with_body(oauth_provider: OAuthClientProvider):
+    response = httpx.Response(
+        400,
+        json={"error": "invalid_grant"},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(400\).*invalid_grant"):
+        await oauth_provider._handle_token_response(response)
 
 
 @pytest.mark.anyio

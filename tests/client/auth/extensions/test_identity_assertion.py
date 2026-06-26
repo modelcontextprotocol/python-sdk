@@ -1,320 +1,410 @@
+"""Unit tests for the standalone SEP-990 jwt-bearer `httpx.Auth`.
+
+The provider's authorization server is configuration; these tests assert that authorization-server
+metadata is fetched only from the configured issuer, that the resource server is never consulted for
+AS selection, and that the ID-JAG and client secret reach only the issuer's token endpoint.
+"""
+
 import base64
+import json
 import urllib.parse
 
+import httpx
 import pytest
 
-from mcp.client.auth import OAuthFlowError
-from mcp.client.auth.extensions.identity_assertion import (
-    JWT_BEARER_GRANT_TYPE,
-    IdentityAssertionOAuthProvider,
-    _origin,
-)
-from mcp.shared.auth import (
-    OAuthClientInformationFull,
-    OAuthMetadata,
-    OAuthToken,
-    ProtectedResourceMetadata,
-)
+from mcp.client.auth import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider, _origin
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 
 ISSUER = "https://auth.example.com"
+RS = "https://mcp.example.com"
+ASM_PATH = "/.well-known/oauth-authorization-server"
+OIDC_PATH = "/.well-known/openid-configuration"
 
 
-class MockTokenStorage:
-    def __init__(self) -> None:
-        self._tokens: OAuthToken | None = None
-        self._client_info: OAuthClientInformationFull | None = None
+class InMemoryStorage:
+    def __init__(self, tokens: OAuthToken | None = None) -> None:
+        self.tokens = tokens
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens
+        return self.tokens
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:  # pragma: no cover
-        self._tokens = tokens
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self.tokens = tokens
 
-    async def get_client_info(self) -> OAuthClientInformationFull | None:  # pragma: no cover
-        return self._client_info
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        raise NotImplementedError
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:  # pragma: no cover
-        self._client_info = client_info
-
-
-@pytest.fixture
-def mock_storage() -> MockTokenStorage:
-    return MockTokenStorage()
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        raise NotImplementedError
 
 
-def oauth_metadata(issuer: str = ISSUER, token_endpoint: str | None = None) -> OAuthMetadata:
-    # Round-trip through JSON so the issuer keeps its path-less form (no trailing slash), matching
-    # what the client discovers over the wire; constructing from an AnyHttpUrl object would add one.
-    return OAuthMetadata.model_validate(
+def asm_body(*, issuer: str = ISSUER, token_endpoint: str | None = None) -> bytes:
+    return json.dumps(
         {
             "issuer": issuer,
             "authorization_endpoint": f"{issuer}/authorize",
             "token_endpoint": token_endpoint or f"{issuer}/token",
         }
-    )
+    ).encode()
+
+
+def token_body(*, access_token: str = "issued-token", scope: str | None = None) -> bytes:
+    payload: dict[str, object] = {"access_token": access_token, "token_type": "Bearer", "expires_in": 3600}
+    if scope is not None:
+        payload["scope"] = scope
+    return json.dumps(payload).encode()
 
 
 def make_provider(
-    mock_storage: MockTokenStorage,
+    storage: InMemoryStorage | None = None,
     *,
-    assertion: str = "id-jag",
+    scope: str | None = "mcp",
     token_endpoint_auth_method: str = "client_secret_post",
-    scopes: str | None = "mcp",
     record: list[tuple[str, str]] | None = None,
 ) -> IdentityAssertionOAuthProvider:
     async def assertion_provider(audience: str, resource: str) -> str:
         if record is not None:
             record.append((audience, resource))
-        return assertion
+        return "the-id-jag"
 
     return IdentityAssertionOAuthProvider(
-        server_url="https://mcp.example.com/mcp",
-        storage=mock_storage,
+        server_url=f"{RS}/mcp",
+        storage=storage if storage is not None else InMemoryStorage(),
         client_id="test-client-id",
         client_secret="test-client-secret",
-        expected_issuer=ISSUER,
+        issuer=ISSUER,
         assertion_provider=assertion_provider,
-        scopes=scopes,
+        scope=scope,
         token_endpoint_auth_method=token_endpoint_auth_method,  # type: ignore[arg-type]
     )
 
 
+def mock_transport(
+    requests: list[httpx.Request],
+    *,
+    asm: bytes | int = 200,
+    token: bytes | int = 200,
+    rs_first_status: int = 401,
+    rs_first_headers: dict[str, str] | None = None,
+) -> httpx.MockTransport:
+    """Build a `MockTransport` that records every request and serves the configured ASM and token.
+
+    `asm` / `token` are either a body (served as 200 JSON) or an int status (served with no body).
+    The MCP resource server's first response is `rs_first_status` (default 401) with optional
+    headers; subsequent RS requests return 200.
+    """
+    rs_hits = 0
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal rs_hits
+        requests.append(request)
+        host, path = request.url.host, request.url.path
+        if host == "mcp.example.com":
+            rs_hits += 1
+            if rs_hits == 1:
+                return httpx.Response(rs_first_status, headers=rs_first_headers or {})
+            return httpx.Response(200, json={"ok": True})
+        if host == "auth.example.com" and path in (ASM_PATH, OIDC_PATH):
+            if isinstance(asm, int):
+                return httpx.Response(asm)
+            return httpx.Response(200, content=asm, headers={"content-type": "application/json"})
+        if host == "auth.example.com" and path == "/token":
+            if isinstance(token, int):
+                return httpx.Response(token, json={"error": "invalid_grant"})
+            return httpx.Response(200, content=token, headers={"content-type": "application/json"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")  # pragma: no cover
+
+    return httpx.MockTransport(handle)
+
+
+def form(request: httpx.Request) -> dict[str, str]:
+    return dict(urllib.parse.parse_qsl(request.content.decode()))
+
+
 @pytest.mark.anyio
-async def test_initialize_sets_pinned_client_info(mock_storage: MockTokenStorage) -> None:
-    provider = make_provider(mock_storage)
-    await provider._initialize()
-
-    assert provider.context.client_info is not None
-    assert provider.context.client_info.client_id == "test-client-id"
-    assert provider.context.client_info.grant_types == [JWT_BEARER_GRANT_TYPE]
-    # SEP-2352: credentials are pinned to the expected issuer.
-    assert provider.context.client_info.issuer == ISSUER
-
-
-@pytest.mark.anyio
-async def test_jwt_bearer_request_with_secret_post(mock_storage: MockTokenStorage) -> None:
+async def test_on_401_exchanges_assertion_at_configured_issuer_and_retries() -> None:
+    """A 401 fetches ASM from the configured issuer, posts the jwt-bearer grant, and retries."""
+    requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
-    provider = make_provider(mock_storage, assertion="the-id-jag", record=record)
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2025-06-18"
+    storage = InMemoryStorage()
+    auth = make_provider(storage, record=record)
 
-    request = await provider._perform_authorization()
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(), token=token_body(scope="mcp")), auth=auth
+    ) as http:
+        response = await http.post(f"{RS}/mcp")
 
-    assert request.method == "POST"
-    assert str(request.url) == f"{ISSUER}/token"
-
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert f"grant_type={JWT_BEARER_GRANT_TYPE}" in content
-    assert "assertion=the-id-jag" in content
-    assert "subject_token" not in content  # jwt-bearer, not token-exchange
-    assert "client_id=test-client-id" in content
-    assert "client_secret=test-client-secret" in content
-    assert "scope=mcp" in content
-    assert "resource=https://mcp.example.com/mcp" in content
-    assert "Authorization" not in request.headers
-
-    # The callback gets the AS issuer as audience and the MCP resource identifier.
-    assert record == [(ISSUER, "https://mcp.example.com/mcp")]
+    assert [(r.method, str(r.url)) for r in requests] == [
+        ("POST", f"{RS}/mcp"),
+        ("GET", f"{ISSUER}{ASM_PATH}"),
+        ("POST", f"{ISSUER}/token"),
+        ("POST", f"{RS}/mcp"),
+    ]
+    body = form(requests[2])
+    assert body == {
+        "grant_type": JWT_BEARER_GRANT_TYPE,
+        "assertion": "the-id-jag",
+        "client_id": "test-client-id",
+        "resource": f"{RS}/mcp",
+        "scope": "mcp",
+        "client_secret": "test-client-secret",
+    }
+    assert "Authorization" not in requests[2].headers
+    assert record == [(ISSUER, f"{RS}/mcp")]
+    assert response.status_code == 200
+    assert storage.tokens is not None
+    assert storage.tokens.access_token == "issued-token"
+    assert storage.tokens.scope == "mcp"
 
 
 @pytest.mark.anyio
-async def test_jwt_bearer_request_with_secret_basic(mock_storage: MockTokenStorage) -> None:
-    provider = make_provider(mock_storage, token_endpoint_auth_method="client_secret_basic")
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2025-06-18"
+async def test_resource_server_metadata_is_never_consulted() -> None:
+    """No PRM well-known and no RS-origin ASM well-known is ever fetched.
 
-    request = await provider._perform_authorization()
+    This is the by-construction property: the AS is configuration, so the resource server has no
+    input into where the ID-JAG or client secret go. Any GET to the RS host fails the test.
+    """
+    requests: list[httpx.Request] = []
+    auth = make_provider()
 
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert "client_secret=" not in content
-    decoded = base64.b64decode(request.headers["Authorization"].removeprefix("Basic ")).decode()
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(), token=token_body()), auth=auth
+    ) as http:
+        await http.post(f"{RS}/mcp")
+
+    rs_gets = [r for r in requests if r.url.host == "mcp.example.com" and r.method == "GET"]
+    assert rs_gets == []
+    assert all(r.url.host == "auth.example.com" for r in requests if r.method == "GET")
+    # No DCR was attempted anywhere.
+    assert not any(r.url.path == "/register" for r in requests)
+
+
+@pytest.mark.anyio
+async def test_asm_404_at_configured_issuer_raises_before_minting_assertion() -> None:
+    """If the issuer's well-knowns 404, the flow fails closed and the assertion is never minted."""
+    requests: list[httpx.Request] = []
+    record: list[tuple[str, str]] = []
+    auth = make_provider(record=record)
+
+    async with httpx.AsyncClient(transport=mock_transport(requests, asm=404), auth=auth) as http:
+        with pytest.raises(OAuthFlowError, match="No authorization server metadata"):
+            await http.post(f"{RS}/mcp")
+
+    # Both RFC 8414 and OIDC well-knowns were tried at the configured issuer; nothing else.
+    assert [str(r.url) for r in requests if r.method == "GET"] == [f"{ISSUER}{ASM_PATH}", f"{ISSUER}{OIDC_PATH}"]
+    assert record == []
+    assert not any(r.url.path == "/token" for r in requests)
+
+
+@pytest.mark.anyio
+async def test_asm_5xx_stops_discovery_and_raises() -> None:
+    """A 5xx at the issuer's well-known stops discovery without trying further URLs."""
+    requests: list[httpx.Request] = []
+    auth = make_provider()
+
+    async with httpx.AsyncClient(transport=mock_transport(requests, asm=500), auth=auth) as http:
+        with pytest.raises(OAuthFlowError, match="No authorization server metadata"):
+            await http.post(f"{RS}/mcp")
+
+    assert [str(r.url) for r in requests if r.method == "GET"] == [f"{ISSUER}{ASM_PATH}"]
+
+
+@pytest.mark.anyio
+async def test_asm_with_wrong_issuer_is_rejected_before_minting_assertion() -> None:
+    """RFC 8414 section 3.3: metadata whose `issuer` differs from the configured one is rejected."""
+    requests: list[httpx.Request] = []
+    record: list[tuple[str, str]] = []
+    auth = make_provider(record=record)
+
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(issuer="https://other.example")), auth=auth
+    ) as http:
+        with pytest.raises(OAuthFlowError, match="issuer mismatch"):
+            await http.post(f"{RS}/mcp")
+
+    assert record == []
+    assert not any(r.url.path == "/token" for r in requests)
+
+
+@pytest.mark.anyio
+async def test_asm_with_off_origin_token_endpoint_is_rejected_before_minting_assertion() -> None:
+    """A `token_endpoint` off the configured issuer's origin is refused before any credential is sent."""
+    requests: list[httpx.Request] = []
+    record: list[tuple[str, str]] = []
+    auth = make_provider(record=record)
+
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(token_endpoint="https://other.example/token")), auth=auth
+    ) as http:
+        with pytest.raises(OAuthFlowError, match="not on the configured issuer origin"):
+            await http.post(f"{RS}/mcp")
+
+    assert record == []
+    assert not any(r.url.path == "/token" for r in requests)
+
+
+@pytest.mark.anyio
+async def test_403_insufficient_scope_unions_challenged_scope_with_configured() -> None:
+    """A 403 `insufficient_scope` re-exchanges with the union of configured and challenged scopes."""
+    requests: list[httpx.Request] = []
+    auth = make_provider(scope="mcp")
+
+    transport = mock_transport(
+        requests,
+        asm=asm_body(),
+        token=token_body(),
+        rs_first_status=403,
+        rs_first_headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="mcp files:write"'},
+    )
+    async with httpx.AsyncClient(transport=transport, auth=auth) as http:
+        response = await http.post(f"{RS}/mcp")
+
+    [token_req] = [r for r in requests if r.url.path == "/token"]
+    assert form(token_req)["scope"] == "mcp files:write"
+    assert response.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_403_without_insufficient_scope_does_not_reauthorize() -> None:
+    """A plain 403 (not `insufficient_scope`) is returned to the caller without re-exchanging."""
+    requests: list[httpx.Request] = []
+    record: list[tuple[str, str]] = []
+    auth = make_provider(record=record)
+
+    transport = mock_transport(requests, rs_first_status=403, rs_first_headers={"WWW-Authenticate": "Bearer"})
+    async with httpx.AsyncClient(transport=transport, auth=auth) as http:
+        response = await http.post(f"{RS}/mcp")
+
+    assert response.status_code == 403
+    assert record == []
+    assert [str(r.url) for r in requests] == [f"{RS}/mcp"]
+
+
+@pytest.mark.anyio
+async def test_token_endpoint_error_surfaces_as_oauth_token_error() -> None:
+    requests: list[httpx.Request] = []
+    auth = make_provider()
+
+    async with httpx.AsyncClient(transport=mock_transport(requests, asm=asm_body(), token=400), auth=auth) as http:
+        with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(400\).*invalid_grant"):
+            await http.post(f"{RS}/mcp")
+
+
+@pytest.mark.anyio
+async def test_client_secret_basic_sends_basic_header_not_body_secret() -> None:
+    requests: list[httpx.Request] = []
+    auth = make_provider(token_endpoint_auth_method="client_secret_basic")
+
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(), token=token_body()), auth=auth
+    ) as http:
+        await http.post(f"{RS}/mcp")
+
+    [token_req] = [r for r in requests if r.url.path == "/token"]
+    assert "client_secret" not in form(token_req)
+    decoded = base64.b64decode(token_req.headers["Authorization"].removeprefix("Basic ")).decode()
     assert decoded == "test-client-id:test-client-secret"
 
 
 @pytest.mark.anyio
-async def test_no_scope_and_no_resource_on_old_protocol(mock_storage: MockTokenStorage) -> None:
-    """Without a configured scope and on a pre-resource-param protocol, neither field is sent."""
-    provider = make_provider(mock_storage, scopes=None)
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2024-11-05"  # pre-resource-param
+async def test_stored_token_is_reused_without_reauthorizing() -> None:
+    """A valid stored token is sent on the first request; on success no ASM or /token is fetched."""
+    requests: list[httpx.Request] = []
+    storage = InMemoryStorage(tokens=OAuthToken(access_token="cached", token_type="Bearer", expires_in=3600))
+    auth = make_provider(storage)
 
-    request = await provider._perform_authorization()
+    transport = mock_transport(requests, rs_first_status=200)
+    async with httpx.AsyncClient(transport=transport, auth=auth) as http:
+        response = await http.post(f"{RS}/mcp")
 
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert f"grant_type={JWT_BEARER_GRANT_TYPE}" in content
-    assert "scope=" not in content
-    assert "resource=" not in content
+    assert response.status_code == 200
+    assert [str(r.url) for r in requests] == [f"{RS}/mcp"]
+    assert requests[0].headers["Authorization"] == "Bearer cached"
 
 
 @pytest.mark.anyio
-async def test_unexpected_issuer_refuses_to_send_assertion(mock_storage: MockTokenStorage) -> None:
-    """If the discovered AS issuer differs from expected_issuer, the assertion/secret are never sent."""
+async def test_second_401_re_exchanges_without_refetching_asm() -> None:
+    """ASM is discovered once; a later 401 mints a fresh assertion against the cached token endpoint."""
+    requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
-    provider = make_provider(mock_storage, record=record)
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata(issuer="https://attacker.example")
-    provider.context.protocol_version = "2025-06-18"
+    auth = make_provider(record=record)
+    rs_hits = 0
 
-    with pytest.raises(OAuthFlowError, match="does not match expected"):
-        await provider._perform_authorization()
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal rs_hits
+        requests.append(request)
+        host, path = request.url.host, request.url.path
+        if host == "mcp.example.com":
+            rs_hits += 1
+            # First and third RS hits draw a 401; second and fourth succeed.
+            return httpx.Response(401 if rs_hits in (1, 3) else 200)
+        if host == "auth.example.com" and path == ASM_PATH:
+            return httpx.Response(200, content=asm_body(), headers={"content-type": "application/json"})
+        assert host == "auth.example.com" and path == "/token"
+        return httpx.Response(200, content=token_body(), headers={"content-type": "application/json"})
 
-    assert record == []  # the assertion provider was never invoked
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), auth=auth) as http:
+        await http.post(f"{RS}/mcp")
+        await http.post(f"{RS}/mcp")
 
-
-@pytest.mark.anyio
-async def test_attacker_token_endpoint_on_expected_issuer_is_rejected(mock_storage: MockTokenStorage) -> None:
-    """A matching issuer but an off-origin token_endpoint (legacy-path attack) is refused."""
-    record: list[tuple[str, str]] = []
-    provider = make_provider(mock_storage, record=record)
-    await provider._initialize()
-    # The RS-served metadata claims the expected issuer but points the token endpoint at an attacker.
-    provider.context.oauth_metadata = oauth_metadata(token_endpoint="https://attacker.example/steal")
-    provider.context.protocol_version = "2025-06-18"
-
-    with pytest.raises(OAuthFlowError, match="not on the expected issuer origin"):
-        await provider._perform_authorization()
-
-    assert record == []  # the assertion/secret are never sent
-
-
-@pytest.mark.anyio
-async def test_missing_metadata_raises(mock_storage: MockTokenStorage) -> None:
-    """With no discovered metadata (PRM+ASM both 404), the exchange raises instead of proceeding."""
-    provider = make_provider(mock_storage)
-    await provider._initialize()
-    provider.context.oauth_metadata = None
-
-    with pytest.raises(OAuthFlowError, match="Missing OAuth metadata"):
-        await provider._perform_authorization()
+    asm_gets = [r for r in requests if r.url.path == ASM_PATH]
+    token_posts = [r for r in requests if r.url.path == "/token"]
+    assert len(asm_gets) == 1
+    assert len(token_posts) == 2
+    assert len(record) == 2
 
 
 @pytest.mark.anyio
-async def test_step_up_scope_is_unioned_with_configured_scope(mock_storage: MockTokenStorage) -> None:
-    """A 403 step-up challenge (written to client_metadata.scope) is unioned with the configured scope.
+async def test_no_configured_scope_omits_scope_and_backfills_from_request() -> None:
+    """With no configured scope and no scope in the token response, the stored token records None."""
+    requests: list[httpx.Request] = []
+    storage = InMemoryStorage()
+    auth = make_provider(storage, scope=None)
 
-    A step-up only happens after a token was issued, so the union branch is keyed on current_tokens
-    being set; the test simulates both the existing token and the base flow's challenge write-back.
-    """
-    provider = make_provider(mock_storage)  # configured scopes="mcp"
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2025-06-18"
-    # A token exists (the one that drew the 403); the base step-up wrote the challenged union onto
-    # client_metadata.scope.
-    provider.context.current_tokens = OAuthToken(access_token="prior", scope="mcp")
-    provider.context.client_metadata.scope = "files:write"
+    async with httpx.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(), token=token_body()), auth=auth
+    ) as http:
+        await http.post(f"{RS}/mcp")
 
-    request = await provider._perform_authorization()
-
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert "scope=mcp files:write" in content
+    [token_req] = [r for r in requests if r.url.path == "/token"]
+    assert "scope" not in form(token_req)
+    assert storage.tokens is not None
+    assert storage.tokens.scope is None
 
 
-@pytest.mark.anyio
-async def test_initial_exchange_does_not_broaden_to_server_scopes(mock_storage: MockTokenStorage) -> None:
-    """On the initial 401 exchange the request carries only the configured scope, not the server set.
-
-    The base 401 scope-selection step overwrites client_metadata.scope with server-advertised
-    scopes; the provider must not silently broaden the caller's request with them.
-    """
-    provider = make_provider(mock_storage)  # configured scopes="mcp"
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2025-06-18"
-    # No token yet (initial exchange). The base flow advertised a broader set.
-    assert provider.context.current_tokens is None
-    provider.context.client_metadata.scope = "mcp extra admin"
-
-    request = await provider._perform_authorization()
-
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert "scope=mcp&" in content or content.endswith("scope=mcp")
-    assert "extra" not in content
-    assert "admin" not in content
-
-
-def test_empty_client_secret_is_rejected(mock_storage: MockTokenStorage) -> None:
-    """SEP-990 mandates a confidential client, so an empty client_secret is refused at construction."""
-
-    async def assertion_provider(audience: str, resource: str) -> str:  # pragma: no cover
-        return "id-jag"
+def test_empty_client_secret_is_rejected() -> None:
+    async def assertion_provider(audience: str, resource: str) -> str:
+        raise NotImplementedError
 
     with pytest.raises(ValueError, match="client_secret is required"):
         IdentityAssertionOAuthProvider(
-            server_url="https://mcp.example.com/mcp",
-            storage=mock_storage,
+            server_url=f"{RS}/mcp",
+            storage=InMemoryStorage(),
             client_id="c",
             client_secret="",
-            expected_issuer=ISSUER,
+            issuer=ISSUER,
             assertion_provider=assertion_provider,
         )
 
 
-def test_empty_expected_issuer_is_rejected(mock_storage: MockTokenStorage) -> None:
-    """A pinned issuer is required, so an empty expected_issuer is refused at construction."""
+def test_empty_issuer_is_rejected() -> None:
+    async def assertion_provider(audience: str, resource: str) -> str:
+        raise NotImplementedError
 
-    async def assertion_provider(audience: str, resource: str) -> str:  # pragma: no cover
-        return "id-jag"
-
-    with pytest.raises(ValueError, match="expected_issuer is required"):
+    with pytest.raises(ValueError, match="issuer is required"):
         IdentityAssertionOAuthProvider(
-            server_url="https://mcp.example.com/mcp",
-            storage=mock_storage,
+            server_url=f"{RS}/mcp",
+            storage=InMemoryStorage(),
             client_id="c",
             client_secret="s",
-            expected_issuer="",
+            issuer="",
             assertion_provider=assertion_provider,
         )
-
-
-@pytest.mark.anyio
-async def test_initialize_pins_auth_server_url(mock_storage: MockTokenStorage) -> None:
-    """`_initialize` pins auth_server_url to expected_issuer so ASM discovery targets the pinned AS."""
-    provider = make_provider(mock_storage)
-    await provider._initialize()
-    assert provider.context.auth_server_url == ISSUER
-
-
-@pytest.mark.anyio
-async def test_resource_match_rejects_prm_naming_an_unexpected_as(mock_storage: MockTokenStorage) -> None:
-    """A PRM whose authorization_servers omit the expected issuer is rejected before any DCR."""
-    provider = make_provider(mock_storage)
-    await provider._initialize()
-    prm = ProtectedResourceMetadata.model_validate(
-        {
-            "resource": "https://mcp.example.com/mcp",
-            "authorization_servers": ["https://attacker.example"],
-        }
-    )
-
-    with pytest.raises(OAuthFlowError, match="not the expected"):
-        await provider._validate_resource_match(prm)
-
-
-@pytest.mark.anyio
-async def test_resource_match_accepts_prm_naming_the_expected_as(mock_storage: MockTokenStorage) -> None:
-    """A PRM that lists the expected issuer among its authorization_servers is accepted."""
-    provider = make_provider(mock_storage)
-    await provider._initialize()
-    prm = ProtectedResourceMetadata.model_validate(
-        {
-            "resource": "https://mcp.example.com/mcp",
-            "authorization_servers": [ISSUER],
-        }
-    )
-
-    await provider._validate_resource_match(prm)  # does not raise
 
 
 def test_origin_normalizes_default_ports() -> None:
-    """`_origin` treats an explicit scheme-default port as equal to the port-less form.
-
-    The token_endpoint (an AnyHttpUrl) has its default port normalized away, but a caller may
-    configure expected_issuer with the port spelled out; the origin check must not reject that.
-    """
+    """`_origin` treats an explicit scheme-default port as equal to the port-less form."""
     assert _origin("https://host") == _origin("https://host:443")
     assert _origin("http://host") == _origin("http://host:80")
     assert _origin("https://host") != _origin("https://host:8443")

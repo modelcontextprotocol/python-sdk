@@ -9,7 +9,9 @@ Obtaining the ID-JAG (logging into the IdP and the leg-1 exchange against it) is
 and out of scope for the SDK; supply it through the `assertion_provider` callback. The callback
 receives the authorization server's issuer (the ID-JAG `aud`) and the MCP server's resource
 identifier (the ID-JAG `resource` claim). SEP-990 requires a confidential client, so a client secret
-is mandatory, and `expected_issuer` pins the authorization server the credentials are provisioned for.
+is mandatory, and `issuer` is the authorization server the credentials are provisioned for - the
+provider fetches metadata from that issuer's well-known and never asks the resource server which AS
+to use.
 """
 
 import asyncio
@@ -59,9 +61,9 @@ async def main() -> None:
         storage=InMemoryTokenStorage(),
         client_id="enterprise-mcp-client",
         client_secret="enterprise-mcp-secret",
-        expected_issuer="http://localhost:8001",
+        issuer="http://localhost:8001",
         assertion_provider=fetch_id_jag,
-        scopes="user",
+        scope="user",
     )
 
     async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as http_client:

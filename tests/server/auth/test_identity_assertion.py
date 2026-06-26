@@ -20,9 +20,8 @@ from mcp.server.auth.provider import (
 )
 from mcp.server.auth.routes import build_metadata, create_auth_routes
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 
-JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 VALID_ASSERTION = "valid-id-jag"
 CONFIDENTIAL_CLIENT_ID = "enterprise-client"
@@ -241,10 +240,10 @@ async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClien
 async def test_identity_assertion_rejects_secretless_confidential_client(
     client: httpx.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """A client registered with a secret-based method but no secret is not actually confidential.
+    """A client registered with a secret-based method but no stored secret fails authentication.
 
-    `ClientAuthenticator` only verifies a secret when one is stored, so such a client authenticates
-    unchecked. The handler must reject it before reaching the provider hook.
+    `ClientAuthenticator` rejects this misconfiguration as `invalid_client`, so the request never
+    reaches the jwt-bearer handler or the provider hook.
     """
     provider.clients["secretless-client"] = OAuthClientInformationFull(
         client_id="secretless-client",
@@ -260,8 +259,10 @@ async def test_identity_assertion_rejects_secretless_confidential_client(
         data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": "secretless-client", "assertion": VALID_ASSERTION},
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"] == "unauthorized_client"
+    assert response.status_code == 401
+    body = response.json()
+    assert body["error"] == "invalid_client"
+    assert "no stored secret" in body["error_description"]
     assert provider.last_params is None
 
 
