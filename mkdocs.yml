@@ -136,7 +136,7 @@ markdown_extensions:
   - sane_lists # this means you can start a list from any number
 
 watch:
-  - src/mcp
+  - src
   - docs_src
 
 plugins:
@@ -152,7 +152,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src]
+          paths: [src, src/mcp-types]
           options:
             relative_crossrefs: true
             members_order: source

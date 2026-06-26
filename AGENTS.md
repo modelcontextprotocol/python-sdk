@@ -18,7 +18,12 @@
 ## Package Management
 
 - ONLY use uv, NEVER pip
-- Installation: `uv add <package>`
+- Installation: `uv add <package>`. Exception: the root project's runtime
+  dependencies are dynamic (the published `mcp` wheel exact-pins `mcp-types`),
+  so `uv add` cannot edit them — add the requirement to
+  `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies` in
+  `pyproject.toml` by hand, then run `uv lock`. Dependency groups, extras, and
+  the example packages still take plain `uv add`.
 - Running tools: `uv run --frozen <tool>`. Always pass `--frozen` so uv doesn't
   rewrite `uv.lock` as a side effect.
 - Cross-version testing: `uv run --frozen --python 3.10 pytest ...` to run

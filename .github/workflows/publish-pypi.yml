@@ -58,3 +58,7 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          # Lets a re-run after a partially failed upload publish the remaining
+          # files instead of erroring on the ones already on PyPI.
+          skip-existing: true

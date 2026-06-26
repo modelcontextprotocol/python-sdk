@@ -2,7 +2,9 @@
 
 ## Bumping Dependencies
 
-1. Change dependency version in `pyproject.toml`
+1. Change the dependency version in `pyproject.toml`. The root `mcp` project's
+   runtime dependencies are dynamic and live under
+   `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.
 2. Upgrade lock with `uv lock --resolution lowest-direct`
 
 ## Major or Minor Release
@@ -20,6 +22,16 @@ The package version will be set automatically from the tag.
 
 v2 pre-releases are cut from `main` with a PEP 440 pre-release tag: `v2.0.0aN`
 for alphas, later `bN`/`rcN` for betas and release candidates.
+
+A release publishes two distributions, `mcp` and `mcp-types`, at the same
+version, and the `mcp` wheel exact-pins `mcp-types`. Before the first release
+that includes both, the `mcp-types` PyPI project must be given the same
+trusted publisher as `mcp` (this repository, workflow `publish-pypi.yml`,
+environment `release`) and the same owners — without it the `mcp-types`
+upload is rejected. If only some of the files upload, fix the cause and re-run
+the publish job — `skip-existing` makes it skip whatever already landed. The
+`Development Status` classifier in both `pyproject.toml` files is permanently
+`5 - Production/Stable`; it is not bumped as part of any release.
 
 1. Check the full test matrix is green on the release commit. The matrix runs
    with `continue-on-error`, so a green workflow run does not mean the tests
