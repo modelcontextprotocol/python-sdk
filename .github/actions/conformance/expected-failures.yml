@@ -10,11 +10,7 @@
 # scenarios start passing and MUST be removed from this list (the runner fails
 # on stale entries), so the baseline burns down per milestone.
 
-client:
-  # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-  # SEP-990 (enterprise-managed authorization extension): no fixture handler /
-  # client support for the token-exchange + JWT bearer flow.
-  - auth/enterprise-managed-authorization
+client: []
 
 server:
   # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
