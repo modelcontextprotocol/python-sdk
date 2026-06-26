@@ -34,6 +34,9 @@ multi_connection = true
 # progress + log notifications dropped on the modern streamable-HTTP path pending SSE wiring
 xfail = ["http-asgi:modern"]
 
+[story.mrtr]
+era = "modern"
+
 [story.legacy_elicitation]
 era    = "legacy"
 status = "legacy"
@@ -140,7 +143,6 @@ fixed_port    = 8000                            # issuer/PRM metadata bake in :8
 
 [deferred]
 caching       = "client honouring + per-result override unlanded"
-mrtr          = "#2898 — InputRequiredResult runtime"
 subscriptions = "#2901 — Client.listen / ServerEventBus"
 tasks         = "extensions capability map + tasks runtime"
 apps          = "#2896 — extensions capability map"

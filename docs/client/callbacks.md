@@ -61,6 +61,10 @@ One `tools/call` from you, one `elicitation/create` back from the server, answer
     protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
     to answer one; every test behind this page does. **Protocol versions** has the whole story.
 
+    On a 2026-07-28 session the callback isn't dead, it's fed differently: when a tool returns an
+    `InputRequiredResult` carrying an `ElicitRequest`, `Client` dispatches that entry to the same
+    `elicitation_callback` and retries the call for you. That flow is **Multi-round-trip requests**.
+
 ## A callback is a capability
 
 You never told the server that your client can answer elicitation requests. The SDK did.
@@ -109,7 +113,7 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
 
 `sampling_callback` answers `sampling/createMessage`: the server asking *your* model to complete something. `list_roots_callback` answers `roots/list`: the server asking which directories it may work in.
 
-Both work. Both follow the rule above. And both serve features the **2026-07-28 spec deprecates**: a modern server doesn't call back into your model mid-request, it hands the request back to you as part of the tool result (**Multi-round-trip requests**), and roots give way to plain tool arguments and resource URIs. The whole list is in **Deprecated features**.
+Both work. Both follow the rule above. And both serve RPCs the **2026-07-28 spec removes**: a modern server doesn't call back into your client mid-request, it hands the request back to you as part of the tool result (**Multi-round-trip requests**). The callbacks themselves are not dead. When an `InputRequiredResult` carries a `CreateMessageRequest` or a `ListRootsRequest`, `Client`'s auto-loop dispatches it to the same `sampling_callback` or `list_roots_callback` you registered here. The whole list is in **Deprecated features**.
 
 You still need the callbacks to talk to servers that haven't moved. The signatures:
 

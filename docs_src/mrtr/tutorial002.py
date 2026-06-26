@@ -10,10 +10,10 @@ def fulfil(request: InputRequest) -> InputResponse:
 
 
 async def provision(client: Client, name: str) -> CallToolResult:
-    result = await client.call_tool("provision", {"name": name}, allow_input_required=True)
+    result = await client.session.call_tool("provision", {"name": name}, allow_input_required=True)
     while isinstance(result, InputRequiredResult):
         responses = {key: fulfil(request) for key, request in (result.input_requests or {}).items()}
-        result = await client.call_tool(
+        result = await client.session.call_tool(
             "provision",
             {"name": name},
             input_responses=responses,
