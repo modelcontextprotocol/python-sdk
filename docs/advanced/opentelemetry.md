@@ -68,7 +68,7 @@ connected picture.
 When the client and the server both run the SDK, that connection is automatic. The client injects
 the [W3C trace context](https://www.w3.org/TR/trace-context/) into the request, and the server
 reads it back out, so the server span nests under the client span in the same trace. This is
-[SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol), and you get it without
+[SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414), and you get it without
 asking.
 
 If the inbound message carries no trace context, for example a request from a client that is not

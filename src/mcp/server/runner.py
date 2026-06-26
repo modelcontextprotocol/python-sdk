@@ -155,7 +155,6 @@ class ServerRunner(Generic[LifespanT]):
         meta = _extract_meta(params)
         version = self.connection.protocol_version
         ctx = self._make_context(dctx, method, params, meta, version)
-        is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner(ctx: ServerRequestContext[LifespanT, Any]) -> HandlerResult:
             # Read method/params off `ctx` so a middleware that rewrote them via
@@ -174,7 +173,7 @@ class ServerRunner(Generic[LifespanT]):
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
-                return self._handle_initialize(params)
+                return self._serialize(method, version, self._handle_initialize(params))
             # Methods without a handler are METHOD_NOT_FOUND regardless of
             # initialization state: JSON-RPC 2.0 reserves -32601 for "not
             # available on this server", and clients probing a server before
@@ -193,25 +192,14 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            return result
+            # Dump and serialize inside the chain so the OpenTelemetry span (the
+            # outermost middleware) records a failing handler return shape too.
+            return self._serialize(method, version, result)
 
         call = self._compose_server_middleware(_inner)
+        # `_inner` already produced the wire dict; a middleware that short-circuited
+        # without `call_next` is trusted to return its own well-formed result.
         result = _dump_result(await call(ctx))
-        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
-        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
-        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
-        if is_spec_method:
-            try:
-                result = _methods.serialize_server_result(method, version, result)
-            except KeyError:
-                # Middleware short-circuited a wrong-version spec method without
-                # calling `call_next`; it owns the result shape.
-                pass
-            except ValidationError:
-                # Server bug, not client fault. Detail stays in the server log:
-                # pydantic messages echo the result body.
-                logger.exception("handler for %r returned an invalid result", method)
-                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -318,6 +306,28 @@ class ServerRunner(Generic[LifespanT]):
             close_sse_stream=close_sse_stream,
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
+
+    @staticmethod
+    def _serialize(method: str, version: str, result: HandlerResult) -> dict[str, Any]:
+        """Dump a handler result to the wire dict, serializing spec methods.
+
+        Runs inside the middleware chain so the OpenTelemetry span observes a
+        failing return shape (unsupported type, malformed spec result) as an
+        error rather than closing on a request that the client sees fail.
+        """
+        dumped = _dump_result(result)
+        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
+        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
+        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
+        if method not in _methods.SPEC_CLIENT_METHODS:
+            return dumped
+        try:
+            return _methods.serialize_server_result(method, version, dumped)
+        except ValidationError:
+            # Server bug, not client fault. Detail stays in the server log:
+            # pydantic messages echo the result body.
+            logger.exception("handler for %r returned an invalid result", method)
+            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
 
     @staticmethod
     def _negotiate_initialize(params: Mapping[str, Any] | None) -> tuple[InitializeRequestParams, str]:
