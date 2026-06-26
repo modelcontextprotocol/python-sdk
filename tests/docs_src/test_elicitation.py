@@ -36,6 +36,24 @@ async def test_an_accepted_answer_resumes_the_tool() -> None:
         assert result.content == [TextContent(type="text", text="Booked a table for 2 on 2025-12-26.")]
 
 
+async def test_an_alternative_that_is_also_full_is_asked_about_again() -> None:
+    """tutorial001: the accepted date goes back through `book_table`, so a full date is re-asked, not booked."""
+    asked: list[str] = []
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params.message)
+        date = "2025-12-25" if len(asked) == 1 else "2025-12-27"
+        return ElicitResult(action="accept", content={"accept_alternative": True, "date": date})
+
+    async with Client(tutorial001.mcp, mode="legacy", elicitation_callback=on_elicit) as client:
+        result = await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
+    assert result.content == [TextContent(type="text", text="Booked a table for 2 on 2025-12-27.")]
+    assert asked == [
+        "No tables for 2 on 2025-12-25. Would you like to try another date?",
+        "No tables for 2 on 2025-12-25. Would you like to try another date?",
+    ]
+
+
 async def test_the_client_receives_the_message_and_the_generated_schema() -> None:
     """tutorial001: form mode sends your message plus a JSON Schema built from the Pydantic model."""
     received: list[ElicitRequestParams] = []

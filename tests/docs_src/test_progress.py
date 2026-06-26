@@ -2,6 +2,7 @@
 
 import inspect
 
+import anyio
 import pytest
 from mcp_types import TextContent
 
@@ -38,6 +39,33 @@ async def test_each_report_becomes_one_callback_invocation_in_order() -> None:
             (2, 2, "Imported https://example.com/b.json"),
         ]
     assert result.content == [TextContent(type="text", text="Imported 2 records.")]
+    assert result.structured_content == {"result": "Imported 2 records."}
+
+
+async def test_over_a_wire_dispatcher_callbacks_race_the_result() -> None:
+    """The `!!! info`: only the in-memory connection runs the callback inline.
+
+    On a wire dispatcher (`mode="legacy"` here) each progress notification starts its own task, so
+    `call_tool` can return while a slow callback is still running. The callbacks below block on an
+    event that is only set *after* `call_tool` has returned: exactly the situation the page tells
+    you not to rule out.
+    """
+    release = anyio.Event()
+    finished: list[float] = []
+
+    async def slow(progress: float, total: float | None, message: str | None) -> None:
+        await release.wait()
+        finished.append(progress)
+
+    async with Client(tutorial001.mcp, mode="legacy") as client:
+        with anyio.fail_after(10):
+            result = await client.call_tool("import_catalog", {"urls": URLS}, progress_callback=slow)
+        assert finished == []
+        release.set()
+        with anyio.fail_after(10):
+            while len(finished) < 2:
+                await anyio.sleep(0.01)
+    assert sorted(finished) == [1, 2]
     assert result.structured_content == {"result": "Imported 2 records."}
 
 

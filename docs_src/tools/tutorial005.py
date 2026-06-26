@@ -7,7 +7,7 @@ mcp = MCPServer("Bookshop")
 
 @mcp.tool(
     title="Search the catalog",
-    annotations=ToolAnnotations(read_only_hint=True, idempotent_hint=True),
+    annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
 )
 def search_books(query: str) -> str:
     """Search the catalog by title or author."""

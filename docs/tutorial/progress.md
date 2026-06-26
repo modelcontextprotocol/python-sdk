@@ -52,8 +52,11 @@ The callback is an `async` function taking exactly what the server reported: `pr
 
 !!! info
     `Client(mcp)` connects straight to the server object, in memory, the same client the **Testing**
-    chapter is built on. Nothing here is a test-only shortcut: `progress_callback` is the same
-    parameter whatever transport the `Client` is using.
+    chapter is built on. `progress_callback` is the same parameter whatever transport the `Client`
+    uses; the *timing* you are about to see is the in-memory connection's. It runs your callback
+    inline, so every report lands before `call_tool` returns. Over a real transport the
+    notifications race the result, and a slow callback can still be running after `call_tool` has
+    returned.
 
 ### Try it
 
@@ -111,4 +114,4 @@ The callback receives `total=None`. A client can still show *activity* ("3 impor
 * No callback on the call means `report_progress` does nothing. Report unconditionally.
 * Omit `total` when you don't know it; the callback gets `None`.
 
-Progress is the running tool talking *at* the client. When it needs an answer *back*, that is **Elicitation**.
+Progress is what a running tool shows the *user*. The lines it logs for *you*, the person operating the server, are a different channel: **Logging** is next.

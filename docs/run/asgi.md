@@ -29,11 +29,52 @@ Run the app on its own (`uvicorn server:app`) and you never think about either.
 
 !!! tip
     `streamable_http_app()` takes the same keyword arguments as `mcp.run("streamable-http", ...)`,
-    minus `port`: the port belongs to whatever serves the app. `host` is still there, but it binds
-    nothing here; it only sets the DNS-rebinding-protection default. **Running your server** covers
-    the options themselves.
+    minus `port`: the port belongs to whatever serves the app. `host` is still accepted but binds
+    nothing here; the next section is what it actually controls. **Running your server** covers the
+    options themselves.
 
 `mcp.sse_app()` does the same for the superseded SSE transport.
+
+## Localhost only, until you say otherwise
+
+`streamable_http_app()` cannot know which hostname it will be served behind, so it assumes the
+safest answer: localhost. With no `transport_security=`, the app switches on **DNS-rebinding
+protection** and accepts a request only if its `Host` header is `127.0.0.1:<port>`,
+`localhost:<port>`, or `[::1]:<port>`, and only if its `Origin` header, when there is one, is the
+`http://` form of the same. For `uvicorn server:app` on your machine that is exactly what you want:
+it stops a malicious web page from driving your local server through a DNS name it rebound to
+`127.0.0.1`.
+
+It also means that **deployed behind a real hostname, the app rejects every request until you
+configure it**. The check runs before MCP does, the client sees only a generic transport error, and
+the reason is a single warning in the *server's* log:
+
+```text
+421 Misdirected Request    Invalid Host header      the Host is not in the allowlist
+403 Forbidden              Invalid Origin header    the Origin is not in the allowlist
+```
+
+`transport_security=` is how you configure it. Allowlist what you actually serve:
+
+```python
+from mcp.server.transport_security import TransportSecuritySettings
+
+security = TransportSecuritySettings(
+    allowed_hosts=["mcp.example.com", "mcp.example.com:*"],
+    allowed_origins=["https://app.example.com"],
+)
+app = mcp.streamable_http_app(transport_security=security)
+```
+
+* `allowed_hosts` entries are exact strings: `"mcp.example.com"` matches a bare `Host` header and
+  `"mcp.example.com:*"` matches any port. List both.
+* `allowed_origins` only matters for browsers (nothing else sends `Origin`). It is the server-side
+  twin of the CORS configuration below.
+* Behind a reverse proxy that already controls the `Host` header, switching the check off is the
+  honest configuration: `TransportSecuritySettings(enable_dns_rebinding_protection=False)`.
+* Passing a non-localhost `host=` (for example `host="mcp.example.com"`) does **not** allowlist that
+  hostname. It only stops the localhost default from arming the protection, which leaves every Host
+  and Origin accepted. Say what you mean with `transport_security=` instead.
 
 ## Mounting it
 
@@ -47,7 +88,7 @@ The moment the MCP server is *part* of a bigger application, you put the app ins
 * The `lifespan` function enters `mcp.session_manager.run()` for the lifetime of the **host** app. This is the line everyone forgets.
 * `mcp.session_manager` only exists *after* `streamable_http_app()` has been called. That is why the routes are built at module level and the manager is only touched inside the lifespan.
 
-Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change.
+Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change, and neither does the transport-security one. A `Host("mcp.example.com", ...)` route only ever receives requests addressed to that hostname, so without `allowed_hosts=["mcp.example.com", "mcp.example.com:*"]` it answers every one of them with a `421`.
 
 !!! warning "The host app owns the lifespan"
     `streamable_http_app()` wires `session_manager.run()` into the lifespan of the Starlette it
@@ -88,17 +129,16 @@ Now clients connect to `/notes`, not `/notes/mcp`.
 
 ## CORS for browser clients
 
-A browser-based client adds one hard requirement: it must be able to **read** the `Mcp-Session-Id` response header. Streamable HTTP returns the session ID there, and browsers hide response headers from JavaScript unless CORS exposes them by name.
+A browser-based client needs two permissions from you: to **send** its MCP request headers, and to **read** the one MCP sends back. Both are CORS configuration on the host app, and the transport-security allowlist above has to agree with it:
 
-Wrap the host app in Starlette's `CORSMiddleware`:
-
-```python title="server.py" hl_lines="28-35"
+```python title="server.py" hl_lines="27-30 33 35-49"
 --8<-- "docs_src/asgi/tutorial005.py"
 ```
 
-* `expose_headers=["Mcp-Session-Id"]` is the line that matters. Without it the browser receives the header and refuses to show it to your code, and the client can never make a second request.
+* `allow_headers` is the half everyone forgets. A browser **preflights** every MCP request, because `Content-Type: application/json` and the `Mcp-*` request headers are not on the CORS safelist, and a header the preflight doesn't grant is a request the browser never sends. (`allow_headers=["*"]` also works: Starlette answers a preflight with whatever it asked for.)
+* `expose_headers=["Mcp-Session-Id"]` is the read half. Streamable HTTP returns the session ID in that response header, and browsers hide response headers from JavaScript unless CORS exposes them by name. Without it the client can never make its second request.
+* `allow_origins` is your decision, not MCP's. Be precise, and mirror it in `allowed_origins=` above: the browser enforces CORS, but the server checks `Origin` itself, and an origin the transport doesn't trust gets a `403` even after a clean preflight.
 * `allow_methods` lists the three methods Streamable HTTP uses: `POST` to send messages, `GET` to open the server-to-client stream, `DELETE` to end the session.
-* `allow_origins` is your decision, not MCP's. Be precise here.
 
 ## Custom routes
 
@@ -120,11 +160,12 @@ Wrap the host app in Starlette's `CORSMiddleware`:
 ## Recap
 
 * `mcp.streamable_http_app()` returns a Starlette app with one route, `/mcp`. Any ASGI server can run it.
+* Out of the box the app answers only requests addressed to localhost. Deploying behind a real hostname means passing `transport_security=TransportSecuritySettings(...)`.
 * `Mount` (or `Host`) puts it inside a bigger Starlette or FastAPI app.
 * **Mounting disables the built-in lifespan.** The host app's lifespan must enter `mcp.session_manager.run()`, or the first request fails.
 * Several servers in one app means several mounts and one lifespan that enters every session manager.
 * `streamable_http_path="/"` moves the endpoint to the mount prefix itself.
-* Browser clients need CORS with `expose_headers=["Mcp-Session-Id"]`.
+* Browser clients need CORS: `allow_headers` for the `Mcp-*` request headers, `expose_headers=["Mcp-Session-Id"]` for the response.
 * `@mcp.custom_route()` adds plain, unauthenticated HTTP endpoints next to `/mcp`.
 
 Once the server is reachable at a real URL, **The Client** connects to it with that URL instead of a server object.

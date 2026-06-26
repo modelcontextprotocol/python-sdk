@@ -29,9 +29,10 @@ To run the test below you'll need two extra (development) dependencies:
 !!! info
     These docs assume you already know [`pytest`](https://docs.pytest.org/en/stable/).
 
-    [`inline-snapshot`](https://15r10nk.github.io/inline-snapshot/latest/) is optional: it records
-    the output of a test as the `snapshot(...)` literal you see below, which makes a test that
-    asserts on a whole result object much faster to write. A plain `assert` works too.
+    [`inline-snapshot`](https://15r10nk.github.io/inline-snapshot/latest/) is what the test below
+    uses to assert on the whole result object in one line. It records the output of a test as the
+    `snapshot(...)` literal you see. If you'd rather not use it, drop the import and assert on the
+    fields you care about (`result.content[0].text == "3"`) like in any other test.
 
 Now the test:
 
@@ -100,3 +101,6 @@ Leave it on in tests. It has no meaning in production code.
 That one line is also why the rest of this tutorial can promise you that its examples work: every
 example file is exercised by the SDK's own test suite through exactly this client. You're using the
 same tool the SDK uses on itself.
+
+The tutorial ends here. Putting your tested server in front of a real client, over a real
+transport, is **Running your server**.

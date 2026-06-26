@@ -67,7 +67,7 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
-* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait.
+* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **ASGI** covers `transport_security`.
 
 !!! warning
     Transport options go to `run()`, **not** to `MCPServer(...)`. The constructor describes what

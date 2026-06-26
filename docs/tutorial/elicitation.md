@@ -13,7 +13,7 @@ There are two modes:
 
 `ctx.elicit()` takes a message and a Pydantic model:
 
-```python title="server.py" hl_lines="9-11 20-23"
+```python title="server.py" hl_lines="9-11 20-23 25"
 --8<-- "docs_src/elicitation/tutorial001.py"
 ```
 
@@ -21,6 +21,7 @@ There are two modes:
 * `AlternativeDate` is the **schema** of the answer you want.
 * The tool is `async def`. It has to be: it stops in the middle and waits for a person.
 * On any other date the tool returns straight away. It only asks when it has to.
+* The date the user accepts goes back through `book_table` itself. An answer is input like any other: an alternative that is also fully booked gets asked about again, not confirmed blind.
 
 ### What the client receives
 
@@ -113,7 +114,7 @@ Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(
 
 ### Try it
 
-Start `server.py` on Streamable HTTP (**Running your server** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
+Start the form-mode `server.py` (the first one on this page) on Streamable HTTP (**Running your server** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
 
 The callback prints the question it was sent:
 
@@ -127,7 +128,7 @@ It answers with `{"accept_alternative": True, "date": "2025-12-27"}`, and the to
 Booked a table for 2 on 2025-12-27.
 ```
 
-Call `pay_deposit` and the same callback takes the other branch: it prints the payment link and the tool comes back with *"Complete the payment in your browser."* One round trip, mid-call, in both directions.
+Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit`: the same callback takes the other branch, prints the payment link, and the tool comes back with *"Complete the payment in your browser."* One round trip, mid-call, in both directions.
 
 !!! check
     Now remove `elicitation_callback=` from the `Client` and call `book_table` for Christmas day

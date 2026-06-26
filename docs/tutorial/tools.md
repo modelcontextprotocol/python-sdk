@@ -139,15 +139,17 @@ There is nothing else to configure.
 
 Everything the SDK infers, you can override in the decorator:
 
-```python title="server.py" hl_lines="7-10"
+```python title="server.py" hl_lines="8-11"
 --8<-- "docs_src/tools/tutorial005.py"
 ```
 
 * `title` is a human-readable name for UIs. Clients show *"Search the catalog"* instead of `search_books`.
 * `annotations` are behavioural **hints** for the client:
   * `read_only_hint=True`: this tool doesn't change anything.
-  * `idempotent_hint=True`: calling it twice is the same as calling it once.
-  * `destructive_hint=True`: this tool deletes or overwrites something.
+  * `open_world_hint=False`: it works on a closed set of things (this catalog), not the open web.
+  * The other two, `destructive_hint` and `idempotent_hint`, describe a tool that *writes*: may it
+    delete something, and is calling it twice the same as calling it once? The spec defines both
+    only for non-read-only tools, so they would say nothing on `search_books`.
 
 A well-behaved client uses them to decide things like *"do I need to ask the user before running this?"*. They are hints, not security. Never rely on a client honouring them.
 

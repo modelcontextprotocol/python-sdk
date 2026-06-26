@@ -92,4 +92,4 @@ async def test_title_and_annotations() -> None:
     async with Client(tutorial005.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.title == "Search the catalog"
-        assert tool.annotations == ToolAnnotations(read_only_hint=True, idempotent_hint=True)
+        assert tool.annotations == ToolAnnotations(read_only_hint=True, open_world_hint=False)

@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 
 from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 
 mcp = MCPServer("Notes")
 
@@ -23,13 +24,27 @@ async def lifespan(app: Starlette) -> AsyncIterator[None]:
         yield
 
 
+security = TransportSecuritySettings(
+    allowed_hosts=["mcp.example.com", "mcp.example.com:*"],
+    allowed_origins=["https://app.example.com"],
+)
+
 app = Starlette(
-    routes=[Mount("/", app=mcp.streamable_http_app())],
+    routes=[Mount("/", app=mcp.streamable_http_app(transport_security=security))],
     middleware=[
         Middleware(
             CORSMiddleware,
             allow_origins=["https://app.example.com"],
             allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "Last-Event-ID",
+                "Mcp-Method",
+                "Mcp-Name",
+                "Mcp-Protocol-Version",
+                "Mcp-Session-Id",
+            ],
             expose_headers=["Mcp-Session-Id"],
         )
     ],

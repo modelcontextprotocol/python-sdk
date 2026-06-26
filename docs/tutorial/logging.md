@@ -75,4 +75,4 @@ went to standard error: the terminal, not the wire.
 * Standard error is yours; stdout belongs to the protocol. Never `print()` in a stdio server.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
-Next: every request your server handles, traced and timed, in **Middleware**.
+Next: the in-memory client that has been running every example on these pages, and how to point it at your own server, in **Testing**.

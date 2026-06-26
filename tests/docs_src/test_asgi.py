@@ -157,3 +157,57 @@ async def test_the_health_check_answers_outside_the_protocol() -> None:
         response = await http.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+INITIALIZE = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "b", "version": "1"}},
+}
+MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+
+
+async def test_the_default_app_is_localhost_only() -> None:
+    """The "Localhost only" section: with no `transport_security=`, the app answers a real hostname
+    with the page's `421 Invalid Host header` and a foreign Origin with `403 Invalid Origin header`,
+    before any MCP code runs."""
+    bare = MCPServer("Notes")
+    app = bare.streamable_http_app()
+    transport = httpx.ASGITransport(app=app)
+    async with bare.session_manager.run():
+        async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
+            wrong_host = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8000") as http:
+            wrong_origin = await http.post(
+                "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": "https://app.example.com"}
+            )
+    assert (wrong_host.status_code, wrong_host.text) == (421, "Invalid Host header")
+    assert (wrong_origin.status_code, wrong_origin.text) == (403, "Invalid Origin header")
+
+
+async def test_the_documented_browser_origin_works_end_to_end() -> None:
+    """tutorial005: the page's scenario for real. The public hostname, the browser origin, a
+    realistic preflight naming the `Mcp-*` headers, then the actual request."""
+    transport = httpx.ASGITransport(app=tutorial005.app)
+    async with tutorial005.lifespan(tutorial005.app):
+        async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
+            preflight = await http.options(
+                "/mcp",
+                headers={
+                    "Origin": "https://app.example.com",
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type, mcp-protocol-version, mcp-session-id",
+                },
+            )
+            assert preflight.status_code == 200
+            allowed = {h.strip().lower() for h in preflight.headers["access-control-allow-headers"].split(",")}
+            assert {"content-type", "mcp-protocol-version", "mcp-session-id"} <= allowed
+
+            response = await http.post(
+                "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": "https://app.example.com"}
+            )
+            assert response.status_code == 200
+            assert response.headers["mcp-session-id"]
+            assert response.headers["access-control-allow-origin"] == "https://app.example.com"
+            assert response.headers["access-control-expose-headers"] == "Mcp-Session-Id"

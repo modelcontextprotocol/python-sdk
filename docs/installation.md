@@ -2,29 +2,25 @@
 
 The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
 
+These docs describe **v2**, which is in alpha, so the version pin is not optional yet:
+
 === "uv"
 
     ```bash
-    uv add "mcp[cli]"
+    uv add "mcp[cli]==2.0.0a2"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]"
+    pip install "mcp[cli]==2.0.0a2"
     ```
 
-!!! warning "Pin the version while v2 is in alpha"
-    v2 is published as pre-releases (`2.0.0a2`), and installers never select a pre-release unless
-    you opt in, so a bare `uv add mcp` gives you the latest **v1.x** release, which these docs do
-    not describe.
-
-    Pin the newest alpha explicitly. Find it in the
-    [release history](https://pypi.org/project/mcp/#history):
-
-    ```bash
-    uv add "mcp[cli]==2.0.0a2"
-    ```
+!!! warning "Why the pin"
+    Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
+    gives you the latest **v1.x** release, which these docs do not describe. Check the
+    [release history](https://pypi.org/project/mcp/#history) for the newest alpha before you copy
+    the line above.
 
     The same applies to one-off commands: `uv run --with "mcp==2.0.0a2" ...`, not `uv run --with mcp ...`.
 
@@ -35,8 +31,9 @@ The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires
 
 You don't need to know any of this to use the SDK, but if you're wondering what each dependency is for:
 
+* `mcp-types`: every protocol type (requests, results, content blocks) as its own package, versioned in lockstep with the SDK. Every `from mcp_types import ...` in these docs is this package.
 * [`anyio`](https://anyio.readthedocs.io/): the async runtime. The whole SDK is written against anyio, so it runs on either `asyncio` or `trio`.
-* [`pydantic`](https://docs.pydantic.dev/): every protocol type, all schema generation, and all validation.
+* [`pydantic`](https://docs.pydantic.dev/): what every `mcp_types` model is built on, plus all schema generation and validation.
 * [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): server configuration via `MCP_*` environment variables and `.env` files.
 * [`httpx`](https://www.python-httpx.org/) and [`httpx-sse`](https://pypi.org/project/httpx-sse/): the HTTP client behind the Streamable HTTP and SSE *client* transports.
 * [`starlette`](https://www.starlette.io/), [`uvicorn`](https://www.uvicorn.org/), [`sse-starlette`](https://pypi.org/project/sse-starlette/), and [`python-multipart`](https://pypi.org/project/python-multipart/): the HTTP *server* transports.

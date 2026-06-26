@@ -22,5 +22,5 @@ async def book_table(date: str, party_size: int, ctx: Context) -> str:
         schema=AlternativeDate,
     )
     if result.action == "accept" and result.data.accept_alternative:
-        return f"Booked a table for {party_size} on {result.data.date}."
+        return await book_table(result.data.date, party_size, ctx)
     return "No booking made."
