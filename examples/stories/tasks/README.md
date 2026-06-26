@@ -18,15 +18,18 @@ uv run python -m stories.tasks.client --http
 
 ## What to look at
 
-- `server.py` `MCPServer(extensions=[Tasks()])` — opt in at construction. The
-  extension advertises `io.modelcontextprotocol/tasks` and serves `tasks/get`,
-  `tasks/result`, `tasks/cancel`, and `tasks/list`.
+- `server.py` `MCPServer("tasks-example", extensions=[Tasks()])` — opt in at
+  construction. The extension advertises `io.modelcontextprotocol/tasks` and
+  serves `tasks/get`, `tasks/result`, `tasks/cancel`, and `tasks/list`. The
+  `render_report` tool is the kind of slower, multi-step work a caller would
+  rather run as a task than block on.
 - `mcp.server.tasks.Tasks.intercept_tool_call` — the interceptive seam: a plain
   call passes through; a call with a `task` field is recorded and returned with
   the task id in `_meta["io.modelcontextprotocol/related-task"]`.
-- `client.py` — sends a task-augmented `tools/call` via `client.session` (the
-  `task` field and `tasks/*` methods are outside the spec verbs `Client`
-  exposes), then drives the lifecycle through `tasks/get` and `tasks/result`.
+- `client.py` `main` — start the call as a task, read its `tasks/get` status,
+  then fetch the payload with `tasks/result`. The `task` field and `tasks/*`
+  methods are outside the spec verbs `Client` exposes, so the thin
+  `_start_task` / `_get_task` / `_task_result` helpers wrap `client.session`.
 
 ## Caveats
 

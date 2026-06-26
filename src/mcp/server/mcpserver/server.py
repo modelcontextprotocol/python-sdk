@@ -55,7 +55,7 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerMiddleware, ServerRequestContext
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
@@ -210,9 +210,9 @@ class MCPServer(Generic[LifespanResultT]):
         configure_logging(self.settings.log_level)
 
         self._extensions: list[Extension] = []
-        self._extension_interceptor: ServerMiddleware[LifespanResultT] | None = None
         for extension in extensions or ():
-            self.add_extension(extension)
+            self._apply_extension(extension)
+        self._install_extension_interceptor()
 
     @property
     def name(self) -> str:
@@ -254,20 +254,13 @@ class MCPServer(Generic[LifespanResultT]):
         """
         return self._lowlevel_server.session_manager
 
-    def add_extension(self, extension: Extension) -> None:
-        """Register an opt-in MCP extension (SEP-2133).
+    def _apply_extension(self, extension: Extension) -> None:
+        """Apply one opt-in extension's contributions through the public surface.
 
-        Applies the extension's contributions through the server's public surface:
-        its tools and resources are registered, its request methods are wired onto
-        the low-level server, and its `tools/call` interceptor joins a single
-        composed `tools/call` middleware. The extension's settings are advertised
-        under `ServerCapabilities.extensions[extension.identifier]`.
-
-        Args:
-            extension: The extension to install.
-
-        Raises:
-            ValueError: If an extension with the same identifier is already registered.
+        Registers its tools/resources/methods and advertises its settings under
+        `ServerCapabilities.extensions[extension.identifier]`. Extensions are fixed
+        at construction, so this is private; the `tools/call` interceptor is
+        composed once afterwards by `_install_extension_interceptor`.
         """
         if any(e.identifier == extension.identifier for e in self._extensions):
             raise ValueError(f"Extension {extension.identifier!r} is already registered")
@@ -281,16 +274,15 @@ class MCPServer(Generic[LifespanResultT]):
             self._lowlevel_server.add_request_handler(method.method, method.params_type, method.handler)
 
         self._lowlevel_server.extensions[extension.identifier] = extension.settings()
-        self._refresh_extension_interceptor()
 
-    def _refresh_extension_interceptor(self) -> None:
-        """Rebuild the single composed `tools/call` interceptor from all extensions."""
-        if self._extension_interceptor is not None:
-            self._lowlevel_server.middleware.remove(self._extension_interceptor)
-            self._extension_interceptor = None
+    def _install_extension_interceptor(self) -> None:
+        """Compose every extension's `tools/call` interceptor into one middleware.
+
+        Installed only when at least one extension overrides `intercept_tool_call`,
+        so a server with purely additive extensions adds no middleware.
+        """
         if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
-            self._extension_interceptor = compose_tool_call_interceptor(self._extensions)
-            self._lowlevel_server.middleware.append(self._extension_interceptor)
+            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...

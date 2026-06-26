@@ -49,7 +49,7 @@ status = "deprecated"
 lowlevel = false
 
 [story.apps]
-# Extension API is MCPServer-tier (Apps decorators + add_extension); no lowlevel variant.
+# Extension API is MCPServer-tier (Apps decorators + extensions=[...]); no lowlevel variant.
 # The extensions capability map (SEP-2133) rides server/discover, a modern-only path, so
 # `main` pins "auto" (legacy initialize cannot carry it) and the leg is http-asgi.
 lowlevel   = false

@@ -26,7 +26,6 @@ CLOCK_HTML = """<!doctype html>
 
 
 def build_server() -> MCPServer:
-    mcp = MCPServer("apps-example")
     apps = Apps()
 
     @apps.tool(resource_uri=RESOURCE_URI, title="Get Time", description="Return the current time.")
@@ -37,8 +36,7 @@ def build_server() -> MCPServer:
         return now
 
     apps.add_html_resource(RESOURCE_URI, CLOCK_HTML, title="Clock")
-    mcp.add_extension(apps)
-    return mcp
+    return MCPServer("apps-example", extensions=[apps])
 
 
 if __name__ == "__main__":

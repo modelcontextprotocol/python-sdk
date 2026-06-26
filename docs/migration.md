@@ -414,7 +414,7 @@ reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
 (the 2026-07-28 capability map). An extension subclasses `mcp.server.mcpserver.Extension`
 and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
 (additive) and `intercept_tool_call()` (wraps `tools/call`). Pass instances at
-construction, or register later with `add_extension`:
+construction:
 
 ```python
 from mcp.server.mcpserver import MCPServer
@@ -422,7 +422,6 @@ from mcp.server.apps import Apps
 from mcp.server.tasks import Tasks
 
 mcp = MCPServer("demo", extensions=[Apps(), Tasks()])
-# or: mcp.add_extension(Apps())
 ```
 
 Two reference extensions ship in their own modules:

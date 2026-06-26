@@ -17,9 +17,9 @@ uv run python -m stories.apps.client --http
 
 ## What to look at
 
-- `server.py` `Apps()` + `mcp.add_extension(apps)` — the extension advertises
-  `io.modelcontextprotocol/ui` under `ServerCapabilities.extensions` and
-  contributes the UI-bound tool and its `ui://` resource. `MCPServer` itself
+- `server.py` `MCPServer("apps-example", extensions=[apps])` — the extension
+  advertises `io.modelcontextprotocol/ui` under `ServerCapabilities.extensions`
+  and contributes the UI-bound tool and its `ui://` resource. `MCPServer` itself
   never learns about "ui"; it applies a closed set of contributions.
 - `server.py` `@apps.tool(resource_uri=...)` — stamps `_meta.ui.resourceUri` on
   the tool; `add_html_resource` registers the matching `ui://` resource at

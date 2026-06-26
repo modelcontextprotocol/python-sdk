@@ -177,13 +177,6 @@ def test_duplicate_extension_identifier_raises() -> None:
         MCPServer("test", extensions=[_SettingsExt(), _SettingsExt()])
 
 
-def test_add_extension_after_construction_rejects_duplicate_identifier() -> None:
-    """SDK-defined: `add_extension` enforces the same uniqueness as the constructor."""
-    server = MCPServer("test", extensions=[_SettingsExt()])
-    with pytest.raises(ValueError):
-        server.add_extension(_SettingsExt())
-
-
 async def test_extension_method_reachable_via_session_send_request() -> None:
     """SDK-defined: an `Extension` overriding `methods()` wires a new request verb
     onto the low-level server, reachable through `client.session.send_request`."""
@@ -221,25 +214,22 @@ async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
 
 
 def test_plain_extension_installs_no_tool_call_interceptor() -> None:
-    """SDK-defined: an extension that does not override `intercept_tool_call` leaves
-    `_extension_interceptor` unset and adds no middleware - the composed
-    interceptor exists only when at least one extension overrides it."""
+    """SDK-defined: an extension that does not override `intercept_tool_call` adds no
+    middleware - the composed interceptor exists only when at least one extension
+    overrides it."""
     baseline = len(MCPServer("test")._lowlevel_server.middleware)
     server = MCPServer("test", extensions=[_AdditiveExt()])
 
-    assert server._extension_interceptor is None
     assert len(server._lowlevel_server.middleware) == baseline
 
 
 def test_overriding_extension_installs_one_tool_call_interceptor() -> None:
-    """SDK-defined: registering an extension that overrides `intercept_tool_call`
-    composes exactly one middleware and records it as `_extension_interceptor`."""
+    """SDK-defined: an extension that overrides `intercept_tool_call` composes exactly
+    one additional `tools/call` middleware."""
     baseline = len(MCPServer("test")._lowlevel_server.middleware)
     server = MCPServer("test", extensions=[_ReplacingExt()])
 
-    assert server._extension_interceptor is not None
     assert len(server._lowlevel_server.middleware) == baseline + 1
-    assert server._lowlevel_server.middleware[-1] is server._extension_interceptor
 
 
 async def test_default_interceptor_passes_through_alongside_an_overriding_one() -> None:
