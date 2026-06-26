@@ -119,6 +119,8 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
     the same pattern: construct one, put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
+There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own chapter, **Identity assertion**.
+
 ## When it fails
 
 When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means the authorization server refused to register you. `OAuthTokenError` means the token endpoint said no. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.

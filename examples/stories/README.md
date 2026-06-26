@@ -128,6 +128,7 @@ opens with a banner saying what replaces it.
 | [`dual_era`](dual_era/) | one server factory serving both protocol eras; era-neutral accessors | current |
 | **— feature stories —** | | |
 | [`streaming`](streaming/) | progress notifications, in-flight logging, cancellation | current |
+| [`mrtr`](mrtr/) | `InputRequiredResult` round-trip: the `Client` auto-loop and a manual session-level loop | current |
 | [`legacy_elicitation`](legacy_elicitation/) | server pauses a tool to ask the user (form + url) via a push request | legacy |
 | [`sampling`](sampling/) | server asks the client's LLM mid-tool (push request) | deprecated |
 | [`stickynotes`](stickynotes/) | capstone: tools mutate state → resources + `list_changed` + elicit guard | current |
@@ -150,9 +151,9 @@ opens with a banner saying what replaces it.
 | [`bearer_auth`](bearer_auth/) | `TokenVerifier` + `AuthSettings` bearer gate, PRM metadata, `get_access_token()` | current |
 | [`oauth`](oauth/) | full `authorization_code` grant against an in-process AS | current |
 | [`oauth_client_credentials`](oauth_client_credentials/) | `client_credentials` grant; minimal in-process token endpoint | current |
+| [`identity_assertion`](identity_assertion/) | SEP-990 enterprise IdP flow: present an ID-JAG under the `jwt-bearer` grant | current |
 | **— deferred (README only) —** | | |
 | [`caching`](caching/) | `CacheableResult` ttl/scope hints; client honouring | not yet implemented |
-| [`mrtr`](mrtr/) | `InputRequiredResult` round-trip with `requestState` HMAC | not yet implemented — [#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898) |
 | [`subscriptions`](subscriptions/) | `subscriptions/listen`, `ServerEventBus`, `Client.listen()` | not yet implemented — [#2901](https://github.com/modelcontextprotocol/python-sdk/issues/2901) |
 | [`tasks`](tasks/) | `io.modelcontextprotocol/tasks` extension | not yet implemented |
 | [`apps`](apps/) | MCP Apps: `ui://` resource + `_meta.ui` | not yet implemented — [#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896) |

@@ -135,6 +135,11 @@ transports    = ["http-asgi"]
 server_export = "app"
 fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
 
+[story.identity_assertion]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
 # ───────────────────────────── deferred ─────────────────────────────
 # README-only placeholders; no client.py, not expanded into legs.
 # test_manifest_matches_filesystem checks these match the README-only dirs.
