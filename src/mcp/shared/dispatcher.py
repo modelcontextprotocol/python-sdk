@@ -29,7 +29,6 @@ from mcp.shared.transport_context import TransportContext
 __all__ = [
     "CallOptions",
     "DispatchContext",
-    "DispatchMiddleware",
     "Dispatcher",
     "OnNotify",
     "OnRequest",
@@ -184,9 +183,6 @@ OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] 
 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
 """Handler for inbound notifications: `(ctx, method, params)`."""
-
-DispatchMiddleware = Callable[[OnRequest], OnRequest]
-"""Wraps an `OnRequest` to produce another `OnRequest`. Applied outermost-first."""
 
 
 class Dispatcher(Outbound, Protocol[TransportT_co]):
