@@ -10,7 +10,7 @@ from docs_src.oauth_clients import tutorial001, tutorial002
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthRegistrationError, OAuthTokenError, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
-    RFC7523OAuthClientProvider,  # pyright: ignore[reportDeprecated]
+    RFC7523OAuthClientProvider,
     static_assertion_provider,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -107,7 +107,7 @@ async def test_the_one_more_provider_is_private_key_jwt() -> None:
 async def test_the_page_does_not_count_the_deprecated_provider() -> None:
     """Why the `!!! info` says *one* more provider: `RFC7523OAuthClientProvider` warns on construction."""
     with pytest.warns(MCPDeprecationWarning, match="RFC7523OAuthClientProvider is deprecated"):
-        RFC7523OAuthClientProvider(  # pyright: ignore[reportDeprecated]
+        RFC7523OAuthClientProvider(
             server_url="http://localhost:8001/mcp",
             client_metadata=tutorial001.oauth.context.client_metadata,
             storage=tutorial001.InMemoryTokenStorage(),

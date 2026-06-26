@@ -8,6 +8,7 @@ Provides OAuth providers for machine-to-machine authentication flows:
 """
 
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
@@ -15,7 +16,6 @@ from uuid import uuid4
 import httpx
 import jwt
 from pydantic import BaseModel, Field
-from typing_extensions import deprecated
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata
@@ -388,11 +388,6 @@ class JWTParameters(BaseModel):
         return assertion
 
 
-@deprecated(
-    "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
-    "or PrivateKeyJWTOAuthProvider instead.",
-    category=MCPDeprecationWarning,
-)
 class RFC7523OAuthClientProvider(OAuthClientProvider):
     """OAuth client provider for RFC 7523 jwt-bearer grant.
 
@@ -415,6 +410,12 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         timeout: float = 300.0,
         jwt_parameters: JWTParameters | None = None,
     ) -> None:
+        warnings.warn(
+            "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
+            "or PrivateKeyJWTOAuthProvider instead.",
+            MCPDeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(server_url, client_metadata, storage, redirect_handler, callback_handler, timeout)
         self.jwt_parameters = jwt_parameters
 
