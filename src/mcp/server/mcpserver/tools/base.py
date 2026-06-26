@@ -4,7 +4,7 @@ from collections.abc import Callable, Hashable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from mcp_types import Icon, ToolAnnotations
+from mcp_types import Icon, InputRequiredResult, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -135,9 +135,12 @@ class Tool(BaseModel):
             pre_validated: dict[str, Any] | None = None
             if self.resolved_params:
                 pre_validated = self.fn_metadata.validate_arguments(arguments)
-                pass_directly |= await resolve_arguments(
-                    self.resolved_params, self.resolver_plans, pre_validated, context
-                )
+                resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, pre_validated, context)
+                if isinstance(resolved, InputRequiredResult):
+                    # A resolver still needs client input (>= 2026-07-28): surface the
+                    # batched questions instead of running the tool body this round.
+                    return self.fn_metadata.convert_result(resolved) if convert_result else resolved
+                pass_directly |= resolved
 
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

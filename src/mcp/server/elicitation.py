@@ -87,6 +87,18 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
             ) from None
 
 
+def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
+    """Render a model as the spec-valid `requested_schema` for an elicitation.
+
+    Raises:
+        TypeError: If a field renders as something the spec's
+            `PrimitiveSchemaDefinition` does not accept.
+    """
+    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
+    _validate_rendered_properties(json_schema)
+    return json_schema
+
+
 async def elicit_with_validation(
     session: ServerSession,
     message: str,
@@ -103,8 +115,7 @@ async def elicit_with_validation(
 
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
     """
-    json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
-    _validate_rendered_properties(json_schema)
+    json_schema = render_elicitation_schema(schema)
 
     result = await session.elicit_form(
         message=message,

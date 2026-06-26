@@ -7,24 +7,40 @@ take tool arguments by name, and take the `Context`. A resolver may return
 `Elicit[T]` to ask the client; the framework runs the elicitation and injects the
 answer.
 
+The framework picks the elicitation transport from the negotiated protocol. At
+>= 2026-07-28 it returns an `InputRequiredResult` carrying the batched questions
+and resumes when the client retries with `input_responses`/`request_state`
+(independent resolvers are asked in one round; a resolver depending on another's
+answer is asked in a later round). At <= 2025-11-25 it issues a synchronous
+`elicitation/create` request mid-call. Resolved outcomes are carried in
+`request_state` across rounds, so each resolver resolves once per logical call.
+
 Whether the consumer receives the unwrapped model or the full
 `ElicitationResult` union is decided by the consumer's annotation:
 
 - `Annotated[T, Resolve(fn)]` -> unwrapped `T`; decline/cancel aborts the call.
 - `Annotated[ElicitationResult[T], Resolve(fn)]` (or a specific member) -> the
   full outcome; the consumer branches on accept/decline/cancel.
-
-Each resolver runs at most once per `tools/call` (memoized by function identity).
 """
 
 from __future__ import annotations
 
 import inspect
+import json
 import typing
 from collections.abc import Callable, Hashable, Mapping
 from typing import Annotated, Any, Generic, cast, get_args, get_origin
 
 import anyio.to_thread
+from mcp_types import (
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
+    InputRequests,
+    InputRequiredResult,
+    InputResponses,
+)
+from mcp_types.version import LATEST_MODERN_VERSION, is_version_at_least
 from pydantic import BaseModel
 from typing_extensions import TypeVar
 
@@ -33,6 +49,7 @@ from mcp.server.elicitation import (
     CancelledElicitation,
     DeclinedElicitation,
     ElicitationResult,
+    render_elicitation_schema,
 )
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
@@ -42,6 +59,11 @@ T = TypeVar("T", bound=BaseModel)
 
 # The union members the framework injects when a consumer opts into the outcome.
 _ELICITATION_RESULT_MEMBERS = (AcceptedElicitation, DeclinedElicitation, CancelledElicitation)
+
+# First protocol revision whose `tools/call` carries elicitation inside
+# `InputRequiredResult` rather than as a standalone server-to-client request.
+_INPUT_REQUIRED_VERSION = LATEST_MODERN_VERSION  # "2026-07-28"
+_STATE_VERSION = 1
 
 
 class Resolve:
@@ -79,10 +101,19 @@ class _ParamPlan:
 class _ResolverPlan:
     """A resolver's parameters and whether it is async, analyzed once."""
 
-    def __init__(self, fn: Callable[..., Any], params: dict[str, _ParamPlan], is_async: bool) -> None:
+    def __init__(
+        self,
+        fn: Callable[..., Any],
+        params: dict[str, _ParamPlan],
+        is_async: bool,
+        elicit_schema: type[BaseModel] | None,
+    ) -> None:
         self.fn = fn
         self.params = params
         self.is_async = is_async
+        # The `T` from the resolver's `Elicit[T]` return arm, if annotated. Used to
+        # re-validate an outcome restored from `request_state` into a model.
+        self.elicit_schema = elicit_schema
 
 
 def _type_hints(fn: Callable[..., Any]) -> dict[str, Any]:
@@ -117,13 +148,6 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     for name in inspect.signature(fn).parameters:
         annotation = hints.get(name)
         if get_origin(annotation) is not Annotated:
-            # A `Resolve` marker is only honored at the top level; flag (rather than
-            # silently drop) one buried in a union, e.g. `Annotated[T, Resolve(f)] | None`.
-            if _contains_resolve(annotation):
-                raise InvalidSignature(
-                    f"Parameter {name!r} of {_resolver_name(fn)!r} wraps `Resolve(...)` in a "
-                    "union; annotate the parameter directly as `Annotated[T, Resolve(...)]`"
-                )
             continue
         type_arg, *metadata = get_args(annotation)
         marker = next((m for m in metadata if isinstance(m, Resolve)), None)
@@ -132,23 +156,30 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     return resolved
 
 
-def _contains_resolve(annotation: Any) -> bool:
-    """True when a `Resolve` marker is nested inside `annotation` (e.g. a union member)."""
-    if get_origin(annotation) is Annotated:
-        return any(isinstance(m, Resolve) for m in get_args(annotation)[1:])
-    return any(_contains_resolve(arg) for arg in get_args(annotation))
+def _elicit_return_schema(return_annotation: Any) -> type[BaseModel] | None:
+    """Extract `T` from a resolver return type's `Elicit[T]` arm, if present.
+
+    Lets an outcome restored from `request_state` (a plain dict) be re-validated
+    into its model so dependent resolvers and tools receive a typed value.
+    """
+    candidates = get_args(return_annotation) if get_origin(return_annotation) is not None else (return_annotation,)
+    for candidate in candidates:
+        if get_origin(candidate) is Elicit:
+            schema = get_args(candidate)[0]
+            if isinstance(schema, type) and issubclass(schema, BaseModel):  # pragma: no branch
+                return schema
+    return None
 
 
 def _wants_union(type_arg: Any) -> bool:
     """True when `type_arg` is an `ElicitationResult` member (or a union of them).
 
-    Handles the subscripted `ElicitationResult[T]` alias (a `TypeAliasType` whose
-    union is on the origin's `__value__`), the bare `ElicitationResult` alias (the
-    `__value__` is on `type_arg` itself), an explicit `AcceptedElicitation[T] | ...`
-    union, and a single member.
+    Handles the bare `ElicitationResult[T]` alias (a `TypeAliasType` carrying the
+    union on `__value__`), an explicit `AcceptedElicitation[T] | ... ` union, and a
+    single member.
     """
-    # Unwrap the `ElicitationResult` alias whether it is bare or subscripted.
-    value = getattr(type_arg, "__value__", None) or getattr(get_origin(type_arg), "__value__", None)
+    origin = get_origin(type_arg)
+    value = getattr(origin, "__value__", None)
     if value is not None:
         type_arg = value
     members = get_args(type_arg) if get_origin(type_arg) is not None else (type_arg,)
@@ -217,7 +248,7 @@ def build_resolver_plans(
                 "expected a Context, an Annotated[_, Resolve(...)], or a tool argument by name"
             )
 
-        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn))
+        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn), _elicit_return_schema(hints.get("return")))
         for dep in nested:
             analyze(dep, stack + (key,))
 
@@ -241,50 +272,111 @@ def _is_context_annotation(annotation: Any) -> bool:
     return any(isinstance(c, type) and issubclass(c, Context) for c in candidates)
 
 
+class _Pending(Exception):
+    """Internal: a resolver needs client input not yet available this round."""
+
+
+class _Resolution:
+    """Per-`tools/call` resolution state, shared across the DAG walk.
+
+    `input_required` selects the transport: at >= 2026-07-28 elicitations are
+    batched into `pending` and surfaced as an `InputRequiredResult`; at older
+    revisions each `Elicit` is answered synchronously via `ctx.elicit`.
+    """
+
+    def __init__(
+        self,
+        plans: Mapping[Hashable, _ResolverPlan],
+        tool_args: Mapping[str, Any],
+        context: Context[Any, Any],
+        input_required: bool,
+    ) -> None:
+        self.plans = plans
+        self.tool_args = tool_args
+        self.context = context
+        self.input_required = input_required
+        self.answers: InputResponses = context.input_responses or {} if input_required else {}
+        self.state = _decode_state(context.request_state) if input_required else {}
+        self.cache: dict[str, ElicitationResult[Any]] = {}
+        self.pending: dict[str, ElicitRequest] = {}
+
+
+def _state_key(fn: Callable[..., Any]) -> str:
+    """Process-stable wire key for a resolver.
+
+    `id`-based keys aren't stable across `input_required` rounds (a retry may land
+    on a different worker), so memoize and key `input_requests`/`request_state` by
+    the resolver's `module:qualname`. Two consumers of the same resolver therefore
+    share one cache entry, one question, and one stored outcome.
+    """
+    return f"{getattr(fn, '__module__', '')}:{getattr(fn, '__qualname__', fn)}"
+
+
 async def resolve_arguments(
     resolved_params: Mapping[str, tuple[Resolve, bool]],
     plans: Mapping[Hashable, _ResolverPlan],
     tool_args: Mapping[str, Any],
     context: Context[Any, Any],
-) -> dict[str, Any]:
+) -> dict[str, Any] | InputRequiredResult:
     """Resolve every `Resolve`-marked tool parameter into a concrete value.
 
-    Each resolver runs at most once (memoized by function identity). Returns a
-    mapping of tool parameter name to the value to inject.
+    Returns the mapping of tool parameter name to injected value when every
+    resolver is satisfied. When a resolver still needs client input (and the
+    negotiated protocol is >= 2026-07-28), returns an `InputRequiredResult`
+    carrying the batched questions instead; the tool body is not run.
+
+    Each resolver runs at most once per logical call - across multiple
+    `input_required` rounds, resolved outcomes are carried in `request_state`.
 
     Raises:
         ToolError: If an elicited value is declined or cancelled and the consumer
             asked for the unwrapped model (rather than the result union).
     """
-    cache: dict[Hashable, ElicitationResult[Any]] = {}
+    res = _Resolution(plans, tool_args, context, uses_input_required(context.request_context.protocol_version))
     injected: dict[str, Any] = {}
     for name, (marker, wants_union) in resolved_params.items():
-        outcome = await _resolve(marker.fn, plans, tool_args, context, cache)
+        try:
+            outcome = await _resolve(marker.fn, res)
+        except _Pending:
+            continue
         injected[name] = outcome if wants_union else _unwrap(outcome, name)
+
+    if res.pending:
+        return InputRequiredResult(
+            input_requests=cast("InputRequests", res.pending),
+            request_state=_encode_state(res.cache),
+        )
     return injected
 
 
-async def _resolve(
-    fn: Callable[..., Any],
-    plans: Mapping[Hashable, _ResolverPlan],
-    tool_args: Mapping[str, Any],
-    context: Context[Any, Any],
-    cache: dict[Hashable, ElicitationResult[Any]],
-) -> ElicitationResult[Any]:
-    key = _resolver_key(fn)
-    if key in cache:
-        return cache[key]
+async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResult[Any]:
+    """Resolve one resolver, memoized by its process-stable state key.
 
-    plan = plans[key]
+    Raises `_Pending` when the resolver (or one of its dependencies) needs client
+    input that has not arrived yet.
+    """
+    key = _state_key(fn)
+    if key in res.cache:
+        return res.cache[key]
+    if key in res.pending:
+        # Already asked this round by another consumer; don't run the resolver again.
+        raise _Pending
+
+    plan = res.plans[_resolver_key(fn)]
+    if key in res.state:
+        outcome = _outcome_from_state(res.state[key], plan.elicit_schema)
+        res.cache[key] = outcome
+        return outcome
+
     kwargs: dict[str, Any] = {}
     for param_name, param_plan in plan.params.items():
         if param_plan.kind == "context":
-            kwargs[param_name] = context
+            kwargs[param_name] = res.context
         elif param_plan.kind == "by_name":
-            kwargs[param_name] = tool_args[param_name]
+            kwargs[param_name] = res.tool_args[param_name]
         else:
             assert param_plan.resolve is not None
-            dep_outcome = await _resolve(param_plan.resolve.fn, plans, tool_args, context, cache)
+            dep_outcome = await _resolve(param_plan.resolve.fn, res)
             kwargs[param_name] = dep_outcome if param_plan.wants_union else _unwrap(dep_outcome, param_name)
 
     if plan.is_async:
@@ -292,23 +384,100 @@ async def _resolve(
     else:
         result = await anyio.to_thread.run_sync(lambda: fn(**kwargs))
 
-    outcome: ElicitationResult[Any]
     if isinstance(result, Elicit):
-        elicit = cast("Elicit[BaseModel]", result)
-        outcome = await context.elicit(elicit.message, elicit.schema)
+        outcome = await _elicit(cast("Elicit[BaseModel]", result), key, res)
     else:
         # A resolver may return any type (not just `BaseModel`); `model_construct`
         # wraps it as an accepted result without validating against the schema bound.
         outcome = cast("AcceptedElicitation[Any]", AcceptedElicitation.model_construct(data=result))
 
-    cache[key] = outcome
+    res.cache[key] = outcome
     return outcome
+
+
+async def _elicit(elicit: Elicit[BaseModel], key: str, res: _Resolution) -> ElicitationResult[Any]:
+    """Turn a resolver's `Elicit` into an outcome via the negotiated transport."""
+    if not res.input_required:
+        return await res.context.elicit(elicit.message, elicit.schema)
+
+    answer = res.answers.get(key)
+    if answer is None:
+        res.pending[key] = _elicit_request(elicit)
+        raise _Pending
+    if not isinstance(answer, ElicitResult):
+        raise ToolError(f"Resolver {key!r} received a non-elicitation response")
+    if answer.action == "accept" and answer.content is not None:
+        return AcceptedElicitation(data=elicit.schema.model_validate(answer.content))
+    if answer.action == "decline":
+        return DeclinedElicitation()
+    return CancelledElicitation()
 
 
 def _unwrap(outcome: ElicitationResult[Any], name: str) -> Any:
     if isinstance(outcome, AcceptedElicitation):
         return outcome.data
     raise ToolError(f"Resolver for parameter {name!r} could not resolve: elicitation was {outcome.action}")
+
+
+def uses_input_required(protocol_version: str | None) -> bool:
+    """True when this request must elicit via `InputRequiredResult` (>= 2026-07-28).
+
+    Older revisions still carry a standalone `elicitation/create` server-to-client
+    request, so the framework keeps the synchronous `ctx.elicit()` path for them.
+    """
+    return protocol_version is not None and is_version_at_least(protocol_version, _INPUT_REQUIRED_VERSION)
+
+
+def _elicit_request(elicit: Elicit[Any]) -> ElicitRequest:
+    """Render an `Elicit[T]` as the embedded `elicitation/create` request for `input_requests`."""
+    json_schema = render_elicitation_schema(elicit.schema)
+    return ElicitRequest(params=ElicitRequestFormParams(message=elicit.message, requested_schema=json_schema))
+
+
+def _decode_state(request_state: str | None) -> dict[str, dict[str, Any]]:
+    """Decode the per-call resolution progress from `request_state`.
+
+    `request_state` is client-trusted (integrity sealing is a follow-up); decode
+    defensively and treat anything malformed as "no progress yet".
+    """
+    if not request_state:
+        return {}
+    try:
+        decoded: Any = json.loads(request_state)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+    payload = cast("dict[str, Any]", decoded)
+    if payload.get("v") != _STATE_VERSION:
+        return {}
+    outcomes = payload.get("outcomes")
+    return cast("dict[str, dict[str, Any]]", outcomes) if isinstance(outcomes, dict) else {}
+
+
+def _encode_state(outcomes: Mapping[str, ElicitationResult[Any]]) -> str:
+    """Encode resolved outcomes (keyed by resolver path) for the next round."""
+    encoded: dict[str, dict[str, Any]] = {}
+    for path, outcome in outcomes.items():
+        entry: dict[str, Any] = {"action": outcome.action}
+        if isinstance(outcome, AcceptedElicitation):
+            data = outcome.data
+            entry["data"] = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
+        encoded[path] = entry
+    return json.dumps({"v": _STATE_VERSION, "outcomes": encoded})
+
+
+def _outcome_from_state(entry: Mapping[str, Any], schema: type[BaseModel] | None) -> ElicitationResult[Any]:
+    """Rebuild an `ElicitationResult` from a decoded `request_state` entry."""
+    action = entry.get("action")
+    if action == "decline":
+        return DeclinedElicitation()
+    if action == "cancel":
+        return CancelledElicitation()
+    data = entry.get("data")
+    if schema is not None and isinstance(data, dict):
+        data = schema.model_validate(data)
+    return cast("AcceptedElicitation[Any]", AcceptedElicitation.model_construct(data=data))
 
 
 __all__ = [
