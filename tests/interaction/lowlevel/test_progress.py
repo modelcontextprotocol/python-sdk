@@ -118,7 +118,7 @@ async def test_client_progress_notification_reaches_server_handler(connect: Conn
         received.append(params)
         delivered.set()
 
-    server = Server("observer", on_progress=on_progress)
+    server = Server("observer", on_progress=on_progress)  # pyright: ignore[reportDeprecated]
 
     async with connect(server) as client:
         await client.send_progress_notification("upload-1", 0.5, total=1.0, message="halfway")  # pyright: ignore[reportDeprecated]

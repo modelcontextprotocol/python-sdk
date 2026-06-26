@@ -73,7 +73,7 @@ def simple_server() -> Server:
     async def handle_completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
         return types.CompleteResult(completion=types.Completion(values=[]))
 
-    return Server(
+    return Server(  # pyright: ignore[reportDeprecated]
         name="test_server",
         on_list_resources=handle_list_resources,
         on_subscribe_resource=handle_subscribe_resource,
@@ -277,7 +277,7 @@ async def test_client_send_progress_notification():
         received_from_client = {"progress_token": params.progress_token, "progress": params.progress}
         event.set()
 
-    server = Server(name="test_server", on_progress=handle_progress)
+    server = Server(name="test_server", on_progress=handle_progress)  # pyright: ignore[reportDeprecated]
 
     with anyio.fail_after(5):
         async with Client(server, mode="legacy") as client:

@@ -127,7 +127,7 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
         """Registered only so the completions capability is advertised; never called."""
         raise NotImplementedError
 
-    server = Server(
+    server = Server(  # pyright: ignore[reportDeprecated]
         "full",
         on_list_tools=list_tools,
         on_list_resources=list_resources,
