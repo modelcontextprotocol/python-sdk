@@ -525,7 +525,7 @@ class Server(Generic[LifespanResultT]):
                         service_documentation_url=auth.service_documentation_url,
                         client_registration_options=auth.client_registration_options,
                         revocation_options=auth.revocation_options,
-                        token_exchange_enabled=auth.token_exchange_enabled,
+                        identity_assertion_enabled=auth.identity_assertion_enabled,
                     )
                 )
 

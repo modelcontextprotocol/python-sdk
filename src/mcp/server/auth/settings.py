@@ -27,11 +27,11 @@ class AuthSettings(BaseModel):
     client_registration_options: ClientRegistrationOptions | None = None
     revocation_options: RevocationOptions | None = None
     required_scopes: list[str] | None = None
-    token_exchange_enabled: bool = Field(
+    identity_assertion_enabled: bool = Field(
         default=False,
-        description="Advertise and accept the RFC 8693 token-exchange grant "
-        "(urn:ietf:params:oauth:grant-type:token-exchange) at the token endpoint, as used by "
-        "SEP-990 enterprise IdP flows. The provider must implement `exchange_token`.",
+        description="Advertise and accept the SEP-990 Identity Assertion Authorization Grant "
+        "(the RFC 7523 jwt-bearer grant carrying an ID-JAG) at the token endpoint, for enterprise "
+        "IdP flows. The provider must implement `exchange_identity_assertion`.",
     )
 
     # Resource Server settings (when operating as RS only)

@@ -14,6 +14,8 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, Registrat
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
+JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
 # this alias is a no-op; it's just to separate out the types exposed to the
 # provider from what we use in the HTTP handler
 RegistrationRequest = OAuthClientMetadata
@@ -75,6 +77,21 @@ class RegistrationHandler:
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
                     error_description="grant_types must include 'authorization_code'",
+                ),
+                status_code=400,
+            )
+
+        # SEP-990 §5.1 / draft-ietf-oauth-identity-assertion-authz-grant §8.1: the ID-JAG flow is
+        # for confidential clients provisioned out of band. Refuse to grant it through DCR so a
+        # self-registered client cannot reach the identity-assertion provider hook.
+        if JWT_BEARER_GRANT_TYPE in client_metadata.grant_types:
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description=(
+                        f"grant_types must not include '{JWT_BEARER_GRANT_TYPE}'; "
+                        "the identity-assertion grant requires a pre-registered client"
+                    ),
                 ),
                 status_code=400,
             )

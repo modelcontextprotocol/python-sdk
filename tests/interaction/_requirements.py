@@ -3676,49 +3676,59 @@ REQUIREMENTS: dict[str, Requirement] = {
             "elsewhere into the auth provider's state, so the absence cannot be observed end to end."
         ),
     ),
-    "client-auth:token-exchange": Requirement(
+    "client-auth:identity-assertion": Requirement(
         source="sdk",
         behavior=(
-            "The token-exchange provider (SEP-990) exchanges an enterprise IdP-issued ID-JAG for an MCP "
-            "access token via the RFC 8693 token-exchange grant, with no authorize or registration step, "
+            "The identity-assertion provider (SEP-990) presents an enterprise IdP-issued ID-JAG to the MCP "
+            "authorization server via the RFC 7523 jwt-bearer grant, with no authorize or registration step, "
             "and the issued bearer token authorizes subsequent requests."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:token-exchange:subject-token-callback": Requirement(
+    "client-auth:identity-assertion:assertion-callback": Requirement(
         source="sdk",
         behavior=(
-            "The token-exchange provider sources the subject token from its async subject_token_provider "
-            "callback, invoked with the authorization server's issuer as the audience, and sends it as "
-            "subject_token on the RFC 8693 request."
+            "The identity-assertion provider sources the ID-JAG from its async assertion_provider callback, "
+            "invoked with the authorization server's issuer as audience and the MCP server's resource "
+            "identifier, and sends it as `assertion` on the RFC 7523 jwt-bearer request."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:token-exchange:disabled-rejected": Requirement(
+    "client-auth:identity-assertion:issuer-pinning": Requirement(
         source="sdk",
         behavior=(
-            "When the authorization server has token exchange disabled, the token endpoint rejects the "
-            "grant with unsupported_grant_type and the connection fails rather than issuing a token."
+            "The identity-assertion provider refuses to send the ID-JAG or client secret when the "
+            "discovered authorization-server issuer does not match the configured expected issuer, so a "
+            "hostile resource server cannot redirect the credentials."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:token-exchange:invalid-subject-token": Requirement(
+    "client-auth:identity-assertion:disabled-rejected": Requirement(
         source="sdk",
         behavior=(
-            "A token-exchange request whose subject token the authorization server rejects surfaces as an "
-            "OAuth error and the connection fails rather than proceeding with a bearer token."
+            "When the authorization server has the identity-assertion grant disabled, the token endpoint "
+            "rejects it with unsupported_grant_type and the connection fails rather than issuing a token."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:token-exchange:metadata-advertised": Requirement(
+    "client-auth:identity-assertion:invalid-assertion": Requirement(
         source="sdk",
         behavior=(
-            "When token exchange is enabled, the authorization-server metadata advertises the "
-            "token-exchange grant type and the public-client `none` token-endpoint auth method."
+            "A jwt-bearer request whose ID-JAG the authorization server rejects surfaces as an OAuth error "
+            "and the connection fails rather than proceeding with a bearer token."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:metadata-advertised": Requirement(
+        source="sdk",
+        behavior=(
+            "When the identity-assertion grant is enabled, the authorization-server metadata advertises the "
+            "jwt-bearer grant type and the id-jag grant profile in authorization_grant_profiles_supported."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

@@ -181,7 +181,7 @@ def auth_settings(
     *,
     required_scopes: Sequence[str] = ("mcp",),
     valid_scopes: Sequence[str] | None = None,
-    token_exchange_enabled: bool = False,
+    identity_assertion_enabled: bool = False,
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
@@ -192,8 +192,9 @@ def auth_settings(
     `scopes_supported` (which mirrors `required_scopes`) to differ from what the client may
     register or when AS metadata should advertise additional scopes such as `offline_access`.
 
-    `token_exchange_enabled` advertises and accepts the RFC 8693 token-exchange grant (SEP-990);
-    the provider must implement `exchange_token` for the endpoint to issue tokens.
+    `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
+    jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
+    issue tokens.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -205,7 +206,7 @@ def auth_settings(
             enabled=True, valid_scopes=valid, default_scopes=required
         ),
         revocation_options=RevocationOptions(enabled=False),
-        token_exchange_enabled=token_exchange_enabled,
+        identity_assertion_enabled=identity_assertion_enabled,
     )
 
 

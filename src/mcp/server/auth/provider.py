@@ -16,22 +16,17 @@ class AuthorizationParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator
 
 
-class TokenExchangeParams(BaseModel):
-    """Validated parameters of an RFC 8693 token-exchange request.
+class IdentityAssertionParams(BaseModel):
+    """Validated parameters of a SEP-990 identity-assertion (RFC 7523 jwt-bearer) request.
 
-    Passed to ``OAuthAuthorizationServerProvider.exchange_token``. The subject token is the
-    security token the client is exchanging - for SEP-990 this is the ID-JAG issued by the
-    enterprise identity provider.
+    Passed to ``OAuthAuthorizationServerProvider.exchange_identity_assertion``. ``assertion`` is the
+    ID-JAG (a signed JWT) the enterprise identity provider issued; the provider validates it per
+    RFC 7523 §3 and the SEP-990 §5.1 processing rules before issuing an access token.
     """
 
-    subject_token: str  # RFC 8693 §2.1: the security token being exchanged
-    subject_token_type: str  # RFC 8693 §2.1: type identifier of the subject token
-    requested_token_type: str | None = None  # RFC 8693 §2.1: desired type of the issued token
-    actor_token: str | None = None  # RFC 8693 §2.1: token of the acting party, for delegation
-    actor_token_type: str | None = None  # RFC 8693 §2.1: type identifier of the actor token
+    assertion: str  # RFC 7523 §2.1: the JWT (ID-JAG) presented as the authorization grant
     scopes: list[str] | None = None
-    resource: str | None = None  # RFC 8707 resource indicator
-    audience: str | None = None  # RFC 8693 §2.1: logical name of the target service
+    resource: str | None = None  # RFC 8707 resource indicator from the token request
 
 
 class AuthorizationCode(BaseModel):
@@ -290,39 +285,49 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             token: The token to revoke.
         """
 
-    async def exchange_token(
+    async def exchange_identity_assertion(
         self,
         client: OAuthClientInformationFull,
-        params: TokenExchangeParams,
+        params: IdentityAssertionParams,
     ) -> OAuthToken:
-        """Exchanges a security token for an access token (RFC 8693 token exchange).
+        """Exchanges an Identity Assertion Authorization Grant (ID-JAG) for an access token.
 
-        This implements the OAuth 2.0 Token Exchange grant
-        (``urn:ietf:params:oauth:grant-type:token-exchange``), which MCP uses to let a
-        client present a security token issued by an enterprise identity provider - such
-        as the Identity Assertion Authorization Grant (ID-JAG) from SEP-990 - and receive
-        an access token for this MCP server. Validating the subject token (signature,
-        issuer, audience, expiry, policy) is the responsibility of the implementation.
+        This is leg 2 of SEP-990: the client presents an ID-JAG - issued by the enterprise
+        identity provider - using the RFC 7523 ``urn:ietf:params:oauth:grant-type:jwt-bearer``
+        grant, and receives an access token for this MCP server. The default implementation
+        rejects every request as an unsupported grant type; override it to enable the grant.
 
-        The default implementation rejects every request as an unsupported grant type.
-        Override it to enable token exchange for this authorization server.
+        The implementation is responsible for validating ``params.assertion`` per RFC 7523 §3
+        and the SEP-990 §5.1 processing rules, in particular:
+
+        - verify the JWT signature, ``iss``, and ``exp``, and that ``typ`` is ``oauth-id-jag+jwt``;
+        - require ``aud`` to identify this authorization server (its own issuer);
+        - require the ID-JAG's ``client_id`` claim to match the authenticated ``client`` - do
+          NOT derive authorization from ``client.client_id`` alone, which for a confidential
+          client is authenticated but for any client is ultimately self-asserted in the request;
+        - audience-restrict the issued access token to the resource named in the ID-JAG's
+          ``resource`` claim, not merely ``params.resource`` (which the client controls);
+        - derive the granted scopes from the ID-JAG and policy rather than granting
+          ``params.scopes`` verbatim.
+
+        The handler guarantees ``client`` is confidential (it rejects the ``none`` auth method
+        before calling this hook), but the ID-JAG remains the authoritative grant.
 
         Args:
-            client: The client performing the exchange.
-            params: The validated token-exchange request parameters.
+            client: The authenticated client presenting the assertion.
+            params: The validated jwt-bearer request parameters (the ID-JAG and indicators).
 
         Returns:
-            The OAuth token, containing the issued access token. Return a
-            ``TokenExchangeToken`` to set RFC 8693's ``issued_token_type``; if a plain
-            ``OAuthToken`` is returned, the handler defaults it to the access-token type.
+            The OAuth token, containing the issued access token. A refresh token SHOULD NOT be
+            issued: SEP-990 relies on the IdP to control session lifetime via re-issued ID-JAGs.
 
         Raises:
-            TokenError: If the subject token or request is invalid. Use ``invalid_target``
-                for an unknown or unsupported ``resource``/``audience``.
+            TokenError: If the assertion or request is invalid. Use ``invalid_grant`` for a
+                rejected assertion and ``invalid_target`` for an unknown ``resource``.
         """
         raise TokenError(
             error="unsupported_grant_type",
-            error_description="Token exchange is not supported by this authorization server",
+            error_description="The JWT bearer grant is not supported by this authorization server",
         )
 
 

@@ -4,21 +4,21 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
 from mcp.server.auth.provider import (
+    IdentityAssertionParams,
     OAuthAuthorizationServerProvider,
     TokenError,
     TokenErrorCode,
-    TokenExchangeParams,
 )
-from mcp.shared.auth import OAuthToken, TokenExchangeToken
+from mcp.shared.auth import OAuthToken
 
-TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
+JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 
 class AuthorizationCodeRequest(BaseModel):
@@ -47,37 +47,22 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-class TokenExchangeRequest(BaseModel):
-    # RFC 8693 OAuth 2.0 Token Exchange. Used by SEP-990 to exchange an enterprise
-    # IdP-issued grant (the ID-JAG) for an MCP access token.
-    grant_type: Literal["urn:ietf:params:oauth:grant-type:token-exchange"]
-    # See https://datatracker.ietf.org/doc/html/rfc8693#section-2.1
-    subject_token: str = Field(..., description="The security token being exchanged")
-    subject_token_type: str = Field(..., description="Type identifier of the subject token")
-    requested_token_type: str | None = Field(None, description="Desired type of the issued token")
-    actor_token: str | None = Field(None, description="Token of the acting party, for delegation")
-    actor_token_type: str | None = Field(None, description="Type identifier of the actor token")
+class JwtBearerRequest(BaseModel):
+    # RFC 7523 §2.1 JWT bearer authorization grant. SEP-990 leg 2: the client presents the
+    # enterprise IdP-issued ID-JAG to the MCP authorization server as the `assertion`.
+    grant_type: Literal["urn:ietf:params:oauth:grant-type:jwt-bearer"]
+    # See https://datatracker.ietf.org/doc/html/rfc7523#section-2.1
+    assertion: str = Field(..., description="The ID-JAG (a signed JWT) being presented as the grant")
     scope: str | None = Field(None, description="Optional scope parameter")
-    audience: str | None = Field(None, description="Logical name of the target service")
     client_id: str
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # RFC 8707 resource indicator
     resource: str | None = Field(None, description="Resource indicator for the token")
 
-    @model_validator(mode="after")
-    def _validate_actor_token_pairing(self) -> "TokenExchangeRequest":
-        # RFC 8693 §2.1: actor_token_type is required when actor_token is present, and must be
-        # absent otherwise.
-        if self.actor_token is not None and self.actor_token_type is None:
-            raise ValueError("actor_token_type is required when actor_token is provided")
-        if self.actor_token is None and self.actor_token_type is not None:
-            raise ValueError("actor_token_type must not be provided without actor_token")
-        return self
-
 
 TokenRequest = Annotated[
-    AuthorizationCodeRequest | RefreshTokenRequest | TokenExchangeRequest,
+    AuthorizationCodeRequest | RefreshTokenRequest | JwtBearerRequest,
     Field(discriminator="grant_type"),
 ]
 token_request_adapter = TypeAdapter[TokenRequest](TokenRequest)
@@ -101,7 +86,7 @@ TokenSuccessResponse = OAuthToken
 class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
     client_authenticator: ClientAuthenticator
-    token_exchange_enabled: bool = False
+    identity_assertion_enabled: bool = False
 
     def response(self, obj: TokenSuccessResponse | TokenErrorResponse):
         status_code = 200
@@ -256,36 +241,33 @@ class TokenHandler:
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
-            case TokenExchangeRequest():  # pragma: no branch
-                if not self.token_exchange_enabled:
+            case JwtBearerRequest():  # pragma: no branch
+                if not self.identity_assertion_enabled:
                     return self.response(
                         TokenErrorResponse(
                             error="unsupported_grant_type",
-                            error_description="Token exchange is not supported by this authorization server",
+                            error_description="The JWT bearer grant is not supported by this authorization server",
                         )
                     )
 
-                params = TokenExchangeParams(
-                    subject_token=token_request.subject_token,
-                    subject_token_type=token_request.subject_token_type,
-                    requested_token_type=token_request.requested_token_type,
-                    actor_token=token_request.actor_token,
-                    actor_token_type=token_request.actor_token_type,
+                # SEP-990 §5.1: only confidential clients may present an ID-JAG. A public
+                # (token_endpoint_auth_method="none") client must not reach the provider hook.
+                if client_info.token_endpoint_auth_method == "none":
+                    return self.response(
+                        TokenErrorResponse(
+                            error="invalid_client",
+                            error_description="The JWT bearer grant requires a confidential client",
+                        )
+                    )
+
+                params = IdentityAssertionParams(
+                    assertion=token_request.assertion,
                     scopes=token_request.scope.split(" ") if token_request.scope else None,
                     resource=token_request.resource,
-                    audience=token_request.audience,
                 )
                 try:
-                    exchanged = await self.provider.exchange_token(client_info, params)
+                    tokens = await self.provider.exchange_identity_assertion(client_info, params)
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
-
-                # RFC 8693 §2.2.1 requires issued_token_type in the response. Providers may
-                # return a TokenExchangeToken to set it; otherwise default it so the response
-                # is compliant regardless of provider.
-                if isinstance(exchanged, TokenExchangeToken):
-                    tokens = exchanged
-                else:
-                    tokens = TokenExchangeToken.model_validate(exchanged.model_dump(exclude_none=True))
 
         return self.response(tokens)
