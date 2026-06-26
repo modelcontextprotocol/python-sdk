@@ -21,7 +21,6 @@ from mcp_types import (
     INVALID_PARAMS,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    CallToolRequestParams,
     ClientCapabilities,
     ErrorData,
     Implementation,
@@ -35,7 +34,6 @@ from mcp_types import (
     Tool,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, OLDEST_SUPPORTED_VERSION
-from opentelemetry.trace import SpanKind, StatusCode
 
 import mcp.server.runner
 from mcp.server.connection import Connection
@@ -46,7 +44,6 @@ from mcp.server.runner import (
     ServerRunner,
     _extract_meta,
     aclose_shielded,
-    otel_middleware,
     serve_connection,
     serve_one,
 )
@@ -60,7 +57,6 @@ from mcp.shared.transport_context import TransportContext
 
 from ..shared.conftest import jsonrpc_pair
 from ..shared.test_dispatcher import Recorder, echo_handlers
-from .conftest import SpanCapture
 
 Ctx = ServerRequestContext[dict[str, Any], Any]
 
@@ -1003,108 +999,6 @@ async def test_runner_initialize_echoes_supported_version_and_falls_back_to_late
         params = {**_initialize_params(), "protocolVersion": "1999-01-01"}
         result = await client.send_raw_request("initialize", params)
         assert result["protocolVersion"] == LATEST_HANDSHAKE_VERSION
-
-
-@pytest.mark.anyio
-async def test_otel_middleware_emits_server_span_with_method_and_target(server: SrvT, spans: SpanCapture):
-    async def call_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
-        return {"content": [], "isError": False}
-
-    server.add_request_handler("tools/call", CallToolRequestParams, call_tool)
-    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
-        spans.clear()
-        result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
-    assert result == {"content": [], "isError": False}
-    finished = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    [span] = finished
-    assert span.name == "MCP handle tools/call mytool"
-    assert span.attributes is not None
-    assert span.attributes["mcp.method.name"] == "tools/call"
-    assert isinstance(span.attributes["jsonrpc.request.id"], str)
-    assert span.status.status_code == StatusCode.UNSET
-
-
-@pytest.mark.anyio
-async def test_otel_trace_context_propagates_client_to_server(server: SrvT, spans: SpanCapture):
-    """The client dispatcher injects traceparent into `_meta`; the server's
-    `otel_middleware` extracts it, so client and server spans share a trace."""
-    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
-        spans.clear()
-        await client.send_raw_request("tools/list", None)
-    [client_span] = [s for s in spans.finished() if s.kind == SpanKind.CLIENT]
-    [server_span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert server_span.parent is not None
-    assert client_span.context is not None and server_span.context is not None
-    assert server_span.parent.span_id == client_span.context.span_id
-    assert server_span.context.trace_id == client_span.context.trace_id
-    assert client_span.attributes is not None and server_span.attributes is not None
-    assert client_span.attributes["jsonrpc.request.id"] == server_span.attributes["jsonrpc.request.id"]
-
-
-@pytest.mark.anyio
-async def test_otel_middleware_malformed_traceparent_degrades_to_no_parent(server: SrvT, spans: SpanCapture):
-    """A non-string traceparent in `_meta` must not fail the request; the server span simply gets no parent."""
-
-    def break_traceparent(call_next: OnRequest) -> OnRequest:
-        async def wrapped(ctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
-            mangled = {"_meta": {"traceparent": 123}} if method == "tools/list" else params
-            return await call_next(ctx, method, mangled)
-
-        return wrapped
-
-    async with connected_runner(server, dispatch_middleware=[break_traceparent, otel_middleware]) as (client, _):
-        spans.clear()
-        await client.send_raw_request("tools/list", None)
-    [server_span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert server_span.parent is None
-
-
-@pytest.mark.anyio
-async def test_otel_middleware_validation_failure_sets_sanitized_status(server: SrvT, spans: SpanCapture):
-    """Malformed params set the sanitized wire message as span status and do
-    not record the pydantic exception (it carries client input)."""
-    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
-        spans.clear()
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("tools/call", {"name": 123})
-    assert exc.value.error.code == INVALID_PARAMS
-    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.status.status_code == StatusCode.ERROR
-    assert span.status.description == "Invalid request parameters"
-    assert not span.events
-
-
-@pytest.mark.anyio
-async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, spans: SpanCapture):
-    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
-        spans.clear()
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("resources/list", None)
-        assert exc.value.error.code == METHOD_NOT_FOUND
-    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.status.status_code == StatusCode.ERROR
-    assert span.status.description == "Method not found"
-    # MCPError is a protocol-level response, not a crash - no traceback event.
-    assert not [e for e in span.events if e.name == "exception"]
-
-
-@pytest.mark.anyio
-async def test_otel_middleware_records_error_status_on_handler_exception(server: SrvT, spans: SpanCapture):
-    async def failing(ctx: Ctx, params: PaginatedRequestParams | None) -> Any:
-        raise ValueError("handler blew up")
-
-    server.add_request_handler("tools/list", PaginatedRequestParams, failing)
-    async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
-        spans.clear()
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("tools/list", None)
-        assert exc.value.error.code == 0
-    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
-    assert span.status.status_code == StatusCode.ERROR
-    assert span.status.description == "handler blew up"
-    [event] = [e for e in span.events if e.name == "exception"]
-    assert event.attributes is not None
-    assert event.attributes["exception.type"] == "ValueError"
 
 
 @pytest.mark.anyio

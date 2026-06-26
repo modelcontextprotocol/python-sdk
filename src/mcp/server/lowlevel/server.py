@@ -52,6 +52,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
+from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
@@ -231,10 +232,13 @@ class Server(Generic[LifespanResultT]):
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
         # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
+        # `OpenTelemetryMiddleware` ships on by default so every server emits a
+        # SERVER span per message; it is a no-op until an OTel exporter is
+        # installed. Drop it from this list to opt out.
         # TODO(L54): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.
-        self.middleware: list[ServerMiddleware[LifespanResultT]] = []
+        self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
         logger.debug("Initializing server %r", name)
 
         _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
