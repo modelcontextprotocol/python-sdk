@@ -1,4 +1,9 @@
-"""Tests for `OpenTelemetryMiddleware` (the context-tier OTel span middleware)."""
+"""Tests for `OpenTelemetryMiddleware` (the context-tier OTel span middleware).
+
+Every `Server` ships `OpenTelemetryMiddleware` at the head of `Server.middleware`,
+so these tests assert against the default-configured server rather than appending
+the middleware by hand.
+"""
 
 from dataclasses import replace
 from typing import Any
@@ -21,8 +26,7 @@ from opentelemetry.trace import SpanKind, StatusCode
 from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.context import CallNext
 from mcp.server.lowlevel.server import Server
-from mcp.server.runner import otel_middleware
-from mcp.shared._otel import inject_trace_context
+from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared.exceptions import MCPError
 
 from .conftest import SpanCapture
@@ -41,10 +45,14 @@ async def _ok_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
     return {"content": [], "isError": False}
 
 
+def test_server_ships_opentelemetry_middleware_by_default() -> None:
+    server = Server(name="test-server", version="0.0.1")
+    assert any(isinstance(m, OpenTelemetryMiddleware) for m in server.middleware)
+
+
 @pytest.mark.anyio
 async def test_emits_server_span_with_method_and_target(server: SrvT, spans: SpanCapture):
     server.add_request_handler("tools/call", CallToolRequestParams, _ok_tool)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
@@ -65,7 +73,6 @@ async def test_tool_error_dict_result_sets_error_type(server: SrvT, spans: SpanC
         return {"content": [], "isError": True}
 
     server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
@@ -81,7 +88,6 @@ async def test_tool_error_model_result_sets_error_type(server: SrvT, spans: Span
         return CallToolResult(content=[], is_error=True)
 
     server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
@@ -99,7 +105,6 @@ async def test_snake_case_dict_result_is_not_a_tool_error(server: SrvT, spans: S
         return {"content": [], "is_error": True}
 
     server.add_request_handler("tools/call", CallToolRequestParams, err_tool)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
@@ -116,7 +121,6 @@ async def test_named_non_tool_prompt_method_omits_gen_ai_attrs(server: SrvT, spa
         return {"content": [], "isError": False}
 
     server.add_request_handler("custom/op", CallToolRequestParams, custom)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("custom/op", {"name": "thing", "arguments": {}})
@@ -134,7 +138,6 @@ async def test_prompt_get_sets_prompt_name(server: SrvT, spans: SpanCapture):
         return GetPromptResult(messages=[])
 
     server.add_request_handler("prompts/get", GetPromptRequestParams, get_prompt)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("prompts/get", {"name": "myprompt"})
@@ -151,7 +154,6 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
         return None
 
     server.add_notification_handler("notifications/roots/list_changed", NotificationParams, on_roots)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.notify("notifications/roots/list_changed", None)
@@ -163,24 +165,34 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
     assert "jsonrpc.request.id" not in span.attributes
 
 
+def _ambient_span(call_next: Any) -> Any:
+    """Dispatch-tier wrapper that opens an ambient SERVER span around the whole
+    request, so the context-tier span has a current span to nest under when the
+    inbound message carries no traceparent."""
+
+    async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
+        with otel_span("ambient", kind=SpanKind.SERVER):
+            return await call_next(dctx, method, params)
+
+    return wrapped
+
+
 @pytest.mark.anyio
 async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans: SpanCapture):
-    """With no `_meta` on the inbound message (a non-SDK client), the
-    context-tier span must parent to the ambient current span (here, the
-    dispatch-tier `otel_middleware` span) rather than become an orphan root.
+    """With no `_meta` on the inbound message (a non-SDK client), the span must
+    parent to the ambient current span rather than become an orphan root.
     SDK-defined: SEP-414 only covers the traceparent-present case."""
 
     def strip_meta(call_next: Any) -> Any:
         # The in-process client always injects `_meta.traceparent`; strip it so
-        # both server tiers see the no-carrier path.
+        # the span sees the no-carrier path.
         async def wrapped(dctx: Any, method: str, params: dict[str, Any] | None) -> Any:
             stripped = {k: v for k, v in (params or {}).items() if k != "_meta"}
             return await call_next(dctx, method, stripped or None)
 
         return wrapped
 
-    server.middleware.append(OpenTelemetryMiddleware())
-    async with connected_runner(server, dispatch_middleware=[strip_meta, otel_middleware]) as (client, _):
+    async with connected_runner(server, dispatch_middleware=[_ambient_span, strip_meta]) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", None)
     server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
@@ -207,8 +219,7 @@ async def test_nests_under_ambient_span_when_meta_lacks_traceparent(server: SrvT
 
         return wrapped
 
-    server.middleware.append(OpenTelemetryMiddleware())
-    async with connected_runner(server, dispatch_middleware=[replace_meta, otel_middleware]) as (client, _):
+    async with connected_runner(server, dispatch_middleware=[_ambient_span, replace_meta]) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", None)
     server_spans = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
@@ -225,7 +236,6 @@ async def test_nests_under_ambient_span_when_meta_lacks_traceparent(server: SrvT
 async def test_extracts_trace_context_from_meta(server: SrvT, spans: SpanCapture):
     meta: dict[str, Any] = {}
     inject_trace_context(meta)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", {"_meta": meta})
@@ -235,7 +245,6 @@ async def test_extracts_trace_context_from_meta(server: SrvT, spans: SpanCapture
 
 @pytest.mark.anyio
 async def test_records_error_status_on_mcp_error(server: SrvT, spans: SpanCapture):
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         with pytest.raises(MCPError) as exc:
@@ -253,7 +262,6 @@ async def test_records_error_status_on_mcp_error(server: SrvT, spans: SpanCaptur
 @pytest.mark.anyio
 async def test_validation_failure_sets_sanitized_status(server: SrvT, spans: SpanCapture):
     server.add_request_handler("tools/call", CallToolRequestParams, _ok_tool)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         with pytest.raises(MCPError):
@@ -275,7 +283,6 @@ async def test_records_error_status_on_handler_exception(server: SrvT, spans: Sp
         raise ValueError("handler blew up")
 
     server.add_request_handler("tools/list", PaginatedRequestParams, failing)
-    server.middleware.append(OpenTelemetryMiddleware())
     async with connected_runner(server) as (client, _):
         spans.clear()
         with pytest.raises(MCPError):
@@ -304,7 +311,7 @@ async def test_passes_rewritten_context_through(server: SrvT, spans: SpanCapture
         return await call_next(replace(ctx, params={**ctx.params, "arguments": arguments}))
 
     server.add_request_handler("tools/call", CallToolRequestParams, call_tool)
-    server.middleware.extend([OpenTelemetryMiddleware(), inject_arg])
+    server.middleware.append(inject_arg)
     async with connected_runner(server) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {"x": 1}})

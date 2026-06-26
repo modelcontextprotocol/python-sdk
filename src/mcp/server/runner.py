@@ -37,7 +37,6 @@ from mcp_types import (
 )
 from mcp_types import methods as _methods
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
@@ -45,7 +44,6 @@ from mcp.server.connection import Connection
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
@@ -62,7 +60,6 @@ __all__ = [
     "ServerRunner",
     "aclose_shielded",
     "modern_on_request",
-    "otel_middleware",
     "serve_connection",
     "serve_loop",
     "serve_one",
@@ -89,58 +86,6 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return RequestParams.model_validate(params, by_name=False).meta
     except ValidationError:
         return None
-
-
-def otel_middleware(call_next: OnRequest) -> OnRequest:
-    """Dispatch-tier middleware that wraps each request in an OpenTelemetry span.
-
-    Mirrors the span shape of the existing `Server._handle_request`: span name
-    `"MCP handle <method> [<target>]"`, `mcp.method.name` attribute, W3C
-    trace context extracted from `params._meta` (SEP-414), and an ERROR
-    status if the handler raises.
-    """
-
-    async def wrapped(
-        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        target: str | None
-        match params:
-            case {"name": str() as target}:
-                pass
-            case _:
-                target = None
-        parent: Any | None
-        match params:
-            case {"_meta": {**meta}}:
-                parent = extract_trace_context(meta)
-            case _:
-                parent = None
-        span_name = f"MCP handle {method}{f' {target}' if target else ''}"
-        # `otel_middleware` wraps `on_request` only, so `request_id` is always set.
-        attributes = {"mcp.method.name": method, "jsonrpc.request.id": str(dctx.request_id)}
-        with otel_span(
-            span_name,
-            kind=SpanKind.SERVER,
-            attributes=attributes,
-            context=parent,
-            record_exception=False,
-            set_status_on_exception=False,
-        ) as span:
-            try:
-                return await call_next(dctx, method, params)
-            except MCPError as e:
-                span.set_status(StatusCode.ERROR, e.error.message)
-                raise
-            except ValidationError:
-                # Mirror the sanitized wire response; pydantic messages carry client input.
-                span.set_status(StatusCode.ERROR, "Invalid request parameters")
-                raise
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(StatusCode.ERROR, str(e))
-                raise
-
-    return wrapped
 
 
 def _dump_result(result: Any) -> dict[str, Any]:
@@ -196,7 +141,10 @@ class ServerRunner(Generic[LifespanT]):
     _: KW_ONLY
     init_options: InitializationOptions | None = None
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
-    dispatch_middleware: Sequence[DispatchMiddleware] = (otel_middleware,)
+    dispatch_middleware: Sequence[DispatchMiddleware] = ()
+    """Raw dispatch-tier wrappers `(dctx, method, params) -> dict`, applied outermost-first
+    around `_on_request`. Empty by default; OpenTelemetry tracing lives at the context tier
+    (`OpenTelemetryMiddleware`, seeded into `Server.middleware`)."""
 
     @cached_property
     def on_request(self) -> OnRequest:

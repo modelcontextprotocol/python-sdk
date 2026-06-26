@@ -79,33 +79,12 @@ In increasing order of how much you should hesitate:
     an elicitation) while handling `initialize` therefore **deadlocks the connection**: the
     response you are waiting for can never be read. Fire-and-forget notifications are fine.
 
-## `OpenTelemetryMiddleware`
+## The one middleware that ships on by default
 
-The SDK ships one middleware: `OpenTelemetryMiddleware`. Construct it and append it
-(`server.middleware.append(OpenTelemetryMiddleware())`), exactly the line you already wrote
-for `log_timing`.
-
-Every inbound message becomes a `SERVER` span named after the method and its target, so a
-`tools/call` for `search_books` is the span `tools/call search_books`.
-
-* Every span carries `mcp.method.name` and `mcp.protocol.version`; a request's span also
-  carries its JSON-RPC request id (a notification has none).
-* A `tools/call` span gets OpenTelemetry's GenAI semantic conventions,
-  `gen_ai.operation.name` (`"execute_tool"`) and `gen_ai.tool.name`, so a tracing UI groups
-  your tool calls the way it groups any other agent's. A `prompts/get` span gets
-  `gen_ai.prompt.name`. The list methods carry no `gen_ai.*` keys.
-* A handler that raises sets the span's status to error. So does a tool result with
-  `is_error=True`.
-
-!!! tip
-    The SDK depends only on `opentelemetry-api`. With no exporter installed those spans are
-    no-ops, so appending this middleware costs you nothing. Install `opentelemetry-sdk` plus an
-    exporter and everything lights up, with no server change.
-
-The import is the catch. The class lives at `from mcp.server._otel import OpenTelemetryMiddleware`
-today, and the leading underscore is not an accident: it is the same provisional flag this whole
-page opened with. The SDK has not given it a public spelling yet, so the import path is the one
-line here you should expect to change.
+The SDK ships exactly one middleware, and it is already on your server's list: the one that
+emits an OpenTelemetry span for every message. You don't append it, and most of the time you
+don't think about it. It is a no-op until you install an exporter, and it has its own page:
+**OpenTelemetry**.
 
 !!! info
     If you have written ASGI middleware, you already know this shape. Starlette's
@@ -121,9 +100,8 @@ line here you should expect to change.
   unknown methods) and runs outermost-first.
 * `ctx.request_id is None` is how you tell a notification from a request.
 * Raise instead of calling `call_next` to refuse one message; the connection survives.
-* `OpenTelemetryMiddleware` turns each message into a span (with GenAI attributes on tool
-  calls and prompt gets) for the price of one `append`, and costs nothing until you install
-  an exporter.
+* The SDK's own OpenTelemetry tracing is a middleware too, already on the list. See
+  **OpenTelemetry**.
 * The whole surface is provisional. Observe with it; don't build on it.
 
 That is everything that wraps a request. **Authorization** is what decides whether the request

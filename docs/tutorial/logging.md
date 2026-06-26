@@ -64,8 +64,8 @@ went to standard error: the terminal, not the wire.
 
 !!! info
     If what you actually want is *tracing* (every request, how long it took, whether it failed), you
-    don't want log lines, you want spans. The SDK ships an `OpenTelemetryMiddleware` for exactly that.
-    See **Middleware**.
+    don't want log lines, you want spans. Your server already emits them: the SDK traces every
+    message with OpenTelemetry out of the box. See **OpenTelemetry**.
 
 ## Recap
 
