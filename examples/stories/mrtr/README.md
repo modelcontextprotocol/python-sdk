@@ -1,30 +1,54 @@
 # mrtr
 
-Multi-round tool results: a 2026-era tool call returns
-`resultType: "input_required"` with a `requestState` HMAC instead of pushing an
-`elicitation/create` request. The client fulfils the input and resubmits, and
-the server resumes from the carried state. The story will show both the
-auto-fulfil helper and a manual resubmit loop.
+Multi-round tool result: on the 2026-07-28 protocol a tool that needs user
+input mid-call **returns** `resultType: "input_required"` with embedded
+`inputRequests` and an opaque `requestState`, instead of pushing a
+server→client request. The client fulfils the embedded requests and retries the
+original `tools/call` carrying `inputResponses` and the echoed `requestState`.
+The story shows both the `Client` auto-loop (one `await call_tool`, callbacks
+fired transparently) and a manual `client.session` loop (the persistable form).
 
-**Status: not yet implemented** ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)).
-The lowlevel registration surface is in this base —
-[#2967](https://github.com/modelcontextprotocol/python-sdk/pull/2967)
-(`ae13ede`) widened the tool/prompt/resource handler return types to include
-`InputRequiredResult`. The runnable story is deliberately a follow-up PR to
-keep this one reviewable.
+## Run it
+
+```bash
+# HTTP — the client self-hosts the server on a free port, runs, then tears it
+# down (the InputRequiredResult round-trip is 2026-era only)
+uv run python -m stories.mrtr.client --http
+# same, against the lowlevel-API server variant
+uv run python -m stories.mrtr.client --http --server server_lowlevel
+```
+
+## What to look at
+
+- `client.py` `main` — the auto-loop is invisible at the call site:
+  `Client(target, mode=mode, elicitation_callback=on_elicit)` then
+  `await client.call_tool("deploy", ...)`. The same `on_elicit` callback the
+  legacy push path uses is dispatched for each embedded `inputRequests` entry.
+- `client.py` manual block — `client.session.call_tool(...,
+  allow_input_required=True)` returns the raw `InputRequiredResult` so
+  `request_state` can be persisted between rounds; the retry is just another
+  `tools/call` with `input_responses=` / `request_state=`.
+- `server.py` `deploy` — `ctx.input_responses` / `ctx.request_state` read the
+  retry payload; the first round returns
+  `InputRequiredResult(input_requests={...}, request_state=...)`, the second
+  returns the final string.
+- `server_lowlevel.py` — same wire contract via `params.input_responses` /
+  `params.request_state` and a hand-built `InputRequiredResult`.
+
+## Caveats
+
+- **Loop bound.** The auto-loop gives up after `input_required_max_rounds`
+  (default 10) with `InputRequiredRoundsExceededError`; raise it on the
+  `Client` ctor or drop to the manual loop.
+- **`requestState` integrity is the server's job.** The client echoes it
+  byte-exact and never inspects it; the server MUST treat it as
+  attacker-controlled. The SDK ships no signing helper yet.
 
 ## Spec
 
-[Multi-round tool results — server features](https://modelcontextprotocol.io/specification/draft/server/tools#multi-round-results)
-
-## Working example elsewhere
-
-The TypeScript SDK ships a runnable `mrtr` story:
-[typescript-sdk/examples/mrtr](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/mrtr).
+[Multi-round results — server features](https://modelcontextprotocol.io/specification/draft/server/tools#multi-round-results)
 
 ## See also
 
-`legacy_elicitation/` and `sampling/` — the handshake-era push equivalents that
-this mechanism replaces on the 2026 protocol. The TypeScript SDK ships a single
-dual-era `elicitation/` story covering both eras in one place; we re-merge
-`legacy_elicitation/` back into `elicitation/` once MRTR lands.
+`legacy_elicitation/` and `sampling/` — the handshake-era push equivalents this
+mechanism replaces on the 2026 protocol.

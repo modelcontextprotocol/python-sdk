@@ -2061,7 +2061,7 @@ class InputRequiredResult(Result):
 
     @model_validator(mode="after")
     def _require_one_field(self) -> Self:
-        if self.input_requests is None and self.request_state is None:
+        if not self.input_requests and self.request_state is None:
             raise ValueError("InputRequiredResult requires at least one of input_requests or request_state")
         return self
 

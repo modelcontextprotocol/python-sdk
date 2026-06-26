@@ -33,14 +33,16 @@ from mcp_types import (
     ToolsCapability,
 )
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
+from pydantic import FileUrl
 
 from mcp import MCPError
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
+from mcp.client.session import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, mounted_app
@@ -513,3 +515,237 @@ def test_client_rejects_handshake_era_mode_at_construction() -> None:
         Client(server, mode="2025-06-18")
     with pytest.raises(ValueError, match=r"mode must be 'legacy', 'auto', or one of"):
         Client(server, mode="not-a-version")
+
+
+# ── SEP-2322 multi-round-trip auto-loop ────────────────────────────────────────
+
+
+_NAME_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
+
+
+def _name_elicitation(message: str = "What is your name?") -> types.ElicitRequest:
+    return types.ElicitRequest(params=types.ElicitRequestFormParams(message=message, requested_schema=_NAME_SCHEMA))
+
+
+async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_result() -> None:
+    """When the server returns `InputRequiredResult` carrying an elicitation,
+    `Client.call_tool` routes it to `elicitation_callback` and retries
+    automatically — the caller sees only the terminal `CallToolResult`."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def greet(ctx: Context) -> str | types.InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "user_name" in responses:
+            answer = responses["user_name"]
+            assert isinstance(answer, types.ElicitResult)
+            assert answer.content is not None
+            return f"Hello, {answer.content['name']}!"
+        return types.InputRequiredResult(input_requests={"user_name": _name_elicitation()})
+
+    callback_params: list[types.ElicitRequestParams] = []
+
+    async def elicitation_callback(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        callback_params.append(params)
+        assert context.request_id == "user_name"  # the inputRequests key is the request id
+        return types.ElicitResult(action="accept", content={"name": "Ada"})
+
+    with anyio.fail_after(5):
+        async with Client(server, elicitation_callback=elicitation_callback) as client:
+            result = await client.call_tool("greet")
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="Hello, Ada!")], structured_content={"result": "Hello, Ada!"})
+    )
+    assert len(callback_params) == 1
+    assert isinstance(callback_params[0], types.ElicitRequestFormParams)
+    assert callback_params[0].message == "What is your name?"
+    assert callback_params[0].requested_schema == _NAME_SCHEMA
+
+
+async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result() -> None:
+    """`InputRequiredResult` with an embedded `CreateMessageRequest` is routed
+    to `sampling_callback` and the call retried with the model's reply."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def ask(ctx: Context) -> str | types.InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "q" in responses:
+            answer = responses["q"]
+            assert isinstance(answer, types.CreateMessageResult)
+            assert answer.content.type == "text"
+            return f"Model said: {answer.content.text}"
+        return types.InputRequiredResult(
+            input_requests={
+                "q": types.CreateMessageRequest(
+                    params=types.CreateMessageRequestParams(
+                        messages=[types.SamplingMessage(role="user", content=TextContent(text="Capital of France?"))],
+                        max_tokens=10,
+                    )
+                )
+            }
+        )
+
+    callback_params: list[types.CreateMessageRequestParams] = []
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult | types.ErrorData:
+        callback_params.append(params)
+        return types.CreateMessageResult(role="assistant", content=TextContent(text="Paris"), model="echo")
+
+    with anyio.fail_after(5):
+        async with Client(server, sampling_callback=sampling_callback) as client:
+            result = await client.call_tool("ask")
+
+    assert result == snapshot(
+        CallToolResult(
+            content=[TextContent(text="Model said: Paris")], structured_content={"result": "Model said: Paris"}
+        )
+    )
+    assert len(callback_params) == 1
+    assert callback_params[0].messages[0].content == TextContent(text="Capital of France?")
+
+
+async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_result() -> None:
+    """`InputRequiredResult` with an embedded `ListRootsRequest` is routed to
+    `list_roots_callback` and the call retried with the returned roots."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def count_roots(ctx: Context) -> str | types.InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "roots" in responses:
+            answer = responses["roots"]
+            assert isinstance(answer, types.ListRootsResult)
+            return f"Client exposed {len(answer.roots)} root(s)."
+        return types.InputRequiredResult(input_requests={"roots": types.ListRootsRequest()})
+
+    callback_called: list[ClientRequestContext] = []
+
+    async def list_roots_callback(context: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:
+        callback_called.append(context)
+        return types.ListRootsResult(roots=[types.Root(uri=FileUrl("file:///workspace"))])
+
+    with anyio.fail_after(5):
+        async with Client(server, list_roots_callback=list_roots_callback) as client:
+            result = await client.call_tool("count_roots")
+
+    assert result == snapshot(
+        CallToolResult(
+            content=[TextContent(text="Client exposed 1 root(s).")],
+            structured_content={"result": "Client exposed 1 root(s)."},
+        )
+    )
+    assert len(callback_called) == 1
+    assert callback_called[0].request_id == "roots"
+
+
+async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_three_rounds() -> None:
+    """A three-round flow where each `InputRequiredResult.request_state`
+    encodes the round number: the driver echoes it back byte-exact, the server
+    advances per round, and the elicitation callback runs once per round."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def multi(ctx: Context) -> str | types.InputRequiredResult:
+        # Round number is the integer the server stashed in `request_state` last leg.
+        round_num = int(ctx.request_state) if ctx.request_state else 0
+        if round_num == 3:
+            return "done after 3 rounds"
+        next_round = round_num + 1
+        return types.InputRequiredResult(
+            input_requests={f"step{next_round}": _name_elicitation(f"Round {next_round}?")},
+            request_state=str(next_round),
+        )
+
+    messages: list[str] = []
+
+    async def elicitation_callback(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        assert isinstance(params, types.ElicitRequestFormParams)
+        messages.append(params.message)
+        return types.ElicitResult(action="accept", content={"name": "x"})
+
+    with anyio.fail_after(5):
+        async with Client(server, elicitation_callback=elicitation_callback) as client:
+            result = await client.call_tool("multi")
+
+    assert result.content == [TextContent(text="done after 3 rounds")]
+    assert messages == ["Round 1?", "Round 2?", "Round 3?"]
+
+
+async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered() -> None:
+    """SDK-defined: with no `elicitation_callback`, the default returns
+    `ErrorData(INVALID_REQUEST, ...)` and the driver raises it as `MCPError`
+    rather than retrying."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def needs_input(ctx: Context) -> str | types.InputRequiredResult:
+        if ctx.input_responses:
+            raise NotImplementedError  # unreachable: client errors before retrying
+        return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
+
+    async with Client(server) as client:
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
+            await client.call_tool("needs_input")
+    assert exc.value.error.code == types.INVALID_REQUEST
+
+
+async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> None:
+    """`Client.get_prompt` runs the same driver as `call_tool`: an
+    `InputRequiredResult` from `prompts/get` is fulfilled and retried."""
+
+    async def handler(
+        ctx: ServerRequestContext, params: types.GetPromptRequestParams
+    ) -> types.GetPromptResult | types.InputRequiredResult:
+        assert params.name == "summary"
+        if params.input_responses and "ask" in params.input_responses:
+            return GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="ok"))])
+        return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
+
+    server = Server("test")
+    server.add_request_handler("prompts/get", types.GetPromptRequestParams, handler)
+
+    async def elicitation_callback(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        return types.ElicitResult(action="accept", content={"name": "x"})
+
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28", elicitation_callback=elicitation_callback) as client:
+            result = await client.get_prompt("summary")
+    assert result == snapshot(GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="ok"))]))
+
+
+async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -> None:
+    """`Client.read_resource` runs the same driver as `call_tool`: an
+    `InputRequiredResult` from `resources/read` is fulfilled and retried."""
+
+    async def handler(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult | types.InputRequiredResult:
+        assert params.uri == "memory://gated"
+        if params.input_responses and "ask" in params.input_responses:
+            return ReadResourceResult(contents=[TextResourceContents(uri="memory://gated", text="unlocked")])
+        return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
+
+    server = Server("test")
+    server.add_request_handler("resources/read", types.ReadResourceRequestParams, handler)
+
+    async def elicitation_callback(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        return types.ElicitResult(action="accept", content={"name": "x"})
+
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28", elicitation_callback=elicitation_callback) as client:
+            result = await client.read_resource("memory://gated")
+    assert result == snapshot(
+        ReadResourceResult(contents=[TextResourceContents(uri="memory://gated", text="unlocked")])
+    )

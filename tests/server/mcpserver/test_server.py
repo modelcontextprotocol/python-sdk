@@ -1588,7 +1588,7 @@ async def test_tool_returning_input_required_result_reaches_client_unchanged():
 
     with anyio.fail_after(5):
         async with Client(mcp, mode="2026-07-28") as client:
-            result = await client.call_tool("ask", allow_input_required=True)
+            result = await client.session.call_tool("ask", allow_input_required=True)
 
     assert isinstance(result, InputRequiredResult)
     assert result.request_state == "round-1"
@@ -1624,11 +1624,11 @@ async def test_tool_reads_input_responses_and_request_state_from_context_on_retr
 
     with anyio.fail_after(5):
         async with Client(mcp, mode="2026-07-28") as client:
-            r1 = await client.call_tool("greet", allow_input_required=True)
+            r1 = await client.session.call_tool("greet", allow_input_required=True)
             assert isinstance(r1, InputRequiredResult)
             assert r1.input_requests is not None and "who" in r1.input_requests
 
-            r2 = await client.call_tool(
+            r2 = await client.session.call_tool(
                 "greet",
                 input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
                 request_state=r1.request_state,

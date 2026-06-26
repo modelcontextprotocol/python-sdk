@@ -58,6 +58,7 @@ from mcp_types import (
 )
 from mcp_types import Role as SamplingRole
 
+from .client._input_required import InputRequiredRoundsExceededError
 from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
@@ -87,6 +88,7 @@ __all__ = [
     "InitializeRequest",
     "InitializeResult",
     "InitializedNotification",
+    "InputRequiredRoundsExceededError",
     "JSONRPCError",
     "JSONRPCRequest",
     "JSONRPCResponse",

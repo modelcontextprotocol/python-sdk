@@ -395,9 +395,13 @@ For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` 
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
-### `call_tool` can return `InputRequiredResult` (opt-in)
+### `InputRequiredResult` handling differs between `Client` and `ClientSession`
 
-For protocol 2026-07-28, a `tools/call` request may return an `InputRequiredResult` asking the client to supply additional input and retry. By default `call_tool` (on `ClientSession`, `Client`, and `ClientSessionGroup`) still returns `CallToolResult` and raises `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then retry with `input_responses=` / `request_state=`.
+For protocol 2026-07-28, `tools/call`, `prompts/get`, and `resources/read` may return an `InputRequiredResult` asking the client to supply additional input (sampling, elicitation, roots) and retry.
+
+On the high-level `Client`, `call_tool`, `get_prompt`, and `read_resource` resolve this automatically: they dispatch each requested input to the matching callback (`sampling_callback`, `elicitation_callback`, `list_roots_callback`) and retry until a final result is returned, so the call still returns the bare `CallToolResult` / `GetPromptResult` / `ReadResourceResult`. The round limit is `Client(input_required_max_rounds=...)` (default 10). Earlier v2 prereleases exposed an `allow_input_required` parameter on these `Client` methods; that parameter has been removed. For manual control use `client.session.call_tool(..., allow_input_required=True)`. Note that `read_timeout_seconds` now bounds each underlying round, not the whole loop; wrap the call in `anyio.fail_after(...)` for a whole-loop bound.
+
+On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return the bare result and raise `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then drive the loop yourself with `input_responses=` / `request_state=`. `ClientSessionGroup.call_tool` accepts the same flag.
 
 ### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers (SEP-2243)
 
