@@ -66,6 +66,7 @@ from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
+from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
 __all__ = [
     "CallToolRequest",
@@ -133,7 +134,9 @@ __all__ = [
     "ToolsCapability",
     "ToolUseContent",
     "UnsubscribeRequest",
+    "UriTemplate",
     "UrlElicitationRequiredError",
+    "InvalidUriTemplate",
     "stdio_client",
     "stdio_server",
 ]
