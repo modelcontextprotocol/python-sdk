@@ -43,13 +43,14 @@ from starlette.routing import Mount, Route
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import InvalidUriTemplate
 
 pytestmark = pytest.mark.anyio
 
@@ -862,7 +863,7 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = MCPServer()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(ValueError, match="has no URI template variables"):
 
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:  # pragma: no cover
@@ -1487,6 +1488,258 @@ class TestServerPrompts:
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+async def test_resource_decorator_rfc6570_reserved_expansion():
+    # Regression: old regex-based param extraction couldn't see `path`
+    # in `{+path}` and failed with a confusing mismatch error.
+    mcp = MCPServer()
+
+    @mcp.resource("file://docs/{+path}")
+    def read_doc(path: str) -> str:
+        raise NotImplementedError
+
+    templates = await mcp.list_resource_templates()
+    assert [t.uri_template for t in templates] == ["file://docs/{+path}"]
+
+
+async def test_resource_decorator_rejects_malformed_template():
+    mcp = MCPServer()
+    with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
+        mcp.resource("file://{name")
+
+
+async def test_resource_optional_query_params_use_function_defaults():
+    """Omitted {?...} query params should fall through to the
+    handler's Python defaults. Partial and reordered params work."""
+    mcp = MCPServer()
+
+    @mcp.resource("logs://{service}{?since,level}")
+    def tail_logs(service: str, since: str = "1h", level: str = "info") -> str:
+        return f"{service}|{since}|{level}"
+
+    async with Client(mcp) as client:
+        # No query → all defaults
+        r = await client.read_resource("logs://api")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|1h|info"
+
+        # Partial query → one default
+        r = await client.read_resource("logs://api?since=15m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|15m|info"
+
+        # Reordered, both present
+        r = await client.read_resource("logs://api?level=error&since=5m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|5m|error"
+
+        # Extra param ignored
+        r = await client.read_resource("logs://api?since=2h&utm=x")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|2h|info"
+
+
+async def test_resource_query_param_without_default_rejected_at_decoration():
+    """A handler parameter bound to a {?...} query variable must have a
+    Python default: a client may omit a query parameter, so the handler has
+    to be callable without it. Omitting the default is an error when the
+    decorator runs, not on the first request that leaves the parameter out."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match=r"logs://.*\['level'\].*must declare a default"):
+
+        @mcp.resource("logs://{service}{?level}")
+        def tail_logs(service: str, level: str) -> str:
+            raise NotImplementedError
+
+
+async def test_resource_path_param_without_default_accepted():
+    """The default requirement applies only to query-bound parameters.
+    A path variable is always present in a matching URI, so its handler
+    parameter may be required."""
+    mcp = MCPServer()
+
+    @mcp.resource("logs://{service}{?level}")
+    def tail_logs(service: str, level: str = "info") -> str:
+        raise NotImplementedError
+
+    templates = await mcp.list_resource_templates()
+    assert [t.uri_template for t in templates] == ["logs://{service}{?level}"]
+
+
+async def test_resource_security_default_rejects_traversal():
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Safe value passes through to the handler
+        r = await client.read_resource("data://items/widget")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "item:widget"
+
+        # ".." as a path component is rejected by default policy
+        with pytest.raises(MCPError, match="Unknown resource"):
+            await client.read_resource("data://items/..")
+
+
+async def test_resource_template_non_match_is_unknown_resource():
+    """A URI that doesn't satisfy a registered template — including one
+    shorter than the template's literal segments — must surface as the
+    standard -32602 Unknown resource, not an internal error."""
+    mcp = MCPServer()
+
+    @mcp.resource("api://{+path}/{id}")
+    def get(path: str, id: str) -> str:
+        return f"{path}|{id}"
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("api://foo")
+        assert exc_info.value.error.code == INVALID_PARAMS
+        assert exc_info.value.error.message == "Unknown resource: api://foo"
+
+        # And a satisfying URI still routes to the handler.
+        r = await client.read_resource("api://a/b/c")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "a/b|c"
+
+
+async def test_resource_security_rejection_indistinguishable_from_not_found():
+    """A path-safety rejection must produce the same wire error as a
+    genuinely-absent resource: same code, same message shape, no hint
+    about which check failed."""
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:  # pragma: no cover - never reached
+        return name
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as rejected:
+            await client.read_resource("data://items/..")
+        with pytest.raises(MCPError) as absent:
+            await client.read_resource("nosuch://thing")
+
+        assert rejected.value.error.code == absent.value.error.code == INVALID_PARAMS
+        # Message echoes the requested URI and nothing else; no
+        # reference to which validation step rejected it.
+        assert rejected.value.error.message == "Unknown resource: data://items/.."
+        assert absent.value.error.message == "Unknown resource: nosuch://thing"
+        assert rejected.value.error.data == {"uri": "data://items/.."}
+        assert absent.value.error.data == {"uri": "nosuch://thing"}
+
+
+async def test_resource_security_per_resource_override():
+    mcp = MCPServer()
+
+    @mcp.resource(
+        "git://diff/{+range}",
+        security=ResourceSecurity(exempt_params={"range"}),
+    )
+    def git_diff(range: str) -> str:
+        return f"diff:{range}"
+
+    async with Client(mcp) as client:
+        # "../foo" would be rejected by default, but "range" is exempt
+        result = await client.read_resource("git://diff/../foo")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "diff:../foo"
+
+
+async def test_resource_security_server_wide_override():
+    mcp = MCPServer(resource_security=ResourceSecurity(reject_path_traversal=False))
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Server-wide policy disabled traversal check; ".." now allowed
+        result = await client.read_resource("data://items/..")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "item:.."
+
+
+async def test_resource_security_namespaced_identifier_requires_exempt():
+    """Single-letter-colon values like ``x:y`` are flagged by the
+    default absolute-path check (they parse as Windows drive-relative,
+    which discards the join base). A non-filesystem parameter that
+    legitimately accepts such values opts out via ``exempt_params``."""
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{id}")
+    def get_item(id: str) -> str:  # pragma: no cover - rejected before call
+        return f"item:{id}"
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="Unknown resource") as exc:
+            await client.read_resource("data://items/x:y")
+        assert exc.value.error.code == INVALID_PARAMS
+
+    # Exempting the parameter lets the value through.
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{id}", security=ResourceSecurity(exempt_params={"id"}))
+    def get_item_exempt(id: str) -> str:
+        return f"item:{id}"
+
+    async with Client(mcp) as client:
+        r = await client.read_resource("data://items/x:y")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "item:x:y"
+
+
+async def test_resource_security_rejection_halts_template_iteration():
+    """A strict template's security rejection must surface as
+    not-found and stop; a later permissive template must not be
+    reached."""
+    mcp = MCPServer()
+
+    @mcp.resource("file://docs/{name}")
+    def strict(name: str) -> str:  # pragma: no cover - never reached
+        return name
+
+    @mcp.resource(
+        "file://docs/{+path}",
+        security=ResourceSecurity(exempt_params={"path"}),
+    )
+    def lax(path: str) -> str:  # pragma: no cover - must not be reached
+        raise AssertionError("permissive template reached after security rejection")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("file://docs/..%2Fsecrets")
+        assert exc.value.error.code == INVALID_PARAMS
+        assert "Unknown resource" in exc.value.error.message
+
+
+async def test_static_resource_with_context_param_errors():
+    """A non-template URI with a Context-only handler should error
+    at decoration time with a clear message, not silently register
+    an unreachable resource."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="Context injection for static resources is not supported"):
+
+        @mcp.resource("weather://current")
+        def current_weather(ctx: Context) -> str:
+            raise NotImplementedError
+
+
+async def test_static_resource_with_extra_params_errors():
+    """A non-template URI with non-Context params should error at
+    decoration time."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="has no URI template variables"):
+
+        @mcp.resource("data://fixed")
+        def get_data(name: str) -> str:
+            raise NotImplementedError
 
 
 async def test_completion_decorator() -> None:

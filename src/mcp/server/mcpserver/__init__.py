@@ -4,6 +4,7 @@ from mcp_types import Icon
 
 from .context import Context
 from .extension import Extension, MethodBinding, ResourceBinding, ToolBinding
+from .resources import DEFAULT_RESOURCE_SECURITY, ResourceSecurity
 from .server import MCPServer
 from .utilities.types import Audio, Image
 
@@ -17,4 +18,6 @@ __all__ = [
     "ToolBinding",
     "ResourceBinding",
     "MethodBinding",
+    "ResourceSecurity",
+    "DEFAULT_RESOURCE_SECURITY",
 ]

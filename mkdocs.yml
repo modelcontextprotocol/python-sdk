@@ -40,6 +40,7 @@ nav:
   - Advanced:
       - Multi-round-trip requests: advanced/multi-round-trip.md
       - The low-level Server: advanced/low-level-server.md
+      - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
       - Middleware: advanced/middleware.md
       - OpenTelemetry: advanced/opentelemetry.md

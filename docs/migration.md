@@ -640,6 +640,76 @@ Reading a missing resource now returns JSON-RPC error code `-32602` (invalid par
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
+### Resource templates: matching behavior changes
+
+Resource template matching has been rewritten with RFC 6570 support.
+Several behaviors have changed:
+
+**Path-safety checks applied by default.** Extracted parameter values
+containing `..` as a path component, a null byte, or looking like an
+absolute path (`/etc/passwd`, `C:\Windows`) now cause the read to
+fail — the client receives an "Unknown resource" error and template
+iteration stops, so a strict template's rejection does not fall
+through to a later permissive template. This is checked on the
+decoded value, so `..%2Fetc`, `%2E%2E`, and `%00` are caught too.
+Note that `..` is only flagged as a standalone path component, so
+values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
+
+If a parameter legitimately needs to receive absolute paths or
+traversal sequences, exempt it:
+
+```python
+from mcp.server.mcpserver import ResourceSecurity
+
+@mcp.resource(
+    "inspect://file/{+target}",
+    security=ResourceSecurity(exempt_params={"target"}),
+)
+def inspect_file(target: str) -> str: ...
+```
+
+**Template literals and structural delimiters match exactly.** The
+previous matcher built a regex without escaping, so `.` matched any
+character and simple `{var}` swallowed `?`, `#`, `&`, and `,`. Now
+`data://v1.0/{id}` no longer matches `data://v1X0/42`, and
+`api://{id}` no longer matches `api://foo?x=1` — use `api://{id}{?x}`
+to capture the query parameter.
+
+**`{var}` now matches an empty value.** A simple expression captures
+zero or more characters, so `tickets://{ticket_id}` now matches
+`tickets://` with `ticket_id=""` (v1.x's `[^/]+` regex required at
+least one). This makes `match` round-trip `expand` for empty values — RFC 6570
+expands an empty string to nothing — but handlers that assumed a
+non-empty value should validate it explicitly.
+
+**Template syntax errors surface at decoration time.** Unclosed
+braces, duplicate variable names, and unsupported syntax raise
+`InvalidUriTemplate` when the decorator runs rather than `re.error`
+on first match. Two variables with no literal between them are also
+rejected — matching cannot tell where one ends and the next begins —
+so `{name}{+path}` raises. Write `{name}/{+path}`, or use an operator
+that emits its own delimiter: `{+path}{.ext}` is fine because the `.`
+operator contributes a literal `.` between the two. A handler
+parameter bound to a query variable in the template's trailing
+`{?...}`/`{&...}` run — the variables `match()` treats as optional,
+listed by `UriTemplate.query_variable_names` — must declare a Python
+default: a client may omit those, so a handler that requires one now
+raises `ValueError` when the decorator runs instead of failing on the
+first request that leaves it out. (A `{&...}` expression with no
+preceding `{?...}` is not in that run: it is matched strictly, may
+not be omitted, and needs no default.)
+
+**Static URIs with Context-only handlers now error.** A non-template
+URI paired with a handler that takes only a `Context` parameter
+previously registered but was silently unreachable (the resource
+could never be read). This now raises `ValueError` at decoration time.
+Context injection for static resources is not supported — use a
+template with at least one variable or access context through other
+means.
+
+See [URI templates](advanced/uri-templates.md) for the full template syntax,
+security configuration, and filesystem safety utilities.
+
 ### Registering lowlevel handlers from `MCPServer`
 
 `MCPServer` does not expose public APIs for `subscribe_resource`, `unsubscribe_resource`, or `set_logging_level` handlers. In v1, the workaround was to reach into the private lowlevel server and use its decorator methods:
