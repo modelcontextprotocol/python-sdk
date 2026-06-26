@@ -2689,28 +2689,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
-        divergence=Divergence(
-            note=(
-                "RFC 6749 §5.2 assigns redirect_uri mismatch at the token endpoint to invalid_grant; "
-                "the SDK's TokenHandler returns invalid_request (src/mcp/server/auth/handlers/token.py:157). "
-                "The rejection itself is the security-relevant property and is correct."
-            ),
-        ),
     ),
     "hosting:auth:as:redirect-uri-scheme": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#communication-security",
         behavior=(
-            "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host."
+            "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback "
+            "host (`localhost`, `127.0.0.1`, `[::1]`), and that carry no fragment component."
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
-        divergence=Divergence(
-            note=(
-                "Not enforced: the registration handler models redirect_uris as AnyUrl with no scheme or "
-                "host check, so http://evil.example/callback is accepted and registered. The spec's "
-                "localhost-or-HTTPS rule is left to the provider implementation."
-            ),
-        ),
     ),
     "hosting:auth:as:token-cache-headers": Requirement(
         source="sdk",

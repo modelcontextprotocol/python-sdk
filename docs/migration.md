@@ -1496,6 +1496,14 @@ Leaving `resource_server_url=None` continues to disable the check entirely (ther
 
 `RefreshToken` gains an optional `resource` field so an `OAuthAuthorizationServerProvider` can propagate the original grant's audience binding through `exchange_refresh_token`; without it a refreshed access token would carry no audience and be rejected. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings.enforced_audience`; `None` (the default, and what the SDK passes when `verifier_validates_audience` is set) means no audience is enforced.
 
+### Bundled authorization server: RFC-correct redirect-URI handling
+
+Two fixes to the optional bundled OAuth authorization server (the `auth_server_provider=` path).
+
+The token endpoint now answers an authorization-code exchange whose `redirect_uri` does not match the one used at `/authorize` with `error=invalid_grant` instead of `error=invalid_request`. RFC 6749 §5.2 assigns this case to `invalid_grant` ("does not match the redirection URI used in the authorization request"). The exchange was already rejected with HTTP 400; only the `error` field changes.
+
+The registration endpoint now rejects a `redirect_uris` entry that is neither HTTPS nor a loopback host (`localhost`, `127.0.0.1`, or `[::1]`) with `400 invalid_client_metadata`. Previously any well-formed URL — including cleartext `http://` on a non-loopback host, `javascript:`, and `data:` — was accepted and stored. The MCP authorization specification's Communication Security section requires every redirect URI to be either `localhost` or HTTPS; the SDK accepts the three loopback forms OAuth 2.1 §8.4.2 names. Local development against `http://localhost:*`, `http://127.0.0.1:*`, or `http://[::1]:*` is unaffected. Note that this also rejects RFC 8252 private-use URI schemes (such as `com.example.app:/callback`): MCP restricts redirect URIs to HTTPS or loopback, which is stricter than vanilla OAuth allows for native apps. A redirect URI carrying a fragment component is also rejected (OAuth 2.1 §2.3). Query strings remain permitted.
+
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.

@@ -6,6 +6,10 @@ from pydantic import AnyUrl, BaseModel
 
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+# OAuth 2.1 §8.4.2: the loopback IP literal `127.0.0.1` or `[::1]`, or the hostname `localhost`.
+# Spelled as pydantic's `AnyUrl.host` reports them (an IPv6 literal keeps its brackets).
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
+
 
 class AuthorizationParams(BaseModel):
     state: str | None

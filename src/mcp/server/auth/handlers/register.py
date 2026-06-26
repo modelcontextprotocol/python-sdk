@@ -4,19 +4,43 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import AnyUrl, BaseModel, ValidationError, field_validator
 from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
+from mcp.server.auth.provider import (
+    LOOPBACK_HOSTS,
+    OAuthAuthorizationServerProvider,
+    RegistrationError,
+    RegistrationErrorCode,
+)
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthClientMetadata
 
-# this alias is a no-op; it's just to separate out the types exposed to the
-# provider from what we use in the HTTP handler
-RegistrationRequest = OAuthClientMetadata
+
+class RegistrationRequest(OAuthClientMetadata):
+    """The registration endpoint's inbound client metadata, with server-side redirect-URI policy.
+
+    The MCP authorization spec requires every redirect URI to use HTTPS or target a loopback
+    host, and OAuth 2.1 section 2.3 forbids a fragment component, so a request carrying a URI
+    that violates either fails validation and never reaches the provider. The base
+    `OAuthClientMetadata` stays permissive: the client also serializes it when registering
+    against third-party authorization servers whose redirect-URI policies the SDK does not own.
+    """
+
+    @field_validator("redirect_uris", mode="after")
+    @classmethod
+    def _https_or_loopback_without_fragment(cls, v: list[AnyUrl] | None) -> list[AnyUrl] | None:
+        # None and an empty list both mean there is nothing to check.
+        for uri in v or []:
+            if uri.scheme != "https" and uri.host not in LOOPBACK_HOSTS:
+                raise ValueError(f"redirect_uri must use https or target a loopback host: {uri}")
+            # `is not None`, not truthiness: a bare `https://x/cb#` parses with fragment == "".
+            if uri.fragment is not None:
+                raise ValueError(f"redirect_uri must not include a fragment: {uri}")
+        return v
 
 
 class RegistrationErrorResponse(BaseModel):
@@ -33,7 +57,7 @@ class RegistrationHandler:
         # Implements dynamic client registration as defined in https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
         try:
             body = await request.body()
-            client_metadata = OAuthClientMetadata.model_validate_json(body)
+            client_metadata = RegistrationRequest.model_validate_json(body)
 
             # Scope validation is handled below
         except ValidationError as validation_error:
