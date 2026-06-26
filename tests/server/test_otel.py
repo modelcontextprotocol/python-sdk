@@ -11,6 +11,7 @@ from typing import Any
 import anyio
 import pytest
 from mcp_types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
@@ -295,6 +296,28 @@ async def test_records_error_status_on_handler_exception(server: SrvT, spans: Sp
     [event] = [e for e in span.events if e.name == "exception"]
     assert event.attributes is not None
     assert event.attributes["exception.type"] == "ValueError"
+
+
+@pytest.mark.anyio
+async def test_records_error_status_on_malformed_spec_result(server: SrvT, spans: SpanCapture):
+    """Result serialization runs inside the span, so a handler returning a
+    malformed dict for a spec method (INTERNAL_ERROR on the wire) is recorded
+    on the span rather than closing it as a success."""
+
+    async def bad_result(ctx: Ctx, params: PaginatedRequestParams | None) -> dict[str, Any]:
+        return {"tools": 42}
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, bad_result)
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", None)
+        assert exc.value.error.code == INTERNAL_ERROR
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.SERVER]
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == str(INTERNAL_ERROR)
+    assert span.attributes["rpc.response.status_code"] == str(INTERNAL_ERROR)
 
 
 @pytest.mark.anyio
