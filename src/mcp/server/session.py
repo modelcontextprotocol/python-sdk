@@ -363,6 +363,11 @@ class ServerSession:
         """
         await self._request_outbound.progress(progress, total, message)
 
+    @deprecated(
+        "send_progress_notification is deprecated; use report_progress, which is scoped to "
+        "the inbound request's progress token and stops when that request completes.",
+        category=MCPDeprecationWarning,
+    )
     async def send_progress_notification(
         self,
         progress_token: str | int,

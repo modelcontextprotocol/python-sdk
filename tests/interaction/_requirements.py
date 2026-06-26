@@ -655,8 +655,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The spec MUST is not enforced: progress values are not validated on either side, so a "
-                "handler that emits non-increasing values has them forwarded to the callback unchanged."
+                "Intentional, not a gap to close: no MCP SDK (typescript, go, csharp) validates "
+                "sender-side progress monotonicity, and this one does not either. The spec MUST "
+                "binds the handler author, not the transport; non-increasing values are forwarded "
+                "to the callback unchanged so the receiving application sees what the sender sent. "
+                "docs/tutorial/progress.md states the author's obligation."
             ),
         ),
     ),
@@ -665,13 +668,28 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="Progress notifications for a token stop once the associated request completes.",
         divergence=Divergence(
             note=(
-                "send_progress_notification does not check whether the token's request has already "
-                "completed; the late notification is sent and reaches the client."
+                "Holds on the supported path: report_progress is scoped to the inbound request's "
+                "dispatch context, which closes when the request completes, so a late report is a "
+                "no-op (proven by test_report_progress_after_the_request_completes_sends_nothing). "
+                "The deprecated explicit-token ServerSession.send_progress_notification has no "
+                "such gate and still delivers post-completion progress to the client (proven by "
+                "the test that pins the client-side late-drop). The gap closes when that method "
+                "is removed."
             ),
         ),
         arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+            ArmExclusion(
+                reason="requires-session",
+                spec_version="2026-07-28",
+                note=(
+                    "The wire proof observes notifications/progress via the message handler; "
+                    "neither 2026-07-28 cell can produce one. The in-memory DirectDispatcher "
+                    "delivers progress as an in-process callback and never constructs the "
+                    "notification; the modern streamable-http dispatch context no-ops notify(). "
+                    "The DirectDispatcher half of the property is covered by "
+                    "tests/shared/test_dispatcher.py instead."
+                ),
+            ),
         ),
     ),
     "protocol:progress:late-dropped-by-client": Requirement(

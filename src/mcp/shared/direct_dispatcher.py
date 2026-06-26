@@ -61,12 +61,16 @@ class _DirectDispatchContext:
     """Always `None`: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
+    _closed: bool = False
 
     @property
     def can_send_request(self) -> bool:
-        return self.transport.can_send_request
+        return self.transport.can_send_request and not self._closed
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        if self._closed:
+            logger.debug("dropped %s: dispatch context closed", method)
+            return
         await self._back_notify(method, params)
 
     async def send_raw_request(
@@ -80,8 +84,14 @@ class _DirectDispatchContext:
         return await self._back_request(method, params, opts)
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        if self._on_progress is not None:
-            await self._on_progress(progress, total, message)
+        # Gated here, not via notify(): in-process progress never routes through
+        # notify() - it awaits the caller's callback inline (a pinned behaviour).
+        if self._closed or self._on_progress is None:
+            return
+        await self._on_progress(progress, total, message)
+
+    def close(self) -> None:
+        self._closed = True
 
 
 class DirectDispatcher:
@@ -241,6 +251,12 @@ class DirectDispatcher:
                     if unexpected:
                         logger.exception("request handler raised")
                     raise MCPError(code=error.code, message=error.message, data=error.data) from None
+                finally:
+                    # Close the back-channel: after the handler returns, a captured
+                    # context's `progress`/`notify` deliver nothing and its
+                    # `send_raw_request` raises `NoBackChannelError`, matching
+                    # JSONRPCDispatcher's handler-finally.
+                    dctx.close()
         except TimeoutError:
             raise MCPError(
                 code=REQUEST_TIMEOUT,

@@ -25,7 +25,7 @@ from mcp_types import (
 from mcp.shared._compat import resync_tracer
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.transport_context import TransportContext
 
 from .conftest import PairFactory, direct_pair
@@ -224,6 +224,82 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
         with anyio.fail_after(5):
             result = await client.send_raw_request("tools/call", None)
     assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_ctx_progress_and_notify_after_the_inbound_request_returns_are_dropped(
+    pair_factory: PairFactory,
+) -> None:
+    """A dispatch context is closed once its inbound request finishes, so a captured context's
+    `progress` and `notify` after the handler has returned deliver nothing.
+
+    This is the `DispatchContext` contract (the `can_send_request` docstring in
+    `mcp/shared/dispatcher.py` names the closed state). The in-handler 0.5 report is the
+    positive control proving the progress channel works; the second round-trip after the
+    late calls flushes anything they would have put in flight, so the negative is not racy.
+
+    `received == [(0.5, ...)]` is the load-bearing arm of the proof on `DirectDispatcher`,
+    which delivers progress straight to the caller's callback (no client-side late-drop
+    exists there). The `notifications/message` absence is the load-bearing arm on
+    `JSONRPCDispatcher`, whose receiving side tees every inbound notification to `on_notify`
+    regardless of callback registration.
+    """
+    received: list[tuple[float, float | None, str | None]] = []
+    contexts: list[DispatchContext[TransportContext]] = []
+
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        received.append((progress, total, message))
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        contexts.append(ctx)
+        await ctx.progress(0.5, total=1.0, message="halfway")
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, _server, crec, _srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
+            late_ctx = contexts[0]
+            await late_ctx.progress(1.0)
+            await late_ctx.notify("notifications/message", {"level": "late"})
+            await client.send_raw_request("tools/call", None)
+    assert received == [(0.5, 1.0, "halfway")]
+    assert ("notifications/message", {"level": "late"}) not in crec.notifications
+
+
+@pytest.mark.anyio
+async def test_ctx_send_raw_request_after_the_inbound_request_returns_raises_no_back_channel(
+    pair_factory: PairFactory,
+) -> None:
+    """A dispatch context's back-channel closes with its inbound request: once the handler has
+    returned, `can_send_request` is `False` and `send_raw_request` raises `NoBackChannelError`.
+
+    This is the `DispatchContext` contract: `can_send_request` is `False` once the context has
+    been closed, and `send_raw_request` raises exactly then. The in-handler `True` is the
+    positive control -- the same context's back-channel was open while the request was in
+    flight, and the dispatcher pair is still running, so the rejection is the per-request
+    close, not a missing transport back-channel or a torn-down connection.
+    """
+    contexts: list[DispatchContext[TransportContext]] = []
+    open_while_handling: list[bool] = []
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        contexts.append(ctx)
+        open_while_handling.append(ctx.can_send_request)
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("tools/call", None)
+            late_ctx = contexts[0]
+            assert open_while_handling == [True]
+            assert late_ctx.can_send_request is False
+            with pytest.raises(NoBackChannelError) as exc:
+                await late_ctx.send_raw_request("ping", None)
+            assert exc.value.code == INVALID_REQUEST
 
 
 @pytest.mark.anyio

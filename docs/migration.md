@@ -905,7 +905,7 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
 # After (v2)
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     if ctx.meta and "progress_token" in ctx.meta:
-        await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+        await ctx.session.report_progress(0.5, 100)
     ...
 
 server = Server("my-server", on_call_tool=handle_call_tool)
@@ -967,7 +967,7 @@ async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 
 ### `ProgressContext` and `progress()` context manager removed
 
-The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
+The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` directly.
 
 **Before (v1):**
 
@@ -987,21 +987,11 @@ async def my_tool(x: int, ctx: Context) -> str:
     return "done"
 ```
 
-**After — use `session.send_progress_notification()` (low-level):**
-
-```python
-await session.send_progress_notification(
-    progress_token=progress_token,
-    progress=25,
-    total=100,
-)
-```
-
 ### Handler progress reporting: prefer `ctx.report_progress()` over manual `progress_token`
 
 Reading `ctx.meta["progress_token"]` and calling `session.send_progress_notification(token, ...)` is specific to the JSON-RPC transport path. On the in-process modern path (`DirectDispatcher` / `Client(server)`), there is no wire token in `_meta`, so handlers that gate progress on the token's presence go silent.
 
-`ctx.report_progress(progress, total, message)` works on every dispatcher: it sends a progress notification when a token is present and routes the update through the dispatcher's progress channel otherwise, no-opping only when the caller did not request progress at all. `session.send_progress_notification(progress_token, ...)` is unchanged and still works on JSON-RPC transports for code that already holds a token.
+`ctx.report_progress(progress, total, message)` works on every dispatcher: it sends a progress notification when a token is present and routes the update through the dispatcher's progress channel otherwise, no-opping only when the caller did not request progress at all. `ServerSession.send_progress_notification(progress_token, ...)` is now deprecated; see **Progress API deprecations** below.
 
 ### `create_connected_server_and_client_session` removed
 
@@ -1498,11 +1488,23 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
 
-### Client-to-server progress deprecated (2026-07-28)
+### Progress API deprecations (2026-07-28)
 
 The 2026-07-28 spec restricts `notifications/progress` to the server-to-client direction only — `ProgressNotification` is no longer in `ClientNotification`. `Client.send_progress_notification()` and `ClientSession.send_progress_notification()` now carry `typing_extensions.deprecated` and emit `mcp.MCPDeprecationWarning` at runtime. They continue to work against servers negotiating 2025-11-25 or earlier.
 
-On the server side, prefer the new dispatcher-agnostic `ServerSession.report_progress(progress, total, message)` (and `Context.report_progress()` on `MCPServer`) over the raw `ServerSession.send_progress_notification(progress_token, …)`. `report_progress` encapsulates the "no-op when the caller did not request progress" rule and works on every dispatcher; the raw token-taking form remains for handlers that read `_meta.progressToken` directly.
+On the server side, `ServerSession.send_progress_notification(progress_token, ...)` is also deprecated. It takes an explicit progress token decoupled from any request's lifetime, so it can emit progress for a request that has already completed -- which the spec forbids ("Progress notifications MUST stop after completion"). Use `Context.report_progress(progress, total, message)` (or `ServerSession.report_progress(...)` from a low-level handler): it reports against the inbound request's own progress token, works on every dispatcher, no-ops when the caller did not request progress, and is closed with the request, so a late call after the handler has returned sends nothing.
+
+```python
+# Before
+token = ctx.meta.get("progress_token")
+if token is not None:
+    await ctx.session.send_progress_notification(token, 0.5, total=1.0)
+
+# After
+await ctx.report_progress(0.5, total=1.0)
+```
+
+The deprecated method still works during the advisory window and emits `mcp.MCPDeprecationWarning`.
 
 ## Bug Fixes
 

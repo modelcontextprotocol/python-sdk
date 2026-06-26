@@ -3,10 +3,10 @@
 Server-to-client progress emitted during a request follows the same ordering guarantee as
 logging notifications (see test_logging.py) -- on the in-memory transport unconditionally, and
 over streamable HTTP only when sent with ``related_request_id`` so the notification rides the
-originating request's POST stream rather than the standalone GET stream. These tests pass
-``related_request_id`` so no synchronisation is needed. The client-to-server direction is a
-standalone notification with no response to await, so that test waits on an event set by the
-server's handler.
+originating request's POST stream rather than the standalone GET stream. These tests report
+through the request-scoped `report_progress`, which routes onto that stream, so no
+synchronisation is needed. The client-to-server direction is a standalone notification with no
+response to await, so that test waits on an event set by the server's handler.
 """
 
 import anyio
@@ -15,6 +15,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ProgressNotification, ProgressNotificationParams, ProgressToken, TextContent
 
+from mcp import MCPDeprecationWarning
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp.shared.session import ProgressFnT
@@ -197,15 +198,86 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
 
 
 @requirement("protocol:progress:stops-after-completion")
-@requirement("protocol:progress:late-dropped-by-client")
-async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback(connect: Connect) -> None:
-    """A progress notification sent after the response is emitted, and the client drops it from the callback.
+async def test_report_progress_after_the_request_completes_sends_nothing(connect: Connect) -> None:
+    """Progress reported through `report_progress` after the request has completed never reaches
+    the client.
 
-    This single body proves both halves: the server's `send_progress_notification` happily sends for
-    a token whose request has already completed (the spec MUST that progress stops is not enforced;
-    see the divergence on `stops-after-completion`), and the client, having removed the callback when
-    the call returned, does not deliver the late notification to it. The message handler observes the
-    late notification arriving so the test knows when to assert without polling.
+    The handler captures its `ServerSession`; once `call_tool` has returned, the request's
+    dispatch context is closed, so the late `report_progress` is dropped before any I/O. The
+    message handler is teed every inbound progress notification (matched-to-callback or not), so
+    `seen_on_wire == [0.5]` is a positive full-equality proof: the in-handler report arrived and
+    nothing else ever did. The `list_tools` round-trip after the late report flushes anything a
+    regression would have put in flight, so the negative is not racy.
+
+    The arms here are all `JSONRPCDispatcher` (the two 2026-07-28 cells are excluded: neither can
+    put a `notifications/progress` message on the wire); the `DirectDispatcher` half of the same
+    close is proven by
+    `tests/shared/test_dispatcher.py::test_ctx_progress_and_notify_after_the_inbound_request_returns_are_dropped`,
+    which is parametrized over both dispatchers.
+
+    Steps:
+    1. The tool reports 0.5 through `report_progress` and captures `ctx.session`.
+    2. After `call_tool` returns, wait until 0.5 has been observed on the wire.
+    3. Call `report_progress(1.0)` on the captured session -- a no-op on the closed context.
+    4. A second `list_tools` round-trip flushes the single ordered stream.
+    5. Tear the connection down; assert the wire saw exactly [0.5].
+    """
+    captured: list[ServerSession] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="report", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "report"
+        captured.append(ctx.session)
+        await ctx.session.report_progress(0.5)
+        return CallToolResult(content=[TextContent(text="done")])
+
+    server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    received: list[float] = []
+    seen_on_wire: list[float] = []
+    first_seen = anyio.Event()
+
+    async def collect(progress: float, total: float | None, message: str | None) -> None:
+        received.append(progress)
+
+    async def message_handler(message: IncomingMessage) -> None:
+        assert isinstance(message, ProgressNotification)
+        seen_on_wire.append(message.params.progress)
+        first_seen.set()
+
+    async with connect(server, message_handler=message_handler) as client:
+        with anyio.fail_after(5):
+            await client.call_tool("report", {}, progress_callback=collect)
+            await first_seen.wait()
+            await captured[0].report_progress(1.0)
+            await client.list_tools()
+
+    assert received == [0.5]
+    assert seen_on_wire == [0.5]
+
+
+@requirement("protocol:progress:late-dropped-by-client")
+@requirement("protocol:progress:stops-after-completion")
+async def test_a_progress_notification_arriving_after_the_response_is_dropped_from_the_callback(
+    connect: Connect,
+) -> None:
+    """A progress notification that arrives after its request has completed is not delivered to
+    the original progress callback.
+
+    SDK-defined: the client removes the per-call progress callback when `call_tool` returns.
+    Producing a genuinely late notification requires the deprecated explicit-token
+    `ServerSession.send_progress_notification` -- the only API not tied to the request's
+    dispatch context -- used deliberately here under `pytest.warns`. The message handler
+    observes the late notification arriving so the test knows when to assert without polling.
+
+    The arrival itself pins the server-side half: the deprecated explicit-token method has no
+    completion gate, so the late notification still reaches the wire. That is the known
+    stops-after-completion divergence; the spec-conforming `report_progress` path is proven
+    separately by `test_report_progress_after_the_request_completes_sends_nothing`.
     """
     captured: list[tuple[ServerSession, ProgressToken]] = []
 
@@ -220,7 +292,7 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
         token = ctx.meta.get("progress_token")
         assert token is not None
         captured.append((ctx.session, token))
-        await ctx.session.send_progress_notification(token, 0.5, related_request_id=str(ctx.request_id))
+        await ctx.session.report_progress(0.5)
         return CallToolResult(content=[TextContent(text="done")])
 
     server = Server("reporter", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -241,7 +313,8 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
             assert received == [0.5]
 
             server_session, token = captured[0]
-            await server_session.send_progress_notification(token, 1.0)
+            with pytest.warns(MCPDeprecationWarning, match=r"^send_progress_notification is deprecated"):
+                await server_session.send_progress_notification(token, 1.0)  # pyright: ignore[reportDeprecated]
             await late_progress_arrived.wait()
 
     assert received == [0.5]

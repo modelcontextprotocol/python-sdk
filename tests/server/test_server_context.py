@@ -32,10 +32,14 @@ class _Lifespan:
 async def test_context_exposes_lifespan_and_connection_and_forwards_base_context():
     captured: list[Context[_Lifespan]] = []
     conn_holder: list[Connection] = []
+    open_while_handling: list[bool] = []
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         ctx: Context[_Lifespan] = Context(dctx, lifespan=_Lifespan("app"), connection=conn_holder[0])
         captured.append(ctx)
+        # `can_send_request` is sampled in-handler: the dispatch context closes when the
+        # request returns, after which it is False on every dispatcher.
+        open_while_handling.append(ctx.can_send_request)
         return {}
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, server, *_):
@@ -46,7 +50,7 @@ async def test_context_exposes_lifespan_and_connection_and_forwards_base_context
         assert ctx.lifespan.name == "app"
         assert ctx.connection is conn_holder[0]
         assert ctx.transport.kind == "direct"
-        assert ctx.can_send_request is True
+        assert open_while_handling == [True]
         assert ctx.session_id == "sess-1"
         assert ctx.headers is None
 

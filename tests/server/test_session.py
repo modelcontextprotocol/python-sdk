@@ -11,6 +11,7 @@ from typing import Any
 
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     ClientCapabilities,
     Implementation,
@@ -20,6 +21,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from pydantic import ValidationError
 
+from mcp import MCPDeprecationWarning
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
 from mcp.shared.dispatcher import CallOptions
@@ -152,9 +154,30 @@ async def test_send_notification_routes_by_related_request_id():
     standalone_ch = StubOutbound()
     session = _two_channel_session(request_ch, standalone_ch)
     await session.send_tool_list_changed()
-    await session.send_progress_notification("tok", 0.5, related_request_id="req-1")
+    await session.send_notification(
+        types.ResourceUpdatedNotification(params=types.ResourceUpdatedNotificationParams(uri="x://r")),
+        related_request_id="req-1",
+    )
     assert [m for m, _ in standalone_ch.notifications] == ["notifications/tools/list_changed"]
-    assert [m for m, _ in request_ch.notifications] == ["notifications/progress"]
+    assert [m for m, _ in request_ch.notifications] == ["notifications/resources/updated"]
+
+
+@pytest.mark.anyio
+async def test_send_progress_notification_warns_but_still_sends_during_the_advisory_window():
+    """SDK-defined: `send_progress_notification` is deprecated in favour of the request-scoped
+    `report_progress` (an explicit token is not tied to its request's lifetime). During the
+    advisory window it still sends."""
+    request_ch = StubOutbound()
+    standalone_ch = StubOutbound()
+    session = _two_channel_session(request_ch, standalone_ch)
+    with pytest.warns(MCPDeprecationWarning) as caught:
+        await session.send_progress_notification("tok", 0.5)  # pyright: ignore[reportDeprecated]
+    assert str(caught.list[0].message) == snapshot(
+        "send_progress_notification is deprecated; use report_progress, which is scoped to "
+        "the inbound request's progress token and stops when that request completes."
+    )
+    assert [m for m, _ in standalone_ch.notifications] == ["notifications/progress"]
+    assert request_ch.notifications == []
 
 
 @pytest.mark.anyio
