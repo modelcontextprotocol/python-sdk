@@ -9,6 +9,7 @@ from starlette.websockets import WebSocket
 from typing_extensions import deprecated
 
 import mcp.types as types
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -19,16 +20,34 @@ logger = logging.getLogger(__name__)
     " the MCP specification; use the streamable HTTP transport instead."
 )
 @asynccontextmanager
-async def websocket_server(scope: Scope, receive: Receive, send: Send):
+async def websocket_server(
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+    security_settings: TransportSecuritySettings | None = None,
+):
     """
     WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
+
+    Set `security_settings` to enable Host/Origin header validation before the
+    handshake is accepted (same settings type as the SSE and Streamable HTTP
+    transports). When validation fails this raises `ValueError` after rejecting
+    the handshake.
 
     Deprecated: this transport will be removed in mcp 2.0. WebSocket was never
     part of the MCP specification; use the streamable HTTP transport instead.
     """
 
     websocket = WebSocket(scope, receive, send)
+
+    security = TransportSecurityMiddleware(security_settings)
+    error_response = await security.validate_request(websocket, is_post=False)
+    if error_response is not None:
+        # Reject the handshake; the ASGI server maps a pre-accept close to HTTP 403.
+        await websocket.close()
+        raise ValueError("Request validation failed")
+
     await websocket.accept(subprotocol="mcp")
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]

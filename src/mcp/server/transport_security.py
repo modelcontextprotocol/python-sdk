@@ -3,7 +3,7 @@
 import logging
 
 from pydantic import BaseModel, Field
-from starlette.requests import Request
+from starlette.requests import HTTPConnection
 from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ class TransportSecurityMiddleware:
 
         return True
 
-    async def validate_request(self, request: Request, is_post: bool = False) -> Response | None:
+    async def validate_request(self, request: HTTPConnection, is_post: bool = False) -> Response | None:
         """Validate request headers for DNS rebinding protection.
 
         Returns None if validation passes, or an error Response if validation fails.
