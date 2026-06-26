@@ -57,6 +57,8 @@ build-constraint-dependencies = [
 dev = [
     # We add mcp[cli] so `uv sync` considers the extras.
     "mcp[cli]",
+    "mcp-example-stories",
+    "tomli>=2.0; python_version < '3.11'",
     "pyright>=1.1.400",
     "pytest>=8.4.0",
     "ruff>=0.8.5",
@@ -135,12 +137,16 @@ include = [
     "src/mcp",
     "src/mcp-types/mcp_types",
     "tests",
+    "examples/stories",
     "examples/servers",
     "examples/snippets",
     "examples/clients",
 ]
 venvPath = "."
 venv = ".venv"
+# `stories` is a workspace package rooted at examples/; the IDE language server
+# does not always pick up the editable-install .pth, so resolve it statically.
+extraPaths = ["examples"]
 # The FastAPI style of using decorators in tests gives a `reportUnusedFunction` error.
 # See https://github.com/microsoft/pyright/issues/7771 for more details.
 # TODO(Marcelo): We should remove `reportPrivateUsage = false`. The idea is that we should test the workflow that uses
@@ -149,8 +155,17 @@ venv = ".venv"
 executionEnvironments = [
     { root = "tests", extraPaths = [
         ".",
+        "examples",
     ], reportUnusedFunction = false, reportPrivateUsage = false },
-    { root = "examples/servers", reportUnusedFunction = false },
+    { root = "examples/stories", extraPaths = [
+        "examples",
+    ], reportUnusedFunction = false },
+    # The `mcp-example-stories` editable install puts `examples/` on sys.path,
+    # which defeats pyright's auto-detection of `simple-auth/` as a package
+    # root (it's the one server example that imports itself by absolute name).
+    { root = "examples/servers", extraPaths = [
+        "examples/servers/simple-auth",
+    ], reportUnusedFunction = false },
 ]
 
 [tool.ruff]
@@ -194,10 +209,11 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["src/mcp-types", "examples/clients/*", "examples/servers/*", "examples/snippets"]
+members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+mcp-example-stories = { workspace = true }
 mcp-types = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 

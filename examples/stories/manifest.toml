@@ -1,0 +1,148 @@
+# examples/stories/manifest.toml
+#
+# test_manifest_matches_filesystem asserts [story.*] keys == story dirs with a client.py.
+
+[defaults]
+transports       = ["in-memory", "http-asgi"]   # in-memory = Client(server); http-asgi = StreamingASGITransport
+era              = "dual"                       # "dual" | "modern" | "legacy" | "dual-in-body"
+status           = "current"                    # "current" | "legacy" | "deprecated" — the feature's future, not the transport
+lowlevel         = true                         # also run main against server_lowlevel.build_server()/build_app()
+server_export    = "factory"                    # "factory" -> build_server() | "app" -> build_app()
+multi_connection = false                        # main(target, ...) vs main(targets, ...); targets() -> fresh target per call
+needs_http       = false                        # main(..., http=) gets the raw httpx.AsyncClient (http-asgi only)
+timeout_s        = 30
+mcp_path         = "/mcp"
+fixed_port       = 0                            # `client --http` self-host port; 0 = an OS-assigned free port
+xfail            = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
+env              = {}                           # env vars set for the leg via monkeypatch
+
+# ───────────────────────────── start here ─────────────────────────────
+
+[story.tools]
+
+[story.prompts]
+
+[story.resources]
+
+[story.lifespan]
+
+[story.dual_era]
+era              = "dual-in-body"
+multi_connection = true
+
+[story.streaming]
+# progress + log notifications dropped on the modern streamable-HTTP path pending SSE wiring
+xfail = ["http-asgi:modern"]
+
+[story.legacy_elicitation]
+era    = "legacy"
+status = "legacy"
+
+[story.sampling]
+era    = "legacy"
+status = "deprecated"
+
+[story.stickynotes]
+
+[story.custom_methods]
+lowlevel = false
+
+[story.schema_validators]
+
+[story.middleware]
+# Lowlevel-only: `Server.middleware` is the one public hook (no MCPServer accessor yet).
+lowlevel = false
+
+[story.parallel_calls]
+# A per-client fresh target over a real ASGI transport is harness machinery, not user
+# code; the same client body works unchanged over HTTP.
+transports       = ["in-memory"]
+multi_connection = true
+
+[story.roots]
+era    = "legacy"
+status = "deprecated"
+
+[story.pagination]
+
+[story.error_handling]
+
+[story.serve_one]
+# Lowlevel-only: the kernel drivers take a `lowlevel.Server`; `MCPServer` has no public
+# accessor for its underlying one yet, so there is no MCPServer-tier variant to show.
+transports = ["in-memory"]
+lowlevel   = false
+
+[story.stateless_legacy]
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
+
+[story.json_response]
+transports    = ["http-asgi"]
+server_export = "app"
+era           = "modern"
+needs_http    = true
+
+[story.legacy_routing]
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
+
+[story.starlette_mount]
+transports    = ["http-asgi"]
+server_export = "app"
+lowlevel      = false
+mcp_path      = "/api/"
+
+[story.sse_polling]
+transports    = ["http-asgi"]
+server_export = "app"
+era           = "legacy"
+status        = "legacy"
+timeout_s     = 20
+# event_store.py is local; example-grade only (sequential IDs, no eviction).
+
+[story.standalone_get]
+transports    = ["http-asgi"]
+era           = "legacy"
+status        = "legacy"
+
+[story.reconnect]
+transports       = ["http-asgi"]
+# Both connection modes are pinned inside main itself ("auto" to populate the discover
+# cache, then a hard pin + prior_discover=); the leg hands it the real-user default.
+era              = "dual-in-body"
+multi_connection = true
+
+[story.bearer_auth]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
+[story.oauth]
+transports       = ["http-asgi"]
+server_export    = "app"
+multi_connection = true
+fixed_port       = 8000                         # issuer/PRM metadata bake in :8000
+env              = { OAUTH_DEMO_AUTO_CONSENT = "1" }
+
+[story.oauth_client_credentials]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
+# ───────────────────────────── deferred ─────────────────────────────
+# README-only placeholders; no client.py, not expanded into legs.
+# test_manifest_matches_filesystem checks these match the README-only dirs.
+
+[deferred]
+caching       = "client honouring + per-result override unlanded"
+mrtr          = "#2898 — InputRequiredResult runtime"
+subscriptions = "#2901 — Client.listen / ServerEventBus"
+tasks         = "extensions capability map + tasks runtime"
+apps          = "#2896 — extensions capability map"
+skills        = "#2896 — SEP-2640"
+events        = "#2901 + #2896"

@@ -200,7 +200,7 @@ class MCPServer(Generic[LifespanResultT]):
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:  # pragma: no cover
+        if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
@@ -822,7 +822,7 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
-        def decorator(  # pragma: no cover
+        def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -830,7 +830,7 @@ class MCPServer(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator  # pragma: no cover
+        return decorator
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
