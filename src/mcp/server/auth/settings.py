@@ -27,6 +27,12 @@ class AuthSettings(BaseModel):
     client_registration_options: ClientRegistrationOptions | None = None
     revocation_options: RevocationOptions | None = None
     required_scopes: list[str] | None = None
+    identity_assertion_enabled: bool = Field(
+        default=False,
+        description="Advertise and accept the SEP-990 Identity Assertion Authorization Grant "
+        "(the RFC 7523 jwt-bearer grant carrying an ID-JAG) at the token endpoint, for enterprise "
+        "IdP flows. The provider must implement `exchange_identity_assertion`.",
+    )
 
     # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(

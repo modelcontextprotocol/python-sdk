@@ -964,6 +964,7 @@ class MCPServer(Generic[LifespanResultT]):
                         service_documentation_url=self.settings.auth.service_documentation_url,
                         client_registration_options=self.settings.auth.client_registration_options,
                         revocation_options=self.settings.auth.revocation_options,
+                        identity_assertion_enabled=self.settings.auth.identity_assertion_enabled,
                     )
                 )
 

@@ -1451,6 +1451,37 @@ client_metadata = OAuthClientMetadata(
 
 Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
 
+### Identity Assertion Authorization Grant for enterprise IdP flows (SEP-990)
+
+The SDK now supports SEP-990's enterprise identity-provider policy controls. The client presents an Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise IdP - to the MCP authorization server using the RFC 7523 jwt-bearer grant (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, the ID-JAG as `assertion`), and receives an MCP access token. This matches the SEP-990 normative profile and interoperates with the other MCP SDKs. (Leg 1 - exchanging the user's IdP ID token for the ID-JAG against the IdP - is deployment-specific and out of scope for the SDK.) This is additive and opt-in on both sides; existing flows are unchanged.
+
+On the client, `IdentityAssertionOAuthProvider` (in `mcp.client.auth.extensions.identity_assertion`) is an `httpx.Auth` that posts the jwt-bearer request. The ID-JAG is supplied lazily through an async `assertion_provider(audience, resource)` callback - `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's identifier (the ID-JAG `resource` claim):
+
+```python
+from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
+
+
+async def fetch_id_jag(audience: str, resource: str) -> str:
+    # The ID-JAG must carry `audience` as `aud` and `resource` as its `resource` claim.
+    return await my_idp.issue_id_jag(audience=audience, resource=resource)
+
+
+provider = IdentityAssertionOAuthProvider(
+    server_url="https://mcp.example.com/mcp",
+    storage=my_token_storage,
+    client_id="enterprise-mcp-client",
+    client_secret="enterprise-mcp-secret",
+    issuer="https://auth.example.com",
+    assertion_provider=fetch_id_jag,
+)
+```
+
+SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so `client_secret` is mandatory (`token_endpoint_auth_method` chooses `client_secret_post` (default) or `client_secret_basic`; the spec also permits `private_key_jwt`). The authorization server is configuration, not discovery: `issuer` is the AS the client is provisioned for, authorization-server metadata is fetched from that issuer's RFC 8414 well-known, and the resource server is never asked which AS to use - so a hostile resource server cannot redirect the ID-JAG or secret.
+
+On the authorization server, set `AuthSettings(identity_assertion_enabled=True)` (or pass `identity_assertion_enabled=True` to `create_auth_routes`) and implement `exchange_identity_assertion` on your `OAuthAuthorizationServerProvider`. The method receives an `IdentityAssertionParams` (the ID-JAG `assertion`, requested scopes, and request `resource`) and returns a plain RFC 6749 `OAuthToken`. The flag gates both metadata advertisement and the token endpoint: when off, `/token` rejects the grant with `unsupported_grant_type` even if the provider implements the hook. When on, the metadata advertises the jwt-bearer grant and the `urn:ietf:params:oauth:grant-profile:id-jag` profile in `authorization_grant_profiles_supported` (the discovery mechanism per ext-auth §6).
+
+The implementation is responsible for validating the assertion per RFC 7523 §3 and SEP-990 §5.1 - verify the signature/`iss`/`exp`/`typ`, require `aud` to be this AS, require the ID-JAG's `client_id` claim to match the authenticated client, audience-restrict the issued token to the ID-JAG's `resource` claim (not the client-controlled request `resource`), and derive scopes from the ID-JAG rather than granting the request verbatim. See `examples/snippets/servers/identity_assertion_server.py`, which fails closed. Two hardening points are enforced by the SDK: the handler rejects clients without a stored secret before calling the hook (and `ClientAuthenticator` itself now refuses a secret-based auth method registered without a secret), and Dynamic Client Registration refuses the jwt-bearer grant so the ID-JAG flow requires a pre-registered confidential client.
+
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 
 `mcp_types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions.
