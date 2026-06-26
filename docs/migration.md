@@ -407,6 +407,38 @@ On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return th
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.
 
+### Server extensions API (SEP-2133)
+
+`MCPServer` now accepts opt-in extensions that bundle MCP behaviour behind a
+reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
+(the 2026-07-28 capability map). An extension subclasses `mcp.server.mcpserver.Extension`
+and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
+(additive) and `intercept_tool_call()` (wraps `tools/call`). Pass instances at
+construction, or register later with `add_extension`:
+
+```python
+from mcp.server.mcpserver import MCPServer
+from mcp.server.apps import Apps
+from mcp.server.tasks import Tasks
+
+mcp = MCPServer("demo", extensions=[Apps(), Tasks()])
+# or: mcp.add_extension(Apps())
+```
+
+Two reference extensions ship in their own modules:
+
+- `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`) — binds a tool to a
+  `ui://` UI resource via `_meta.ui.resourceUri`; `client_supports_apps(ctx)`
+  gates the SEP-2133 text-only fallback.
+- `mcp.server.tasks.Tasks` (`io.modelcontextprotocol/tasks`) — intercepts
+  task-augmented `tools/call` and serves the `tasks/*` methods.
+
+Clients advertise extension support with the new `Client(extensions=...)` /
+`ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.
+The extensions capability map is negotiated over `server/discover` (modern path);
+a legacy `initialize` handshake does not carry it. Extensions are off by default
+and never alter behaviour unless registered.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.

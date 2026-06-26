@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -55,12 +55,13 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.context import ServerMiddleware, ServerRequestContext
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.extension import Extension, compose_tool_call_interceptor
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -142,6 +143,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
+        extensions: Sequence[Extension] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -207,6 +209,11 @@ class MCPServer(Generic[LifespanResultT]):
         # Configure logging
         configure_logging(self.settings.log_level)
 
+        self._extensions: list[Extension] = []
+        self._extension_interceptor: ServerMiddleware[LifespanResultT] | None = None
+        for extension in extensions or ():
+            self.add_extension(extension)
+
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
@@ -246,6 +253,44 @@ class MCPServer(Generic[LifespanResultT]):
             RuntimeError: If called before streamable_http_app() has been called.
         """
         return self._lowlevel_server.session_manager
+
+    def add_extension(self, extension: Extension) -> None:
+        """Register an opt-in MCP extension (SEP-2133).
+
+        Applies the extension's contributions through the server's public surface:
+        its tools and resources are registered, its request methods are wired onto
+        the low-level server, and its `tools/call` interceptor joins a single
+        composed `tools/call` middleware. The extension's settings are advertised
+        under `ServerCapabilities.extensions[extension.identifier]`.
+
+        Args:
+            extension: The extension to install.
+
+        Raises:
+            ValueError: If an extension with the same identifier is already registered.
+        """
+        if any(e.identifier == extension.identifier for e in self._extensions):
+            raise ValueError(f"Extension {extension.identifier!r} is already registered")
+        self._extensions.append(extension)
+
+        for tool in extension.tools():
+            self.add_tool(tool.fn, meta=tool.meta, **tool.kwargs)
+        for resource in extension.resources():
+            self.add_resource(resource.resource)
+        for method in extension.methods():
+            self._lowlevel_server.add_request_handler(method.method, method.params_type, method.handler)
+
+        self._lowlevel_server.extensions[extension.identifier] = extension.settings()
+        self._refresh_extension_interceptor()
+
+    def _refresh_extension_interceptor(self) -> None:
+        """Rebuild the single composed `tools/call` interceptor from all extensions."""
+        if self._extension_interceptor is not None:
+            self._lowlevel_server.middleware.remove(self._extension_interceptor)
+            self._extension_interceptor = None
+        if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
+            self._extension_interceptor = compose_tool_call_interceptor(self._extensions)
+            self._lowlevel_server.middleware.append(self._extension_interceptor)
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...

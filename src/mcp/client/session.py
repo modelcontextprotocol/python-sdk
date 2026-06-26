@@ -224,12 +224,14 @@ class ClientSession:
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
+        self._extensions = extensions
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -369,7 +371,9 @@ class ClientSession:
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
-        return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
+        return types.ClientCapabilities(
+            sampling=sampling, elicitation=elicitation, experimental=None, extensions=self._extensions, roots=roots
+        )
 
     async def initialize(self) -> types.InitializeResult:
         if self._initialize_result is not None:
