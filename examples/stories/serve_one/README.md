@@ -52,7 +52,7 @@ uv run python -m stories.serve_one.client
 ## Spec
 
 [Architecture — lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
-· [2026 versioning — discover](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
+· [2026 versioning — discover](https://modelcontextprotocol.io/specification/draft/server/discover)
 
 ## See also
 

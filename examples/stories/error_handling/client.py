@@ -29,7 +29,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         except MCPError as e:
             assert e.code == INVALID_PARAMS
             assert e.message == "this tool is gated"
-            assert e.error.data == {"reason": "demo"}
+            assert e.data == {"reason": "demo"}
         else:
             raise AssertionError("expected MCPError for a protocol-level rejection")
 

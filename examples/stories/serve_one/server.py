@@ -21,6 +21,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.server.runner import serve_connection, serve_one  # deep-path import; shorter re-export planned
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.transport_context import TransportContext
 
@@ -58,7 +59,7 @@ class SingleExchangeContext:
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
 
     async def send_raw_request(self, method: str, params: Mapping[str, Any] | None, opts: Any = None) -> dict[str, Any]:
-        raise NotImplementedError  # no back-channel on the single-exchange path
+        raise NoBackChannelError(method)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: Any = None) -> None:
         return None

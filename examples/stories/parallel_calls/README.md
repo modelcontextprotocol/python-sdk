@@ -4,8 +4,9 @@ Two `Client`s connected to the same server, each with a `call_tool` in flight
 at once. The `meet` tool is a rendezvous: a handler signals its own arrival,
 then blocks until every named peer has arrived too — so neither call can return
 unless the server runs both handlers concurrently. Each caller's
-`progress_callback=` sees only the notifications for *its* request — the SDK
-demultiplexes by progress token, not by arrival order.
+`progress_callback=` sees only the notifications for *its* request — each
+`Client` is a separate connection, so there's no shared wire for them to cross
+on.
 
 ## Run it
 
@@ -36,8 +37,9 @@ subprocess per connection, so two clients there could never rendezvous.
   sequentially would never set the second event, so the client would time out —
   the timeout *is* the concurrency assertion. No sleeps.
 - **`client.py` — `progress_callback=` per call.** Each call passes its own
-  callback; `received == {"a": ["a"], "b": ["b"]}` proves the SDK routes
-  in-flight progress per request.
+  callback; `received == {"a": ["a"], "b": ["b"]}` shows each connection
+  delivered its own progress, and — combined with the rendezvous — that both
+  calls were genuinely in flight at once.
 - **`server_lowlevel.py`** — same wire contract on the lowlevel `Server`,
   reporting via `ctx.session.report_progress(...)`.
 

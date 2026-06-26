@@ -41,8 +41,6 @@ uv run python -m stories.error_handling.client --http --server server_lowlevel
 - `MCPServer` prefixes the execution-error message with
   `"Error executing tool {name}: "`; build a `CallToolResult` directly from a
   lowlevel handler if you need verbatim control.
-- `client.py` reads `e.error.data` rather than `e.data`; the convenience
-  property carries a `no cover` pragma that `strict-no-cover` would trip.
 
 ## Spec
 

@@ -38,12 +38,12 @@ uv run python -m stories.roots.client --http --legacy --server server_lowlevel
 ## Caveats
 
 - **Legacy-era only.** `roots/list` is a server-initiated request with no
-  2026-07-28 wire carrier until the multi-round-trip runtime lands
-  ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)), so
-  this story runs with `era = "legacy"` and the harness pins the handshake path.
+  2026-07-28 wire carrier, so this story runs with `era = "legacy"` and the
+  harness pins the handshake path.
 - `ctx.session.list_roots()` is `@deprecated`; the
-  `# pyright: ignore[reportDeprecated]` is deliberate. There is no
-  non-deprecated server-side path until the multi-round-trip runtime lands.
+  `# pyright: ignore[reportDeprecated]` is deliberate. The non-deprecated
+  replacement is to accept directory paths as ordinary tool parameters (see the
+  banner above) — there is no successor server→client call.
 - `ctx.session.*` is the interim 2-hop path; a later release will shorten it.
 - `notifications/roots/list_changed` is intentionally not shown — removed in
   2026-07-28 (SEP-2575) and deprecated on the legacy path.
@@ -54,5 +54,5 @@ uv run python -m stories.roots.client --http --legacy --server server_lowlevel
 
 ## See also
 
-`legacy_elicitation/`, `sampling/` — sibling server→client requests on the same
-MRTR migration path.
+`legacy_elicitation/`, `sampling/` — sibling stories that exercise the same
+legacy server→client request shape.

@@ -32,8 +32,9 @@ kill "$SERVER_PID"
   slash required — Starlette's `Mount` forwards `/api` as an empty path that
   the inner `/` route won't match).
 - `server.py` `lifespan` — `mcp.session_manager.run()` **must** be entered by
-  the parent app. Forget it and every MCP request hangs (the sub-app's own
-  lifespan never fires under `Mount`).
+  the parent app. Forget it and every MCP request fails immediately with a 500
+  (`RuntimeError: Task group is not initialized. Make sure to use run().`) —
+  the sub-app's own lifespan never fires under `Mount`.
 - `server.py` `Route("/health", ...)` — non-MCP routes live alongside the
   mount; FastAPI users do the same with `app.mount("/api", mcp_app)`.
 

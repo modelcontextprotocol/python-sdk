@@ -157,6 +157,8 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     # even though it often matches the ``Client`` default of "auto". stdio is legacy-only
     # until the SDK's stdio entry can negotiate the era, so only --http gets a modern arm.
     era = "modern" if transport == "http" and "--legacy" not in sys.argv else "legacy"
+    if cfg["era"] in ("legacy", "modern"):
+        era = cfg["era"]
     if cfg["era"] == "dual-in-body":
         # The story pins its connection modes inside ``main`` itself, so hand it "auto"
         # (the ``Client`` default) and let those in-body pins decide. A hard version pin

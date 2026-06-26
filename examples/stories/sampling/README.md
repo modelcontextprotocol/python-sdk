@@ -41,12 +41,12 @@ uv run python -m stories.sampling.client --http --legacy --server server_lowleve
 ## Caveats
 
 - **Legacy-era only.** `sampling/createMessage` is a server-initiated request
-  with no 2026-07-28 wire carrier until the multi-round-trip runtime lands
-  ([#2898](https://github.com/modelcontextprotocol/python-sdk/issues/2898)), so
-  this story runs with `era = "legacy"` and the harness pins the handshake path.
+  with no 2026-07-28 wire carrier, so this story runs with `era = "legacy"` and
+  the harness pins the handshake path.
 - `ctx.session.create_message()` is `@deprecated`; the
-  `# pyright: ignore[reportDeprecated]` is deliberate. There is no
-  non-deprecated server-side path until the multi-round-trip runtime lands.
+  `# pyright: ignore[reportDeprecated]` is deliberate. The non-deprecated
+  replacement is to call your LLM provider directly from the server (see the
+  banner above) — there is no successor server→client call.
 - `ctx.session.*` is the interim 2-hop path; a later release will shorten it.
 - `Client` has no `sampling_capabilities=` kwarg, so the `sampling.tools`
   sub-capability (tools-in-sampling) is unreachable from the high-level client.
@@ -58,5 +58,5 @@ uv run python -m stories.sampling.client --http --legacy --server server_lowleve
 
 ## See also
 
-`legacy_elicitation/`, `roots/` — sibling server→client requests on the same
-MRTR migration path.
+`legacy_elicitation/`, `roots/` — sibling stories that exercise the same legacy
+server→client request shape.

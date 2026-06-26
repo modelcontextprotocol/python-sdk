@@ -60,8 +60,8 @@ kill "$SERVER_PID"
 
 ## Spec
 
-[Streamable HTTP — 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
-· [SEP-2243 standard headers](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#standard-request-headers)
+[Streamable HTTP — 2026-07-28](https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http)
+· [SEP-2243 standard headers](https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http#standard-request-headers)
 
 ## See also
 
