@@ -509,7 +509,7 @@ def test_client_rejects_handshake_era_mode_at_construction() -> None:
     `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is
     modern-only."""
     server = MCPServer("test")
-    with pytest.raises(ValueError, match=r"handshake-era version — use mode='legacy'"):
+    with pytest.raises(ValueError, match=r"handshake-era version; use mode='legacy'"):
         Client(server, mode="2025-06-18")
     with pytest.raises(ValueError, match=r"mode must be 'legacy', 'auto', or one of"):
         Client(server, mode="not-a-version")

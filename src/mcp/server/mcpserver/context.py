@@ -85,7 +85,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     @property
     def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
         """Access to the underlying request context."""
-        if self._request_context is None:  # pragma: no cover
+        if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
