@@ -786,6 +786,9 @@ class ClientSession:
             for tool in result.tools:
                 if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
                     logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
+                    # Evict any map cached from a prior valid listing so a stale entry can't
+                    # mirror headers for a tool this listing dropped.
+                    self._x_mcp_header_maps.pop(tool.name, None)
                     continue
                 # Cache the arg→header map so a later tools/call mirrors it into Mcp-Param-* headers.
                 self._x_mcp_header_maps[tool.name] = x_mcp_header_map(tool.input_schema)

@@ -504,6 +504,38 @@ async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legac
         assert [t.name for t in result.tools] == ["ok", "dropme"]
 
 
+@pytest.mark.anyio
+async def test_modern_list_tools_evicts_header_map_when_a_tool_turns_invalid() -> None:
+    """A re-list that drops a previously valid tool must also evict its cached `x-mcp-header` map,
+    so a later `tools/call` can't mirror stale `Mcp-Param-*` headers for a now-dropped tool."""
+    valid = types.Tool(
+        name="run",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}},
+    )
+    invalid = types.Tool(
+        name="run",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}},
+    )
+    listings = iter([valid, invalid])
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[next(listings)])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            session = client.session
+            await client.list_tools()
+            assert session._resolve_param_headers("run", {"a": "x"}) == {"Mcp-Param-Region": "x"}
+
+            result = await client.list_tools()
+            assert [t.name for t in result.tools] == []
+            assert session._resolve_param_headers("run", {"a": "x"}) == {}
+
+
 def test_client_rejects_handshake_era_mode_at_construction() -> None:
     """A handshake-era protocol-version string passed as `mode=` is rejected by
     `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is
