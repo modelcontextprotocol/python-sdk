@@ -117,6 +117,13 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     for name in inspect.signature(fn).parameters:
         annotation = hints.get(name)
         if get_origin(annotation) is not Annotated:
+            # A `Resolve` marker is only honored at the top level; flag (rather than
+            # silently drop) one buried in a union, e.g. `Annotated[T, Resolve(f)] | None`.
+            if _contains_resolve(annotation):
+                raise InvalidSignature(
+                    f"Parameter {name!r} of {_resolver_name(fn)!r} wraps `Resolve(...)` in a "
+                    "union; annotate the parameter directly as `Annotated[T, Resolve(...)]`"
+                )
             continue
         type_arg, *metadata = get_args(annotation)
         marker = next((m for m in metadata if isinstance(m, Resolve)), None)
@@ -125,15 +132,23 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     return resolved
 
 
+def _contains_resolve(annotation: Any) -> bool:
+    """True when a `Resolve` marker is nested inside `annotation` (e.g. a union member)."""
+    if get_origin(annotation) is Annotated:
+        return any(isinstance(m, Resolve) for m in get_args(annotation)[1:])
+    return any(_contains_resolve(arg) for arg in get_args(annotation))
+
+
 def _wants_union(type_arg: Any) -> bool:
     """True when `type_arg` is an `ElicitationResult` member (or a union of them).
 
-    Handles the bare `ElicitationResult[T]` alias (a `TypeAliasType` carrying the
-    union on `__value__`), an explicit `AcceptedElicitation[T] | ... ` union, and a
-    single member.
+    Handles the subscripted `ElicitationResult[T]` alias (a `TypeAliasType` whose
+    union is on the origin's `__value__`), the bare `ElicitationResult` alias (the
+    `__value__` is on `type_arg` itself), an explicit `AcceptedElicitation[T] | ...`
+    union, and a single member.
     """
-    origin = get_origin(type_arg)
-    value = getattr(origin, "__value__", None)
+    # Unwrap the `ElicitationResult` alias whether it is bare or subscripted.
+    value = getattr(type_arg, "__value__", None) or getattr(get_origin(type_arg), "__value__", None)
     if value is not None:
         type_arg = value
     members = get_args(type_arg) if get_origin(type_arg) is not None else (type_arg,)

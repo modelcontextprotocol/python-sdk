@@ -1,6 +1,6 @@
 """Tests for resolver dependency injection (MRTR) on MCPServer tools."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import pytest
 from mcp_types import ElicitRequestParams, ElicitResult, TextContent
@@ -289,6 +289,32 @@ def test_unresolvable_resolver_param_raises_at_registration():
 
     with pytest.raises(InvalidSignature, match="cannot be resolved"):
         Tool.from_function(tool)
+
+
+def test_resolve_marker_inside_a_union_raises_at_registration():
+    async def login(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover
+
+    async def tool(login: Annotated[Login, Resolve(login)] | None = None) -> str:
+        return login.username if login else ""  # pragma: no cover
+
+    with pytest.raises(InvalidSignature, match="wraps `Resolve"):
+        Tool.from_function(tool)
+
+
+def test_bare_elicitation_result_alias_wants_the_outcome_union():
+    # The bare `ElicitationResult` alias (no `[T]` subscription) must still opt into
+    # the result union, not be treated as wanting the unwrapped model.
+    async def login(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover
+
+    async def tool(login: object) -> str:
+        return "x"  # pragma: no cover
+
+    bare_alias: Any = ElicitationResult
+    tool.__annotations__["login"] = Annotated[bare_alias, Resolve(login)]
+    (_, wants_union) = find_resolved_parameters(tool)["login"]
+    assert wants_union is True
 
 
 def test_resolve_marker_on_return_annotation_is_ignored():
