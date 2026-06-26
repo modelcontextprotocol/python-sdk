@@ -50,6 +50,36 @@ class TestResourceTemplate:
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
+    def test_template_matches_escapes_literal_regex_metacharacters(self):
+        """Literal regex metacharacters in the template must be matched literally.
+
+        Without escaping, "." would match any character and "+" would act as a
+        quantifier, causing both false positives and false negatives.
+        """
+
+        def my_func(version: str) -> dict[str, Any]:  # pragma: no cover
+            return {"version": version}
+
+        # A "." in the literal portion must match a literal dot, not any character.
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="api://v1.0/{version}",
+            name="test",
+        )
+        # Exact literal matches and extracts the parameter.
+        assert template.matches("api://v1.0/abc") == {"version": "abc"}
+        # A different character where the literal dot is must NOT match.
+        assert template.matches("api://v1X0/abc") is None
+
+        # A "+" in the literal portion must match a literal plus, not act as a quantifier.
+        plus_template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="res://a+b/{version}",
+            name="test",
+        )
+        assert plus_template.matches("res://a+b/x") == {"version": "x"}
+        assert plus_template.matches("res://aaab/x") is None
+
     @pytest.mark.anyio
     async def test_create_resource(self):
         """Test creating a resource from a template."""
