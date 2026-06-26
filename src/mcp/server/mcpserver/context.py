@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
-from mcp_types import LoggingLevel
+from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
@@ -58,6 +58,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
+    _input_params: InputResponseRequestParams | None
 
     # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
@@ -65,12 +66,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         *,
         request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
+        input_params: InputResponseRequestParams | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server
+        self._input_params = input_params
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -218,6 +221,33 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)
+
+    @property
+    def input_responses(self) -> InputResponses | None:
+        """Client responses to a prior `InputRequiredResult.input_requests`.
+
+        `None` on the initial round, or when the client retried without
+        responses.
+        """
+        return self._input_params.input_responses if self._input_params else None
+
+    @property
+    def request_state(self) -> str | None:
+        """Opaque state echoed from a prior `InputRequiredResult.request_state`.
+
+        `None` on the initial round.
+        """
+        return self._input_params.request_state if self._input_params else None
+
+    @property
+    def client_capabilities(self) -> ClientCapabilities | None:
+        """The client's declared capabilities for this connection.
+
+        `None` when the client supplied no client info (e.g. an anonymous
+        stateless request without the reserved `_meta` keys).
+        """
+        client_params = self.request_context.session.client_params
+        return client_params.capabilities if client_params else None
 
     @property
     def session(self):

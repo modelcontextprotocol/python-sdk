@@ -472,6 +472,38 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
 
 
+@pytest.mark.anyio
+async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legacy_does_not() -> None:
+    """At 2026-07-28 the spec requires clients to exclude tools whose `x-mcp-header`
+    annotation is malformed; handshake-era sessions surface them unchanged. Two
+    tools are advertised — one valid, one with a non-RFC-9110-token header name —
+    and the modern client sees only the valid one."""
+    valid = types.Tool(
+        name="ok",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}},
+    )
+    bad = types.Tool(
+        name="dropme",
+        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}},
+    )
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[valid, bad])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            result = await client.list_tools()
+        assert [t.name for t in result.tools] == ["ok"]
+
+        async with Client(server, mode="legacy") as client:
+            result = await client.list_tools()
+        assert [t.name for t in result.tools] == ["ok", "dropme"]
+
+
 def test_client_rejects_handshake_era_mode_at_construction() -> None:
     """A handshake-era protocol-version string passed as `mode=` is rejected by
     `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is

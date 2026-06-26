@@ -206,7 +206,7 @@ async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_
         response = await http.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": meta}},
-            headers=base_headers() | {"mcp-protocol-version": bad},
+            headers=base_headers() | {"mcp-protocol-version": bad, "mcp-method": "tools/list"},
         )
 
     assert response.status_code == 400
