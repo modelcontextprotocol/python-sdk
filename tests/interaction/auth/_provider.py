@@ -18,12 +18,17 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     RefreshToken,
     TokenError,
+    TokenExchangeParams,
     construct_redirect_uri,
 )
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken, TokenExchangeToken
 from tests.interaction._connect import BASE_URL
 
 _TOKEN_LIFETIME_SECONDS = 3600
+
+# The only subject token the in-memory provider accepts as a valid ID-JAG; any other value is
+# rejected with invalid_grant, standing in for signature/policy validation a real AS performs.
+VALID_SUBJECT_TOKEN = "valid-id-jag"
 
 
 class InMemoryAuthorizationServerProvider(
@@ -71,6 +76,9 @@ class InMemoryAuthorizationServerProvider(
         self.codes: dict[str, AuthorizationCode] = {}
         self.refresh_tokens: dict[str, RefreshToken] = {}
         self.access_tokens: dict[str, AccessToken] = {}
+        # The most recent token-exchange request the SDK handler passed to exchange_token, for
+        # tests to assert what the client sent (None until the first exchange).
+        self.last_exchange_params: TokenExchangeParams | None = None
 
     def _next_expires_in(self) -> int:
         self._tokens_issued += 1
@@ -185,6 +193,27 @@ class InMemoryAuthorizationServerProvider(
             expires_in=self._next_expires_in(),
             scope=" ".join(scopes),
             refresh_token=new_refresh,
+        )
+
+    async def exchange_token(self, client: OAuthClientInformationFull, params: TokenExchangeParams) -> OAuthToken:
+        """Validate the ID-JAG subject token and mint an MCP access token (RFC 8693 / SEP-990).
+
+        Records `params` for inspection and rejects any subject token other than
+        `VALID_SUBJECT_TOKEN` with invalid_grant (standing in for signature/policy validation). The
+        granted scopes are exactly those the client requested; a real provider would derive them
+        from the validated ID-JAG and policy.
+        """
+        self.last_exchange_params = params
+        assert client.client_id is not None
+        if params.subject_token != VALID_SUBJECT_TOKEN:
+            raise TokenError(error="invalid_grant", error_description="subject token is not valid")
+        scopes = params.scopes if params.scopes is not None else self._default_scopes
+        access = self.mint_access_token(client_id=client.client_id, scopes=scopes, resource=params.resource)
+        return TokenExchangeToken(
+            access_token=access,
+            token_type="Bearer",
+            expires_in=self._next_expires_in(),
+            scope=" ".join(scopes),
         )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
