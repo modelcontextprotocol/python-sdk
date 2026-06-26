@@ -34,6 +34,7 @@ from mcp_types import (
 )
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Message, Receive, Scope, Send
+from trio.testing import MockClock
 
 from mcp.server import Server, ServerRequestContext, runner
 from mcp.server._streamable_http_modern import (
@@ -371,15 +372,22 @@ async def test_sse_mode_streams_progress_then_result() -> None:
     assert events[2]["result"]["tools"] == []
 
 
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
 async def test_sse_mode_emits_keepalive_comment_between_events(monkeypatch: pytest.MonkeyPatch) -> None:
     """SSE mode: while the stream is idle between events the server emits an SSE comment line so a
     proxy idle-read timeout does not close the stream (which would cancel the handler).
-    SDK-defined: spec encourages keepalive comments for long-lived streams."""
-    monkeypatch.setattr("mcp.server._streamable_http_modern._SSE_PING_INTERVAL", 0.01)
+    SDK-defined: spec encourages keepalive comments for long-lived streams.
+
+    Runs on trio's autojumping MockClock so the `move_on_after(_SSE_PING_INTERVAL)` deadlines and
+    the handler's `anyio.sleep` advance without wall-clock time."""
+    monkeypatch.setattr("mcp.server._streamable_http_modern._SSE_PING_INTERVAL", 1.0)
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         await ctx.session.report_progress(1.0)
-        await anyio.sleep(0.05)
+        await anyio.sleep(2.5)
         return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
 
     async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
@@ -389,22 +397,28 @@ async def test_sse_mode_emits_keepalive_comment_between_events(monkeypatch: pyte
             )
 
     assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
-    assert b": ping\r\n\r\n" in response.content
+    assert response.content.count(b": ping\r\n\r\n") == 2
     events = _sse_payloads(response.text)
     assert len(events) == 2
     assert events[0]["method"] == "notifications/progress"
     assert events[1]["result"]["tools"] == []
 
 
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
 async def test_sse_mode_silent_handler_commits_sse_after_ping_interval(monkeypatch: pytest.MonkeyPatch) -> None:
     """SSE mode: a handler that runs silent past the deferral window commits `text/event-stream`
     and starts pinging — even though it never emits a notification — so a proxy idle-read timeout
     does not close the connection and cancel it. SDK-defined: the deferral window is bounded by
-    `_SSE_PING_INTERVAL`."""
-    monkeypatch.setattr("mcp.server._streamable_http_modern._SSE_PING_INTERVAL", 0.01)
+    `_SSE_PING_INTERVAL`.
+
+    Runs on trio's autojumping MockClock; the 2.5s handler sleep takes no wall-clock time."""
+    monkeypatch.setattr("mcp.server._streamable_http_modern._SSE_PING_INTERVAL", 1.0)
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        await anyio.sleep(0.05)
+        await anyio.sleep(2.5)
         return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
 
     async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
@@ -413,7 +427,7 @@ async def test_sse_mode_silent_handler_commits_sse_after_ping_interval(monkeypat
 
     assert response.status_code == 200
     assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
-    assert b": ping\r\n\r\n" in response.content
+    assert response.content.count(b": ping\r\n\r\n") == 2
     events = _sse_payloads(response.text)
     assert len(events) == 1
     assert events[0]["result"]["tools"] == []
