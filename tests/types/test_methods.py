@@ -268,7 +268,7 @@ EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
     ("resources/read", "2026-07-28"): (v2026.ReadResourceResult, v2026.InputRequiredResult),
     ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesResult,
     ("server/discover", "2026-07-28"): v2026.DiscoverResult,
-    ("subscriptions/listen", "2026-07-28"): v2026.EmptyResult,
+    ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenResult,
     ("tools/call", "2026-07-28"): (v2026.CallToolResult, v2026.InputRequiredResult),
     ("tools/list", "2026-07-28"): v2026.ListToolsResult,
 }
@@ -290,9 +290,7 @@ EXPECTED_CLIENT_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
     ("sampling/createMessage", "2025-11-25"): v2025.CreateMessageResult,
 }
 
-EMPTY_SERVER_RESPONSE_METHODS = frozenset(
-    {"logging/setLevel", "ping", "resources/subscribe", "resources/unsubscribe", "subscriptions/listen"}
-)
+EMPTY_SERVER_RESPONSE_METHODS = frozenset({"logging/setLevel", "ping", "resources/subscribe", "resources/unsubscribe"})
 EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
@@ -404,7 +402,10 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
         "ttlMs": 0,
         "cacheScope": "private",
     },
-    v2026.EmptyResult: {"resultType": "complete"},
+    v2026.SubscriptionsListenResult: {
+        "resultType": "complete",
+        "_meta": {"io.modelcontextprotocol/subscriptionId": 1},
+    },
     v2026.ListPromptsResult: {"prompts": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"},
     v2026.ListResourcesResult: {"resources": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"},
     v2026.ListResourceTemplatesResult: {
@@ -844,7 +845,9 @@ MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
         ttl_ms=0,
         cache_scope="private",
     ),
-    "subscriptions/listen": types.EmptyResult(result_type="complete"),
+    "subscriptions/listen": types.SubscriptionsListenResult.model_validate(
+        {"_meta": {"io.modelcontextprotocol/subscriptionId": 1}}
+    ),
     "tools/call": types.CallToolResult(content=[]),
     "tools/list": types.ListToolsResult(tools=[], ttl_ms=0, cache_scope="private"),
 }

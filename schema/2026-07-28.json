@@ -3221,6 +3221,9 @@
                     "$ref": "#/$defs/ReadResourceResult"
                 },
                 {
+                    "$ref": "#/$defs/SubscriptionsListenResult"
+                },
+                {
                     "$ref": "#/$defs/ListPromptsResult"
                 },
                 {
@@ -3386,6 +3389,36 @@
             "required": [
                 "_meta",
                 "notifications"
+            ],
+            "type": "object"
+        },
+        "SubscriptionsListenResult": {
+            "description": "The response to a {@link SubscriptionsListenRequestsubscriptions/listen}\nrequest, signalling that the subscription has ended gracefully (for example,\nduring server shutdown). Because the listen stream is long-lived, this result\nis sent only when the server tears the subscription down; an abrupt transport\nclose carries no response. The result body is otherwise empty.",
+            "properties": {
+                "_meta": {
+                    "$ref": "#/$defs/SubscriptionsListenResultMeta"
+                },
+                "resultType": {
+                    "description": "Indicates the type of the result, which allows the client to determine\nhow to parse the result object.\n\nServers implementing this protocol version MUST include this field.\nFor backward compatibility, when a client receives a result from a\nserver implementing an earlier protocol version (which does not include\n`resultType`), the client MUST treat the absent field as `\"complete\"`.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "_meta",
+                "resultType"
+            ],
+            "type": "object"
+        },
+        "SubscriptionsListenResultMeta": {
+            "description": "Extends {@link MetaObject} with the subscription-stream identifier carried by a\n{@link SubscriptionsListenResult}. All key naming rules from `MetaObject` apply.",
+            "properties": {
+                "io.modelcontextprotocol/subscriptionId": {
+                    "$ref": "#/$defs/RequestId",
+                    "description": "Identifies the subscription stream this response closes, so the client can\ncorrelate it with the originating subscription — mirroring the same key on\nthe stream's notifications. The value is the JSON-RPC ID of the\n`subscriptions/listen` request that opened the stream (and equals this\nresponse's `id`)."
+                }
+            },
+            "required": [
+                "io.modelcontextprotocol/subscriptionId"
             ],
             "type": "object"
         },

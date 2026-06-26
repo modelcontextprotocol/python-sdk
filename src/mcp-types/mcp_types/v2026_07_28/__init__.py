@@ -1,7 +1,7 @@
 """Internal wire-shape models for protocol 2026-07-28. Generated; do not edit.
 
 Regenerate with `scripts/gen_surface_types.py` from `schema/2026-07-28.json`
-(sha256 `ed1ad4ba94aaeb2068b78969ef901b1150f7b2f06cf86472b3032abee1380b6a`)."""
+(sha256 `e00f675287e8cf078688c26c8a89d283ff2613da3b76d5cd15aff9d189df639c`)."""
 # pyright: reportIncompatibleVariableOverride=false, reportGeneralTypeIssues=false
 
 from __future__ import annotations
@@ -906,6 +906,25 @@ class SubscriptionFilter(WireModel):
     tools_list_changed: Annotated[bool | None, Field(alias="toolsListChanged")] = None
     """
     If true, receive {@link ToolListChangedNotificationnotifications/tools/list_changed}.
+    """
+
+
+class SubscriptionsListenResultMeta(WireModel):
+    """
+    Extends {@link MetaObject} with the subscription-stream identifier carried by a
+    {@link SubscriptionsListenResult}. All key naming rules from `MetaObject` apply.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    io_modelcontextprotocol_subscription_id: Annotated[RequestId, Field(alias="io.modelcontextprotocol/subscriptionId")]
+    """
+    Identifies the subscription stream this response closes, so the client can
+    correlate it with the originating subscription — mirroring the same key on
+    the stream's notifications. The value is the JSON-RPC ID of the
+    `subscriptions/listen` request that opened the stream (and equals this
+    response's `id`).
     """
 
 
@@ -2053,6 +2072,31 @@ class SubscriptionsAcknowledgedNotificationParams(WireModel):
     Only includes notification types the server actually supports; if the
     client requested an unsupported type (e.g., `promptsListChanged` when
     the server has no prompts), it is omitted from this set.
+    """
+
+
+class SubscriptionsListenResult(WireModel):
+    """
+    The response to a {@link SubscriptionsListenRequestsubscriptions/listen}
+    request, signalling that the subscription has ended gracefully (for example,
+    during server shutdown). Because the listen stream is long-lived, this result
+    is sent only when the server tears the subscription down; an abrupt transport
+    close carries no response. The result body is otherwise empty.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[SubscriptionsListenResultMeta, Field(alias="_meta")]
+    result_type: Annotated[str, Field(alias="resultType")]
+    """
+    Indicates the type of the result, which allows the client to determine
+    how to parse the result object.
+
+    Servers implementing this protocol version MUST include this field.
+    For backward compatibility, when a client receives a result from a
+    server implementing an earlier protocol version (which does not include
+    `resultType`), the client MUST treat the absent field as `"complete"`.
     """
 
 
@@ -3544,6 +3588,7 @@ class ServerResult(
         | ListResourcesResult
         | ListResourceTemplatesResult
         | ReadResourceResult
+        | SubscriptionsListenResult
         | ListPromptsResult
         | GetPromptResult
         | ListToolsResult
@@ -3558,6 +3603,7 @@ class ServerResult(
         | ListResourcesResult
         | ListResourceTemplatesResult
         | ReadResourceResult
+        | SubscriptionsListenResult
         | ListPromptsResult
         | GetPromptResult
         | ListToolsResult
