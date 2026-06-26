@@ -975,3 +975,80 @@ async def test_independent_nested_deps_batch_into_one_round():
         result = await _drive_mrtr(client, "tool", {}, answer)
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_deep_chain_keeps_early_answers_across_rounds():
+    # A 4-round dependency chain where an early answer (A) must survive in
+    # request_state while later resolvers are asked. It must be asked exactly once.
+    mcp = MCPServer(name="DeepChain")
+
+    async def ra(ctx: Context) -> Elicit[Login]:
+        return Elicit("A name?", Login)
+
+    async def rb(a: Annotated[Login, Resolve(ra)]) -> Elicit[Confirm]:
+        return Elicit("B?", Confirm)
+
+    async def rc(b: Annotated[Confirm, Resolve(rb)]) -> Elicit[Confirm]:
+        return Elicit("C?", Confirm)
+
+    async def rd(c: Annotated[Confirm, Resolve(rc)]) -> Elicit[Confirm]:
+        return Elicit("D?", Confirm)
+
+    # Depends on `ra` directly AND on `rd` (which transitively needs ra->rb->rc).
+    @mcp.tool()
+    async def tool(
+        a: Annotated[Login, Resolve(ra)],
+        d: Annotated[Confirm, Resolve(rd)],
+    ) -> str:
+        return f"{a.username}:{d.ok}"
+
+    a_asks = 0
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        nonlocal a_asks
+        if "name" in params.message:
+            a_asks += 1
+            return ElicitResult(action="accept", content={"username": "octocat"})
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp) as client:
+        result = await _drive_mrtr(client, "tool", {}, answer)
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "octocat:True"
+    assert a_asks == 1  # ra's answer survived in request_state; never re-asked
+
+
+@pytest.mark.anyio
+async def test_factory_closures_get_distinct_wire_keys():
+    # Two resolvers from one factory share module:qualname; they must still get
+    # distinct questions and their own values (regression: they collided on the wire).
+    mcp = MCPServer(name="FactoryClosures")
+
+    def make(label: str):
+        async def resolver(ctx: Context) -> Elicit[Login]:
+            return Elicit(f"{label}?", Login)
+
+        return resolver
+
+    ask_a, ask_b = make("A"), make("B")
+
+    @mcp.tool()
+    async def tool(
+        a: Annotated[Login, Resolve(ask_a)],
+        b: Annotated[Login, Resolve(ask_b)],
+    ) -> str:
+        return f"{a.username},{b.username}"
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        return ElicitResult(action="accept", content={"username": params.message[0]})
+
+    async with Client(mcp) as client:
+        first = await client.call_tool("tool", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        assert len(first.input_requests) == 2  # distinct keys, not collapsed to one
+
+        result = await _drive_mrtr(client, "tool", {}, answer)
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "A,B"

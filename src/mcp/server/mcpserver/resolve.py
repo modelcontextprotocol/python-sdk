@@ -109,6 +109,7 @@ class _ResolverPlan:
         params: dict[str, _ParamPlan],
         is_async: bool,
         elicit_schema: type[BaseModel] | None,
+        wire_key: str,
     ) -> None:
         self.fn = fn
         self.params = params
@@ -116,6 +117,10 @@ class _ResolverPlan:
         # The `T` from the resolver's `Elicit[T]` return arm, if annotated. Used to
         # re-validate an outcome restored from `request_state` into a model.
         self.elicit_schema = elicit_schema
+        # Deterministic, collision-free key for this resolver's elicitation on the
+        # wire (`input_requests`/`request_state`). Assigned at registration so it is
+        # stable across rounds even when `module:qualname` collides (closures).
+        self.wire_key = wire_key
 
 
 def _type_hints(fn: Callable[..., Any]) -> dict[str, Any]:
@@ -226,6 +231,9 @@ def build_resolver_plans(
             or a tool argument by name).
     """
     plans: dict[Hashable, _ResolverPlan] = {}
+    # Count how many distinct resolvers share each `module:qualname` base so closures
+    # from one factory get distinct, deterministic wire keys (`base`, `base#1`, ...).
+    base_counts: dict[str, int] = {}
 
     def analyze(fn: Callable[..., Any], stack: tuple[Hashable, ...]) -> None:
         key = _resolver_key(fn)
@@ -233,6 +241,11 @@ def build_resolver_plans(
             raise InvalidSignature(f"Resolver {_resolver_name(fn)!r} has a cyclic dependency")
         if key in plans:
             return
+
+        base = _state_key(fn)
+        seen = base_counts.get(base, 0)
+        base_counts[base] = seen + 1
+        wire_key = base if seen == 0 else f"{base}#{seen}"
 
         hints = _type_hints(fn)
         sig = inspect.signature(fn)
@@ -256,7 +269,9 @@ def build_resolver_plans(
                 "expected a Context, an Annotated[_, Resolve(...)], or a tool argument by name"
             )
 
-        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn), _elicit_return_schema(hints.get("return")))
+        plans[key] = _ResolverPlan(
+            fn, params, is_async_callable(fn), _elicit_return_schema(hints.get("return")), wire_key
+        )
         for dep in nested:
             analyze(dep, stack + (key,))
 
@@ -377,13 +392,17 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
         return res.cache[cache_key]
 
     plan = res.plans[cache_key]
-    wire_key = _state_key(fn)
+    wire_key = plan.wire_key
     if wire_key in res.pending:
         # Already asked this round by another consumer; don't run the resolver again.
         raise _Pending
     if wire_key in res.state:
         outcome = _outcome_from_state(res.state[wire_key], plan.elicit_schema)
         res.cache[cache_key] = outcome
+        # Carry the restored answer forward: if a later resolver is still pending,
+        # the next round's `request_state` is built from `res.elicited`, so an
+        # earlier answer must stay there or it would be dropped and re-asked.
+        res.elicited[wire_key] = outcome
         return outcome
 
     kwargs: dict[str, Any] = {}
