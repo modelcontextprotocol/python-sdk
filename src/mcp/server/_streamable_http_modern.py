@@ -147,6 +147,9 @@ async def _to_jsonrpc_response(
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
+_SSE_PING_INTERVAL: float = 15.0
+"""Seconds between SSE comment-line keepalives once `text/event-stream` has committed."""
+
 _SSE_HEADERS: Final[list[tuple[bytes, bytes]]] = [
     (b"content-type", b"text/event-stream"),
     (b"cache-control", b"no-cache, no-transform"),
@@ -304,9 +307,15 @@ async def handle_modern_request(
             await _write(result[0], scope, receive, send)
         else:
             await send({"type": "http.response.start", "status": _OK_STATUS, "headers": _SSE_HEADERS})
-            await send({"type": "http.response.body", "body": first, "more_body": True})
-            async for event in recv_ch:
-                await send({"type": "http.response.body", "body": event, "more_body": True})
+            event: bytes | None = first
+            while True:
+                await send({"type": "http.response.body", "body": event or b": ping\r\n\r\n", "more_body": True})
+                event = None
+                with anyio.move_on_after(_SSE_PING_INTERVAL):
+                    try:
+                        event = await recv_ch.receive()
+                    except anyio.EndOfStream:
+                        break
             await send({"type": "http.response.body", "body": _sse_event(result[0]), "more_body": False})
 
         tg.cancel_scope.cancel()

@@ -371,6 +371,31 @@ async def test_sse_mode_streams_progress_then_result() -> None:
     assert events[2]["result"]["tools"] == []
 
 
+async def test_sse_mode_emits_keepalive_comment_between_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSE mode: while the stream is idle between events the server emits an SSE comment line so a
+    proxy idle-read timeout does not close the stream (which would cancel the handler).
+    SDK-defined: spec encourages keepalive comments for long-lived streams."""
+    monkeypatch.setattr("mcp.server._streamable_http_modern._SSE_PING_INTERVAL", 0.01)
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        await ctx.session.report_progress(1.0)
+        await anyio.sleep(0.05)
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(Server("test", on_list_tools=list_tools), json_response=False) as http:
+        with anyio.fail_after(5):
+            response = await http.post(
+                "/mcp", json=_list_tools_body_with_token("tok"), headers={MCP_METHOD_HEADER: "tools/list"}
+            )
+
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    assert b": ping\r\n\r\n" in response.content
+    events = _sse_payloads(response.text)
+    assert len(events) == 2
+    assert events[0]["method"] == "notifications/progress"
+    assert events[1]["result"]["tools"] == []
+
+
 async def test_sse_mode_streams_log_notification() -> None:
     """SSE mode: a request-scoped `notifications/message` emitted by the handler precedes the
     terminal response on the same stream. SDK-defined: notifications sent on the request's outbound
