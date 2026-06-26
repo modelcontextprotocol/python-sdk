@@ -457,15 +457,26 @@ from mcp.server.apps import Apps
 mcp = MCPServer("demo", extensions=[Apps()])
 ```
 
-The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
-it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
-`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback — `True` only
-when the client's ui-extension settings list the `text/html;profile=mcp-app`
-MIME type, per the Apps spec's required `mimeTypes` field. Every
-`@apps.tool(resource_uri=...)` must have a matching resource registered on the
-same `Apps` instance (`add_html_resource` for inline HTML, `add_resource` for a
-pre-built `Resource`); a tool bound to an unregistered URI raises at
-`MCPServer(...)` construction rather than 404ing on `resources/read` at runtime.
+Two reference extensions ship in their own modules:
+
+- `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`) binds a tool to a `ui://`
+  UI resource via `_meta.ui.resourceUri`, and `client_supports_apps(ctx)` gates
+  the SEP-2133 text-only fallback — `True` only when the client's ui-extension
+  settings list the `text/html;profile=mcp-app` MIME type, per the Apps spec's
+  required `mimeTypes` field. Every `@apps.tool(resource_uri=...)` must have a
+  matching resource registered on the same `Apps` instance (`add_html_resource`
+  for inline HTML, `add_resource` for a pre-built `Resource`); a tool bound to an
+  unregistered URI raises at `MCPServer(...)` construction rather than 404ing on
+  `resources/read` at runtime.
+- `mcp.server.tasks.Tasks` (`io.modelcontextprotocol/tasks`, SEP-2663) defers a
+  `tools/call` as a task: for a client that declared the extension on a modern
+  connection, the server may return a `CreateTaskResult` (`resultType: "task"`)
+  instead of the `CallToolResult`, and the client polls `tasks/get` /
+  `tasks/cancel`. The server decides augmentation (the legacy `params.task` field
+  is ignored); a `tasks/*` call from a non-declaring client is rejected with
+  `-32003`. This is the conformant core; `tasks/update` + the MRTR input loop,
+  `ToolExecution.taskSupport` gating, `notifications/tasks`, and task routing
+  headers are deferred.
 
 Extension methods are strictly additive: a `MethodBinding` cannot name a
 spec-defined request method, and registering one whose method collides with
