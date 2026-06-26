@@ -209,6 +209,17 @@ class Client:
     """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
     Ignored when mode='legacy'."""
 
+    strict_capabilities: bool = False
+    """Reject calls to methods whose required server capability the server did not advertise.
+
+    Opt-in (default False: every request is sent and the server's answer is surfaced, matching
+    the pre-2026 client). When True, such a call raises `MCPError` with code `METHOD_NOT_FOUND`
+    before any request reaches the transport -- the same code a compliant server returns for an
+    unadvertised capability. The check reads `server_capabilities`, so a bare version pin
+    (`mode='2026-07-28'` with no `prior_discover=`) -- which never asks the server what it
+    supports -- is rejected at construction with a `ValueError`; supply `prior_discover=` or
+    use `mode='auto'`. Mirrors the TypeScript SDK's `enforceStrictCapabilities` option."""
+
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
@@ -233,6 +244,13 @@ class Client:
                 f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
             )
 
+        if self.strict_capabilities and self.mode in MODERN_PROTOCOL_VERSIONS and self.prior_discover is None:
+            raise ValueError(
+                "strict_capabilities=True with a version pin needs prior_discover=: a bare pin "
+                "never asks the server what it supports, so every capability-gated method would "
+                "be rejected. Supply prior_discover= or use mode='auto'."
+            )
+
         srv = self.server
         if isinstance(srv, MCPServer):
             srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
@@ -255,6 +273,7 @@ class Client:
             message_handler=self.message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
+            strict_capabilities=self.strict_capabilities,
         )
 
     async def __aenter__(self) -> Client:

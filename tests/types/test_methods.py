@@ -442,6 +442,48 @@ def test_spec_client_method_sets_are_the_client_direction_projection_of_the_surf
     assert "notifications/message" not in methods.SPEC_CLIENT_NOTIFICATION_METHODS
 
 
+def test_server_capability_requirements_name_only_real_methods_and_attributes() -> None:
+    """Every gated method is one a client can send, and every path resolves on
+    `ServerCapabilities`; the ungated complement is exactly the methods that need no
+    server capability."""
+    assert set(methods.SERVER_CAPABILITY_REQUIREMENTS) <= methods.SPEC_CLIENT_METHODS
+    assert methods.SPEC_CLIENT_METHODS - set(methods.SERVER_CAPABILITY_REQUIREMENTS) == {
+        "initialize",
+        "ping",
+        "server/discover",
+        "subscriptions/listen",
+    }
+    everything = types.ServerCapabilities(
+        completions=types.CompletionsCapability(),
+        logging=types.LoggingCapability(),
+        prompts=types.PromptsCapability(),
+        resources=types.ResourcesCapability(subscribe=True),
+        tools=types.ToolsCapability(),
+    )
+    for method in methods.SERVER_CAPABILITY_REQUIREMENTS:
+        # `everything` is truthy at every step, so the walker's bare `getattr` runs for every
+        # attribute in the path with no short-circuit: a typo'd capability name fails loudly here.
+        assert methods.missing_server_capability(method, everything) is None, method
+
+
+def test_missing_server_capability_names_the_first_unadvertised_step() -> None:
+    """An ungated method needs nothing; a gated method reports the FIRST step on its required
+    capability path that is unadvertised, not always the full path.
+
+    The sub-capability case is the discriminating pair: `resources/subscribe` against a server
+    advertising no `resources` at all is told `resources`; against one advertising `resources`
+    but not `subscribe` it is told `resources.subscribe` -- mirroring the TypeScript SDK's two
+    distinct assertCapabilityForMethod messages.
+    """
+    assert methods.missing_server_capability("ping", None) is None
+    assert methods.missing_server_capability("tools/list", None) == "tools"
+    assert methods.missing_server_capability("tools/list", types.ServerCapabilities()) == "tools"
+    assert methods.missing_server_capability("resources/subscribe", types.ServerCapabilities()) == "resources"
+    only_resources = types.ServerCapabilities(resources=types.ResourcesCapability())
+    assert methods.missing_server_capability("resources/read", only_resources) is None
+    assert methods.missing_server_capability("resources/subscribe", only_resources) == "resources.subscribe"
+
+
 def test_elicit_result_surface_accepts_null_content_values_at_every_version_that_defines_it():
     """Monolith superset leniency: hosts may answer optional form fields with null."""
     for (method, _), surface in methods.CLIENT_RESULTS.items():
@@ -537,6 +579,7 @@ def test_built_in_maps_are_immutable():
         "MONOLITH_NOTIFICATIONS",
         "MONOLITH_REQUESTS",
         "MONOLITH_RESULTS",
+        "SERVER_CAPABILITY_REQUIREMENTS",
         "SERVER_NOTIFICATIONS",
         "SERVER_REQUESTS",
         "SERVER_RESULTS",

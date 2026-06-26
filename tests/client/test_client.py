@@ -517,6 +517,14 @@ def test_client_rejects_handshake_era_mode_at_construction() -> None:
         Client(server, mode="not-a-version")
 
 
+def test_client_rejects_strict_capabilities_on_a_bare_version_pin_at_construction() -> None:
+    """`strict_capabilities=True` with a version pin and no `prior_discover=` is rejected by
+    `__post_init__`: a bare pin never asks the server what it supports, so every
+    capability-gated method would be rejected before doing anything useful."""
+    with pytest.raises(ValueError, match=r"prior_discover= or use mode='auto'"):
+        Client(MCPServer("test"), mode="2026-07-28", strict_capabilities=True)
+
+
 # ── SEP-2322 multi-round-trip auto-loop ────────────────────────────────────────
 
 

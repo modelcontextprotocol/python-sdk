@@ -196,13 +196,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The client sends any request regardless of the server's advertised capabilities and "
-                "surfaces whatever the server answers; the spec's MUST is not enforced."
+                "Not the default: by default the client sends any request regardless of the "
+                "server's advertised capabilities and surfaces whatever the server answers. The "
+                "client-side pre-check is opt-in via Client(strict_capabilities=True), which "
+                "rejects with METHOD_NOT_FOUND before any wire traffic -- the same shape as the "
+                "TypeScript SDK's enforceStrictCapabilities (also default-off). The 2026-07-28 "
+                "revision removes the lifecycle page that carries this MUST; there the server's "
+                "-32601 is the authoritative signal and the SDK's server already returns it."
             ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: the client sends any request regardless of the server's "
-            "advertised capabilities and surfaces whatever the server answers."
         ),
     ),
     "lifecycle:initialize:basic": Requirement(

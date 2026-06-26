@@ -31,7 +31,7 @@ Everything else on this page is identical across all three. Headers, subprocesse
 Four read-only properties, populated the moment you enter the block:
 
 * `client.server_info`: the server's identity. `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
-* `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`.
+* `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`. Pass `Client(..., strict_capabilities=True)` and the client uses this to refuse, client-side, a call whose capability the server didn't advertise: it raises `MCPError` with code `-32601` without sending anything. By default the request is sent and the server's answer comes back.
 * `client.protocol_version`: the protocol version the two sides agreed on. Here it is `"2026-07-28"`.
 * `client.instructions`: the server's `instructions=` string, or `None` if it didn't set one.
 
@@ -145,7 +145,7 @@ The resource verbs come in pairs: two ways to list, one way to read.
 
 `read_resource` returns `contents`, a list of `TextResourceContents` or `BlobResourceContents`. Same idea as tool content: narrow with `isinstance`, then read `.text` (or `.blob`).
 
-A client can also **subscribe** to a resource and be told when it changes: `subscribe_resource(uri)` and `unsubscribe_resource(uri)`, same shape as everything else here. `MCPServer` doesn't implement that half. It says so up front (`server_capabilities.resources.subscribe` is `False`) and answers the request with an `MCPError`: `-32601`, *Method not found*. A server that does support subscriptions is built on the low-level `Server` (**The low-level Server**).
+A client can also **subscribe** to a resource and be told when it changes: `subscribe_resource(uri)` and `unsubscribe_resource(uri)`, same shape as everything else here. `MCPServer` doesn't implement that half. It says so up front (`server_capabilities.resources.subscribe` is `False`) and answers the request with an `MCPError`: `-32601`, *Method not found*. With `strict_capabilities=True` you get the same `-32601` without the round trip: the client sees `server_capabilities.resources.subscribe` is falsy and never sends the request. A server that does support subscriptions is built on the low-level `Server` (**The low-level Server**).
 
 ## Prompts
 

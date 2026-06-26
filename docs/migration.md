@@ -439,6 +439,26 @@ For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` 
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
+### `Client` gains an opt-in `strict_capabilities` flag
+
+`Client(..., strict_capabilities=True)` makes the client reject, before any request reaches
+the transport, a call to a method whose required server capability the connected server did
+not advertise -- for example `list_resources()` against a server that only advertised
+`tools`, or `subscribe_resource()` against a server whose `resources` capability does not set
+`subscribe`. The rejection is an `MCPError` with code `-32601` (`METHOD_NOT_FOUND`), the same
+code a compliant server returns for an unadvertised capability, so existing error handling is
+unaffected.
+
+The default is `False` and is unchanged from v1: every request is sent and the server's
+answer is surfaced. This mirrors the TypeScript SDK's `enforceStrictCapabilities` option, and
+the same keyword-only parameter exists directly on `ClientSession(..., strict_capabilities=)`
+for low-level users -- `Client` just forwards it. The check reads
+`client.server_capabilities`, so a bare version pin (`mode="2026-07-28"` with no
+`prior_discover=`) -- where the client never asks the server what it supports and so every
+capability-gated method would be rejected -- is refused at construction with a `ValueError`
+that names the fix: supply `prior_discover=` or use `mode="auto"`. Which method needs which
+capability is exported as `mcp_types.methods.SERVER_CAPABILITY_REQUIREMENTS`.
+
 ### Unhandled `elicitation/create` returns `-32602`; unhandled `roots/list` returns `-32601`
 
 When a server sends `elicitation/create` to a client that registered no `elicitation_callback`, or `roots/list` to a client that registered no `list_roots_callback`, the SDK still answers on the client's behalf with a JSON-RPC error. In v1 both answers used code `-32600` (`INVALID_REQUEST`). They now use the code the spec assigns to each case: `elicitation/create` is answered with `-32602` (`INVALID_PARAMS`), per the [elicitation error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#error-handling) (a client with no callback declared no elicitation modes, and a request for an undeclared mode MUST be answered with `-32602`), and `roots/list` is answered with `-32601` (`METHOD_NOT_FOUND`), per the [roots error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/roots#error-handling). The error messages (`Elicitation not supported`, `List roots not supported`) are unchanged, and `sampling/createMessage` without a `sampling_callback` still answers `-32600` — the spec assigns no code to that case.

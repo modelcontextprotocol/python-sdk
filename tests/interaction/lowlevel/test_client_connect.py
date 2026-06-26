@@ -9,6 +9,9 @@ and observes traffic at a recording seam: `RecordingTransport` for the legacy st
 
 The fallback test alone hand-plays the server's side of the wire, because no real `Server`
 answers `server/discover` with -32601.
+
+The strict-capability tests at the bottom pin the opt-in `strict_capabilities=` gate: the same
+recording seams prove which of the caller's requests reached the transport.
 """
 
 import json
@@ -19,6 +22,7 @@ import anyio
 import httpx
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -33,6 +37,7 @@ from mcp_types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ResourcesCapability,
     ServerCapabilities,
     ToolsCapability,
 )
@@ -62,6 +67,18 @@ def _tools_server(name: str = "negotiator") -> Server:
         return types.ListToolsResult(tools=[types.Tool(name="noop", input_schema={"type": "object"})])
 
     return Server(name, on_list_tools=list_tools)
+
+
+def _resources_server(name: str = "library") -> Server:
+    """A low-level server whose only handler is list-resources, so it advertises `resources`
+    with `subscribe=False` and no other capability."""
+
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=[])
+
+    return Server(name, on_list_resources=list_resources)
 
 
 def _request_recorder() -> tuple[list[httpx.Request], Callable[[httpx.Request], Awaitable[None]]]:
@@ -368,3 +385,115 @@ async def test_http_protocol_version_header_matches_meta_protocol_version_on_eve
         body = json.loads(request.content)
         assert request.headers["mcp-protocol-version"] == body["params"]["_meta"][PROTOCOL_VERSION_META_KEY]
         assert request.headers["mcp-protocol-version"] == LATEST_MODERN_VERSION
+
+
+@requirement("lifecycle:capability:server-not-advertised")
+async def test_strict_capabilities_rejects_an_unadvertised_method_before_any_request_is_sent() -> None:
+    """`Client(..., strict_capabilities=True)` raises METHOD_NOT_FOUND for a method whose required
+    server capability the server did not advertise, and the request never reaches the transport.
+
+    Requirement `lifecycle:capability:server-not-advertised` (spec basic/lifecycle#operation,
+    "Both parties MUST ... only use capabilities that were successfully negotiated"). The flag is
+    opt-in; the recorded wire log proves the rejection happened before the dispatcher.
+    """
+    recording = RecordingTransport(InMemoryTransport(_tools_server()))
+
+    with anyio.fail_after(5):
+        async with Client(recording, mode="legacy", strict_capabilities=True) as client:
+            with pytest.raises(MCPError) as exc_info:
+                await client.list_resources()
+            assert exc_info.value.code == METHOD_NOT_FOUND
+            assert exc_info.value.message == snapshot(
+                "Server does not advertise the resources capability (required for resources/list)"
+            )
+            assert exc_info.value.data == "resources/list"
+
+    sent = [m.message for m in recording.sent]
+    methods = [m.method for m in sent if isinstance(m, JSONRPCRequest | JSONRPCNotification)]
+    assert methods == ["initialize", "notifications/initialized"]
+
+
+@requirement("lifecycle:capability:server-not-advertised")
+async def test_default_client_sends_an_unadvertised_method_and_surfaces_the_server_error() -> None:
+    """Without `strict_capabilities`, the client sends `resources/list` to a server that never
+    advertised `resources` and surfaces the server's METHOD_NOT_FOUND.
+
+    Pins the recorded divergence on `lifecycle:capability:server-not-advertised`: the spec's
+    client-side MUST is not enforced by default; the pre-check is opt-in.
+    """
+    recording = RecordingTransport(InMemoryTransport(_tools_server()))
+
+    with anyio.fail_after(5):
+        async with Client(recording, mode="legacy") as client:
+            with pytest.raises(MCPError) as exc_info:
+                await client.list_resources()
+            assert exc_info.value.code == METHOD_NOT_FOUND
+            assert exc_info.value.message == snapshot("Method not found")
+
+    sent = [m.message for m in recording.sent]
+    methods = [m.method for m in sent if isinstance(m, JSONRPCRequest | JSONRPCNotification)]
+    assert methods == ["initialize", "notifications/initialized", "resources/list"]
+
+
+@requirement("lifecycle:capability:server-not-advertised")
+async def test_strict_capabilities_distinguishes_a_sub_capability_from_its_parent() -> None:
+    """A strict client allows `resources/list` against a server advertising `resources` but
+    rejects `resources/subscribe` when `resources.subscribe` is not advertised.
+
+    Steps:
+      1. Connect to a server with only a list-resources handler: it advertises
+         `resources` with `subscribe=False` and nothing else.
+      2. `list_resources()` succeeds (base `resources` is advertised).
+      3. `subscribe_resource()` raises METHOD_NOT_FOUND client-side: the `resources.subscribe`
+         sub-capability is falsy.
+      4. The wire log shows `resources/list` went out and `resources/subscribe` never did.
+    """
+    recording = RecordingTransport(InMemoryTransport(_resources_server()))
+
+    with anyio.fail_after(5):
+        async with Client(recording, mode="legacy", strict_capabilities=True) as client:
+            assert client.server_capabilities.resources == ResourcesCapability(subscribe=False, list_changed=False)
+            await client.list_resources()
+            with pytest.raises(MCPError) as exc_info:
+                await client.subscribe_resource("res://x")
+            assert exc_info.value.code == METHOD_NOT_FOUND
+            assert exc_info.value.message == snapshot(
+                "Server does not advertise the resources.subscribe capability (required for resources/subscribe)"
+            )
+
+    sent = [m.message for m in recording.sent]
+    methods = [m.method for m in sent if isinstance(m, JSONRPCRequest | JSONRPCNotification)]
+    assert methods == ["initialize", "notifications/initialized", "resources/list"]
+
+
+@requirement("lifecycle:capability:server-not-advertised")
+async def test_strict_capabilities_uses_discover_era_capabilities_and_sends_nothing() -> None:
+    """On a modern (version-pinned + prior_discover) connection, the strict gate reads the
+    discover-era capabilities and rejects an unadvertised method with zero HTTP traffic.
+
+    Same gate as the initialize-era tests: `server_capabilities` is the era-neutral accessor,
+    so no version branch exists to test separately. Asserted at the in-process streamable-HTTP
+    seam via the httpx event hook (the strongest "nothing was sent" available on this path).
+    """
+    prior = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(tools=ToolsCapability(list_changed=False)),
+        server_info=Implementation(name="cached-server", version="9.9.9"),
+    )
+    requests, on_request = _request_recorder()
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_tools_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=prior,
+                strict_capabilities=True,
+            ) as client,
+        ):
+            with pytest.raises(MCPError) as exc_info:
+                await client.list_resources()
+            assert exc_info.value.code == METHOD_NOT_FOUND
+
+    assert requests == []
