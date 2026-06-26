@@ -3434,15 +3434,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
         behavior=(
             "The client refuses to proceed when the authorization server's metadata does not include "
-            "code_challenge_methods_supported, since PKCE support cannot be verified."
+            "code_challenge_methods_supported, or includes it without S256 (the only method the client "
+            "sends), since a compliant PKCE flow cannot be completed."
         ),
         transports=("streamable-http",),
-        note="OAuth is HTTP-only.",
-        divergence=Divergence(
-            note=(
-                "The client never inspects code_challenge_methods_supported and proceeds with PKCE S256 "
-                "regardless; the spec MUST is not enforced."
-            ),
+        note=(
+            "OAuth is HTTP-only. The check fires only when an authorization-server metadata document was "
+            "discovered; the legacy no-metadata fallback (client-auth:prm-discovery:no-prm-fallback) "
+            "deliberately proceeds, since the absence of a document is not evidence of non-support."
         ),
     ),
     "client-auth:pkce:s256": Requirement(
@@ -3523,13 +3522,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
-        divergence=Divergence(
-            note=(
-                "The SDK inserts an extra fallback step between PRM and omit: if the authorization "
-                "server metadata advertises scopes_supported, that list is used (client/auth/utils.py). "
-                "This is beyond the spec's two-step chain."
-            ),
-        ),
     ),
     "client-auth:state:verify": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",

@@ -78,7 +78,7 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 
 1. **Discovery.** It reads the `WWW-Authenticate` header, fetches the server's Protected Resource Metadata from `/.well-known/oauth-protected-resource`, learns which authorization server protects this resource, and fetches *that* server's metadata.
 2. **Registration.** Nothing in storage? It registers you dynamically with your `OAuthClientMetadata` and stores the result.
-3. **Authorization.** It generates the PKCE pair and a `state`, builds the authorization URL, awaits your `redirect_handler`, then awaits your `callback_handler` for the code.
+3. **Authorization.** It checks that the discovered authorization-server metadata advertises `S256` PKCE support (and stops with `OAuthFlowError` if it does not), generates the PKCE pair and a `state`, builds the authorization URL, awaits your `redirect_handler`, then awaits your `callback_handler` for the code.
 4. **Exchange.** It trades the code for an `OAuthToken`, stores it, and replays your original request with `Authorization: Bearer ...`.
 
 After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.

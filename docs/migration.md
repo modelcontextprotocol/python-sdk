@@ -121,6 +121,18 @@ async def callback_handler() -> AuthorizationCodeResult:
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
 
+### OAuth client refuses to authorize when AS metadata does not advertise S256 PKCE
+
+The OAuth client now verifies PKCE support before starting the authorization-code grant, as the MCP authorization specification's Authorization Code Protection section requires. When an authorization-server metadata document was discovered and its `code_challenge_methods_supported` is absent (which the spec defines as "the authorization server does not support PKCE") or does not list `S256` (the only method the SDK sends), the flow raises `OAuthFlowError` instead of redirecting to the authorization endpoint. The symptom is `OAuthFlowError: Authorization server metadata does not include code_challenge_methods_supported; PKCE support cannot be verified`. Previously the SDK never inspected the field and proceeded with an S256 challenge regardless.
+
+When no authorization-server metadata document could be discovered at all, the flow proceeds as before — absence of a document is not evidence of non-support. Grants that never issue an authorization code (`ClientCredentialsOAuthProvider`, `PrivateKeyJWTOAuthProvider`) are unaffected. There is no SDK-side opt-out: an authorization server that supports S256 but omits the field from its published metadata needs that metadata fixed (RFC 8414 §2 defines `code_challenge_methods_supported`).
+
+### OAuth client no longer reads `scopes_supported` from AS metadata to choose a scope
+
+The specification's scope-selection chain is two steps: the `scope` parameter from the `WWW-Authenticate` challenge, then `scopes_supported` from the Protected Resource Metadata document, *otherwise the `scope` parameter is omitted*. The SDK inserted an extra fallback between those two steps — the **authorization-server** metadata's `scopes_supported` — which over-requests (an authorization server may serve many resource servers, so its list is a superset of any one resource's) and caused real `access_denied` failures ([#1307](https://github.com/modelcontextprotocol/python-sdk/issues/1307)). That fallback is removed: when neither the challenge nor the PRM names scopes, the client now omits the `scope` parameter and lets the authorization server apply its defaults.
+
+This also affects the SEP-2207 `offline_access` augmentation, which only fires once a base scope was selected: if the authorization server's `scopes_supported` was your only scope source, the client now sends no `scope` at all (not even `offline_access`) and the authorization server's defaults decide whether a refresh token is issued. In either case, if you relied on the removed fallback, pass an explicit `scope` on the `OAuthClientMetadata` you give to `OAuthClientProvider`.
+
 ### `get_session_id` callback removed from `streamable_http_client`
 
 The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.

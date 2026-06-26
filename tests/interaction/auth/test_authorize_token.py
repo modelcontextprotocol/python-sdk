@@ -28,7 +28,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthFlowError
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, ProtectedResourceMetadata
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -359,13 +359,63 @@ async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_me
     assert json.loads(register.content)["scope"] == "from-header"
 
 
-@requirement("client-auth:pkce:refuse-if-unsupported")
-async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_supported() -> None:
-    """AS metadata without `code_challenge_methods_supported` does not stop the client sending PKCE.
+@requirement("client-auth:scope-selection:priority")
+async def test_scope_is_omitted_when_neither_the_challenge_nor_prm_supply_scopes() -> None:
+    """When the 401 challenge carries no `scope=` and the PRM has no `scopes_supported`, no scope is requested.
 
-    The spec says the client MUST refuse to proceed in this case; the SDK proceeds and the flow
-    completes. See the divergence on the requirement.
+    The served AS metadata advertises `scopes_supported`, which the spec's two-step chain never
+    consults, so the assertion fails if the SDK falls back to it instead of omitting the
+    parameter. The challenge has to be hand-supplied via `first_challenge_shim` because the
+    SDK's own bearer middleware always emits `scope=` from its configured `required_scopes`.
     """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    challenge = f'Bearer resource_metadata="{BASE_URL}{PRM_PATH}"'
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(BASE_URL)]
+    )
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
+        token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
+        registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
+        scopes_supported=["mcp", "as-advertised"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        code_challenge_methods_supported=["S256"],
+    )
+    serve = {
+        PRM_PATH: prm.model_dump_json(exclude_none=True).encode(),
+        ASM_PATH: asm.model_dump_json(exclude_none=True).encode(),
+    }
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            verify_tokens=False,
+            app_shim=lambda app: first_challenge_shim(challenge)(shimmed_app(app, serve=serve)),
+            on_request=on_request,
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert headless.authorize_url is not None
+    assert "scope" not in authorize_params(headless.authorize_url)
+
+    [register] = find(recorded, "POST", "/register")
+    assert "scope" not in json.loads(register.content)
+
+
+@requirement("client-auth:pkce:refuse-if-unsupported")
+async def test_the_flow_aborts_before_any_authorize_redirect_when_as_metadata_omits_code_challenge_methods() -> None:
+    """AS metadata without `code_challenge_methods_supported` aborts the flow before any authorize redirect.
+
+    Authorization Code Protection: the client must verify PKCE support from discovered
+    authorization-server metadata and refuse to proceed with authorization when the field is
+    absent. The registration step is not authorization, so the dynamic-registration request
+    still goes out; what never happens is an authorize redirect or a token request.
+    """
+    recorded, on_request = record_requests()
     override = OAuthMetadata(
         issuer=AnyHttpUrl(f"{BASE_URL}/"),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
@@ -379,18 +429,30 @@ async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_
 
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth()
 
     with anyio.fail_after(5):
-        async with connect_with_oauth(
-            server, provider=provider, app_shim=lambda app: shimmed_app(app, serve=serve)
-        ) as (client, headless):
-            result = await client.list_tools()
+        # Exact-message equality: `OAuthFlowError` has several pre-redirect raise sites on this
+        # path (issuer mismatch, missing client info, ...); only this message is the PKCE refusal.
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(
+                OAuthFlowError,
+                check=lambda e: str(e)
+                == "Authorization server metadata does not include code_challenge_methods_supported; "
+                "PKCE support cannot be verified",
+            ),
+            flatten_subgroups=True,
+        ):
+            await connect_with_oauth(
+                server,
+                provider=provider,
+                headless=headless,
+                app_shim=lambda app: shimmed_app(app, serve=serve),
+                on_request=on_request,
+            ).__aenter__()
 
-    assert headless.authorize_url is not None
-    params = authorize_params(headless.authorize_url)
-    assert params["code_challenge_method"] == "S256"
-    assert params["code_challenge"] != ""
-    assert result.tools[0].name == "echo"
+    assert headless.authorize_url is None
+    assert find(recorded, "POST", "/token") == []
 
 
 @requirement("client-auth:authorize:error-surfaces")

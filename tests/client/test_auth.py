@@ -30,6 +30,7 @@ from mcp.client.auth.utils import (
     union_scopes,
     validate_authorization_response_iss,
     validate_metadata_issuer,
+    validate_pkce_support,
 )
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
@@ -2447,7 +2448,11 @@ class TestSEP2207OfflineAccessScope:
         assert scopes == "read offline_access write"
 
     def test_offline_access_not_added_when_no_scopes_selected(self):
-        """offline_access is not added when no base scopes are available (None)."""
+        """offline_access is not appended when the challenge and PRM yield no base scope.
+
+        The AS metadata advertising offline_access is not a scope source, so there is no
+        selected scope to augment and the result stays None.
+        """
         asm = self._make_as_metadata(scopes_supported=["offline_access"])
 
         scopes = get_client_metadata_scopes(
@@ -2456,9 +2461,7 @@ class TestSEP2207OfflineAccessScope:
             authorization_server_metadata=asm,
             client_grant_types=["authorization_code", "refresh_token"],
         )
-        # When AS scopes are the only source and include offline_access,
-        # the base scope is "offline_access" and no duplication happens
-        assert scopes == "offline_access"
+        assert scopes is None
 
     def test_offline_access_not_added_when_as_scopes_supported_is_none(self):
         """offline_access is not added when AS scopes_supported is None."""
@@ -2571,6 +2574,7 @@ class TestSEP2207OfflineAccessScope:
                 b'{"issuer": "https://auth.example.com",'
                 b' "authorization_endpoint": "https://auth.example.com/authorize",'
                 b' "token_endpoint": "https://auth.example.com/token",'
+                b' "code_challenge_methods_supported": ["S256"],'
                 b' "scopes_supported": ["read", "write", "offline_access"]}'
             ),
             request=oauth_request,
@@ -2679,6 +2683,7 @@ class TestSEP2207OfflineAccessScope:
                 b'{"issuer": "https://auth.example.com",'
                 b' "authorization_endpoint": "https://auth.example.com/authorize",'
                 b' "token_endpoint": "https://auth.example.com/token",'
+                b' "code_challenge_methods_supported": ["S256"],'
                 b' "scopes_supported": ["read", "write"]}'
             ),
             request=oauth_request,
@@ -2778,6 +2783,48 @@ def test_validate_metadata_issuer_accepts_match():
 def test_validate_metadata_issuer_rejects_mismatch():
     with pytest.raises(OAuthFlowError, match="metadata issuer mismatch"):
         validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), _ISSUER)
+
+
+def test_as_metadata_scopes_supported_is_never_used_as_a_scope_source():
+    """When neither the challenge nor the PRM names scopes, scope is omitted even though the AS advertises some.
+
+    The spec's scope-selection chain is WWW-Authenticate scope, then PRM scopes_supported, then
+    omit; authorization-server metadata is not a step in it.
+    """
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        scopes_supported=["as-only:read", "as-only:write"],
+    )
+    assert get_client_metadata_scopes(None, None, asm) is None
+
+
+def test_pkce_validation_passes_when_as_metadata_lists_s256():
+    """Metadata whose code_challenge_methods_supported includes S256 is accepted, whatever else it lists."""
+    validate_pkce_support(_issuer_metadata().model_copy(update={"code_challenge_methods_supported": ["plain", "S256"]}))
+
+
+def test_pkce_validation_refuses_when_code_challenge_methods_supported_is_absent():
+    """An AS metadata document without code_challenge_methods_supported is refused: PKCE support is unverified."""
+    metadata = _issuer_metadata()
+    assert metadata.code_challenge_methods_supported is None
+    with pytest.raises(OAuthFlowError) as exc_info:
+        validate_pkce_support(metadata)
+    assert str(exc_info.value) == snapshot(
+        "Authorization server metadata does not include code_challenge_methods_supported; "
+        "PKCE support cannot be verified"
+    )
+
+
+def test_pkce_validation_refuses_when_s256_is_not_among_the_advertised_methods():
+    """A code_challenge_methods_supported list without S256 is refused: the SDK only sends S256."""
+    metadata = _issuer_metadata().model_copy(update={"code_challenge_methods_supported": ["plain"]})
+    with pytest.raises(OAuthFlowError) as exc_info:
+        validate_pkce_support(metadata)
+    assert str(exc_info.value) == snapshot(
+        "Authorization server does not support the S256 PKCE code challenge method: ['plain']"
+    )
 
 
 @pytest.mark.parametrize(
@@ -2991,7 +3038,8 @@ async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
                     content=(
                         b'{"issuer": "https://new-as.example.com", '
                         b'"authorization_endpoint": "https://new-as.example.com/authorize", '
-                        b'"token_endpoint": "https://new-as.example.com/token"}'
+                        b'"token_endpoint": "https://new-as.example.com/token", '
+                        b'"code_challenge_methods_supported": ["S256"]}'
                     ),
                 )
             ],
@@ -3138,7 +3186,8 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         content=(
             b'{"issuer": "https://api.example.com", '
             b'"authorization_endpoint": "https://api.example.com/authorize", '
-            b'"token_endpoint": "https://api.example.com/token"}'
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"code_challenge_methods_supported": ["S256"]}'
         ),
         request=asm_req,
     )
@@ -3165,6 +3214,82 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
     )
     final_req = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_pkce_is_still_sent_when_no_authorization_server_metadata_document_is_discovered(
+    oauth_provider: OAuthClientProvider,
+):
+    """With no discoverable AS metadata, the client still proceeds and sends an S256 PKCE challenge.
+
+    The refuse-if-unsupported gate is conditioned on a discovered authorization-server metadata
+    *document*: failing to obtain one is not evidence of non-support, and the SDK deliberately
+    keeps a legacy no-metadata fallback path (the `client-auth:prm-discovery:no-prm-fallback`
+    requirement), so the flow falls back to the resource origin's `/authorize` with PKCE intact.
+    This has to drive the httpx `async_auth_flow` generator directly: the in-process interaction
+    harness cannot express a server with no metadata endpoint, because its real authorize route
+    always returns an RFC 9207 `iss` that the client rejects when it has no metadata issuer to
+    compare against.
+
+    Steps:
+      1. 401 with no challenge -> path-based then root PRM discovery, both 404.
+      2. One root AS-metadata probe (the only URL built when no AS is known), 404 ->
+         `oauth_metadata` stays None.
+      3. DCR against the resource origin's `/register` fallback.
+      4. The authorize redirect is built and carries `code_challenge_method=S256`.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+
+    captured_url: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_url
+        captured_url = url
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        assert captured_url is not None
+        params = parse_qs(urlparse(captured_url).query)
+        return AuthorizationCodeResult(code="auth_code", state=params["state"][0])
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    prm_req = await auth_flow.asend(httpx.Response(401, request=request))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    dcr_req = await auth_flow.asend(httpx.Response(404, request=asm_req))
+    assert oauth_provider.context.oauth_metadata is None
+    assert str(dcr_req.url) == "https://api.example.com/register"
+
+    token_req = await auth_flow.asend(
+        httpx.Response(
+            201,
+            json={"client_id": "registered", "redirect_uris": ["http://localhost:3030/callback"]},
+            request=dcr_req,
+        )
+    )
+
+    assert captured_url is not None
+    params = parse_qs(urlparse(captured_url).query)
+    assert params["code_challenge_method"] == ["S256"]
+    assert params["code_challenge"] != [""]
+
+    final_req = await auth_flow.asend(
+        httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req)
+    )
     try:
         await auth_flow.asend(httpx.Response(200, request=final_req))
     except StopAsyncIteration:
