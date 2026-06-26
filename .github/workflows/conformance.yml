@@ -21,13 +21,14 @@ env:
   #
   # Temporarily pinned to the pkg.pr.new preview build of conformance#371, which
   # fixes the http-custom-headers fixture's spec-forbidden `number`-typed
-  # x-mcp-header annotations. Because this is a mutable URL (not a registry
-  # spec), CONFORMANCE_PKG_SHA256 pins the tarball and the fetch-and-verify step
-  # below downloads, checks the digest, and repoints CONFORMANCE_PKG at the
-  # verified local copy. Repin to the published release that includes #371 once
-  # it ships, then drop CONFORMANCE_PKG_SHA256 and the fetch-and-verify steps.
-  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@371"
-  CONFORMANCE_PKG_SHA256: "9d8b25874d55e304b006cbaa066571773582f5828143c53a2b8a6830f203ca1d"
+  # x-mcp-header annotations. Pinned by commit SHA (not PR number) so a new push
+  # to #371 cannot silently change the tarball; CONFORMANCE_PKG_SHA256 then pins
+  # the bytes and the fetch-and-verify step below downloads, checks the digest,
+  # and repoints CONFORMANCE_PKG at the verified local copy. Repin to the
+  # published release that includes #371 once it ships, then drop
+  # CONFORMANCE_PKG_SHA256 and the fetch-and-verify steps.
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@ed314a73"
+  CONFORMANCE_PKG_SHA256: "e9f6bc25085b4692e988cbdbd024a4203d54a52a6aaa065376cf8ecaa09bb680"
 
 jobs:
   server-conformance:
