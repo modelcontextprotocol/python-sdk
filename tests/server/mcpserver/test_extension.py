@@ -11,19 +11,25 @@ from typing import Any, Literal, cast
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import CallToolResult, TextContent
+from mcp_types import (
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
+    CallToolResult,
+    TextContent,
+)
 
 from mcp.client.client import Client
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.extension import (
+from mcp.server.extension import (
     Extension,
     MethodBinding,
     ResourceBinding,
     ToolBinding,
     compose_tool_call_interceptor,
 )
+from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
+from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio
 
@@ -282,3 +288,110 @@ async def test_compose_tool_call_interceptor_passes_through_non_tools_call() -> 
     result = await middleware(ctx, call_next)
 
     assert result is sentinel
+
+
+def test_extension_subclass_without_prefixed_identifier_is_rejected_at_definition() -> None:
+    """SDK-defined: SEP-2133 requires a `vendor-prefix/name` identifier, enforced when the
+    subclass is defined (a bare name with no prefix is a TypeError)."""
+    with pytest.raises(TypeError):
+        type("_BadExt", (Extension,), {"identifier": "noprefix"})
+
+
+def test_extension_without_identifier_is_rejected_at_registration() -> None:
+    """SDK-defined: a subclass that never sets `identifier` (neither class-level nor in
+    `__init__`) is rejected when the server applies it."""
+
+    class _NoIdExt(Extension):
+        pass
+
+    with pytest.raises(TypeError):
+        MCPServer("test", extensions=[_NoIdExt()])
+
+
+class _VersionPinnedParams(types.RequestParams):
+    pass
+
+
+class _VersionPinnedResult(types.Result):
+    ok: bool
+
+
+class _VersionPinnedRequest(types.Request[_VersionPinnedParams, Literal["com.example/pinned"]]):
+    method: Literal["com.example/pinned"] = "com.example/pinned"
+    params: _VersionPinnedParams
+
+
+class _VersionPinnedExt(Extension):
+    """A method scoped to 2026-07-28 only via `MethodBinding.protocol_versions`."""
+
+    identifier = "com.example/pinned"
+
+    def methods(self):
+        async def handler(ctx: ServerRequestContext[Any, Any], params: _VersionPinnedParams) -> _VersionPinnedResult:
+            return _VersionPinnedResult(ok=True)
+
+        return [MethodBinding("com.example/pinned", _VersionPinnedParams, handler, frozenset({"2026-07-28"}))]
+
+
+async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
+    """SDK-defined: a `MethodBinding` with `protocol_versions` serves the method at a version
+    in the set."""
+    server = MCPServer("test", extensions=[_VersionPinnedExt()])
+
+    async with Client(server, mode="2026-07-28") as client:
+        request = _VersionPinnedRequest(params=_VersionPinnedParams())
+        result = await client.session.send_request(cast("types.ClientRequest", request), _VersionPinnedResult)
+
+    assert result == snapshot(_VersionPinnedResult(ok=True))
+
+
+async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version() -> None:
+    """SDK-defined: the same method at a version outside `protocol_versions` is rejected with
+    METHOD_NOT_FOUND, mirroring the spec's per-version boundary."""
+    server = MCPServer("test", extensions=[_VersionPinnedExt()])
+
+    async with Client(server, mode="legacy") as client:
+        request = _VersionPinnedRequest(params=_VersionPinnedParams())
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.send_request(cast("types.ClientRequest", request), _VersionPinnedResult)
+
+    assert exc_info.value.code == METHOD_NOT_FOUND
+
+
+_NEEDS_EXT = "com.example/needed"
+
+
+class _RequiresExt(Extension):
+    """A tool that requires the client to have declared `com.example/needed`."""
+
+    identifier = _NEEDS_EXT
+
+    def tools(self):
+        def guarded(ctx: Context) -> str:
+            require_client_extension(ctx.request_context, _NEEDS_EXT)
+            return "ok"
+
+        return [ToolBinding(fn=guarded)]
+
+
+async def test_require_client_extension_passes_when_client_declared_it() -> None:
+    """SDK-defined: `require_client_extension` is a no-op when the client advertised the id."""
+    server = MCPServer("test", extensions=[_RequiresExt()])
+
+    async with Client(server, extensions={_NEEDS_EXT: {}}) as client:
+        result = await client.call_tool("guarded", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+
+
+async def test_require_client_extension_raises_minus_32021_when_client_did_not_declare_it() -> None:
+    """SDK-defined: `require_client_extension` raises the -32021 missing-required-capability
+    error when the client did not advertise the id."""
+    server = MCPServer("test", extensions=[_RequiresExt()])
+
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("guarded", {})
+
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data == snapshot({"requiredCapabilities": {"extensions": {_NEEDS_EXT: {}}}})

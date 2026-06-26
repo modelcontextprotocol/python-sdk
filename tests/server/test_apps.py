@@ -14,7 +14,14 @@ from mcp_types import CallToolResult, ReadResourceResult, TextContent, TextResou
 
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID, Apps, client_supports_apps
+from mcp.server.apps import (
+    APP_MIME_TYPE,
+    EXTENSION_ID,
+    Apps,
+    ResourceCsp,
+    ResourcePermissions,
+    client_supports_apps,
+)
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
 
@@ -133,3 +140,83 @@ def test_add_html_resource_rejects_non_ui_resource_uri() -> None:
     apps = Apps()
     with pytest.raises(ValueError):
         apps.add_html_resource("https://example.com/app.html", "<title>x</title>")
+
+
+def _widget() -> str:
+    """A UI-bound tool body (shared so its one covered call serves both meta tests)."""
+    return "x"
+
+
+async def test_apps_tool_stamps_visibility_when_given() -> None:
+    """SDK-defined: `@apps.tool(visibility=...)` is stamped into `_meta.ui.visibility`."""
+    apps = Apps()
+    apps.tool(resource_uri="ui://v/app.html", visibility=["app"])(_widget)
+
+    async with Client(MCPServer("v", extensions=[apps])) as client:
+        result = await client.list_tools()
+        called = await client.call_tool("_widget", {})
+
+    assert result.tools[0].meta == snapshot({"ui": {"resourceUri": "ui://v/app.html", "visibility": ["app"]}})
+    assert called.content == snapshot([TextContent(text="x")])
+
+
+async def test_apps_tool_merges_extra_meta_alongside_ui() -> None:
+    """SDK-defined: `@apps.tool(meta=...)` merges extra `_meta` keys with the `ui` entry
+    (previously a `meta=` argument raised a duplicate-keyword TypeError)."""
+    apps = Apps()
+    apps.tool(resource_uri="ui://m/app.html", meta={"com.example/k": 1})(_widget)
+
+    async with Client(MCPServer("m", extensions=[apps])) as client:
+        result = await client.list_tools()
+
+    assert result.tools[0].meta == snapshot({"com.example/k": 1, "ui": {"resourceUri": "ui://m/app.html"}})
+
+
+async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -> None:
+    """SDK-defined: `csp`/`permissions` populate the resource's `_meta.ui` per ext-apps."""
+    apps = Apps()
+    apps.add_html_resource(
+        "ui://r/app.html",
+        "<title>r</title>",
+        csp=ResourceCsp(connect_domains=["https://api.example.com"]),
+        permissions=ResourcePermissions(camera={}),
+        domain="r.example.com",
+        prefers_border=True,
+    )
+
+    async with Client(MCPServer("r", extensions=[apps])) as client:
+        result = await client.read_resource("ui://r/app.html")
+
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].meta == snapshot(
+        {
+            "ui": {
+                "csp": {"connectDomains": ["https://api.example.com"]},
+                "permissions": {"camera": {}},
+                "domain": "r.example.com",
+                "prefersBorder": True,
+            }
+        }
+    )
+
+
+async def test_client_supports_apps_false_when_mime_type_not_offered() -> None:
+    """SDK-defined: a client advertising the extension but NOT the
+    `text/html;profile=mcp-app` MIME type does not count as Apps-capable."""
+    observed: list[bool] = []
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "probe"
+        observed.append(client_supports_apps(ctx))
+        return CallToolResult(content=[])
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
+
+    server = Server("probe", on_call_tool=call_tool, on_list_tools=list_tools)
+    async with Client(server, extensions={EXTENSION_ID: {"mimeTypes": ["application/x-other"]}}) as client:
+        await client.call_tool("probe", {})
+
+    assert observed == [False]

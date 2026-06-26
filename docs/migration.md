@@ -411,9 +411,10 @@ For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may
 
 `MCPServer` now accepts opt-in extensions that bundle MCP behaviour behind a
 reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
-(the 2026-07-28 capability map). An extension subclasses `mcp.server.mcpserver.Extension`
+(the 2026-07-28 capability map). An extension subclasses `mcp.server.extension.Extension`
 and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
-(additive) and `intercept_tool_call()` (wraps `tools/call`). Pass instances at
+(additive) and `intercept_tool_call()` (wraps `tools/call`). The `identifier` must be a
+`vendor-prefix/name` string, enforced when the subclass is defined. Pass instances at
 construction:
 
 ```python
@@ -425,7 +426,14 @@ mcp = MCPServer("demo", extensions=[Apps()])
 
 The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
 it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
-`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback.
+`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback (checking the
+client advertised the `text/html;profile=mcp-app` MIME type).
+
+A `MethodBinding` may set `protocol_versions` to scope an extension method to
+specific wire versions; a request at any other version is `METHOD_NOT_FOUND`. An
+extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
+to reject a request with the `-32021` (missing required client capability) error
+when the client did not declare the extension.
 
 Clients advertise extension support with the new `Client(extensions=...)` /
 `ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.

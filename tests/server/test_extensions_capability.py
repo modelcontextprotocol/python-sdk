@@ -15,8 +15,8 @@ from inline_snapshot import snapshot
 
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.extension import Extension
 
 pytestmark = pytest.mark.anyio
 
