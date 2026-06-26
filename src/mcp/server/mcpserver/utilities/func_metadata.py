@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
@@ -27,6 +27,10 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 
 logger = get_logger(__name__)
+
+
+def _is_input_required_type(obj: Any) -> bool:
+    return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -272,19 +276,29 @@ def func_metadata(
     # unknown (i.e. a bare `Final`).
     assert return_type_expr is not UNKNOWN
 
-    if isinstance(return_type_expr, type) and issubclass(return_type_expr, InputRequiredResult):
+    if _is_input_required_type(return_type_expr):
         # A tool annotated to return only InputRequiredResult never produces structured content.
         return FuncMetadata(arg_model=arguments_model)
 
+    # The annotation fed to schema derivation. Starts as the raw return annotation (preserving any
+    # Annotated[...] wrapper) and is narrowed below if InputRequiredResult arms are stripped.
+    effective_annotation: Any = sig.return_annotation
+
     if is_union_origin(get_origin(return_type_expr)):
         args = get_args(return_type_expr)
-        # A union containing InputRequiredResult means the tool may return either a complete
-        # value or a multi-round input request; treat the complete arm as unstructured (the
-        # pass-through in convert_result handles the InputRequiredResult arm).
-        if any(isinstance(arg, type) and issubclass(arg, InputRequiredResult) for arg in args):
+        # InputRequiredResult is a control-flow signal, not data: strip it so the residual arms
+        # drive schema derivation. convert_result short-circuits on an InputRequiredResult instance
+        # before output validation, so the schema only ever sees the data arms at runtime.
+        residual = tuple(a for a in args if not _is_input_required_type(a))
+        if not residual:
             return FuncMetadata(arg_model=arguments_model)
-        # Check if CallToolResult appears in the union (excluding None for Optional check)
-        if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
+        if len(residual) != len(args):
+            # PEP 604 has no syntax for "union of a runtime tuple"; Union[...] is the only spelling.
+            return_type_expr = residual[0] if len(residual) == 1 else Union[residual]  # noqa: UP007
+            effective_annotation = return_type_expr
+        if len(residual) > 1 and any(
+            isinstance(a, type) and issubclass(a, CallToolResult) for a in residual if a is not type(None)
+        ):
             raise InvalidSignature(
                 f"Function {func.__name__}: CallToolResult cannot be used in Union or Optional types. "
                 "To return empty results, use: CallToolResult(content=[])"
@@ -310,7 +324,7 @@ def func_metadata(
         else:
             return FuncMetadata(arg_model=arguments_model)
     else:
-        original_annotation = sig.return_annotation
+        original_annotation = effective_annotation
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
         original_annotation, return_type_expr, func.__name__

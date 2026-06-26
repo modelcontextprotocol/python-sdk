@@ -32,9 +32,8 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Receive, Scope, Send
 
-from mcp.server import Server, ServerRequestContext, _streamable_http_modern, runner
+from mcp.server import Server, ServerRequestContext, runner
 from mcp.server._streamable_http_modern import (
-    _drop_invalid_header_tools,
     _SingleExchangeDispatchContext,
     _to_jsonrpc_response,
     handle_modern_request,
@@ -302,45 +301,3 @@ async def test_handle_modern_request_rejects_mismatched_name_header_with_400_and
         )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == HEADER_MISMATCH
-
-
-# --- tools/list x-mcp-header filter --------------------------------------------
-
-
-async def test_handle_modern_request_drops_tools_with_invalid_x_mcp_header_from_list_result(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Spec-mandated: a tool whose `inputSchema` carries a malformed `x-mcp-header` is excluded
-    from the modern-path `tools/list` result and a warning logged; valid tools pass through."""
-
-    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        good = Tool(name="good", input_schema={"type": "object", "properties": {"r": {"type": "string"}}})
-        bad = Tool(
-            name="bad",
-            input_schema={"type": "object", "properties": {"r": {"type": "string", "x-mcp-header": "Bad Name"}}},
-        )
-        return ListToolsResult(tools=[good, bad], ttl_ms=0, cache_scope="public")
-
-    with caplog.at_level(logging.WARNING, logger=_streamable_http_modern.__name__):
-        async with _asgi_client(Server("test", on_list_tools=list_tools)) as http:
-            response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
-
-    assert response.status_code == 200
-    assert [t["name"] for t in response.json()["result"]["tools"]] == ["good"]
-    assert "dropping tool 'bad'" in caplog.text
-
-
-def test_drop_invalid_header_tools_is_a_no_op_on_a_non_list_tools_field() -> None:
-    """SDK-defined: a result without a list-typed `tools` field (the handler raised, or the method
-    wasn't `tools/list`) is left untouched — the filter never invents the key."""
-    result: dict[str, Any] = {"tools": "not-a-list"}
-    _drop_invalid_header_tools(result)
-    assert result == {"tools": "not-a-list"}
-
-
-def test_drop_invalid_header_tools_preserves_list_identity_when_nothing_dropped() -> None:
-    """SDK-defined: when every tool validates, the original list object is kept (no copy churn)."""
-    tools: list[dict[str, Any]] = [{"name": "ok", "inputSchema": {"type": "object"}}]
-    result: dict[str, Any] = {"tools": tools}
-    _drop_invalid_header_tools(result)
-    assert result["tools"] is tools

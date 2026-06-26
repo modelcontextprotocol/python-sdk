@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
-from mcp_types import ClientCapabilities, InputResponses, LoggingLevel
-from pydantic import AnyUrl, BaseModel, TypeAdapter
+from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
+from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
@@ -17,8 +17,6 @@ from mcp.server.elicitation import (
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.shared.exceptions import MCPDeprecationWarning
-
-_INPUT_RESPONSES_ADAPTER: TypeAdapter[InputResponses] = TypeAdapter(InputResponses)
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -60,6 +58,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
+    _input_params: InputResponseRequestParams | None
 
     # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
@@ -67,12 +66,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         *,
         request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
+        input_params: InputResponseRequestParams | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server
+        self._input_params = input_params
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -226,11 +227,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """Client responses to a prior `InputRequiredResult.input_requests`.
 
         `None` on the initial round, or when the client retried without
-        responses. Values are parsed into the typed result models.
+        responses.
         """
-        params = self.request_context.params
-        raw = params.get("inputResponses") if params else None
-        return None if raw is None else _INPUT_RESPONSES_ADAPTER.validate_python(raw)
+        return self._input_params.input_responses if self._input_params else None
 
     @property
     def request_state(self) -> str | None:
@@ -238,8 +237,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         `None` on the initial round.
         """
-        params = self.request_context.params
-        return params.get("requestState") if params else None
+        return self._input_params.request_state if self._input_params else None
 
     @property
     def client_capabilities(self) -> ClientCapabilities | None:

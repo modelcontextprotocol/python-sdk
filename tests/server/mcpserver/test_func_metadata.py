@@ -10,7 +10,7 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
-from mcp_types import CallToolResult, InputRequiredResult, TextContent
+from mcp_types import CallToolResult, InputRequiredResult
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
@@ -1213,20 +1213,53 @@ def test_input_required_result_return_annotation_yields_no_output_schema():
     assert meta.output_model is None
 
 
-def test_union_with_input_required_result_yields_no_output_schema():
+def test_union_with_input_required_result_derives_schema_from_residual_arm():
     def fn() -> str | InputRequiredResult: ...  # pragma: no branch
 
     meta = func_metadata(fn)
-    assert meta.output_schema is None
+    assert meta.output_schema is not None
+    assert meta.output_schema["properties"]["result"]["type"] == "string"
     converted = meta.convert_result("hello")
     assert isinstance(converted, CallToolResult)
-    block = converted.content[0]
-    assert isinstance(block, TextContent)
-    assert block.text == "hello"
+    assert converted.structured_content == {"result": "hello"}
+    irr = InputRequiredResult(request_state="opaque")
+    assert meta.convert_result(irr) is irr
 
 
 def test_call_tool_result_unioned_with_input_required_result_is_accepted():
     def fn() -> CallToolResult | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+
+
+def test_basemodel_union_input_required_result_derives_model_schema():
+    class Payload(BaseModel):
+        x: int
+
+    def fn() -> Payload | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_model is Payload
+    assert meta.wrap_output is False
+    assert meta.output_schema == Payload.model_json_schema()
+
+
+def test_call_tool_result_in_union_with_input_required_result_is_still_rejected():
+    def fn() -> CallToolResult | str | InputRequiredResult: ...  # pragma: no branch
+
+    with pytest.raises(InvalidSignature, match="CallToolResult cannot be used in Union"):
+        func_metadata(fn)
+
+
+def test_union_of_only_input_required_subclasses_yields_no_output_schema():
+    class StepA(InputRequiredResult):
+        pass
+
+    class StepB(InputRequiredResult):
+        pass
+
+    def fn() -> StepA | StepB: ...  # pragma: no branch
 
     meta = func_metadata(fn)
     assert meta.output_schema is None

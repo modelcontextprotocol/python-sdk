@@ -14,7 +14,7 @@ validator so client emit and server validate read the same source of truth.
 import base64
 import binascii
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Final, cast
@@ -81,10 +81,63 @@ _B64_SENTINEL = re.compile(r"^=\?base64\?(?P<payload>.*)\?=$")
 _HEADER_SAFE = re.compile(r"^[\x20-\x7E]*$")
 # RFC 9110 §5.6.2 token: the only characters permitted in an HTTP field name.
 _RFC9110_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
-# JSON-Schema types that stringify cleanly into a single header value. The spec
-# names string/integer/boolean; number is admitted because the conformance
-# harness emits it and float→str round-trips to within tolerance.
-_X_MCP_HEADER_PRIMITIVE_TYPES: Final = frozenset({"string", "integer", "boolean", "number"})
+# JSON-Schema types the spec permits to carry `x-mcp-header` (transports.mdx
+# §Custom Headers). `number` is explicitly forbidden — float→str is not
+# portable across implementations.
+_X_MCP_HEADER_PRIMITIVE_TYPES: Final = frozenset({"string", "integer", "boolean"})
+
+# JSON Schema 2020-12 applicator keywords whose values are themselves schema
+# positions, grouped by value shape. `properties` is handled separately as the
+# only keyword that preserves the statically-reachable chain; every keyword
+# here drops the chain to None. Instance-data keywords (`default`, `examples`,
+# `const`, `enum`) and `$ref`/`$dynamicRef` are deliberately absent so the
+# walk never mistakes data for an annotation and never dereferences.
+_SUBSCHEMA_SINGLE: Final = frozenset(
+    {
+        "items",
+        "contains",
+        "unevaluatedItems",
+        "additionalProperties",
+        "propertyNames",
+        "unevaluatedProperties",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+    }
+)
+_SUBSCHEMA_LIST: Final = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_SUBSCHEMA_MAP: Final = frozenset({"patternProperties", "dependentSchemas", "$defs", "definitions"})
+
+
+def _walk_schema_positions(root: Any) -> Iterator[tuple[tuple[str, ...] | None, dict[str, Any]]]:
+    """Yield `(properties_path, schema)` for every schema position in `root`.
+
+    `properties_path` is the chain of `properties` keys from the root to the
+    position, or `None` once any other applicator keyword has been crossed.
+    The root itself yields `()`. Only the JSON Schema 2020-12 applicators
+    listed above are entered; instance-data keywords are not, and `$ref` is
+    not dereferenced, so the walk terminates on any finite JSON value. An
+    explicit stack keeps the function total even on pathologically deep input.
+    """
+    stack: list[tuple[tuple[str, ...] | None, Any]] = [((), root)]
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        schema = cast(dict[str, Any], node)
+        yield path, schema
+        for kw, val in schema.items():
+            if kw == "properties" and isinstance(val, dict):
+                for name, sub in cast(dict[str, Any], val).items():
+                    stack.append(((*path, name) if path is not None else None, sub))
+            elif kw in _SUBSCHEMA_SINGLE:
+                stack.append((None, val))
+            elif kw in _SUBSCHEMA_LIST and isinstance(val, list):
+                stack.extend((None, sub) for sub in cast(list[Any], val))
+            elif kw in _SUBSCHEMA_MAP and isinstance(val, dict):
+                stack.extend((None, sub) for sub in cast(dict[str, Any], val).values())
 
 
 def encode_header_value(value: str) -> str:
@@ -123,31 +176,33 @@ def decode_header_value(value: str | None) -> str | None:
 def find_invalid_x_mcp_header(input_schema: Any) -> str | None:
     """Return a reason string if any `x-mcp-header` annotation in `input_schema` is invalid; else `None`.
 
-    The spec restricts the annotation to top-level primitive properties whose
-    header name is a non-empty RFC 9110 token unique (case-insensitively) within
-    the schema. A `None` / non-object / property-less schema has nothing to
-    validate and returns `None`.
+    Walks every JSON Schema 2020-12 schema position. An annotation is valid
+    only when it sits on a property statically reachable from the root via a
+    chain of pure `properties` keys, names a non-empty RFC 9110 token, is on
+    an integer/string/boolean property, and is case-insensitively unique
+    across the whole schema. A `None` / non-mapping schema has no schema
+    positions and returns `None`.
     """
-    match input_schema:
-        case {"properties": {**properties}}:
-            pass
-        case _:
-            return None
     seen: dict[str, str] = {}
-    for prop_name, raw in properties.items():
-        if not isinstance(raw, dict) or X_MCP_HEADER_KEY not in raw:
+    for path, schema in _walk_schema_positions(input_schema):
+        if X_MCP_HEADER_KEY not in schema:
             continue
-        prop_schema = cast(dict[str, Any], raw)
-        header = prop_schema[X_MCP_HEADER_KEY]
+        if not path:  # None (off the pure-properties chain) or () (the root itself)
+            return f"{X_MCP_HEADER_KEY} found at a schema position not reachable via a pure `properties` chain"
+        where = ".".join(path)
+        header = schema[X_MCP_HEADER_KEY]
         if not isinstance(header, str) or not _RFC9110_TOKEN.fullmatch(header):
-            return f"property {prop_name!r}: {X_MCP_HEADER_KEY} {header!r} is not an RFC 9110 token"
-        prop_type = prop_schema.get("type")
+            return f"property {where!r}: {X_MCP_HEADER_KEY} {header!r} is not an RFC 9110 token"
+        prop_type = schema.get("type")
         if not isinstance(prop_type, str) or prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
-            return f"property {prop_name!r}: {X_MCP_HEADER_KEY} is only permitted on primitive-typed properties"
+            return (
+                f"property {where!r}: {X_MCP_HEADER_KEY} is only permitted on "
+                f"integer/string/boolean properties (got {prop_type!r})"
+            )
         lower = header.lower()
         if lower in seen:
-            return f"{X_MCP_HEADER_KEY} {header!r} on property {prop_name!r} duplicates property {seen[lower]!r}"
-        seen[lower] = prop_name
+            return f"{X_MCP_HEADER_KEY} {header!r} on property {where!r} duplicates property {seen[lower]!r}"
+        seen[lower] = where
     return None
 
 

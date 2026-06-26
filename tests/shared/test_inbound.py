@@ -357,17 +357,41 @@ def _schema(**props: Any) -> dict[str, Any]:
         pytest.param(_schema(a={"type": "string", "x-mcp-header": "Region"}), id="valid-string"),
         pytest.param(_schema(a={"type": "integer", "x-mcp-header": "Count"}), id="valid-integer"),
         pytest.param(_schema(a={"type": "boolean", "x-mcp-header": "Flag"}), id="valid-boolean"),
-        pytest.param(_schema(a={"type": "number", "x-mcp-header": "Ratio"}), id="valid-number"),
         pytest.param(
             _schema(a={"type": "string", "x-mcp-header": "A"}, b={"type": "string", "x-mcp-header": "B"}),
             id="two-distinct",
         ),
         pytest.param(_schema(a="not-a-mapping", b={"type": "string", "x-mcp-header": "B"}), id="non-mapping-prop"),
+        pytest.param(
+            _schema(outer={"type": "object", "properties": {"r": {"type": "string", "x-mcp-header": "R"}}}),
+            id="nested-on-properties-chain",
+        ),
+        pytest.param(
+            _schema(a={"type": "string", "default": {"x-mcp-header": "ignored"}}),
+            id="annotation-lookalike-in-default-is-data",
+        ),
+        pytest.param(
+            _schema(a={"type": "string", "examples": [{"x-mcp-header": "ignored"}]}),
+            id="annotation-lookalike-in-examples-is-data",
+        ),
+        pytest.param(
+            _schema(a={"type": "string", "const": {"x-mcp-header": "ignored"}}),
+            id="annotation-lookalike-in-const-is-data",
+        ),
+        pytest.param(
+            {"properties": {"a": {"type": "string", "x-mcp-header": "R"}}, "$ref": "#/$defs/loop"},
+            id="ref-is-not-dereferenced",
+        ),
+        pytest.param(
+            {"type": "object", "allOf": 0, "anyOf": [], "$defs": 0, "patternProperties": {}},
+            id="malformed-or-empty-applicators-ignored",
+        ),
     ],
 )
 def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_schema: Any) -> None:
     """Spec-mandated: a schema without annotations, or with annotations that are RFC 9110 tokens on
-    primitive-typed properties and unique within the schema, is valid."""
+    integer/string/boolean properties reachable via a pure `properties` chain and case-insensitively
+    unique across the whole schema, is valid."""
     assert find_invalid_x_mcp_header(input_schema) is None
 
 
@@ -383,6 +407,7 @@ def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_sch
         pytest.param(_schema(a={"type": "object", "x-mcp-header": "Data"}), id="on-object"),
         pytest.param(_schema(a={"type": "array", "x-mcp-header": "Items"}), id="on-array"),
         pytest.param(_schema(a={"type": "null", "x-mcp-header": "Nil"}), id="on-null"),
+        pytest.param(_schema(a={"type": "number", "x-mcp-header": "Ratio"}), id="on-number"),
         pytest.param(_schema(a={"type": ["string", "null"], "x-mcp-header": "Maybe"}), id="array-type"),
         pytest.param(_schema(a={"type": {"not": "valid"}, "x-mcp-header": "Bad"}), id="dict-type"),
         pytest.param(_schema(a={"x-mcp-header": "NoType"}), id="missing-type"),
@@ -394,8 +419,59 @@ def test_find_invalid_x_mcp_header_accepts_valid_or_absent_annotations(input_sch
             _schema(a={"type": "string", "x-mcp-header": "MyField"}, b={"type": "string", "x-mcp-header": "myfield"}),
             id="duplicate-diff-case",
         ),
+        pytest.param(
+            _schema(a={"type": "array", "items": {"type": "string", "x-mcp-header": "X"}}),
+            id="under-items",
+        ),
+        pytest.param(
+            {"allOf": [{"properties": {"a": {"type": "string", "x-mcp-header": "X"}}}]},
+            id="under-allOf",
+        ),
+        pytest.param(
+            {"oneOf": [{"type": "string", "x-mcp-header": "X"}]},
+            id="under-oneOf",
+        ),
+        pytest.param(
+            _schema(a={"if": {"type": "string", "x-mcp-header": "X"}}),
+            id="under-if",
+        ),
+        pytest.param(
+            {"$defs": {"T": {"type": "string", "x-mcp-header": "X"}}, "properties": {}},
+            id="under-defs",
+        ),
+        pytest.param(
+            {"patternProperties": {"^a": {"type": "string", "x-mcp-header": "X"}}},
+            id="under-patternProperties",
+        ),
+        pytest.param(
+            {"type": "string", "x-mcp-header": "X"},
+            id="on-root-schema",
+        ),
+        pytest.param(
+            _schema(
+                a={"type": "string", "x-mcp-header": "Region"},
+                o={"type": "object", "properties": {"b": {"type": "string", "x-mcp-header": "region"}}},
+            ),
+            id="duplicate-across-nesting-levels",
+        ),
+        pytest.param(
+            _schema(outer={"type": "object", "properties": {"r": {"type": "string", "x-mcp-header": "bad name"}}}),
+            id="nested-bad-token",
+        ),
+        pytest.param(
+            _schema(outer={"type": "object", "properties": {"r": {"type": "object", "x-mcp-header": "R"}}}),
+            id="nested-non-primitive",
+        ),
     ],
 )
 def test_find_invalid_x_mcp_header_rejects_malformed_annotations(input_schema: dict[str, Any]) -> None:
-    """Spec-mandated: empty / non-token / non-primitive / duplicate `x-mcp-header` annotations yield a reason string."""
+    """Spec-mandated: empty / non-token / non-primitive / off-chain / duplicate `x-mcp-header`
+    annotations yield a reason string."""
     assert isinstance(find_invalid_x_mcp_header(input_schema), str)
+
+
+def test_find_invalid_x_mcp_header_reports_dotted_path_for_nested_property() -> None:
+    """SDK-defined: the reason string names the nested property by its dotted `properties` path."""
+    schema = _schema(outer={"type": "object", "properties": {"r": {"type": "object", "x-mcp-header": "R"}}})
+    reason = find_invalid_x_mcp_header(schema)
+    assert reason is not None and "'outer.r'" in reason

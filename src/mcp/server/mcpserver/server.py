@@ -308,7 +308,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
     ) -> CallToolResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -324,7 +324,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
@@ -366,7 +366,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:

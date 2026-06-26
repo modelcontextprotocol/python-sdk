@@ -45,7 +45,6 @@ from mcp.shared.inbound import (
     ERROR_CODE_HTTP_STATUS,
     InboundLadderRejection,
     classify_inbound_request,
-    find_invalid_x_mcp_header,
 )
 from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
@@ -125,30 +124,6 @@ async def _to_jsonrpc_response(
             error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
         return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
-
-
-def _drop_invalid_header_tools(result: dict[str, Any]) -> None:
-    """Remove tools whose `x-mcp-header` annotations fail validation from a `tools/list` result, in place.
-
-    Runs at the modern HTTP boundary so the version gate is structural (this
-    entry only ever serves a 2026-07-28+ request) rather than a conditional in
-    handler code. Dropped tools are logged so a server author sees why their
-    tool vanished from the wire.
-    """
-    match result.get("tools"):
-        case [*tools]:
-            pass
-        case _:
-            return
-    kept: list[Any] = []
-    for tool in tools:
-        match tool:
-            case {"inputSchema": schema, "name": name} if reason := find_invalid_x_mcp_header(schema):
-                logger.warning("dropping tool %r from tools/list: %s", name, reason)
-            case _:
-                kept.append(tool)
-    if len(kept) != len(tools):
-        result["tools"] = kept
 
 
 async def _write(
@@ -248,6 +223,4 @@ async def handle_modern_request(
     msg = await _to_jsonrpc_response(
         req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
     )
-    if req.method == "tools/list" and isinstance(msg, JSONRPCResponse):
-        _drop_invalid_header_tools(msg.result)
     await _write(msg, scope, receive, send)
