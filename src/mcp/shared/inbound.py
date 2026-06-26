@@ -191,10 +191,20 @@ def find_invalid_x_mcp_header(input_schema: Any) -> str | None:
             return f"{X_MCP_HEADER_KEY} found at a schema position not reachable via a pure `properties` chain"
         where = ".".join(path)
         header = schema[X_MCP_HEADER_KEY]
-        if not isinstance(header, str) or not _RFC9110_TOKEN.fullmatch(header):
+        # Wrong type and malformed value are distinct failures with distinct messages: the
+        # non-str arm returns before any interpolation, because `repr` of an arbitrary
+        # schema value is not total (a large `int` exceeds `sys.get_int_max_str_digits`).
+        if not isinstance(header, str):
+            return f"property {where!r}: {X_MCP_HEADER_KEY} must be a string, not {type(header).__name__}"
+        if not _RFC9110_TOKEN.fullmatch(header):
             return f"property {where!r}: {X_MCP_HEADER_KEY} {header!r} is not an RFC 9110 token"
         prop_type = schema.get("type")
-        if not isinstance(prop_type, str) or prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
+        if not isinstance(prop_type, str):
+            return (
+                f"property {where!r}: {X_MCP_HEADER_KEY} is only permitted on "
+                f"integer/string/boolean properties (the type keyword is {type(prop_type).__name__}, not a string)"
+            )
+        if prop_type not in _X_MCP_HEADER_PRIMITIVE_TYPES:
             return (
                 f"property {where!r}: {X_MCP_HEADER_KEY} is only permitted on "
                 f"integer/string/boolean properties (got {prop_type!r})"
