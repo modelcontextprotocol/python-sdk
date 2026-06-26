@@ -192,48 +192,31 @@ async def test_missing_metadata_raises(mock_storage: MockTokenStorage) -> None:
 
 
 @pytest.mark.anyio
-async def test_step_up_scope_is_unioned_with_configured_scope(mock_storage: MockTokenStorage) -> None:
-    """A 403 step-up challenge (written to client_metadata.scope) is unioned with the configured scope.
+async def test_exchange_never_broadens_to_server_scopes(mock_storage: MockTokenStorage) -> None:
+    """Every exchange carries only the configured scope, never the server-advertised superset.
 
-    A step-up only happens after a token was issued, so the union branch is keyed on current_tokens
-    being set; the test simulates both the existing token and the base flow's challenge write-back.
+    The base 401 scope-selection step overwrites client_metadata.scope with the advertised set; this
+    must not leak onto the wire on any path - the initial exchange, a renewal after expiry (no
+    refresh token, so it re-enters the 401 branch with a stale token still loaded), or a restart
+    that reloaded an expired token. Both the no-token and token-present cases are checked.
     """
     provider = make_provider(mock_storage)  # configured scopes="mcp"
     await provider._initialize()
     provider.context.oauth_metadata = oauth_metadata()
     provider.context.protocol_version = "2025-06-18"
-    # A token exists (the one that drew the 403); the base step-up wrote the challenged union onto
-    # client_metadata.scope.
-    provider.context.current_tokens = OAuthToken(access_token="prior", scope="mcp")
-    provider.context.client_metadata.scope = "files:write"
+    provider.context.client_metadata.scope = "mcp extra admin"  # what Step 3 advertised
 
-    request = await provider._perform_authorization()
-
-    content = urllib.parse.unquote_plus(request.content.decode())
-    assert "scope=mcp files:write" in content
-
-
-@pytest.mark.anyio
-async def test_initial_exchange_does_not_broaden_to_server_scopes(mock_storage: MockTokenStorage) -> None:
-    """On the initial 401 exchange the request carries only the configured scope, not the server set.
-
-    The base 401 scope-selection step overwrites client_metadata.scope with server-advertised
-    scopes; the provider must not silently broaden the caller's request with them.
-    """
-    provider = make_provider(mock_storage)  # configured scopes="mcp"
-    await provider._initialize()
-    provider.context.oauth_metadata = oauth_metadata()
-    provider.context.protocol_version = "2025-06-18"
-    # No token yet (initial exchange). The base flow advertised a broader set.
-    assert provider.context.current_tokens is None
-    provider.context.client_metadata.scope = "mcp extra admin"
-
-    request = await provider._perform_authorization()
-
-    content = urllib.parse.unquote_plus(request.content.decode())
+    # Initial exchange (no token).
+    content = urllib.parse.unquote_plus((await provider._perform_authorization()).content.decode())
     assert "scope=mcp&" in content or content.endswith("scope=mcp")
-    assert "extra" not in content
-    assert "admin" not in content
+    assert "extra" not in content and "admin" not in content
+
+    # Renewal exchange: a stale token is still loaded and Step 3 re-advertised the broader set.
+    provider.context.current_tokens = OAuthToken(access_token="stale", scope="mcp")
+    provider.context.client_metadata.scope = "mcp extra admin"
+    content = urllib.parse.unquote_plus((await provider._perform_authorization()).content.decode())
+    assert "scope=mcp&" in content or content.endswith("scope=mcp")
+    assert "extra" not in content and "admin" not in content
 
 
 def test_empty_client_secret_is_rejected(mock_storage: MockTokenStorage) -> None:

@@ -26,7 +26,6 @@ from urllib.parse import urlsplit
 import httpx
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
-from mcp.client.auth.utils import union_scopes
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, ProtectedResourceMetadata
 
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -117,10 +116,9 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
         self._assertion_provider = assertion_provider
         self._expected_issuer = expected_issuer
-        # The caller's requested scope. The base 401 flow's scope-selection step overwrites
-        # `client_metadata.scope` with server-advertised scopes (and the 403 step-up unions in the
-        # challenged scope); `_exchange_assertion` folds this back so the caller's request is
-        # honoured while still picking up a step-up challenge.
+        # The caller's requested scope, sent verbatim on every exchange. The base flow's
+        # scope-selection step overwrites `client_metadata.scope` with server-advertised scopes;
+        # `_exchange_assertion` ignores that and uses this so the request is never broadened.
         self._scopes = scopes
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -204,20 +202,15 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = resource
 
-        # Scope handling. On the initial exchange send exactly the caller's requested scope: the
-        # base 401 scope-selection step overwrites client_metadata.scope with the server-advertised
-        # set, which must NOT silently broaden the request. On a 403 insufficient_scope step-up the
-        # base flow re-runs this with client_metadata.scope already holding the SEP-2350 union of the
-        # prior and challenged scopes; honour that so the retry actually escalates. The two are told
-        # apart by whether a token already exists (a step-up only happens after one was issued).
-        if self.context.current_tokens is None:
-            scope = self._scopes
-        else:
-            scope = union_scopes(self._scopes, self.context.client_metadata.scope)
-        # Write it back so the base _handle_token_response RFC 6749 §5.1 backfill records the same
-        # value on the stored token rather than the server-advertised set.
-        self.context.client_metadata.scope = scope
-        if scope:
-            token_data["scope"] = scope
+        # Always send exactly the caller's configured scope. The base 401 scope-selection step (and
+        # the 403 step-up union) overwrite client_metadata.scope with server-advertised scopes; this
+        # provider must never broaden the request with them. SEP-990's model is that the AS derives
+        # the granted scope from the validated ID-JAG and policy, so client-driven scope escalation
+        # does not apply - a broader grant comes from re-issuing the ID-JAG, not requesting more
+        # here. Write the configured value back so the base _handle_token_response RFC 6749 §5.1
+        # backfill records it (not the server-advertised set) on the stored token.
+        self.context.client_metadata.scope = self._scopes
+        if self._scopes:
+            token_data["scope"] = self._scopes
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
