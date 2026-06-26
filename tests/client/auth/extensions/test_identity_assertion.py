@@ -7,6 +7,7 @@ from mcp.client.auth import OAuthFlowError
 from mcp.client.auth.extensions.identity_assertion import (
     JWT_BEARER_GRANT_TYPE,
     IdentityAssertionOAuthProvider,
+    _origin,
 )
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -192,18 +193,47 @@ async def test_missing_metadata_raises(mock_storage: MockTokenStorage) -> None:
 
 @pytest.mark.anyio
 async def test_step_up_scope_is_unioned_with_configured_scope(mock_storage: MockTokenStorage) -> None:
-    """A 403 step-up challenge (written to client_metadata.scope) is unioned with the configured scope."""
+    """A 403 step-up challenge (written to client_metadata.scope) is unioned with the configured scope.
+
+    A step-up only happens after a token was issued, so the union branch is keyed on current_tokens
+    being set; the test simulates both the existing token and the base flow's challenge write-back.
+    """
     provider = make_provider(mock_storage)  # configured scopes="mcp"
     await provider._initialize()
     provider.context.oauth_metadata = oauth_metadata()
     provider.context.protocol_version = "2025-06-18"
-    # Simulate the base 403 step-up writing the challenged scope onto client_metadata.scope.
+    # A token exists (the one that drew the 403); the base step-up wrote the challenged union onto
+    # client_metadata.scope.
+    provider.context.current_tokens = OAuthToken(access_token="prior", scope="mcp")
     provider.context.client_metadata.scope = "files:write"
 
     request = await provider._perform_authorization()
 
     content = urllib.parse.unquote_plus(request.content.decode())
     assert "scope=mcp files:write" in content
+
+
+@pytest.mark.anyio
+async def test_initial_exchange_does_not_broaden_to_server_scopes(mock_storage: MockTokenStorage) -> None:
+    """On the initial 401 exchange the request carries only the configured scope, not the server set.
+
+    The base 401 scope-selection step overwrites client_metadata.scope with server-advertised
+    scopes; the provider must not silently broaden the caller's request with them.
+    """
+    provider = make_provider(mock_storage)  # configured scopes="mcp"
+    await provider._initialize()
+    provider.context.oauth_metadata = oauth_metadata()
+    provider.context.protocol_version = "2025-06-18"
+    # No token yet (initial exchange). The base flow advertised a broader set.
+    assert provider.context.current_tokens is None
+    provider.context.client_metadata.scope = "mcp extra admin"
+
+    request = await provider._perform_authorization()
+
+    content = urllib.parse.unquote_plus(request.content.decode())
+    assert "scope=mcp&" in content or content.endswith("scope=mcp")
+    assert "extra" not in content
+    assert "admin" not in content
 
 
 def test_empty_client_secret_is_rejected(mock_storage: MockTokenStorage) -> None:
@@ -277,3 +307,15 @@ async def test_resource_match_accepts_prm_naming_the_expected_as(mock_storage: M
     )
 
     await provider._validate_resource_match(prm)  # does not raise
+
+
+def test_origin_normalizes_default_ports() -> None:
+    """`_origin` treats an explicit scheme-default port as equal to the port-less form.
+
+    The token_endpoint (an AnyHttpUrl) has its default port normalized away, but a caller may
+    configure expected_issuer with the port spelled out; the origin check must not reject that.
+    """
+    assert _origin("https://host") == _origin("https://host:443")
+    assert _origin("http://host") == _origin("http://host:80")
+    assert _origin("https://host") != _origin("https://host:8443")
+    assert _origin("https://host") != _origin("https://other")

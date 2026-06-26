@@ -32,10 +32,18 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, Pro
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
 def _origin(url: str) -> tuple[str, str, int | None]:
-    """Return the (scheme, host, port) origin of a URL for same-origin comparison."""
+    """Return the (scheme, host, port) origin of a URL for same-origin comparison.
+
+    The port is normalized to the scheme's default so an explicit `:443`/`:80` compares equal to the
+    same origin written without a port.
+    """
     parsed = urlsplit(url)
-    return (parsed.scheme, parsed.hostname or "", parsed.port)
+    port = parsed.port if parsed.port is not None else _DEFAULT_PORTS.get(parsed.scheme)
+    return (parsed.scheme, parsed.hostname or "", port)
 
 
 class IdentityAssertionOAuthProvider(OAuthClientProvider):
@@ -196,13 +204,20 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = resource
 
-        # Honour the caller's requested scope, unioned with any scope the base flow selected or a
-        # 403 step-up challenged in (SEP-2350). Write it back to client_metadata.scope so the base
-        # _handle_token_response RFC 6749 §5.1 backfill records the same value on the stored token.
-        scope = union_scopes(self._scopes, self.context.client_metadata.scope)
+        # Scope handling. On the initial exchange send exactly the caller's requested scope: the
+        # base 401 scope-selection step overwrites client_metadata.scope with the server-advertised
+        # set, which must NOT silently broaden the request. On a 403 insufficient_scope step-up the
+        # base flow re-runs this with client_metadata.scope already holding the SEP-2350 union of the
+        # prior and challenged scopes; honour that so the retry actually escalates. The two are told
+        # apart by whether a token already exists (a step-up only happens after one was issued).
+        if self.context.current_tokens is None:
+            scope = self._scopes
+        else:
+            scope = union_scopes(self._scopes, self.context.client_metadata.scope)
+        # Write it back so the base _handle_token_response RFC 6749 §5.1 backfill records the same
+        # value on the stored token rather than the server-advertised set.
         self.context.client_metadata.scope = scope
         if scope:
             token_data["scope"] = scope
 
-        token_url = self._get_token_endpoint()
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
