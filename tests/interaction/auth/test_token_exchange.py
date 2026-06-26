@@ -11,6 +11,8 @@ Recording-first: the recorded request sequence is asserted before the call resul
 the exchange path produces a readable diff of what fired.
 """
 
+import base64
+from typing import Literal
 from urllib.parse import parse_qsl
 
 import anyio
@@ -53,17 +55,24 @@ def form_body(request: RecordedRequest) -> dict[str, str]:
     return dict(parse_qsl(request.content.decode()))
 
 
-def preregister_token_exchange_client(provider: InMemoryAuthorizationServerProvider) -> None:
-    """Seed a pre-registered public client allowed to use the token-exchange grant.
+def preregister_token_exchange_client(
+    provider: InMemoryAuthorizationServerProvider,
+    *,
+    client_secret: str | None = None,
+    token_endpoint_auth_method: Literal["none", "client_secret_post", "client_secret_basic"] = "none",
+) -> None:
+    """Seed a pre-registered client allowed to use the token-exchange grant.
 
     Token-exchange clients are provisioned out of band (no DCR), so the server already knows the
-    client_id; `TokenExchangeOAuthProvider` presents the same id without registering.
+    client_id; `TokenExchangeOAuthProvider` presents the same id without registering. Defaults to a
+    public client; pass a secret + auth method for a confidential one.
     """
     provider.clients[CLIENT_ID] = OAuthClientInformationFull(
         client_id=CLIENT_ID,
+        client_secret=client_secret,
         redirect_uris=None,
         grant_types=[TOKEN_EXCHANGE_GRANT_TYPE],
-        token_endpoint_auth_method="none",
+        token_endpoint_auth_method=token_endpoint_auth_method,
         scope="mcp",
     )
 
@@ -114,7 +123,7 @@ async def test_token_exchange_obtains_a_token_and_authorizes_the_request() -> No
         ) as (client, headless):
             result = await client.list_tools()
 
-    assert result.tools[0].name == "echo"
+    # Recording-first: assert what fired before the call result.
     assert headless.authorize_url is None
     assert find(recorded, "GET", "/authorize") == []
     assert find(recorded, "POST", "/register") == []
@@ -133,8 +142,59 @@ async def test_token_exchange_obtains_a_token_and_authorizes_the_request() -> No
         }
     )
 
+    assert result.tools[0].name == "echo"
     assert storage.tokens is not None
     assert storage.tokens.access_token in provider.access_tokens
+
+
+@requirement("client-auth:token-exchange")
+async def test_confidential_token_exchange_client_authenticates_with_basic() -> None:
+    """A confidential token-exchange client authenticates to the real token endpoint with HTTP Basic.
+
+    Exercises the seam between `TokenExchangeOAuthProvider` and the server's `ClientAuthenticator`:
+    the pre-registered client carries a secret and `client_secret_basic`, the recorded /token request
+    carries the Basic credentials (not a body secret), and the exchange still succeeds.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    preregister_token_exchange_client(
+        provider, client_secret="te-secret", token_endpoint_auth_method="client_secret_basic"
+    )
+    server = Server("guarded", on_list_tools=list_tools)
+    storage = InMemoryTokenStorage()
+
+    async def subject_token_provider(audience: str) -> str:
+        return VALID_SUBJECT_TOKEN
+
+    auth = TokenExchangeOAuthProvider(
+        server_url=f"{BASE_URL}/mcp",
+        storage=storage,
+        client_id=CLIENT_ID,
+        subject_token_provider=subject_token_provider,
+        scopes="mcp",
+        client_secret="te-secret",
+        token_endpoint_auth_method="client_secret_basic",
+    )
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            settings=auth_settings(token_exchange_enabled=True),
+            auth=auth,
+            on_request=on_request,
+        ) as (client, _):
+            result = await client.list_tools()
+
+    # Recording-first: the client authenticated with Basic, not a body secret.
+    [token_req] = find(recorded, "POST", "/token")
+    body = form_body(token_req)
+    decoded = base64.b64decode(token_req.headers["authorization"].removeprefix("Basic ")).decode()
+    assert decoded == f"{CLIENT_ID}:te-secret"
+    assert "client_secret" not in body
+    assert body["grant_type"] == TOKEN_EXCHANGE_GRANT_TYPE
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
 
 
 @requirement("client-auth:token-exchange")
@@ -162,11 +222,12 @@ async def test_token_exchange_adopts_server_scopes_when_client_requests_none() -
         ) as (client, _):
             result = await client.list_tools()
 
-    assert result.tools[0].name == "echo"
+    # Recording-first: assert the sent scope before the call result.
     [token_req] = find(recorded, "POST", "/token")
     assert form_body(token_req)["scope"] == "mcp"
     assert provider.last_exchange_params is not None
     assert provider.last_exchange_params.scopes == ["mcp"]
+    assert result.tools[0].name == "echo"
     assert storage.tokens is not None
     assert storage.tokens.scope == "mcp"
 
@@ -214,7 +275,9 @@ async def test_token_exchange_is_rejected_when_disabled_on_the_server() -> None:
 
     with anyio.fail_after(5):
         with pytest.RaisesGroup(
-            pytest.RaisesExc(OAuthTokenError, match="^Token exchange failed"), flatten_subgroups=True
+            # The 400 carries unsupported_grant_type specifically, not just any token failure.
+            pytest.RaisesExc(OAuthTokenError, match=r"Token exchange failed \(400\):.*unsupported_grant_type"),
+            flatten_subgroups=True,
         ):
             await connect_with_oauth(
                 server,
@@ -237,7 +300,9 @@ async def test_an_unaccepted_subject_token_aborts_the_flow() -> None:
 
     with anyio.fail_after(5):
         with pytest.RaisesGroup(
-            pytest.RaisesExc(OAuthTokenError, match="^Token exchange failed"), flatten_subgroups=True
+            # The provider rejected the subject token with invalid_grant specifically.
+            pytest.RaisesExc(OAuthTokenError, match=r"Token exchange failed \(400\):.*invalid_grant"),
+            flatten_subgroups=True,
         ):
             await connect_with_oauth(
                 server,
@@ -247,6 +312,7 @@ async def test_an_unaccepted_subject_token_aborts_the_flow() -> None:
             ).__aenter__()
 
     assert provider.last_exchange_params is not None
+    assert provider.last_exchange_params.subject_token == "forged-id-jag"
     assert storage.tokens is None
 
 
