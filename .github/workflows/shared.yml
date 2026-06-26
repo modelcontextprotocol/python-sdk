@@ -35,6 +35,13 @@ jobs:
           uv sync --group codegen --frozen
           uv run --frozen --group codegen python scripts/gen_surface_types.py --check
 
+      # Resolves only mcp-types' declared dependencies into an empty environment,
+      # so an import of the SDK or anything from its stack fails here.
+      - name: mcp-types installs and imports standalone
+        run: |
+          uv run --isolated --no-project --with ./src/mcp-types python -c \
+            "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types.v2025_11_25, mcp_types.v2026_07_28"
+
       # TODO(Max): Drop this in v2. Deliberate updates (e.g. the v2 status
       # banner) go through the 'override-readme-freeze' label.
       - name: Check README.md is not modified
