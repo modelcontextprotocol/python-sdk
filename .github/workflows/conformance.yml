@@ -18,7 +18,12 @@ env:
   # Use a published version, e.g. @modelcontextprotocol/conformance@0.2.0-alpha.7.
   # Bump deliberately and reconcile both
   # .github/actions/conformance/expected-failures*.yml files in the same change.
-  CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.7"
+  #
+  # Temporarily pinned to the pkg.pr.new preview build of conformance#371, which
+  # fixes the http-custom-headers fixture's spec-forbidden `number`-typed
+  # x-mcp-header annotations. Repin to the published release that includes #371
+  # once it ships (the preview URL is ephemeral).
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@371"
 
 jobs:
   server-conformance:

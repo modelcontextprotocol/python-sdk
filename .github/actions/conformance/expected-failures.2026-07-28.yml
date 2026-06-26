@@ -21,13 +21,7 @@
 # milestone.
 
 client:
-  # SEP-2243 (HTTP standardization): the client now mirrors x-mcp-header args into
-  # Mcp-Param-* headers (S8), but the harness fixture annotates `number`-typed
-  # properties, which the spec forbids ("Parameters with type number are not
-  # permitted"). The SDK drops those tools per spec, so the scenario's
-  # ClientSupportsCustomHeaders check (which requires the tool to be called)
-  # cannot pass until the harness fixture is corrected.
-  - http-custom-headers
+  []
   # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
   # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
   # (it is an extension scenario not carried into the 2026 wire), so it is

@@ -335,41 +335,32 @@ async def run_http_invalid_tool_headers(server_url: str) -> None:
                 logger.exception(f"call_tool({tool.name!r}) failed")
 
 
-def _stub_args_for_custom_headers(input_schema: dict[str, Any]) -> dict[str, Any]:
-    """Arguments exercising every `x-mcp-header`-annotated property in a tool schema.
-
-    Each annotated property gets a type-appropriate value so the SDK mirrors it into an
-    `Mcp-Param-*` header; required properties without an annotation get a placeholder so
-    the call is well-formed.
-    """
-    by_type: dict[str, Any] = {"string": "us-west1", "integer": 42, "boolean": False, "number": 3.14}
-    properties: dict[str, Any] = input_schema.get("properties", {})
-    arguments: dict[str, Any] = {}
-    for name, schema in properties.items():
-        if "x-mcp-header" in schema:
-            arguments[name] = by_type.get(schema.get("type"), "x")
-    for name in input_schema.get("required", []):
-        arguments.setdefault(name, by_type.get(properties.get(name, {}).get("type"), "x"))
-    return arguments
-
-
 @register("http-custom-headers")
 async def run_http_custom_headers(server_url: str) -> None:
-    """List tools, then call each surfaced tool so its `x-mcp-header` args mirror into headers (SEP-2243).
+    """List tools, then replay the harness's `toolCalls` so x-mcp-header args mirror into headers (SEP-2243).
 
-    A conforming client drops tools with invalid annotations during `list_tools` (e.g. the
-    harness's `number`-typed properties, which the spec forbids), so the loop only calls tools
-    whose annotations are valid; for those, the SDK emits the `Mcp-Param-*` headers the scenario
-    checks. Per-call failures are logged and skipped rather than aborting the run.
+    The scenario supplies the exact arguments to send (including the null/edge-case values that
+    exercise omission and Base64 encoding) via the context `toolCalls`; using them verbatim is
+    what drives every per-parameter check. `list_tools` first so the SDK caches each tool's
+    annotations; a tool the SDK dropped (invalid annotations) is skipped. Per-call failures are
+    logged and skipped rather than aborting the run.
     """
+    tool_calls: list[dict[str, Any]] = []
+    if os.environ.get("MCP_CONFORMANCE_CONTEXT"):
+        tool_calls = get_conformance_context().get("toolCalls", [])
     async with Client(server_url, mode=client_mode()) as client:
         listed = await client.list_tools()
-        logger.debug(f"Surfaced tools: {[t.name for t in listed.tools]}")
-        for tool in listed.tools:
+        surfaced = {tool.name for tool in listed.tools}
+        logger.debug(f"Surfaced tools: {sorted(surfaced)}")
+        for call in tool_calls:
+            name = call["name"]
+            if name not in surfaced:
+                logger.debug(f"skipping {name!r}: not surfaced by list_tools")
+                continue
             try:
-                await client.call_tool(tool.name, _stub_args_for_custom_headers(tool.input_schema))
+                await client.call_tool(name, call.get("arguments") or {})
             except Exception:
-                logger.exception(f"call_tool({tool.name!r}) failed")
+                logger.exception(f"call_tool({name!r}) failed")
 
 
 @register("elicitation-sep1034-client-defaults")

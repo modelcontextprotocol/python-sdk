@@ -11,15 +11,6 @@
 # on stale entries), so the baseline burns down per milestone.
 
 client:
-  # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-  # SEP-2243 (HTTP standardization): the client now mirrors x-mcp-header args into
-  # Mcp-Param-* headers (S8), but the harness fixture annotates `number`-typed
-  # properties, which the spec forbids ("Parameters with type number are not
-  # permitted"). The SDK drops those tools per spec, so the scenario's
-  # ClientSupportsCustomHeaders check (which requires the tool to be called)
-  # cannot pass until the harness fixture is corrected.
-  - http-custom-headers
-
   # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
   # SEP-990 (enterprise-managed authorization extension): no fixture handler /
   # client support for the token-exchange + JWT bearer flow.
