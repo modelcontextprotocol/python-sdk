@@ -3,8 +3,9 @@
 These tests mount only the resource-server side of the auth wiring (a `StaticTokenVerifier`
 seeded with hand-built tokens, no authorization-server provider) and speak raw HTTP, since
 every assertion is about HTTP semantics the SDK `Client` cannot observe: the 401/403 status,
-the `WWW-Authenticate` header structure, and that a token with no audience claim reaches the
-MCP endpoint behind the gate. The flow side of the same 401 is `test_flow.py`'s flagship test.
+the `WWW-Authenticate` header structure, and that the audience gate fails closed (a token with
+no audience claim is rejected unless `AuthSettings.verifier_validates_audience` opts the gate
+out). The flow side of the same 401 is `test_flow.py`'s flagship test.
 """
 
 import time
@@ -28,11 +29,20 @@ RESOURCE_METADATA_URL = "http://127.0.0.1:8000/.well-known/oauth-protected-resou
 
 _FUTURE = int(time.time()) + 3600
 _PAST = int(time.time()) - 3600
+# The audience `auth_settings()` configures as `resource_server_url`. Every fixture token with
+# exactly one non-audience defect carries it, so each token isolates the defect its test names.
+RESOURCE = "http://127.0.0.1:8000/mcp"
 
 TOKENS = {
-    "tok-valid": AccessToken(token="tok-valid", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
-    "tok-expired": AccessToken(token="tok-expired", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_PAST),
-    "tok-noscope": AccessToken(token="tok-noscope", client_id="c", scopes=["other:thing"], expires_at=_FUTURE),
+    "tok-valid": AccessToken(
+        token="tok-valid", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE, resource=RESOURCE
+    ),
+    "tok-expired": AccessToken(
+        token="tok-expired", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_PAST, resource=RESOURCE
+    ),
+    "tok-noscope": AccessToken(
+        token="tok-noscope", client_id="c", scopes=["other:thing"], expires_at=_FUTURE, resource=RESOURCE
+    ),
     "tok-wrong-aud": AccessToken(
         token="tok-wrong-aud",
         client_id="c",
@@ -202,14 +212,38 @@ async def test_a_token_for_a_parent_path_on_the_same_origin_is_answered_401_inva
 
 
 @requirement("hosting:auth:aud-validation")
-async def test_a_token_without_a_resource_claim_passes_the_audience_check(protected: httpx.AsyncClient) -> None:
-    """A token whose `AccessToken.resource` is unset passes the audience check.
+async def test_a_token_without_a_resource_claim_is_answered_401_invalid_token(
+    protected: httpx.AsyncClient,
+) -> None:
+    """A token whose `AccessToken.resource` is unset is answered 401 when an audience is configured.
 
-    SDK-defined pass-through: the SDK cannot distinguish a verifier that performed its own
-    audience check and chose not to surface the claim from a token that genuinely carries
-    none, so `resource is None` is accepted. This pins that policy.
+    Spec-mandated (authorization MUST: servers reject tokens that do not include them in the
+    audience claim). The bearer gate fails closed; the operator-level escape hatch for
+    verifiers that validate audience internally is `AuthSettings.verifier_validates_audience`.
     """
     response = await post_mcp(protected, bearer="tok-no-aud")
+
+    assert response.status_code == 401
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "The access token carries no audience claim",
+        "scope": REQUIRED_SCOPE,
+        "resource_metadata": RESOURCE_METADATA_URL,
+    }
+
+
+@requirement("hosting:auth:aud-validation")
+async def test_a_token_without_a_resource_claim_passes_when_verifier_validates_audience_is_set() -> None:
+    """With `verifier_validates_audience=True` the bearer gate skips its own audience check.
+
+    SDK-defined opt-out for the spec's "or otherwise verify" clause: a verifier that validates
+    the token's audience internally (a JWT decoder configured with the expected audience) and so
+    never populates `AccessToken.resource`. The body proves the request reached the MCP endpoint.
+    """
+    server = Server("rs")
+    settings = auth_settings(required_scopes=[REQUIRED_SCOPE]).model_copy(update={"verifier_validates_audience": True})
+    async with mounted_app(server, auth=settings, token_verifier=StaticTokenVerifier(TOKENS)) as (http, _):
+        response = await post_mcp(http, bearer="tok-no-aud")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")

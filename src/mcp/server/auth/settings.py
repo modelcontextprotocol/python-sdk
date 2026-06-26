@@ -40,3 +40,23 @@ class AuthSettings(BaseModel):
         description="The URL of the MCP server to be used as the resource identifier "
         "and base route to look up OAuth Protected Resource Metadata.",
     )
+
+    verifier_validates_audience: bool = Field(
+        default=False,
+        description="Set when your TokenVerifier validates the token's audience itself and "
+        "therefore never populates AccessToken.resource (for example a JWT decoder configured "
+        "with the expected audience). The bearer gate then skips its own audience check. "
+        "Leave False to have the SDK reject any token whose resource indicator is absent or "
+        "names a different server.",
+    )
+
+    @property
+    def enforced_audience(self) -> AnyHttpUrl | None:
+        """The resource identifier the bearer gate compares each token's audience against.
+
+        `None` when no `resource_server_url` is configured, or when
+        `verifier_validates_audience` declares that the verifier already did the check -- in
+        both cases the gate has nothing of its own to enforce. Both server wirings read this,
+        so it is the single source of the should-the-gate-audience-check decision.
+        """
+        return None if self.verifier_validates_audience else self.resource_server_url

@@ -710,7 +710,7 @@ class Server(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier, resource_server_url=auth.resource_server_url),
+                        backend=BearerAuthBackend(token_verifier, resource_server_url=auth.enforced_audience),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]
@@ -732,7 +732,7 @@ class Server(Generic[LifespanResultT]):
         if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:  # pragma: no branch
+            if auth and auth.resource_server_url:
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 

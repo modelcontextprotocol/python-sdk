@@ -134,9 +134,14 @@ async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_th
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     app_shim = shim(not_found=frozenset({PRM_PATH_SUFFIXED, PRM_ROOT}))
+    # A legacy server publishes no protected-resource metadata, so it also has no resource
+    # identifier for the bearer gate to enforce: the client never learns a `resource` to bind.
+    legacy_settings = auth_settings().model_copy(update={"resource_server_url": None})
 
     with anyio.fail_after(5):
-        async with connect_with_oauth(server, provider=provider, app_shim=app_shim, on_request=on_request) as (
+        async with connect_with_oauth(
+            server, provider=provider, settings=legacy_settings, app_shim=app_shim, on_request=on_request
+        ) as (
             client,
             _,
         ):

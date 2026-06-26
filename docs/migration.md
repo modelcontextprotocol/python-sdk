@@ -1477,9 +1477,18 @@ issuer inconsistent with what clients compare against under RFC 8414 / RFC 9207.
 already-built `AnyHttpUrl` object still normalizes at construction; pass a string to get the
 preserved form.
 
-### Bearer tokens with a mismatched audience are rejected
+### Bearer tokens are rejected unless their audience names this server
 
-`BearerAuthBackend` now compares `AccessToken.resource` against `AuthSettings.resource_server_url` and answers a token whose RFC 8707 resource indicator does not name this server with `401 invalid_token`. The check is canonical-URI equality, so a token issued for `https://host/` is not accepted by a server at `https://host/mcp`. It is skipped when either side is `None` — populate `AccessToken.resource` only when your verifier surfaces the underlying audience claim. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings`; pass it only if you construct the backend directly.
+`BearerAuthBackend` now compares `AccessToken.resource` against `AuthSettings.resource_server_url` and answers any token whose RFC 8707 resource indicator does not name this server — **including a token that carries no resource indicator at all** — with `401 invalid_token`. The comparison is canonical-URI equality, so a token issued for `https://host/` is not accepted by a server at `https://host/mcp`.
+
+To migrate, do exactly one of:
+
+- **Populate `AccessToken.resource`** from the token's `aud` claim (an introspection response's `aud`, or the decoded JWT's `aud`) in your `TokenVerifier`. This is the recommended path and what the SDK's examples now show.
+- **Set `AuthSettings(verifier_validates_audience=True)`** if your verifier already validates the audience itself and cannot surface it — for example a JWT library configured with `audience=` that fails decoding on a mismatch. This tells the bearer gate not to repeat a check your verifier already performed. Do not set it just to make the `401` go away: with it set, the SDK performs no audience validation of its own at all.
+
+Leaving `resource_server_url=None` continues to disable the check entirely (there is no audience to compare against), but a protected server should configure it: it is also the value published as RFC 9728 Protected Resource Metadata. If your authorization server does not support RFC 8707 resource indicators, your tokens will not carry an audience — audit that before opting out, because accepting audience-unbound tokens is what the MCP specification's audience-validation MUST exists to prevent.
+
+`RefreshToken` gains an optional `resource` field so an `OAuthAuthorizationServerProvider` can propagate the original grant's audience binding through `exchange_refresh_token`; without it a refreshed access token would carry no audience and be rejected. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings.enforced_audience`; `None` (the default, and what the SDK passes when `verifier_validates_audience` is set) means no audience is enforced.
 
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 

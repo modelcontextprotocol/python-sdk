@@ -69,6 +69,12 @@ class BearerAuthBackend(AuthenticationBackend):
     """Authentication backend that validates Bearer tokens using a TokenVerifier."""
 
     def __init__(self, token_verifier: TokenVerifier, *, resource_server_url: AnyHttpUrl | None = None) -> None:
+        """Validate bearer tokens with `token_verifier` and, when `resource_server_url` is set,
+        enforce that every token's RFC 8707 audience names exactly that resource.
+
+        `resource_server_url=None` means there is no audience to enforce; verification stops at
+        the verifier's answer and the expiry check.
+        """
         self.token_verifier = token_verifier
         self.resource_server_url = resource_server_url
 
@@ -86,12 +92,11 @@ class BearerAuthBackend(AuthenticationBackend):
             return AuthCredentials(), InvalidTokenUser("The access token is malformed or unknown")
         if auth_info.expires_at is not None and auth_info.expires_at < int(time.time()):
             return AuthCredentials(), InvalidTokenUser("The access token has expired")
-        if (
-            self.resource_server_url is not None
-            and auth_info.resource is not None
-            and not check_token_audience(auth_info.resource, self.resource_server_url)
-        ):
-            return AuthCredentials(), InvalidTokenUser("The access token was issued for a different resource")
+        if self.resource_server_url is not None:
+            if auth_info.resource is None:
+                return AuthCredentials(), InvalidTokenUser("The access token carries no audience claim")
+            if not check_token_audience(auth_info.resource, self.resource_server_url):
+                return AuthCredentials(), InvalidTokenUser("The access token was issued for a different resource")
 
         return AuthCredentials(auth_info.scopes), AuthenticatedUser(auth_info)
 
