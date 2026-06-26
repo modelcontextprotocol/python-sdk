@@ -8,7 +8,7 @@ See: https://github.com/modelcontextprotocol/python-sdk/issues/2556
 """
 
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import mcp_types as types
 import pytest
@@ -50,6 +50,22 @@ def _paginated_handler(
             **{items_field: [make_item(name) for name in page]},
             next_cursor=next_cursor,
         )
+
+    return handler
+
+
+def _stuck_cursor_handler(
+    make_item: Callable[[str], ItemT],
+    result_cls: Callable[..., ResultT],
+    items_field: str,
+) -> Callable[[ServerRequestContext, types.PaginatedRequestParams | None], Awaitable[ResultT]]:
+    """Build a malformed handler that always returns the same non-null cursor.
+
+    A drain loop that trusts the cursor would page forever against this server.
+    """
+
+    async def handler(_ctx: ServerRequestContext, _params: types.PaginatedRequestParams | None) -> ResultT:
+        return result_cls(**{items_field: [make_item("x")]}, next_cursor="stuck")
 
     return handler
 
@@ -205,3 +221,53 @@ async def test_list_all_resource_templates_drains_all_pages(
         templates = await client.list_all_resource_templates()
         assert [t.name for t in templates] == ["t1", "t2", "t3"]
         assert len(spies.get_client_requests(method="resources/templates/list")) == 2
+
+
+# ---- malformed server: non-advancing cursor --------------------------------
+
+
+@pytest.mark.parametrize(
+    "build_server,client_method",
+    [
+        (
+            lambda: Server(
+                "stuck-tools",
+                on_list_tools=_stuck_cursor_handler(_make_tool, types.ListToolsResult, "tools"),
+            ),
+            "list_all_tools",
+        ),
+        (
+            lambda: Server(
+                "stuck-prompts",
+                on_list_prompts=_stuck_cursor_handler(_make_prompt, types.ListPromptsResult, "prompts"),
+            ),
+            "list_all_prompts",
+        ),
+        (
+            lambda: Server(
+                "stuck-resources",
+                on_list_resources=_stuck_cursor_handler(_make_resource, types.ListResourcesResult, "resources"),
+            ),
+            "list_all_resources",
+        ),
+        (
+            lambda: Server(
+                "stuck-templates",
+                on_list_resource_templates=_stuck_cursor_handler(
+                    _make_resource_template, types.ListResourceTemplatesResult, "resource_templates"
+                ),
+            ),
+            "list_all_resource_templates",
+        ),
+    ],
+)
+async def test_drain_raises_when_cursor_does_not_advance(
+    build_server: Callable[[], Server[Any]],
+    client_method: str,
+):
+    """A server that keeps returning the same cursor must fail loudly, not loop forever."""
+    server = build_server()
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="did not advance"):
+            await getattr(client, client_method)()
