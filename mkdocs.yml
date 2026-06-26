@@ -45,6 +45,7 @@ nav:
       - OpenTelemetry: advanced/opentelemetry.md
       - Authorization: advanced/authorization.md
       - OAuth clients: advanced/oauth-clients.md
+      - Identity assertion: advanced/identity-assertion.md
       - Session groups: advanced/session-groups.md
       - Deprecated features: advanced/deprecated.md
   - Migration Guide: migration.md
