@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import pytest
+from mcp_types import ElicitRequestParams, ElicitResult, TextContent
 from pydantic import BaseModel, Field
 
 from mcp import Client
@@ -20,7 +21,6 @@ from mcp.server.mcpserver import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.resolve import _resolver_key, find_resolved_parameters
 from mcp.server.mcpserver.tools.base import Tool
-from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
 class Login(BaseModel):
