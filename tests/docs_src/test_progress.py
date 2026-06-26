@@ -51,20 +51,22 @@ async def test_over_a_wire_dispatcher_callbacks_race_the_result() -> None:
     you not to rule out.
     """
     release = anyio.Event()
+    done = anyio.Event()
     finished: list[float] = []
 
-    async def slow(progress: float, total: float | None, message: str | None) -> None:
+    async def gated(progress: float, total: float | None, message: str | None) -> None:
         await release.wait()
         finished.append(progress)
+        if len(finished) == 2:
+            done.set()
 
     async with Client(tutorial001.mcp, mode="legacy") as client:
-        with anyio.fail_after(10):
-            result = await client.call_tool("import_catalog", {"urls": URLS}, progress_callback=slow)
+        with anyio.fail_after(5):
+            result = await client.call_tool("import_catalog", {"urls": URLS}, progress_callback=gated)
         assert finished == []
         release.set()
-        with anyio.fail_after(10):
-            while len(finished) < 2:
-                await anyio.sleep(0.01)
+        with anyio.fail_after(5):
+            await done.wait()
     assert sorted(finished) == [1, 2]
     assert result.structured_content == {"result": "Imported 2 records."}
 

@@ -20,22 +20,22 @@ Python 3.10+.
 === "uv"
 
     ```bash
-    uv add "mcp[cli]"
+    uv add "mcp[cli]==2.0.0a2"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]"
+    pip install "mcp[cli]==2.0.0a2"
     ```
 
 The `[cli]` extra gives you the `mcp` command; you'll want it for development.
 
 !!! warning "Pin the version while v2 is in alpha"
-    Until v2 is stable, installers resolve `mcp` to the latest **v1.x** release, which this
-    documentation does not describe. Pin an alpha explicitly (`uv add "mcp[cli]==2.0.0a2"`;
-    check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release).
-    See [Installation](installation.md) for the details.
+    Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
+    gives you the latest **v1.x** release, which this documentation does not describe. Check
+    [PyPI](https://pypi.org/project/mcp/#history) for the newest alpha before you copy the line
+    above. See [Installation](installation.md) for the details.
 
 ## Example
 
