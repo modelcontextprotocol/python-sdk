@@ -10,10 +10,11 @@ from docs_src.oauth_clients import tutorial001, tutorial002
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthRegistrationError, OAuthTokenError, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
-    RFC7523OAuthClientProvider,
+    RFC7523OAuthClientProvider,  # pyright: ignore[reportDeprecated]
     static_assertion_provider,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -105,8 +106,8 @@ async def test_the_one_more_provider_is_private_key_jwt() -> None:
 
 async def test_the_page_does_not_count_the_deprecated_provider() -> None:
     """Why the `!!! info` says *one* more provider: `RFC7523OAuthClientProvider` warns on construction."""
-    with pytest.warns(DeprecationWarning, match="RFC7523OAuthClientProvider is deprecated"):
-        RFC7523OAuthClientProvider(
+    with pytest.warns(MCPDeprecationWarning, match="RFC7523OAuthClientProvider is deprecated"):
+        RFC7523OAuthClientProvider(  # pyright: ignore[reportDeprecated]
             server_url="http://localhost:8001/mcp",
             client_metadata=tutorial001.oauth.context.client_metadata,
             storage=tutorial001.InMemoryTokenStorage(),

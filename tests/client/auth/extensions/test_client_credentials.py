@@ -9,7 +9,7 @@ from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
     JWTParameters,
     PrivateKeyJWTOAuthProvider,
-    RFC7523OAuthClientProvider,
+    RFC7523OAuthClientProvider,  # pyright: ignore[reportDeprecated]
     SignedJWTParameters,
     static_assertion_provider,
 )
@@ -20,6 +20,7 @@ from mcp.shared.auth import (
     OAuthMetadata,
     OAuthToken,
 )
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 class MockTokenStorage:
@@ -68,8 +69,8 @@ def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: M
         return AuthorizationCodeResult(code="test_auth_code", state="test_state")
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        return RFC7523OAuthClientProvider(
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
+        return RFC7523OAuthClientProvider(  # pyright: ignore[reportDeprecated]
             server_url="https://api.example.com/v1/mcp",
             client_metadata=client_metadata,
             storage=mock_storage,
@@ -78,11 +79,20 @@ def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: M
         )
 
 
+def test_rfc7523_provider_warns_on_instantiation(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
+    with pytest.warns(MCPDeprecationWarning, match="RFC7523OAuthClientProvider is deprecated"):
+        RFC7523OAuthClientProvider(  # pyright: ignore[reportDeprecated]
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+
+
 class TestOAuthFlowClientCredentials:
     """Test OAuth flow behavior for client credentials flows."""
 
     @pytest.mark.anyio
-    async def test_token_exchange_request_jwt_predefined(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):
+    async def test_token_exchange_request_jwt_predefined(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):  # pyright: ignore[reportDeprecated]
         """Test token exchange request building with a predefined JWT assertion."""
         # Set up required context
         rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -121,7 +131,7 @@ class TestOAuthFlowClientCredentials:
         )
 
     @pytest.mark.anyio
-    async def test_token_exchange_request_jwt(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):
+    async def test_token_exchange_request_jwt(self, rfc7523_oauth_provider: RFC7523OAuthClientProvider):  # pyright: ignore[reportDeprecated]
         """Test token exchange request building wiith a generated JWT assertion."""
         # Set up required context
         rfc7523_oauth_provider.context.client_info = OAuthClientInformationFull(
