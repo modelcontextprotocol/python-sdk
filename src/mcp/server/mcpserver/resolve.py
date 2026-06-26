@@ -155,12 +155,26 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     for name in inspect.signature(fn).parameters:
         annotation = hints.get(name)
         if get_origin(annotation) is not Annotated:
+            # A `Resolve` marker is only honored at the top level; flag (rather than
+            # silently drop) one buried in a union, e.g. `Annotated[T, Resolve(f)] | None`.
+            if _contains_resolve(annotation):
+                raise InvalidSignature(
+                    f"Parameter {name!r} of {_resolver_name(fn)!r} wraps `Resolve(...)` in a "
+                    "union; annotate the parameter directly as `Annotated[T, Resolve(...)]`"
+                )
             continue
         type_arg, *metadata = get_args(annotation)
         marker = next((m for m in metadata if isinstance(m, Resolve)), None)
         if marker is not None:
             resolved[name] = (marker, _wants_union(type_arg))
     return resolved
+
+
+def _contains_resolve(annotation: Any) -> bool:
+    """True when a `Resolve` marker is nested inside `annotation` (e.g. a union member)."""
+    if get_origin(annotation) is Annotated:
+        return any(isinstance(m, Resolve) for m in get_args(annotation)[1:])
+    return any(_contains_resolve(arg) for arg in get_args(annotation))
 
 
 def _elicit_return_schema(return_annotation: Any) -> type[BaseModel] | None:
@@ -187,12 +201,13 @@ def _is_union(annotation: Any) -> bool:
 def _wants_union(type_arg: Any) -> bool:
     """True when `type_arg` is an `ElicitationResult` member (or a union of them).
 
-    Handles the bare `ElicitationResult[T]` alias (a `TypeAliasType` carrying the
-    union on `__value__`), an explicit `AcceptedElicitation[T] | ... ` union, and a
-    single member.
+    Handles the subscripted `ElicitationResult[T]` alias (a `TypeAliasType` whose
+    union is on the origin's `__value__`), the bare `ElicitationResult` alias (the
+    `__value__` is on `type_arg` itself), an explicit `AcceptedElicitation[T] | ...`
+    union, and a single member.
     """
-    origin = get_origin(type_arg)
-    value = getattr(origin, "__value__", None)
+    # Unwrap the `ElicitationResult` alias whether it is bare or subscripted.
+    value = getattr(type_arg, "__value__", None) or getattr(get_origin(type_arg), "__value__", None)
     if value is not None:
         type_arg = value
     members = get_args(type_arg) if get_origin(type_arg) is not None else (type_arg,)
@@ -330,16 +345,17 @@ class _Resolution:
 
 
 def _state_key(fn: Callable[..., Any]) -> str:
-    """Process-stable wire key for a resolver's elicitation.
+    """Worker-stable base wire key for a resolver, derived only from registration data.
 
-    `id(fn)` isn't stable across `input_required` rounds, so key `input_requests` /
-    `request_state` by `module:qualname`. Bound methods add their `__self__` id so
-    two instances of the same method get distinct questions and stored outcomes
-    (the registered `Resolve(...)` holds the instance for the call's lifetime).
+    `input_requests`/`request_state` must round-trip through the client and resume on
+    any worker (stateless HTTP), so the key carries no `id(...)`: it is the resolver's
+    `module:qualname` (a callable object uses its type's). Distinct resolvers that
+    share this base - two instances of one method, two closures from one factory - are
+    disambiguated deterministically by `build_resolver_plans` (`base`, `base#1`, ...).
     """
-    base = f"{getattr(fn, '__module__', '')}:{getattr(fn, '__qualname__', fn)!s}"
-    bound_self = getattr(fn, "__self__", None)
-    return f"{base}#{id(bound_self)}" if bound_self is not None else base
+    qualname = getattr(fn, "__qualname__", None) or type(fn).__qualname__
+    module = getattr(fn, "__module__", None) or type(fn).__module__
+    return f"{module}:{qualname}"
 
 
 async def resolve_arguments(
@@ -396,7 +412,11 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
     if wire_key in res.pending:
         # Already asked this round by another consumer; don't run the resolver again.
         raise _Pending
-    if wire_key in res.state:
+    # Restore a prior round's outcome directly only when its model is known from the
+    # `Elicit[T]` return arm. Without that (a resolver that elicits but isn't annotated
+    # `-> ... Elicit[T]`), fall through and re-run the resolver so `_elicit` can
+    # re-validate the stored answer against the live `Elicit.schema`.
+    if wire_key in res.state and (plan.elicit_schema is not None or res.state[wire_key].action != "accept"):
         outcome = _outcome_from_state(res.state[wire_key], plan.elicit_schema)
         res.cache[cache_key] = outcome
         # Carry the restored answer forward: if a later resolver is still pending,
@@ -448,6 +468,13 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
     """Turn a resolver's `Elicit` into an outcome via the negotiated transport."""
     if not res.input_required:
         return await res.context.elicit(elicit.message, elicit.schema)
+
+    # Answered in a prior round (restored without a known schema, e.g. an unannotated
+    # resolver): re-validate the stored entry against the live `Elicit.schema`.
+    if key in res.state and key not in res.answers:
+        outcome = _outcome_from_state(res.state[key], elicit.schema)
+        res.elicited[key] = outcome
+        return outcome
 
     answer = res.answers.get(key)
     if answer is None:
