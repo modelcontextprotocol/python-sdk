@@ -63,6 +63,7 @@ The injected object is small. Besides `request_id`:
 * `await ctx.report_progress(progress, total, message)`: stream progress back to the caller during a long call. The whole story is in **Progress**.
 * `await ctx.elicit(message, schema)` and `await ctx.elicit_url(...)`: pause the tool and ask the user a question. That's **Elicitation**.
 * `ctx.session`: the server's side of the conversation with this client. Notifications you send to the client live here; the last section uses it.
+* `ctx.headers`: the request headers the transport carried, or `None` on stdio. Read a custom header with `(ctx.headers or {}).get("x-...")`.
 * `ctx.request_context`: the raw per-request record. The field you'll reach for is `lifespan_context`, the object your startup code yielded (see **Lifespan**).
 
 Logging is deliberately not on that list. A server logs with Python's `logging` module, like any other Python program. **Logging** is the short chapter on why.
