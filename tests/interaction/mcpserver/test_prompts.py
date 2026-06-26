@@ -130,6 +130,8 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
     @mcp.prompt()
     def repeat(phrase: str, count: int) -> str:
         """A registered prompt; type validation rejects the call before the function runs."""
+        # Never runs: validate_call rejects the bad count first; `called == []` below is the
+        # proof. The append rides on the coverage-excluded `raise NotImplementedError` line.
         raise NotImplementedError(called.append((phrase, count)))
 
     async with connect(mcp) as client:
