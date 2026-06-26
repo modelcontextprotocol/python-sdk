@@ -3,6 +3,7 @@
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INVALID_PARAMS,
     INVALID_REQUEST,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -74,7 +75,7 @@ async def test_without_the_callback_the_servers_request_is_refused() -> None:
     async with Client(tutorial001.mcp, mode="legacy") as client:
         with pytest.raises(MCPError, match="Elicitation not supported") as exc_info:
             await client.call_tool("issue_card")
-    assert exc_info.value.error.code == INVALID_REQUEST
+    assert exc_info.value.error.code == INVALID_PARAMS
 
 
 async def test_registering_the_callback_declares_the_capability() -> None:

@@ -1724,9 +1724,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An elicitation request to a client that did not declare the elicitation capability is "
             "answered with -32602 Invalid params."
         ),
-        divergence=Divergence(
-            note="The client's default callback answers with -32600 Invalid request instead of -32602.",
-        ),
         arm_exclusions=(
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
@@ -1933,9 +1930,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A roots/list request to a client that did not declare the roots capability is answered with "
             "-32601 Method not found."
-        ),
-        divergence=Divergence(
-            note="The client's default callback answers with -32600 Invalid request instead of -32601.",
         ),
         arm_exclusions=(
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),

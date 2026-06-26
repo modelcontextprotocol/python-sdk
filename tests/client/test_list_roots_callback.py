@@ -1,5 +1,5 @@
 import pytest
-from mcp_types import INVALID_REQUEST, ListRootsResult, Root, TextContent
+from mcp_types import METHOD_NOT_FOUND, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
 from mcp import Client
@@ -44,4 +44,4 @@ async def test_list_roots_callback():
     async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("test_list_roots", {"message": "test message"})
-    assert exc_info.value.error.code == INVALID_REQUEST
+    assert exc_info.value.error.code == METHOD_NOT_FOUND

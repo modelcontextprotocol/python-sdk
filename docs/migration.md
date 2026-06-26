@@ -410,6 +410,12 @@ For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` 
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
+### Unhandled `elicitation/create` returns `-32602`; unhandled `roots/list` returns `-32601`
+
+When a server sends `elicitation/create` to a client that registered no `elicitation_callback`, or `roots/list` to a client that registered no `list_roots_callback`, the SDK still answers on the client's behalf with a JSON-RPC error. In v1 both answers used code `-32600` (`INVALID_REQUEST`). They now use the code the spec assigns to each case: `elicitation/create` is answered with `-32602` (`INVALID_PARAMS`), per the [elicitation error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#error-handling) (a client with no callback declared no elicitation modes, and a request for an undeclared mode MUST be answered with `-32602`), and `roots/list` is answered with `-32601` (`METHOD_NOT_FOUND`), per the [roots error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/roots#error-handling). The error messages (`Elicitation not supported`, `List roots not supported`) are unchanged, and `sampling/createMessage` without a `sampling_callback` still answers `-32600` — the spec assigns no code to that case.
+
+Server-side code that branched on `error.code == INVALID_REQUEST` to detect a client without elicitation or roots support should switch to `INVALID_PARAMS` and `METHOD_NOT_FOUND` respectively — or, better, check the client's declared capabilities before sending, which is the condition these codes describe.
+
 ### `InputRequiredResult` handling differs between `Client` and `ClientSession`
 
 For protocol 2026-07-28, `tools/call`, `prompts/get`, and `resources/read` may return an `InputRequiredResult` asking the client to supply additional input (sampling, elicitation, roots) and retry.

@@ -149,6 +149,8 @@ async def _default_sampling_callback(
     context: ClientRequestContext,
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
+    # Unlike elicitation (INVALID_PARAMS) and roots (METHOD_NOT_FOUND) below, the spec assigns no
+    # error code to a client that does not support sampling; INVALID_REQUEST is the SDK's choice.
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
@@ -160,7 +162,7 @@ async def _default_elicitation_callback(
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(
-        code=types.INVALID_REQUEST,
+        code=types.INVALID_PARAMS,
         message="Elicitation not supported",
     )
 
@@ -169,7 +171,7 @@ async def _default_list_roots_callback(
     context: ClientRequestContext,
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
-        code=types.INVALID_REQUEST,
+        code=types.METHOD_NOT_FOUND,
         message="List roots not supported",
     )
 

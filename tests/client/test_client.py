@@ -681,7 +681,7 @@ async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_thr
 
 async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered() -> None:
     """SDK-defined: with no `elicitation_callback`, the default returns
-    `ErrorData(INVALID_REQUEST, ...)` and the driver raises it as `MCPError`
+    `ErrorData(INVALID_PARAMS, ...)` and the driver raises it as `MCPError`
     rather than retrying."""
     server = MCPServer("test")
 
@@ -694,7 +694,7 @@ async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered(
     async with Client(server) as client:
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.call_tool("needs_input")
-    assert exc.value.error.code == types.INVALID_REQUEST
+    assert exc.value.error.code == types.INVALID_PARAMS
 
 
 async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> None:

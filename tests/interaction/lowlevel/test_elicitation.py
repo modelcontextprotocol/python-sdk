@@ -9,6 +9,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INVALID_PARAMS,
     CallToolResult,
     ElicitCompleteNotification,
     ElicitCompleteNotificationParams,
@@ -160,14 +161,13 @@ async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
 
 @requirement("elicitation:form:not-supported")
 @requirement("elicitation:capability:server-respects-mode")
-async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
-    """Eliciting from a client that configured no elicitation callback fails with an error.
+async def test_elicit_form_without_callback_fails_with_invalid_params(connect: Connect) -> None:
+    """Eliciting from a client that configured no elicitation callback fails with `INVALID_PARAMS`.
 
-    The client's default callback answers with an Invalid request error, which the server-side
-    elicit call raises as an MCPError; the tool reports the code and message it caught. The spec
-    requires -32602 for an undeclared mode (see the divergence note on the requirement). The
-    request reaching the client also shows the server does not check the client's declared
-    elicitation capability before sending (see the divergence on `server-respects-mode`).
+    Spec-mandated (MUST): an elicitation/create whose mode the client never declared is answered
+    with -32602 Invalid params, and a client with no callback declared no elicitation modes at all.
+    The request reaching the client at all also shows the server does not check the client's
+    declared elicitation capability before sending (see the divergence on `server-respects-mode`).
     """
 
     async def list_tools(
@@ -177,12 +177,15 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
             tools=[types.Tool(name="ask", description="Ask the user.", input_schema={"type": "object"})]
         )
 
+    errors: list[ErrorData] = []
+
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask"
         try:
             await ctx.session.elicit_form("Anyone there?", {"type": "object", "properties": {}})
         except MCPError as exc:
-            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+            errors.append(exc.error)
+            return CallToolResult(content=[TextContent(text=exc.error.message)])
         raise NotImplementedError  # elicit_form cannot succeed without a client callback
 
     server = Server("asker", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -190,7 +193,9 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("ask", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Elicitation not supported")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(text="Elicitation not supported")]))
+    (error,) = errors
+    assert error.code == INVALID_PARAMS
 
 
 @requirement("elicitation:url:action:accept-no-content")
