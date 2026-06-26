@@ -10,10 +10,11 @@ and now continue as an extension. See SEP-2133 for the extension framework.
 This module demonstrates the *interceptive* half of the extension API. A `Tasks`
 instance:
 
-  - overrides `intercept_tool_call` to branch on `params.task`: a plain call
-    passes through untouched; a task-augmented call still runs the tool, but its
-    result is recorded under a task id and returned with that id stamped into
-    `_meta["io.modelcontextprotocol/related-task"]`, and
+  - overrides `intercept_tool_call` to branch on `params.task`: a call WITHOUT a
+    `task` field passes through untouched (it is a normal blocking call), so
+    plain `tools/call` behaviour is unchanged. Only a call the client explicitly
+    augments with a `task` field is recorded under a task id and returned with
+    that id stamped into `_meta["io.modelcontextprotocol/related-task"]`, and
   - overrides `methods` to serve `tasks/get`, `tasks/result`, `tasks/cancel`,
     and `tasks/list` so a client can poll status and fetch the payload.
 
@@ -24,6 +25,11 @@ production task runtime. Two deliberate simplifications keep it self-contained:
 
   - The tool runs to completion inline, so a task is observed as `completed`
     immediately (no detached/background execution, no TTL eviction).
+  - Any tool may be task-augmented when the client sends a `task` field; per-tool
+    gating on the declared `ToolExecution.task_support`
+    (`forbidden`/`optional`/`required`) is not enforced. A production extension
+    would reject a `task`-augmented call to a `forbidden` tool and a plain call
+    to a `required` one.
   - A task-augmented `tools/call` returns a normal `CallToolResult` (with the
     task id in `_meta`) rather than the spec's `CreateTaskResult`. The wire
     schema for `tools/call` only admits `CallToolResult | InputRequiredResult`

@@ -34,13 +34,20 @@ uv run python -m stories.tasks.client --http
 ## Caveats
 
 This is a reference implementation for the extension API, not a production task
-runtime. The tool runs to completion inline (so a task is observed as
-`completed` immediately), and the augmented call returns a normal
-`CallToolResult` with the task id in `_meta` rather than the spec's
-`CreateTaskResult` — the `tools/call` result schema admits only
-`CallToolResult | InputRequiredResult` (see `TODO(L56)` in `mcp.server.runner`),
-so returning `CreateTaskResult` would require extending the methods-layer
-validation maps. The lifecycle runs through the dedicated `tasks/*` methods instead.
+runtime. A plain `tools/call` (no `task` field) is unchanged — only a call the
+client explicitly augments with a `task` field becomes a task. Three deliberate
+simplifications:
+
+- The tool runs to completion inline, so a task is observed as `completed`
+  immediately (no detached/background execution, no TTL eviction).
+- The augmented call returns a normal `CallToolResult` with the task id in
+  `_meta` rather than the spec's `CreateTaskResult` — the `tools/call` result
+  schema admits only `CallToolResult | InputRequiredResult` (see `TODO(L56)` in
+  `mcp.server.runner`), so returning `CreateTaskResult` would require extending
+  the methods-layer validation maps. The lifecycle runs through the dedicated
+  `tasks/*` methods instead.
+- Any tool may be task-augmented on request; per-tool gating on the declared
+  `ToolExecution.task_support` (`forbidden`/`optional`/`required`) is not enforced.
 
 ## Spec
 
