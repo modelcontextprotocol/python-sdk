@@ -26,10 +26,9 @@ Whether the consumer receives the unwrapped model or the full
 from __future__ import annotations
 
 import inspect
-import json
 import typing
 from collections.abc import Callable, Hashable, Mapping
-from typing import Annotated, Any, Generic, cast, get_args, get_origin
+from typing import Annotated, Any, Generic, Literal, TypeGuard, get_args, get_origin
 
 import anyio.to_thread
 from mcp_types import (
@@ -41,7 +40,7 @@ from mcp_types import (
     InputResponses,
 )
 from mcp_types.version import LATEST_MODERN_VERSION, is_version_at_least
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
 from mcp.server.elicitation import (
@@ -298,7 +297,7 @@ class _Resolution:
         self.answers: InputResponses = context.input_responses or {} if input_required else {}
         self.state = _decode_state(context.request_state) if input_required else {}
         self.cache: dict[str, ElicitationResult[Any]] = {}
-        self.pending: dict[str, ElicitRequest] = {}
+        self.pending: InputRequests = {}
 
 
 def _state_key(fn: Callable[..., Any]) -> str:
@@ -342,10 +341,7 @@ async def resolve_arguments(
         injected[name] = outcome if wants_union else _unwrap(outcome, name)
 
     if res.pending:
-        return InputRequiredResult(
-            input_requests=cast("InputRequests", res.pending),
-            request_state=_encode_state(res.cache),
-        )
+        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.cache))
     return injected
 
 
@@ -379,23 +375,24 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
             dep_outcome = await _resolve(param_plan.resolve.fn, res)
             kwargs[param_name] = dep_outcome if param_plan.wants_union else _unwrap(dep_outcome, param_name)
 
+    result: Any
     if plan.is_async:
         result = await fn(**kwargs)
     else:
         result = await anyio.to_thread.run_sync(lambda: fn(**kwargs))
 
-    if isinstance(result, Elicit):
-        outcome = await _elicit(cast("Elicit[BaseModel]", result), key, res)
+    if _is_elicit(result):
+        outcome = await _elicit(result, key, res)
     else:
-        # A resolver may return any type (not just `BaseModel`); `model_construct`
-        # wraps it as an accepted result without validating against the schema bound.
-        outcome = cast("AcceptedElicitation[Any]", AcceptedElicitation.model_construct(data=result))
+        # A resolver may return any type (not just `BaseModel`), so accept it as the
+        # outcome without validating against the schema bound.
+        outcome = _accepted(result)
 
     res.cache[key] = outcome
     return outcome
 
 
-async def _elicit(elicit: Elicit[BaseModel], key: str, res: _Resolution) -> ElicitationResult[Any]:
+async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> ElicitationResult[Any]:
     """Turn a resolver's `Elicit` into an outcome via the negotiated transport."""
     if not res.input_required:
         return await res.context.elicit(elicit.message, elicit.schema)
@@ -419,6 +416,20 @@ def _unwrap(outcome: ElicitationResult[Any], name: str) -> Any:
     raise ToolError(f"Resolver for parameter {name!r} could not resolve: elicitation was {outcome.action}")
 
 
+def _is_elicit(value: Any) -> TypeGuard[Elicit[Any]]:
+    """Runtime narrow of a resolver's return value to a (parameter-erased) `Elicit`."""
+    return isinstance(value, Elicit)
+
+
+def _accepted(data: Any) -> AcceptedElicitation[Any]:
+    """Wrap a resolved value as an accepted outcome without schema validation.
+
+    A resolver may return any type (the schema bound only constrains `Elicit[T]`),
+    and a value restored from `request_state` is already validated.
+    """
+    return AcceptedElicitation[Any].model_construct(data=data)
+
+
 def uses_input_required(protocol_version: str | None) -> bool:
     """True when this request must elicit via `InputRequiredResult` (>= 2026-07-28).
 
@@ -434,50 +445,56 @@ def _elicit_request(elicit: Elicit[Any]) -> ElicitRequest:
     return ElicitRequest(params=ElicitRequestFormParams(message=elicit.message, requested_schema=json_schema))
 
 
-def _decode_state(request_state: str | None) -> dict[str, dict[str, Any]]:
+class _StateEntry(BaseModel):
+    """One resolver's recorded outcome inside `request_state`."""
+
+    action: Literal["accept", "decline", "cancel"]
+    data: Any = None
+
+
+class _State(BaseModel):
+    """The decoded `request_state`: resolver outcomes from earlier rounds."""
+
+    v: int
+    outcomes: dict[str, _StateEntry] = {}
+
+
+def _decode_state(request_state: str | None) -> dict[str, _StateEntry]:
     """Decode the per-call resolution progress from `request_state`.
 
-    `request_state` is client-trusted (integrity sealing is a follow-up); decode
-    defensively and treat anything malformed as "no progress yet".
+    `request_state` is client-trusted (integrity sealing is a follow-up); validate
+    it through `_State` and treat anything malformed as "no progress yet".
     """
     if not request_state:
         return {}
     try:
-        decoded: Any = json.loads(request_state)
-    except json.JSONDecodeError:
+        state = _State.model_validate_json(request_state)
+    except ValidationError:
         return {}
-    if not isinstance(decoded, dict):
-        return {}
-    payload = cast("dict[str, Any]", decoded)
-    if payload.get("v") != _STATE_VERSION:
-        return {}
-    outcomes = payload.get("outcomes")
-    return cast("dict[str, dict[str, Any]]", outcomes) if isinstance(outcomes, dict) else {}
+    return state.outcomes if state.v == _STATE_VERSION else {}
 
 
 def _encode_state(outcomes: Mapping[str, ElicitationResult[Any]]) -> str:
     """Encode resolved outcomes (keyed by resolver path) for the next round."""
-    encoded: dict[str, dict[str, Any]] = {}
+    entries: dict[str, _StateEntry] = {}
     for path, outcome in outcomes.items():
-        entry: dict[str, Any] = {"action": outcome.action}
-        if isinstance(outcome, AcceptedElicitation):
-            data = outcome.data
-            entry["data"] = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
-        encoded[path] = entry
-    return json.dumps({"v": _STATE_VERSION, "outcomes": encoded})
+        data = outcome.data if isinstance(outcome, AcceptedElicitation) else None
+        if isinstance(data, BaseModel):
+            data = data.model_dump(mode="json")
+        entries[path] = _StateEntry(action=outcome.action, data=data)
+    return _State(v=_STATE_VERSION, outcomes=entries).model_dump_json()
 
 
-def _outcome_from_state(entry: Mapping[str, Any], schema: type[BaseModel] | None) -> ElicitationResult[Any]:
+def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel] | None) -> ElicitationResult[Any]:
     """Rebuild an `ElicitationResult` from a decoded `request_state` entry."""
-    action = entry.get("action")
-    if action == "decline":
+    if entry.action == "decline":
         return DeclinedElicitation()
-    if action == "cancel":
+    if entry.action == "cancel":
         return CancelledElicitation()
-    data = entry.get("data")
+    data = entry.data
     if schema is not None and isinstance(data, dict):
         data = schema.model_validate(data)
-    return cast("AcceptedElicitation[Any]", AcceptedElicitation.model_construct(data=data))
+    return _accepted(data)
 
 
 __all__ = [

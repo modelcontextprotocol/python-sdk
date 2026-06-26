@@ -1,11 +1,12 @@
 """Tests for resolver dependency injection (MRTR) on MCPServer tools."""
 
 from collections.abc import Callable
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 import pytest
 from mcp_types import (
     CallToolResult,
+    ElicitRequestFormParams,
     ElicitRequestParams,
     ElicitResult,
     InputRequiredResult,
@@ -73,7 +74,7 @@ async def _drive_mrtr(
     client: Client,
     tool: str,
     args: dict[str, object],
-    answer: Callable[[str, ElicitRequestParams], ElicitResult],
+    answer: Callable[[str, ElicitRequestFormParams], ElicitResult],
     max_rounds: int = 10,
 ) -> CallToolResult:
     """Drive the 2026-07-28 `input_required` loop to completion.
@@ -92,9 +93,10 @@ async def _drive_mrtr(
             return result
         assert isinstance(result, InputRequiredResult)
         assert result.input_requests is not None
-        responses = {
-            key: answer(key, cast(ElicitRequestParams, req.params)) for key, req in result.input_requests.items()
-        }
+        responses = {}
+        for key, req in result.input_requests.items():
+            assert isinstance(req.params, ElicitRequestFormParams)
+            responses[key] = answer(key, req.params)
         state = result.request_state
     raise AssertionError("input_required loop did not converge")  # pragma: no cover
 
@@ -626,7 +628,7 @@ async def test_input_required_loop_handles_every_outcome(
     mcp, fs = _delete_folder_server()
     fs["/docs"] = ["a.txt", "b.txt"]
 
-    def answer(key: str, params: ElicitRequestParams) -> ElicitResult:
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
         assert "/docs has 2 file(s)" in params.message
         return ElicitResult(action=action, content=content)
 
@@ -672,7 +674,7 @@ async def test_input_required_resolver_asks_and_consumes_then_never_reruns():
     ) -> str:
         return f"{login.username}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestParams) -> ElicitResult:
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
         if "Username" in params.message:
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
@@ -707,7 +709,7 @@ async def test_input_required_batches_independent_elicits_in_one_round():
     ) -> str:
         return f"{name.username}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestParams) -> ElicitResult:
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
         if "Name" in params.message:
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
