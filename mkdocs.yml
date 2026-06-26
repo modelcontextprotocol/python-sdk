@@ -16,6 +16,7 @@ nav:
   - Migration Guide: migration.md
   - Documentation:
       - Concepts: concepts.md
+      - Environment Variables: environment-variables.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
