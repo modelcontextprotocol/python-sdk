@@ -1775,17 +1775,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
-                "validation at the low-level session layer (the high-level Context.elicit / "
-                "elicit_with_validation helper enforces primitive-only fields before generating the schema). "
-                "ClientSession likewise does not enforce it: the inbound surface gate is relaxed for "
-                "requestedSchema.properties so older servers that emit anyOf for Optional fields still reach "
-                "the elicitation callback."
+                "Enforced on the send side only: ServerSession.elicit_form / ClientPeer.elicit_form "
+                "take a typed ElicitRequestedSchema, so a non-primitive or nested property is "
+                "unconstructible on send. Inbound is deliberately lenient: "
+                "ElicitRequestFormParams.requested_schema stays a plain dict and the inbound surface "
+                "gate is relaxed for requestedSchema.properties, so older servers that emit anyOf "
+                "for Optional fields (and any other non-conforming schema) still reach the "
+                "elicitation callback. Interop beats purity on receive. The outbound closure is "
+                "scoped to property shapes, matching this requirement's behavior text: top-level "
+                "JSON Schema composition keys (allOf, $defs) are not rejected, because the top "
+                "level must stay open for the SDK's own renderer's non-spec title key."
             ),
-        ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:form:response-validation": Requirement(

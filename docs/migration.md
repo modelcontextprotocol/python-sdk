@@ -812,6 +812,42 @@ Positional calls (`await ctx.info("hello")`) are unaffected.
 
 `Context.elicit()` (and `elicit_with_validation()`) now render the schema first and validate each property against the spec's `PrimitiveSchemaDefinition`, raising `TypeError` at the call site for anything outside it. `Optional[T]` fields render as `{"type": ...}` with the field omitted from `required` (previously the non-spec `anyOf` shape). A bare `list[str]` field is rejected because it renders without the required enum items; use `list[Literal[...]]` or `list[str]` with `json_schema_extra` supplying the items. Unions of multiple primitives (e.g. `int | str`) and nested models are rejected.
 
+### `ServerSession.elicit_form()` takes a typed `ElicitRequestedSchema`
+
+`ServerSession.elicit_form()` (and the deprecated `elicit()` alias, and `ClientPeer.elicit_form()`)
+now take an `mcp_types.ElicitRequestedSchema` -- a Pydantic model of the spec's restricted
+requested-schema subset -- instead of an arbitrary `dict[str, Any]`. `ElicitRequestedSchema` was
+previously a `TypeAlias` for `dict[str, Any]`; it is now that model. A schema with a nested-object
+property, an array-of-objects property, or an `anyOf` union is rejected at construction.
+
+**Why:** the spec restricts form-mode requested schemas to flat objects with primitive-typed
+properties only ("complex nested structures, arrays of objects ... are intentionally not
+supported"). Typing the send side makes a non-conforming schema impossible to construct rather
+than silently forwarded.
+
+**How to migrate:** build the model in place of the dict, or validate an existing JSON Schema dict:
+
+```python
+from mcp_types import BooleanSchema, ElicitRequestedSchema, StringSchema
+
+await ctx.session.elicit_form(
+    "Choose a username.",
+    ElicitRequestedSchema(
+        properties={"username": StringSchema(type="string"), "newsletter": BooleanSchema(type="boolean")},
+        required=["username"],
+    ),
+)
+
+# Or, if you already have a JSON Schema dict:
+await ctx.session.elicit_form("Choose a username.", ElicitRequestedSchema.model_validate(my_schema))
+```
+
+The high-level `Context.elicit()` / `elicit_with_validation()` path, which generates the schema
+from a Pydantic model class, is unchanged. The wire type `ElicitRequestFormParams.requested_schema`
+is still a plain `dict[str, Any]`: the client's inbound parsing deliberately tolerates
+non-conforming schemas so older servers (which emit `anyOf` for `Optional` form fields) still
+reach the elicitation callback.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:

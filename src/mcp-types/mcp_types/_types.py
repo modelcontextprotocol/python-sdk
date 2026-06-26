@@ -1926,9 +1926,172 @@ class ElicitCompleteNotification(
     params: ElicitCompleteNotificationParams
 
 
-# Kept as a raw JSON Schema dict so callers can hand it straight to a validator;
-# the per-version packages model RequestedSchema/PrimitiveSchemaDefinition strictly.
-ElicitRequestedSchema: TypeAlias = dict[str, Any]
+class _OpenSchemaModel(MCPModel):
+    """Internal base for the elicitation requested-schema family: an open key set.
+
+    Keys schema.ts does not name still round-trip to the wire. The high-level renderer
+    (`model_json_schema`) emits non-spec JSON Schema keys -- a top-level `title`,
+    `exclusiveMinimum` / `pattern` from `Field(gt=...)` / `Field(pattern=...)`, and anything
+    in `json_schema_extra` -- and `extra="allow"` forwards them unchanged. The
+    primitives-only restriction is carried by the union members' required `type` literals
+    and required fields, NOT by extra-key rejection: `forbid` would break the high-level
+    path, and `ignore` would silently rewrite the user's schema.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
+
+
+class StringSchema(_OpenSchemaModel):
+    """A string-typed form field in an elicitation requested schema."""
+
+    type: Literal["string"]
+    title: str | None = None
+    description: str | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+    format: Literal["email", "uri", "date", "date-time"] | None = None
+    default: str | None = None
+
+
+class NumberSchema(_OpenSchemaModel):
+    """A number- or integer-typed form field in an elicitation requested schema."""
+
+    type: Literal["number", "integer"]
+    title: str | None = None
+    description: str | None = None
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    default: int | float | None = None
+
+
+class BooleanSchema(_OpenSchemaModel):
+    """A boolean-typed form field in an elicitation requested schema."""
+
+    type: Literal["boolean"]
+    title: str | None = None
+    description: str | None = None
+    default: bool | None = None
+
+
+class EnumOption(_OpenSchemaModel):
+    """An enum value paired with the display title clients show for it."""
+
+    const: str
+    title: str
+
+
+class UntitledSingleSelectEnumSchema(_OpenSchemaModel):
+    """Single-selection enum form field whose options have no display titles."""
+
+    type: Literal["string"]
+    title: str | None = None
+    description: str | None = None
+    enum: list[str]
+    default: str | None = None
+
+
+class TitledSingleSelectEnumSchema(_OpenSchemaModel):
+    """Single-selection enum form field with a display title for each option."""
+
+    type: Literal["string"]
+    title: str | None = None
+    description: str | None = None
+    one_of: list[EnumOption]
+    default: str | None = None
+
+
+SingleSelectEnumSchema: TypeAlias = UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
+"""Single-selection enum form field, with or without display titles for its options."""
+
+
+class UntitledMultiSelectEnumItems(_OpenSchemaModel):
+    """The `items` schema of a multi-select enum whose options have no display titles."""
+
+    type: Literal["string"]
+    enum: list[str]
+
+
+class UntitledMultiSelectEnumSchema(_OpenSchemaModel):
+    """Multiple-selection enum form field whose options have no display titles."""
+
+    type: Literal["array"]
+    title: str | None = None
+    description: str | None = None
+    min_items: int | None = None
+    max_items: int | None = None
+    items: UntitledMultiSelectEnumItems
+    default: list[str] | None = None
+
+
+class TitledMultiSelectEnumItems(_OpenSchemaModel):
+    """The `items` schema of a multi-select enum with a display title for each option."""
+
+    any_of: list[EnumOption]
+
+
+class TitledMultiSelectEnumSchema(_OpenSchemaModel):
+    """Multiple-selection enum form field with a display title for each option."""
+
+    type: Literal["array"]
+    title: str | None = None
+    description: str | None = None
+    min_items: int | None = None
+    max_items: int | None = None
+    items: TitledMultiSelectEnumItems
+    default: list[str] | None = None
+
+
+MultiSelectEnumSchema: TypeAlias = UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
+"""Multiple-selection enum form field, with or without display titles for its options."""
+
+
+class LegacyTitledEnumSchema(_OpenSchemaModel):
+    """Enum form field using `enum` / `enumNames`; the spec will remove this in a future version.
+
+    Use `TitledSingleSelectEnumSchema` instead.
+    """
+
+    type: Literal["string"]
+    title: str | None = None
+    description: str | None = None
+    enum: list[str]
+    enum_names: list[str] | None = None
+    default: str | None = None
+
+
+EnumSchema: TypeAlias = SingleSelectEnumSchema | MultiSelectEnumSchema | LegacyTitledEnumSchema
+"""Any of the elicitation enum form-field schemas."""
+
+PrimitiveSchemaDefinition: TypeAlias = StringSchema | NumberSchema | BooleanSchema | EnumSchema
+"""Restricted schema definitions allowed as elicitation form fields: primitives only, no nesting."""
+
+
+class ElicitRequestedSchema(_OpenSchemaModel):
+    """A restricted subset of JSON Schema: a flat object whose properties are all primitive-typed.
+
+    This is the only schema type the typed send methods (`ServerSession.elicit_form`,
+    `ClientPeer.elicit_form`) accept, so a nested-object or array-of-objects property is
+    unconstructible on the send side. The wire field `ElicitRequestFormParams.requested_schema`
+    stays a plain dict so the inbound parse remains lenient (see that field's docstring).
+    """
+
+    schema_: Annotated[str | None, Field(alias="$schema")] = None
+    type: Literal["object"] = "object"
+    properties: dict[str, PrimitiveSchemaDefinition]
+    required: list[str] | None = None
+
+    def to_wire(self) -> dict[str, Any]:
+        """Serialize to the plain dict that `ElicitRequestFormParams.requested_schema` carries.
+
+        This type never appears on the wire itself: the wire field is a deliberately
+        lenient `dict[str, Any]` so the client's inbound parse tolerates non-conforming
+        schemas from older servers. This method is the one place a typed schema becomes
+        that wire dict, and the typed send methods (`ServerSession.elicit_form`,
+        `ClientPeer.elicit_form`) both call it.
+        """
+        # exclude_none, not exclude_unset: a keyword-constructed instance must keep its
+        # defaulted `type` literals on the wire; only the None-valued optionals are dropped.
+        return self.model_dump(by_alias=True, exclude_none=True)
 
 
 class ElicitRequestFormParams(RequestParams):
@@ -1944,10 +2107,16 @@ class ElicitRequestFormParams(RequestParams):
     message: str
     """The message to present to the user describing what information is being requested."""
 
-    requested_schema: ElicitRequestedSchema
+    requested_schema: dict[str, Any]
     """
     A restricted subset of JSON Schema defining the structure of the expected response.
     Only top-level properties are allowed, without nesting.
+
+    Deliberately a plain dict, not `ElicitRequestedSchema`: this field is also the client's
+    inbound parse, and older servers emit `anyOf` for `Optional` form fields, which must
+    still reach the user's elicitation callback. The spec's primitives-only restriction is
+    enforced on the send side, where `ServerSession.elicit_form` and `ClientPeer.elicit_form`
+    only accept `ElicitRequestedSchema`.
     """
 
     task: TaskMetadata | None = None

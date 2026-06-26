@@ -13,6 +13,7 @@ import pytest
 from mcp_types import (
     CreateMessageResult,
     CreateMessageResultWithTools,
+    ElicitRequestedSchema,
     ElicitResult,
     ListRootsResult,
     SamplingMessage,
@@ -93,15 +94,23 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
 
 @pytest.mark.anyio
 async def test_peer_elicit_form_sends_elicitation_create_with_form_params():
+    """`elicit_form` puts the typed schema on the wire as the exact dict it was validated from.
+
+    `minLength` is aliased (`min_length` on the model) and `required` / per-property optionals are
+    unset, so the equality fails if the typed-model-to-wire conversion drops the alias or starts
+    emitting null-valued keys.
+    """
     rec = _Recorder({"action": "accept", "content": {"name": "Max"}})
+    wire_schema: dict[str, Any] = {"type": "object", "properties": {"name": {"type": "string", "minLength": 2}}}
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
         peer = ClientPeer(client)
         with anyio.fail_after(5):
-            result = await peer.elicit_form("Your name?", requested_schema={"type": "object", "properties": {}})
+            result = await peer.elicit_form("Your name?", ElicitRequestedSchema.model_validate(wire_schema))
         method, params = rec.seen[0]
         assert method == "elicitation/create"
         assert params is not None and params["mode"] == "form"
         assert params["message"] == "Your name?"
+        assert params["requestedSchema"] == wire_schema
         assert isinstance(result, ElicitResult)
 
 

@@ -266,7 +266,8 @@ class ServerSession:
 
         Args:
             message: The message to present to the user.
-            requested_schema: Schema defining the expected response structure.
+            requested_schema: Typed `ElicitRequestedSchema` defining the expected response
+                structure; non-primitive and nested properties are rejected at construction.
             related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
@@ -288,7 +289,8 @@ class ServerSession:
 
         Args:
             message: The message to present to the user.
-            requested_schema: Schema defining the expected response structure.
+            requested_schema: Typed `ElicitRequestedSchema` defining the expected response
+                structure; non-primitive and nested properties are rejected at construction.
             related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
@@ -302,7 +304,7 @@ class ServerSession:
             types.ElicitRequest(
                 params=types.ElicitRequestFormParams(
                     message=message,
-                    requested_schema=requested_schema,
+                    requested_schema=requested_schema.to_wire(),
                 ),
             ),
             types.ElicitResult,

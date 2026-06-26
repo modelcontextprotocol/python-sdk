@@ -8,11 +8,10 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args
 
-CONFIRM_SCHEMA: types.ElicitRequestedSchema = {
-    "type": "object",
-    "properties": {"confirm": {"type": "boolean", "description": "Proceed with the deployment?"}},
-    "required": ["confirm"],
-}
+CONFIRM_SCHEMA = types.ElicitRequestedSchema(
+    properties={"confirm": types.BooleanSchema(type="boolean", description="Proceed with the deployment?")},
+    required=["confirm"],
+)
 DEPLOY_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {"env": {"type": "string"}},
@@ -42,7 +41,9 @@ def build_server() -> Server[Any]:
         responses = params.input_responses
         if responses is None or "confirm" not in responses:
             ask = types.ElicitRequest(
-                params=types.ElicitRequestFormParams(message=f"Deploy to {env}?", requested_schema=CONFIRM_SCHEMA)
+                params=types.ElicitRequestFormParams(
+                    message=f"Deploy to {env}?", requested_schema=CONFIRM_SCHEMA.to_wire()
+                )
             )
             return types.InputRequiredResult(input_requests={"confirm": ask}, request_state="awaiting-confirm")
         assert params.request_state == "awaiting-confirm", params.request_state
