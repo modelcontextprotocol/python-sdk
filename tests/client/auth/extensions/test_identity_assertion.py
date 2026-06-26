@@ -36,14 +36,14 @@ def mock_storage() -> MockTokenStorage:
     return MockTokenStorage()
 
 
-def oauth_metadata(issuer: str = ISSUER) -> OAuthMetadata:
+def oauth_metadata(issuer: str = ISSUER, token_endpoint: str | None = None) -> OAuthMetadata:
     # Round-trip through JSON so the issuer keeps its path-less form (no trailing slash), matching
     # what the client discovers over the wire; constructing from an AnyHttpUrl object would add one.
     return OAuthMetadata.model_validate(
         {
             "issuer": issuer,
             "authorization_endpoint": f"{issuer}/authorize",
-            "token_endpoint": f"{issuer}/token",
+            "token_endpoint": token_endpoint or f"{issuer}/token",
         }
     )
 
@@ -156,3 +156,80 @@ async def test_unexpected_issuer_refuses_to_send_assertion(mock_storage: MockTok
         await provider._perform_authorization()
 
     assert record == []  # the assertion provider was never invoked
+
+
+@pytest.mark.anyio
+async def test_attacker_token_endpoint_on_expected_issuer_is_rejected(mock_storage: MockTokenStorage) -> None:
+    """A matching issuer but an off-origin token_endpoint (legacy-path attack) is refused."""
+    record: list[tuple[str, str]] = []
+    provider = make_provider(mock_storage, record=record)
+    await provider._initialize()
+    # The RS-served metadata claims the expected issuer but points the token endpoint at an attacker.
+    provider.context.oauth_metadata = oauth_metadata(token_endpoint="https://attacker.example/steal")
+    provider.context.protocol_version = "2025-06-18"
+
+    with pytest.raises(OAuthFlowError, match="not on the expected issuer origin"):
+        await provider._perform_authorization()
+
+    assert record == []  # the assertion/secret are never sent
+
+
+@pytest.mark.anyio
+async def test_missing_metadata_raises(mock_storage: MockTokenStorage) -> None:
+    """With no discovered metadata (PRM+ASM both 404), the exchange raises instead of proceeding."""
+    provider = make_provider(mock_storage)
+    await provider._initialize()
+    provider.context.oauth_metadata = None
+
+    with pytest.raises(OAuthFlowError, match="Missing OAuth metadata"):
+        await provider._perform_authorization()
+
+
+@pytest.mark.anyio
+async def test_step_up_scope_is_unioned_with_configured_scope(mock_storage: MockTokenStorage) -> None:
+    """A 403 step-up challenge (written to client_metadata.scope) is unioned with the configured scope."""
+    provider = make_provider(mock_storage)  # configured scopes="mcp"
+    await provider._initialize()
+    provider.context.oauth_metadata = oauth_metadata()
+    provider.context.protocol_version = "2025-06-18"
+    # Simulate the base 403 step-up writing the challenged scope onto client_metadata.scope.
+    provider.context.client_metadata.scope = "files:write"
+
+    request = await provider._perform_authorization()
+
+    content = urllib.parse.unquote_plus(request.content.decode())
+    assert "scope=mcp files:write" in content
+
+
+def test_empty_client_secret_is_rejected(mock_storage: MockTokenStorage) -> None:
+    """SEP-990 mandates a confidential client, so an empty client_secret is refused at construction."""
+
+    async def assertion_provider(audience: str, resource: str) -> str:  # pragma: no cover
+        return "id-jag"
+
+    with pytest.raises(ValueError, match="client_secret is required"):
+        IdentityAssertionOAuthProvider(
+            server_url="https://mcp.example.com/mcp",
+            storage=mock_storage,
+            client_id="c",
+            client_secret="",
+            expected_issuer=ISSUER,
+            assertion_provider=assertion_provider,
+        )
+
+
+def test_empty_expected_issuer_is_rejected(mock_storage: MockTokenStorage) -> None:
+    """A pinned issuer is required, so an empty expected_issuer is refused at construction."""
+
+    async def assertion_provider(audience: str, resource: str) -> str:  # pragma: no cover
+        return "id-jag"
+
+    with pytest.raises(ValueError, match="expected_issuer is required"):
+        IdentityAssertionOAuthProvider(
+            server_url="https://mcp.example.com/mcp",
+            storage=mock_storage,
+            client_id="c",
+            client_secret="s",
+            expected_issuer="",
+            assertion_provider=assertion_provider,
+        )

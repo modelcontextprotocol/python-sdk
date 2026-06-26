@@ -94,7 +94,7 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
 
         Replace this stub with real RFC 7523 §3 / SEP-990 §5.1 validation. It fails closed - it
         raises rather than trusting the assertion - so a copy of this example cannot accidentally
-        accept unverified tokens. RFC 8693 §2.2.2 / RFC 6749 §5.2 specify `invalid_grant` for a
+        accept unverified tokens. RFC 7523 §3.1 / RFC 6749 §5.2 specify `invalid_grant` for a
         rejected assertion.
         """
         raise NotImplementedError("Validate the ID-JAG (signature, iss/aud/exp/typ, client_id, resource)")

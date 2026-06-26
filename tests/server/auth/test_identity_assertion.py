@@ -238,6 +238,34 @@ async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClien
 
 
 @pytest.mark.anyio
+async def test_identity_assertion_rejects_secretless_confidential_client(
+    client: httpx.AsyncClient, provider: IdentityAssertionProvider
+):
+    """A client registered with a secret-based method but no secret is not actually confidential.
+
+    `ClientAuthenticator` only verifies a secret when one is stored, so such a client authenticates
+    unchecked. The handler must reject it before reaching the provider hook.
+    """
+    provider.clients["secretless-client"] = OAuthClientInformationFull(
+        client_id="secretless-client",
+        client_secret=None,
+        redirect_uris=None,
+        grant_types=[JWT_BEARER_GRANT_TYPE],
+        token_endpoint_auth_method="client_secret_post",
+        scope="mcp",
+    )
+
+    response = await client.post(
+        "/token",
+        data={"grant_type": JWT_BEARER_GRANT_TYPE, "client_id": "secretless-client", "assertion": VALID_ASSERTION},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client"
+    assert provider.last_params is None
+
+
+@pytest.mark.anyio
 async def test_malformed_request_missing_assertion_is_invalid_request(client: httpx.AsyncClient):
     """A jwt-bearer request without the required `assertion` fails validation with invalid_request."""
     response = await client.post(

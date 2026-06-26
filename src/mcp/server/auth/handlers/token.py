@@ -250,9 +250,11 @@ class TokenHandler:
                         )
                     )
 
-                # SEP-990 §5.1: only confidential clients may present an ID-JAG. A public
-                # (token_endpoint_auth_method="none") client must not reach the provider hook.
-                if client_info.token_endpoint_auth_method == "none":
+                # SEP-990 §5.1: only confidential clients may present an ID-JAG. Require a stored
+                # client secret: this rejects the public `none` method and also a secret-based
+                # method registered without a secret (which `ClientAuthenticator` does not actually
+                # verify), so an effectively unauthenticated client never reaches the provider hook.
+                if not client_info.client_secret:
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_client",

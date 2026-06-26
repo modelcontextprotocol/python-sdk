@@ -20,13 +20,21 @@ preventing a hostile resource server from redirecting the credentials elsewhere.
 
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
+from mcp.client.auth.utils import union_scopes
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """Return the (scheme, host, port) origin of a URL for same-origin comparison."""
+    parsed = urlsplit(url)
+    return (parsed.scheme, parsed.hostname or "", parsed.port)
 
 
 class IdentityAssertionOAuthProvider(OAuthClientProvider):
@@ -83,7 +91,14 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
                 exchange; not overridden by server-advertised scopes.
             token_endpoint_auth_method: Confidential-client auth method, either
                 `client_secret_post` (default) or `client_secret_basic`.
+
+        Raises:
+            ValueError: If `client_secret` or `expected_issuer` is empty.
         """
+        if not client_secret:
+            raise ValueError("client_secret is required: SEP-990 mandates a confidential client")
+        if not expected_issuer:
+            raise ValueError("expected_issuer is required to pin the authorization server")
         client_metadata = OAuthClientMetadata(
             redirect_uris=None,
             grant_types=[JWT_BEARER_GRANT_TYPE],
@@ -93,9 +108,10 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
         self._assertion_provider = assertion_provider
         self._expected_issuer = expected_issuer
-        # The caller's requested scope, kept verbatim. The base 401 flow's scope-selection step
-        # overwrites `client_metadata.scope` with server-advertised scopes, so the request reads
-        # this rather than the mutated value to honour what the caller asked for.
+        # The caller's requested scope. The base 401 flow's scope-selection step overwrites
+        # `client_metadata.scope` with server-advertised scopes (and the 403 step-up unions in the
+        # challenged scope); `_exchange_assertion` folds this back so the caller's request is
+        # honoured while still picking up a step-up challenge.
         self._scopes = scopes
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -122,16 +138,26 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
     async def _exchange_assertion(self) -> httpx.Request:
         """Build the RFC 7523 jwt-bearer token request carrying the ID-JAG."""
         if not self.context.oauth_metadata:
-            raise OAuthFlowError("Missing OAuth metadata for identity assertion grant")  # pragma: no cover
+            # Reachable when both PRM and ASM discovery 404 (legacy server): the pinned client_info
+            # skips registration, so the flow reaches here with no metadata.
+            raise OAuthFlowError("Missing OAuth metadata for identity assertion grant")
         if not self.context.client_info:
             raise OAuthFlowError("Missing client info for identity assertion grant")  # pragma: no cover
 
-        # Pin the authorization server: the metadata issuer is discovered via the resource server,
-        # which is untrusted. Refuse to release the ID-JAG or secret to an unexpected AS.
+        # Pin the authorization server: both its metadata issuer AND the token endpoint the
+        # credentials are POSTed to are discovered via the (untrusted) resource server. Checking the
+        # issuer alone is not enough - on the legacy no-PRM path a hostile RS can serve the expected
+        # issuer with an attacker-controlled token_endpoint. Require both to be on the expected
+        # issuer's origin before releasing the ID-JAG or secret.
         issuer = str(self.context.oauth_metadata.issuer)
         if issuer != self._expected_issuer:
             raise OAuthFlowError(
                 f"Authorization server issuer {issuer} does not match expected {self._expected_issuer}"
+            )
+        token_url = self._get_token_endpoint()
+        if _origin(token_url) != _origin(self._expected_issuer):
+            raise OAuthFlowError(
+                f"Token endpoint {token_url} is not on the expected issuer origin {self._expected_issuer}"
             )
 
         resource = self.context.get_resource_url()
@@ -149,8 +175,13 @@ class IdentityAssertionOAuthProvider(OAuthClientProvider):
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = resource
 
-        if self._scopes:
-            token_data["scope"] = self._scopes
+        # Honour the caller's requested scope, unioned with any scope the base flow selected or a
+        # 403 step-up challenged in (SEP-2350). Write it back to client_metadata.scope so the base
+        # _handle_token_response RFC 6749 §5.1 backfill records the same value on the stored token.
+        scope = union_scopes(self._scopes, self.context.client_metadata.scope)
+        self.context.client_metadata.scope = scope
+        if scope:
+            token_data["scope"] = scope
 
         token_url = self._get_token_endpoint()
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
