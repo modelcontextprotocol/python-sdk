@@ -241,17 +241,22 @@ def mcp_param_headers(header_map: Mapping[tuple[str, ...], str], arguments: Mapp
     """
     headers: dict[str, str] = {}
     for path, token in header_map.items():
-        node: Any = arguments
-        for key in path:
-            if not isinstance(node, Mapping):
-                node = None
-                break
-            node = cast("Mapping[str, Any]", node).get(key)
-        if node is None:
+        value = _value_at_path(arguments, path)
+        if value is None:
             continue
-        rendered = ("true" if node else "false") if isinstance(node, bool) else str(node)
+        rendered = ("true" if value else "false") if isinstance(value, bool) else str(value)
         headers[f"{MCP_PARAM_HEADER_PREFIX}{token}"] = encode_header_value(rendered)
     return headers
+
+
+def _value_at_path(arguments: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    """Read the value at a `properties`-key path in `arguments`, or `None` if any step is missing or non-mapping."""
+    node: Any = arguments
+    for key in path:
+        if not isinstance(node, Mapping):
+            return None
+        node = cast("Mapping[str, Any]", node).get(key)
+    return node
 
 
 # INTERNAL_ERROR is deliberately unmapped (→ HTTP 200): the spec assigns no status to
