@@ -1462,6 +1462,10 @@ issuer inconsistent with what clients compare against under RFC 8414 / RFC 9207.
 already-built `AnyHttpUrl` object still normalizes at construction; pass a string to get the
 preserved form.
 
+### Bearer tokens with a mismatched audience are rejected
+
+`BearerAuthBackend` now compares `AccessToken.resource` against `AuthSettings.resource_server_url` and answers a token whose RFC 8707 resource indicator does not name this server with `401 invalid_token`. The check is canonical-URI equality, so a token issued for `https://host/` is not accepted by a server at `https://host/mcp`. It is skipped when either side is `None` — populate `AccessToken.resource` only when your verifier surfaces the underlying audience claim. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings`; pass it only if you construct the backend directly.
+
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 
 Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.

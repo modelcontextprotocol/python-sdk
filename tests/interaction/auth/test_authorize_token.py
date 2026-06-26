@@ -328,12 +328,12 @@ async def test_the_registered_auth_method_is_used_regardless_of_as_metadata_adve
 async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_metadata() -> None:
     """When the 401 challenge carries `scope=`, that value is requested instead of the PRM scopes.
 
-    The SDK's bearer middleware never emits `scope=` in WWW-Authenticate (see the divergence
-    on `hosting:auth:scope-403`), so the test supplies the first 401 itself via
-    `first_challenge_shim` and disables token verification so the post-auth retry succeeds
-    regardless of the granted scope. PRM advertises `["from-prm"]` (it mirrors
-    `required_scopes`); the challenge says `from-header`; the authorize URL must carry
-    `from-header`.
+    The SDK's bearer middleware emits `scope=` with the configured `required_scopes`, which
+    here would be `from-prm` — the same value PRM advertises — so the test supplies the first
+    401 itself via `first_challenge_shim` to put a *different* value in the challenge, and
+    disables token verification so the post-auth retry succeeds regardless of the granted
+    scope. PRM advertises `["from-prm"]`; the challenge says `from-header`; the authorize URL
+    must carry `from-header`.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(default_scopes=["from-header"])

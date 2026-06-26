@@ -27,7 +27,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 `AuthSettings` is the public face of your resource server:
 
 * `issuer_url`: the authorization server that issues your tokens.
-* `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives.
+* `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives. When your verifier returns an `AccessToken.resource`, the SDK rejects the token unless it matches this URL — a token issued for a different resource never reaches a tool.
 * `required_scopes`: every token must carry all of them.
 
 !!! tip
@@ -61,14 +61,13 @@ You registered one tool. The second route is the SDK's.
 This document is how a client that has never heard of your server finds its way in: it reads `authorization_servers` and goes there for a token. You wrote none of it.
 
 !!! check
-    Call `/mcp` with no token (or with one your verifier returned `None` for) and the request is
-    stopped at the door:
+    Call `/mcp` with no token and the request is stopped at the door:
 
     ```text
     HTTP/1.1 401 Unauthorized
-    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
+    WWW-Authenticate: Bearer scope="notes:read", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
 
-    {"error": "invalid_token", "error_description": "Authentication required"}
+    {}
     ```
 
     Nothing was parsed and no tool ran. And that `resource_metadata` pointer in `WWW-Authenticate` is

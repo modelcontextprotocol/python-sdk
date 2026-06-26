@@ -2622,12 +2622,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer.",
-        divergence=Divergence(
-            note=(
-                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
-                "resource is accepted. Spec MUST."
-            ),
-        ),
     ),
     "hosting:auth:authinfo-propagates": Requirement(
         source="sdk",
@@ -2640,18 +2634,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="An expired token returns 401 invalid_token.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
-        ),
     ),
     "hosting:auth:invalid-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="A malformed bearer token or token-verification failure returns 401 with WWW-Authenticate.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
-        ),
     ),
     "hosting:auth:metadata-endpoints": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -2671,15 +2659,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note=(
-                "The SDK never emits a `scope` parameter in any WWW-Authenticate challenge — neither the "
-                "discovery-time 401 (#protected-resource-metadata-discovery-requirements SHOULD) nor the "
-                "runtime 403 (#runtime-insufficient-scope-errors SHOULD); and for the no-credentials case "
-                'it emits error="invalid_token", which RFC 6750 Section 3.1 says SHOULD NOT appear when no '
-                "authentication information was presented."
-            ),
-        ),
     ),
     "hosting:auth:prm:authorization-servers-field": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -2706,13 +2685,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 403 is an HTTP status code.",
-        divergence=Divergence(
-            note=(
-                'The SDK emits error="insufficient_scope" and error_description but never the `scope` '
-                "parameter the spec SHOULD include; the SDK client reads `scope` from this header to drive "
-                "step-up (utils.py extract_scope_from_www_auth) — a resource-server/client asymmetry."
-            ),
-        ),
     ),
     "hosting:auth:as:authorize-requires-pkce": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",

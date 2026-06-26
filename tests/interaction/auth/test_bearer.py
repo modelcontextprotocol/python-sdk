@@ -3,8 +3,8 @@
 These tests mount only the resource-server side of the auth wiring (a `StaticTokenVerifier`
 seeded with hand-built tokens, no authorization-server provider) and speak raw HTTP, since
 every assertion is about HTTP semantics the SDK `Client` cannot observe: the 401/403 status,
-the `WWW-Authenticate` header structure, and that a wrong-audience token reaches the MCP
-endpoint behind the gate. The flow side of the same 401 is `test_flow.py`'s flagship test.
+the `WWW-Authenticate` header structure, and that a token with no audience claim reaches the
+MCP endpoint behind the gate. The flow side of the same 401 is `test_flow.py`'s flagship test.
 """
 
 import time
@@ -40,6 +40,14 @@ TOKENS = {
         expires_at=_FUTURE,
         resource="https://other.example/mcp",
     ),
+    "tok-parent-aud": AccessToken(
+        token="tok-parent-aud",
+        client_id="c",
+        scopes=[REQUIRED_SCOPE],
+        expires_at=_FUTURE,
+        resource="http://127.0.0.1:8000/",
+    ),
+    "tok-no-aud": AccessToken(token="tok-no-aud", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
 }
 
 
@@ -80,41 +88,37 @@ async def test_a_request_with_no_authorization_header_is_challenged_with_resourc
 ) -> None:
     """No `Authorization` header → 401 with a `WWW-Authenticate` carrying `resource_metadata`.
 
-    The snapshot pins current behaviour: the SDK collapses the no-header, unknown-token, and
-    expired-token cases into one challenge (`error="invalid_token"`, no `scope` parameter). The
-    spec says the discovery-time challenge SHOULD include `scope` and RFC 6750 says the
-    no-credentials case SHOULD NOT carry an error code; both gaps are recorded as the divergence
-    on this requirement. Asserting the dict equals an exact key set also pins that no parameter
-    appears twice.
+    RFC 6750 §3: a no-credentials challenge carries no error code. The snapshot pins the
+    full header (parameter order included); asserting the dict equals an exact key set also
+    pins that no parameter appears twice.
     """
     response = await post_mcp(protected)
 
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == snapshot(
-        'Bearer error="invalid_token", error_description="Authentication required", '
-        'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
+        'Bearer scope="mcp:read", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
     )
     assert parse_www_authenticate(response.headers["www-authenticate"]) == {
-        "error": "invalid_token",
-        "error_description": "Authentication required",
+        "scope": REQUIRED_SCOPE,
         "resource_metadata": RESOURCE_METADATA_URL,
     }
-    assert response.json() == snapshot({"error": "invalid_token", "error_description": "Authentication required"})
+    assert response.json() == snapshot({})
 
 
 @requirement("hosting:auth:invalid-401")
 async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protected: httpx.AsyncClient) -> None:
     """A token the verifier does not recognize is answered 401 `invalid_token`.
 
-    The challenge is identical to the no-header case (the backend returns `None` for both); the
-    missing `scope` parameter is the recorded divergence on this requirement.
+    The challenge is distinct from the no-header case: a bearer token was presented, so RFC
+    6750 §3.1's `error` and `error_description` apply.
     """
     response = await post_mcp(protected, bearer="tok-unknown")
 
     assert response.status_code == 401
     assert parse_www_authenticate(response.headers["www-authenticate"]) == {
         "error": "invalid_token",
-        "error_description": "Authentication required",
+        "error_description": "The access token is malformed or unknown",
+        "scope": REQUIRED_SCOPE,
         "resource_metadata": RESOURCE_METADATA_URL,
     }
 
@@ -124,47 +128,88 @@ async def test_an_expired_token_is_answered_401(protected: httpx.AsyncClient) ->
     """A token whose `expires_at` is in the past is answered 401 `invalid_token`.
 
     The expiry check is the bearer backend's, against the wall clock; the test seeds a concrete
-    past timestamp so no time mocking is involved. The missing `scope` parameter is the recorded
-    divergence on this requirement.
+    past timestamp so no time mocking is involved.
     """
     response = await post_mcp(protected, bearer="tok-expired")
 
     assert response.status_code == 401
-    assert parse_www_authenticate(response.headers["www-authenticate"])["error"] == "invalid_token"
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "The access token has expired",
+        "scope": REQUIRED_SCOPE,
+        "resource_metadata": RESOURCE_METADATA_URL,
+    }
 
 
 @requirement("hosting:auth:scope-403")
-async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_scope_without_a_scope_param(
+async def test_a_token_missing_a_required_scope_is_answered_403_with_the_required_scope_in_the_challenge(
     protected: httpx.AsyncClient,
 ) -> None:
-    """A token lacking the required scope is answered 403 `insufficient_scope`, with no `scope` parameter.
+    """A token lacking the required scope is answered 403 `insufficient_scope` with `scope=` naming what's needed.
 
-    The spec's runtime-insufficient-scope guidance says the challenge SHOULD include `scope`
-    naming the required scope; the SDK never emits it, recorded as the divergence on this
-    requirement. The SDK client reads `scope` from this header to drive step-up, so the gap is
-    a resource-server/client asymmetry.
+    The SDK client reads `scope` from this header to drive step-up, so the parameter is the
+    contract between resource server and client.
     """
     response = await post_mcp(protected, bearer="tok-noscope")
 
     assert response.status_code == 403
-    parsed = parse_www_authenticate(response.headers["www-authenticate"])
-    assert parsed == {
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
         "error": "insufficient_scope",
-        "error_description": f"Required scope: {REQUIRED_SCOPE}",
+        "error_description": "The access token lacks a required scope",
+        "scope": REQUIRED_SCOPE,
         "resource_metadata": RESOURCE_METADATA_URL,
     }
-    assert "scope" not in parsed
 
 
 @requirement("hosting:auth:aud-validation")
-async def test_a_token_with_a_mismatched_audience_is_accepted(protected: httpx.AsyncClient) -> None:
-    """A token whose `resource` does not match the server's resource identifier is accepted.
+async def test_a_token_with_a_mismatched_audience_is_answered_401_invalid_token(protected: httpx.AsyncClient) -> None:
+    """A token whose `resource` does not match the server's resource identifier is answered 401.
 
-    The spec mandates the resource server validate the token's audience; the bearer backend
-    never inspects `AccessToken.resource`, so the request passes the gate and the MCP endpoint
-    serves it. This pins current behaviour with the divergence recorded on the requirement.
+    Spec-mandated: the resource server MUST validate the token's audience and reject tokens
+    not issued specifically for it.
     """
     response = await post_mcp(protected, bearer="tok-wrong-aud")
+
+    assert response.status_code == 401
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "The access token was issued for a different resource",
+        "scope": REQUIRED_SCOPE,
+        "resource_metadata": RESOURCE_METADATA_URL,
+    }
+
+
+@requirement("hosting:auth:aud-validation")
+async def test_a_token_for_a_parent_path_on_the_same_origin_is_answered_401_invalid_token(
+    protected: httpx.AsyncClient,
+) -> None:
+    """A token whose audience is the same origin but a parent path is answered 401.
+
+    This is the discriminating case for canonical-URI equality: under hierarchical prefix
+    semantics a token for `http://host/` would be accepted by a server at `http://host/mcp`;
+    under audience binding it must be rejected. The cross-origin case above cannot catch a
+    regression to prefix semantics.
+    """
+    response = await post_mcp(protected, bearer="tok-parent-aud")
+
+    assert response.status_code == 401
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "The access token was issued for a different resource",
+        "scope": REQUIRED_SCOPE,
+        "resource_metadata": RESOURCE_METADATA_URL,
+    }
+
+
+@requirement("hosting:auth:aud-validation")
+async def test_a_token_without_a_resource_claim_passes_the_audience_check(protected: httpx.AsyncClient) -> None:
+    """A token whose `AccessToken.resource` is unset passes the audience check.
+
+    SDK-defined pass-through: the SDK cannot distinguish a verifier that performed its own
+    audience check and chose not to surface the claim from a token that genuinely carries
+    none, so `resource is None` is accepted. This pins that policy.
+    """
+    response = await post_mcp(protected, bearer="tok-no-aud")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -186,4 +231,6 @@ async def test_an_access_token_in_the_query_string_is_not_accepted(protected: ht
     response = await post_mcp(protected, query={"access_token": "tok-valid"})
 
     assert response.status_code == 401
-    assert parse_www_authenticate(response.headers["www-authenticate"])["error"] == "invalid_token"
+    parsed = parse_www_authenticate(response.headers["www-authenticate"])
+    assert "error" not in parsed
+    assert parsed["scope"] == REQUIRED_SCOPE

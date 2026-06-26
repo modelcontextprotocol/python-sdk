@@ -277,9 +277,9 @@ def shim(
 class _FirstChallenge:
     """ASGI shim that answers the first request to a path with 401 + a given WWW-Authenticate.
 
-    Subsequent requests pass through to the wrapped app. Used to make the initial 401 carry
-    parameters (such as `scope=`) that the SDK's own bearer middleware cannot be configured
-    to emit, so client behaviour driven by those parameters is reachable end to end. Reserve
+    Subsequent requests pass through to the wrapped app. Used to make the initial 401 carry a
+    `scope=` value that differs from the gate's `required_scopes` (which is all the real
+    middleware can emit), so client scope-selection priority is reachable end to end. Reserve
     this pattern for behaviour the real server cannot be made to produce.
     """
 
@@ -312,9 +312,10 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
     """Build an `app_shim` that 403s the Nth authenticated POST to `/mcp` with the given challenge.
 
     Subsequent requests pass through. Used to drive the client's `insufficient_scope` step-up
-    handling: the SDK's bearer middleware never emits `scope=` in its 403 challenge (see the
-    divergence on `hosting:auth:scope-403`), so the test supplies the 403 itself. Reserve this
-    pattern for behaviour the real server cannot be made to produce.
+    handling: the real middleware's 403 carries `scope=` from the gate's static
+    `required_scopes`, but step-up tests need a wider scope than the gate would emit so the
+    client's scope-union logic has something to add. Reserve this pattern for behaviour the
+    real server cannot be made to produce.
 
     The default `on_nth_authenticated_post=2` targets the `notifications/initialized` POST: the
     first authenticated POST is the auth flow's retry of the original initialize request (yielded

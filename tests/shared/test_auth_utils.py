@@ -2,7 +2,7 @@
 
 from pydantic import HttpUrl
 
-from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+from mcp.shared.auth_utils import check_resource_allowed, check_token_audience, resource_url_from_server_url
 
 # Tests for resource_url_from_server_url function
 
@@ -32,6 +32,23 @@ def test_resource_url_from_server_url_preserves_port():
     """Non-default ports should be preserved."""
     assert resource_url_from_server_url("https://example.com:8443/path") == "https://example.com:8443/path"
     assert resource_url_from_server_url("http://example.com:8080/") == "http://example.com:8080/"
+
+
+def test_resource_url_from_server_url_strips_default_port():
+    """An explicit default port is equivalent to omitting it (RFC 3986 §6.2.3)."""
+    assert resource_url_from_server_url("https://example.com:443/mcp") == "https://example.com/mcp"
+    assert resource_url_from_server_url("http://example.com:80/mcp") == "http://example.com/mcp"
+    # Only the scheme's own default is stripped — :80 on https is significant.
+    assert resource_url_from_server_url("https://example.com:80/mcp") == "https://example.com:80/mcp"
+    # IPv6 brackets survive the rewrite.
+    assert resource_url_from_server_url("https://[::1]:443/mcp") == "https://[::1]/mcp"
+
+
+def test_check_token_audience_ignores_default_port():
+    """A token issued for `https://h:443/mcp` is for the server at `https://h/mcp`."""
+    assert check_token_audience("https://h:443/mcp", "https://h/mcp") is True
+    assert check_token_audience("https://h/mcp", "https://h:443/mcp") is True
+    assert check_token_audience("https://h:8443/mcp", "https://h/mcp") is False
 
 
 def test_resource_url_from_server_url_lowercase_scheme_and_host():
