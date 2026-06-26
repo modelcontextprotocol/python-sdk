@@ -1,4 +1,4 @@
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 
 class ClientRegistrationOptions(BaseModel):
@@ -13,6 +13,12 @@ class RevocationOptions(BaseModel):
 
 
 class AuthSettings(BaseModel):
+    # Preserve empty URL paths so a path-less issuer/resource passed as a string keeps its
+    # canonical form (no trailing slash). RFC 8414/9207 issuer comparison is exact string
+    # comparison, so a spurious trailing slash would break it. See PR #2925 for the metadata
+    # models; this applies the same to the server's own configured URLs.
+    model_config = ConfigDict(url_preserve_empty_path=True)
+
     issuer_url: AnyHttpUrl = Field(
         ...,
         description="OAuth authorization server URL that issues tokens for this resource server.",
