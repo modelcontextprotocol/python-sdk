@@ -125,7 +125,7 @@ _MwLifespanT = TypeVar("_MwLifespanT")
 class ServerMiddleware(Protocol[_MwLifespanT]):
     """Context-tier middleware: `(ctx, call_next) -> result`.
 
-    Runs at the top of `ServerRunner.on_request` / `_on_notify` after `ctx`
+    Runs at the top of `ServerRunner._on_request` / `_on_notify` after `ctx`
     is built but before any validation, lookup, or handshake. Wraps every
     inbound request and notification: `initialize`, the pre-init gate,
     `METHOD_NOT_FOUND`, params validation, the handler call, and

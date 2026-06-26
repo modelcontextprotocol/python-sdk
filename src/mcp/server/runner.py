@@ -143,10 +143,14 @@ class ServerRunner(Generic[LifespanT]):
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
 
     @cached_property
+    def on_request(self) -> OnRequest:
+        return self._on_request
+
+    @cached_property
     def on_notify(self) -> OnNotify:
         return self._on_notify
 
-    async def on_request(
+    async def _on_request(
         self,
         dctx: DispatchContext[TransportContext],
         method: str,
@@ -263,7 +267,7 @@ class ServerRunner(Generic[LifespanT]):
     def _compose_server_middleware(self, inner: CallNext) -> CallNext:
         """Wrap `inner` in `Server.middleware`, outermost-first.
 
-        Shared by `on_request` and `_on_notify` so the same middleware chain
+        Shared by `_on_request` and `_on_notify` so the same middleware chain
         observes every inbound message. The composed callable takes the `ctx`
         at call time, so a middleware can rewrite it for the rest of the chain.
         """
@@ -338,7 +342,7 @@ class ServerRunner(Generic[LifespanT]):
         return init, negotiated
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
-        """Build the `initialize` result; state commits later in `on_request`."""
+        """Build the `initialize` result; state commits later in `_on_request`."""
         _, negotiated = self._negotiate_initialize(params)
         opts = self.init_options if self.init_options is not None else self.server.create_initialization_options()
         return InitializeResult(

@@ -231,7 +231,7 @@ class Server(Generic[LifespanResultT]):
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
-        # `(ctx, call_next)`. Applied in `ServerRunner.on_request`.
+        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
         # `OpenTelemetryMiddleware` ships on by default so every server emits a
         # SERVER span per message; it is a no-op until an OTel exporter is
         # installed. Drop it from this list to opt out.
