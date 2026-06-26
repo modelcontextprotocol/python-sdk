@@ -8,9 +8,12 @@ A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
 `Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. JSON
 mode handles the request directly in the ASGI task. SSE mode runs the handler
 as a sibling task and defers committing to `text/event-stream` until the
-handler actually emits a notification: a handler that completes (or raises)
-without emitting still gets a JSON response with the table-mapped HTTP
-status, so the spec's `404`/`400` MUSTs hold for kernel-dispatch errors.
+handler emits a notification or `_SSE_PING_INTERVAL` elapses, whichever
+comes first: a handler that completes (or raises) within that window without
+emitting still gets a JSON response with the table-mapped HTTP status, so
+the spec's `404`/`400` MUSTs hold for kernel-dispatch errors; a handler that
+runs silent past the window commits SSE so the keepalive ping can keep the
+connection open behind a proxy idle-read timeout.
 """
 
 from __future__ import annotations
@@ -298,24 +301,33 @@ async def handle_modern_request(
         tg.start_soon(run_handler)
         tg.start_soon(watch_disconnect, tg.cancel_scope)
 
-        try:
-            first = await recv_ch.receive()
-        except anyio.EndOfStream:
-            first = None
+        event: bytes | None = None
+        done = False
+        with anyio.move_on_after(_SSE_PING_INTERVAL):
+            try:
+                event = await recv_ch.receive()
+            except anyio.EndOfStream:
+                done = True
 
-        if first is None:
+        if done:
+            # Handler completed within the deferral window without emitting:
+            # `application/json` with the table-mapped status. Kernel-dispatch
+            # errors (METHOD_NOT_FOUND, missing-capability, INVALID_PARAMS)
+            # resolve here in practice.
             await _write(result[0], scope, receive, send)
         else:
+            # First notification arrived, or the deferral window elapsed: commit
+            # `text/event-stream` and start pinging so a proxy idle-read timeout
+            # cannot close the stream (which on this path cancels the handler).
             await send({"type": "http.response.start", "status": _OK_STATUS, "headers": _SSE_HEADERS})
-            event: bytes | None = first
-            while True:
+            while not done:
                 await send({"type": "http.response.body", "body": event or b": ping\r\n\r\n", "more_body": True})
                 event = None
                 with anyio.move_on_after(_SSE_PING_INTERVAL):
                     try:
                         event = await recv_ch.receive()
                     except anyio.EndOfStream:
-                        break
+                        done = True
             await send({"type": "http.response.body", "body": _sse_event(result[0]), "more_body": False})
 
         tg.cancel_scope.cancel()
