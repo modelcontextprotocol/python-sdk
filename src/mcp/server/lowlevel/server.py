@@ -37,11 +37,12 @@ handler callables by method string.
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, overload
 
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
@@ -50,7 +51,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import Mount, Route
-from typing_extensions import TypeVar
+from typing_extensions import TypeVar, deprecated
 
 from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
@@ -65,6 +66,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,89 @@ def _package_version(package: str) -> str:
 
 
 class Server(Generic[LifespanResultT]):
+    @overload
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+    ) -> None: ...
+    @overload
+    @deprecated(
+        "on_set_logging_level (Logging) and on_roots_list_changed (Roots) are deprecated as of 2026-07-28 "
+        "(SEP-2577); on_progress (client-to-server progress) is deprecated as of 2026-07-28. Passing any of "
+        "them emits an MCPDeprecationWarning at runtime.",
+        category=MCPDeprecationWarning,
+    )
     def __init__(
         self,
         name: str,
@@ -217,7 +302,117 @@ class Server(Generic[LifespanResultT]):
             Awaitable[None],
         ]
         | None = None,
-    ):
+    ) -> None: ...
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_set_logging_level: Callable[
+            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+        # Notification handlers
+        on_roots_list_changed: Callable[
+            [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
+            Awaitable[None],
+        ]
+        | None = None,
+        on_progress: Callable[
+            [ServerRequestContext[LifespanResultT], types.ProgressNotificationParams],
+            Awaitable[None],
+        ]
+        | None = None,
+    ) -> None:
+        if on_set_logging_level is not None:
+            warnings.warn(
+                "The logging capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_roots_list_changed is not None:
+            warnings.warn(
+                "The roots capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_progress is not None:
+            warnings.warn(
+                "Client-to-server progress is deprecated as of 2026-07-28.",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+
         self.name = name
         self.version = version
         self.title = title

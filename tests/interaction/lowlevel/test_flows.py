@@ -173,7 +173,7 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server(
+    server = Server(  # pyright: ignore[reportDeprecated]
         "gatekeeper",
         on_list_tools=_list_tools("read_files"),
         on_call_tool=call_tool,

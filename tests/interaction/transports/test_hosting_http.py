@@ -73,7 +73,7 @@ def _server() -> Server:
         """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
         raise NotImplementedError
 
-    return Server(
+    return Server(  # pyright: ignore[reportDeprecated]
         "hosted",
         on_list_tools=list_tools,
         on_call_tool=call_tool,

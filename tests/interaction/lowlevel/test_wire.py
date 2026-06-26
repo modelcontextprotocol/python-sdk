@@ -262,7 +262,7 @@ async def test_set_level_with_an_unrecognized_value_is_answered_with_invalid_par
         """Registered so the logging capability is advertised; never called -- params validation fails first."""
         raise NotImplementedError
 
-    server = Server("logger", on_set_logging_level=set_logging_level)
+    server = Server("logger", on_set_logging_level=set_logging_level)  # pyright: ignore[reportDeprecated]
     errors: list[ErrorData] = []
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
