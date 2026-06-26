@@ -28,7 +28,6 @@ from mcp_types import (
     RequestParamsMeta,
     ResourceTemplateReference,
     ServerCapabilities,
-    Tool,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from typing_extensions import deprecated
@@ -388,7 +387,6 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: Tool | None = None,
         allow_input_required: Literal[False] = False,
     ) -> CallToolResult: ...
 
@@ -403,7 +401,6 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: Tool | None = None,
         allow_input_required: bool,
     ) -> CallToolResult | InputRequiredResult: ...
 
@@ -417,7 +414,6 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: Tool | None = None,
         allow_input_required: bool = False,
     ) -> CallToolResult | InputRequiredResult:
         """Call a tool on the server.
@@ -430,10 +426,6 @@ class Client:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`
             request_state: Opaque state echoed from a prior `InputRequiredResult`
             meta: Additional metadata for the request
-            tool: The tool's definition, e.g. from an earlier `list_tools`. On a
-                modern (2026-07-28) connection its `x-mcp-header` annotations are
-                mirrored into `Mcp-Param-*` request headers; pass it when the
-                client has not listed the tool itself.
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
@@ -456,7 +448,6 @@ class Client:
             input_responses=input_responses,
             request_state=request_state,
             meta=meta,
-            tool=tool,
             allow_input_required=allow_input_required,
         )
 

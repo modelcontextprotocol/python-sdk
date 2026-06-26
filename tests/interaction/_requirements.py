@@ -3378,8 +3378,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "On a tools/call, a client mirrors each argument annotated with x-mcp-header in the tool's "
             "inputSchema into an Mcp-Param-<name> header -- string as-is, integer as decimal, boolean as "
             "true/false, base64-sentinel-wrapped when not header-safe -- omitting null or absent arguments and "
-            "never mirroring unannotated parameters. The schema is taken from a prior list_tools or a "
-            "tool= override; an uncached tool emits no Mcp-Param-* headers."
+            "never mirroring unannotated parameters. The schema is taken from the tool's last list_tools entry; "
+            "a tool the client never listed emits no Mcp-Param-* headers."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),

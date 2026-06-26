@@ -465,12 +465,12 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
 
 
 @requirement("client-transport:http:custom-param-headers")
-async def test_modern_client_emits_no_param_headers_for_uncached_tool_then_mirrors_with_tool_override() -> None:
-    """Without a cached schema the client sends no `Mcp-Param-*`; a `tool=` override supplies it for the next call.
+async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> None:
+    """A `tools/call` for a tool the client never listed carries no `Mcp-Param-*` headers.
 
-    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers, and
-    pre-load definitions by other means. The first `call_tool` (no prior `list_tools`, no `tool=`) carries no
-    `Mcp-Param-*` header; the second passes the tool definition via `tool=` and mirrors `region`.
+    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
+    The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
+    implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
     """
     requests: list[httpx.Request] = []
 
@@ -492,8 +492,5 @@ async def test_modern_client_emits_no_param_headers_for_uncached_tool_then_mirro
                 )
             )
             await session.call_tool("run", {"region": "us-west1"})
-            await session.call_tool("run", {"region": "us-west1"}, tool=_CUSTOM_HEADER_TOOL)
 
-    uncached, overridden = requests
-    assert not any(k.startswith("mcp-param-") for k in uncached.headers)
-    assert overridden.headers.get("mcp-param-region") == "us-west1"
+    assert not any(k.startswith("mcp-param-") for k in requests[0].headers)

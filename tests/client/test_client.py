@@ -504,41 +504,6 @@ async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legac
         assert [t.name for t in result.tools] == ["ok", "dropme"]
 
 
-async def test_call_tool_with_invalid_tool_override_logs_warning_and_mirrors_nothing(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A `tool=` override whose schema has a malformed `x-mcp-header` is not mirrored; the client warns instead.
-
-    The over-the-wire mirroring is only observable on streamable HTTP (see
-    `tests/interaction/transports/test_hosting_http_modern.py`); here the in-memory transport proves the
-    validation gate: an invalid override never registers a header map, and a warning names the tool and reason."""
-    calls: list[str] = []
-    bad_tool = types.Tool(
-        name="run",
-        input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}},
-    )
-
-    async def on_list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[bad_tool])
-
-    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
-        calls.append(params.name)
-        return types.CallToolResult(content=[])
-
-    server = Server("test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
-
-    with anyio.fail_after(5), caplog.at_level("WARNING", logger="client"):
-        async with Client(server) as client:
-            result = await client.call_tool("run", {"a": "x"}, tool=bad_tool)
-
-    assert result.content == []
-    assert calls == ["run"]
-    assert "not mirroring headers for tool 'run'" in caplog.text
-    assert "bad name" in caplog.text
-
-
 def test_client_rejects_handshake_era_mode_at_construction() -> None:
     """A handshake-era protocol-version string passed as `mode=` is rejected by
     `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is

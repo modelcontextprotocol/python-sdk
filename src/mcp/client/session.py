@@ -623,7 +623,6 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: types.Tool | None = None,
         allow_input_required: Literal[False] = False,
     ) -> types.CallToolResult: ...
 
@@ -638,7 +637,6 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: types.Tool | None = None,
         allow_input_required: bool,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
 
@@ -652,20 +650,18 @@ class ClientSession:
         input_responses: types.InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        tool: types.Tool | None = None,
         allow_input_required: bool = False,
     ) -> types.CallToolResult | types.InputRequiredResult:
         """Send a tools/call request with optional progress callback support.
 
+        On a modern (2026-07-28) connection, arguments annotated with `x-mcp-header`
+        in the tool's input schema are mirrored into `Mcp-Param-*` request headers.
+        The annotations are read from the tool's last `list_tools` entry, so list
+        the tool before calling it to enable header emission.
+
         Args:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
-            tool: The tool's definition, e.g. from an earlier `list_tools`. On a
-                modern (2026-07-28) connection its `x-mcp-header` annotations are
-                mirrored into `Mcp-Param-*` request headers; pass it when the
-                session has not listed the tool itself. Annotations seen by
-                `list_tools` are cached, so this is only needed to supply or
-                override them.
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
@@ -674,12 +670,6 @@ class ClientSession:
             RuntimeError: If the server returns an `InputRequiredResult` and
                 ``allow_input_required`` is ``False``.
         """
-        if tool is not None:
-            if (reason := find_invalid_x_mcp_header(tool.input_schema)) is None:
-                self._register_x_mcp_headers(tool)
-            else:
-                logger.warning("not mirroring headers for tool %r: invalid x-mcp-header (%s)", tool.name, reason)
-
         result = await self.send_request(
             types.CallToolRequest(
                 params=types.CallToolRequestParams(
@@ -704,14 +694,6 @@ class ClientSession:
                 "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
             )
         return result
-
-    def _register_x_mcp_headers(self, tool: types.Tool) -> None:
-        """Cache `tool`'s argument→`x-mcp-header` map so `tools/call` can mirror them into headers.
-
-        A tool with no annotations records an empty map, which still pins the
-        tool as known so a later call emits no `Mcp-Param-*` headers for it.
-        """
-        self._x_mcp_header_maps[tool.name] = x_mcp_header_map(tool.input_schema)
 
     def _resolve_param_headers(self, name: str, arguments: Mapping[str, Any]) -> dict[str, str]:
         """`Mcp-Param-*` headers for a `tools/call`, or empty when the tool was never listed."""
@@ -805,7 +787,8 @@ class ClientSession:
                 if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
                     logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
                     continue
-                self._register_x_mcp_headers(tool)
+                # Cache the arg→header map so a later tools/call mirrors it into Mcp-Param-* headers.
+                self._x_mcp_header_maps[tool.name] = x_mcp_header_map(tool.input_schema)
                 kept.append(tool)
             result.tools = kept
 
