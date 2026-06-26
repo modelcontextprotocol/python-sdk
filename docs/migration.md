@@ -34,6 +34,21 @@ elicitation required, invalid parameters). For tool *execution* failures the
 calling LLM should see and react to, raise any other exception or return
 `CallToolResult(is_error=True, ...)` directly; that path is unchanged.
 
+### Unhandled handler exceptions return `INTERNAL_ERROR`; cancelled requests get no reply
+
+An unhandled exception in a request handler now produces JSON-RPC error `-32603`
+(`INTERNAL_ERROR`) with the opaque message `"Internal server error"`. v1 returned
+code `0` with `str(exc)` as the message, leaking handler internals to the peer; the
+exception is still logged server-side via `logger.exception`. To send a specific
+code and message, raise `MCPError` (unchanged); a pydantic `ValidationError` is
+still mapped to `INVALID_PARAMS`.
+
+A request cancelled via `notifications/cancelled` now receives no response at all,
+per the spec's SHOULD. v1 answered the cancelled request with an error
+(`code=0, message="Request cancelled"`). The sender's awaiting call already fails
+with anyio cancellation when its scope is cancelled, so no reply is needed to
+unblock it.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
@@ -1388,9 +1403,9 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 Behavior changes:
 
-- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the request is then answered with an error). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
+- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the callback is interrupted; no response is sent for the cancelled request). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
 - **Timeouts**: a timed-out or abandoned request is now followed by `notifications/cancelled`, so the server stops the handler instead of leaving it running.
-- **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
+- **A raising request callback** is answered with `INTERNAL_ERROR` (`-32603`) and a generic message — the exception text is logged client-side, not sent; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
 - **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the private `mcp.shared._context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession]` become `ClientRequestContext`.

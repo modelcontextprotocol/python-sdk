@@ -104,8 +104,8 @@ async def test_concurrent_send_raw_requests_correlate_by_id_when_responses_arriv
 
 
 @pytest.mark.anyio
-async def test_handler_raising_exception_sends_code_zero_with_str_message():
-    """Matches the existing server's `_handle_request`: code=0, message=str(e)."""
+async def test_handler_raising_exception_sends_internal_error_with_opaque_message():
+    """Spec-mandated: an unrecognised handler exception becomes -32603 with an opaque message."""
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         raise RuntimeError("kaboom")
@@ -113,19 +113,29 @@ async def test_handler_raising_exception_sends_code_zero_with_str_message():
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-    assert exc.value.error.code == 0
-    assert exc.value.error.message == "kaboom"
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Internal server error"
     assert exc.value.__cause__ is None  # cause does not survive the wire
 
 
 @pytest.mark.anyio
-async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
-    """Matches the existing server: a peer-cancelled request is answered with code=0."""
+async def test_peer_cancel_interrupt_mode_writes_no_response():
+    """Spec-mandated: a peer-cancelled request is interrupted and the receiver writes no response.
+
+    Scripted at the wire: the handler-exit event proves the cancel reached the running handler;
+    a follow-up request's response being the *first* thing on the ordered server→client stream
+    proves nothing was emitted for the cancelled id.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
     handler_exited = anyio.Event()
     seen_ctx: list[DCtx] = []
 
-    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "probe":
+            return {"ok": True}
         seen_ctx.append(ctx)
         handler_started.set()
         try:
@@ -134,22 +144,34 @@ async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
             handler_exited.set()
         raise NotImplementedError
 
-    seen_error: list[ErrorData] = []
-    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass  # the cancelled notification is teed here; nothing to observe
 
-                async def call_then_record() -> None:
-                    with pytest.raises(MCPError) as exc:
-                        await client.send_raw_request("slow", None)
-                    seen_error.append(exc.value.error)
-
-                tg.start_soon(call_then_record)
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
                 await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1}
+                        )
+                    )
+                )
                 await handler_exited.wait()
-    assert seen_ctx[0].cancel_requested.is_set()
-    assert seen_error == [ErrorData(code=0, message="Request cancelled")]
+                assert seen_ctx[0].cancel_requested.is_set()
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="probe")))
+                first = await s2c_recv.receive()
+            assert isinstance(first, SessionMessage)
+            assert isinstance(first.message, JSONRPCResponse)
+            assert first.message.id == 2
+            assert first.message.result == {"ok": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
 
 
 @pytest.mark.anyio
@@ -371,7 +393,7 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
         sent = s2c_recv.receive_nowait()
         assert isinstance(sent, SessionMessage)
         assert isinstance(sent.message, JSONRPCError)
-        assert sent.message.error.code == 0
+        assert sent.message.error.code == INTERNAL_ERROR
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
@@ -1585,17 +1607,22 @@ async def test_cancelled_notification_for_in_flight_request_is_teed_to_on_notify
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    async def call() -> None:
+                        # cancel_on_abandon=False so retiring the await doesn't add a second
+                        # courtesy cancel to `srec.notifications`.
+                        await client.send_raw_request("slow", None, {"cancel_on_abandon": False})
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await handler_exited.wait()
-                await srec.notified.wait()
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    await client.notify("notifications/cancelled", {"requestId": 1})
+                    await handler_exited.wait()
+                    await srec.notified.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
     assert srec.notifications == [("notifications/cancelled", {"requestId": 1})]
 
 
@@ -2050,20 +2077,23 @@ async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    async def call() -> None:
+                        await client.send_raw_request("slow", None, {"cancel_on_abandon": False})
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": True})
-                # Once the teed notification is observed, the correlation arm has already run.
-                await srec.notified.wait()
-                assert not handler_exited.is_set()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await handler_exited.wait()
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    await client.notify("notifications/cancelled", {"requestId": True})
+                    # Once the teed notification is observed, the correlation arm has already run.
+                    await srec.notified.wait()
+                    assert not handler_exited.is_set()
+                    await client.notify("notifications/cancelled", {"requestId": 1})
+                    await handler_exited.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
 
 
 @pytest.mark.anyio
@@ -2158,9 +2188,13 @@ async def test_cancelled_correlates_across_string_and_int_request_id_forms(reque
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_exited = anyio.Event()
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        await anyio.sleep_forever()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
         raise NotImplementedError
 
     async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
@@ -2180,11 +2214,9 @@ async def test_cancelled_correlates_across_string_and_int_request_id_forms(reque
                 )
             )
             with anyio.fail_after(5):
-                resp = await s2c_recv.receive()
-            assert isinstance(resp, SessionMessage)
-            assert isinstance(resp.message, JSONRPCError)
-            assert resp.message.id == request_id  # response echoes the peer's id form verbatim
-            assert resp.message.error == ErrorData(code=0, message="Request cancelled")
+                # The handler exiting proves the cross-form id correlated to the in-flight entry;
+                # no response is read because a cancelled request gets none.
+                await handler_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2233,7 +2265,8 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
                 # Let the first handler task run to completion past the write.
                 await anyio.wait_all_tasks_blocked()
                 assert 7 in server._in_flight  # pyright: ignore[reportPrivateUsage]
-                # The surviving entry must still be cancellable.
+                # The surviving entry must still be cancellable: the second handler exiting
+                # proves the cancel reached it (no response is read; a cancelled request gets none).
                 await c2s_send.send(
                     SessionMessage(
                         message=JSONRPCNotification(
@@ -2241,11 +2274,7 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2296,7 +2325,8 @@ async def test_duplicate_request_id_completion_of_first_handler_keeps_second_can
                 # Let the first handler task run past its pop entirely.
                 await anyio.wait_all_tasks_blocked()
                 assert 7 in server._in_flight  # pyright: ignore[reportPrivateUsage]
-                # The surviving entry must still be cancellable by the peer.
+                # The surviving entry must still be cancellable by the peer: the second handler
+                # exiting proves the cancel reached it (no response is read; a cancelled request gets none).
                 await c2s_send.send(
                     SessionMessage(
                         message=JSONRPCNotification(
@@ -2304,11 +2334,7 @@ async def test_duplicate_request_id_completion_of_first_handler_keeps_second_can
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2359,25 +2385,29 @@ async def test_server_middleware_observes_cancelled_notification():
 
     async with Client(server, mode="legacy") as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
+                    async def call() -> None:
                         await client.session.send_request(
                             CallToolRequest(params=CallToolRequestParams(name="t", arguments={})),
                             CallToolResult,
                         )
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                assert request_id is not None
-                await client.session.send_notification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id, reason="user clicked stop")
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    assert request_id is not None
+                    await client.session.send_notification(
+                        CancelledNotification(
+                            params=CancelledNotificationParams(request_id=request_id, reason="user clicked stop")
+                        )
                     )
-                )
-                await cancel_observed.wait()
-    assert len(observed) == 1
+                    await cancel_observed.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
+    # The hand-sent cancel is observed first; abandoning the await may emit a second courtesy
+    # cancel for the same id, so only the first entry is asserted.
     assert observed[0][0] == "notifications/cancelled"
     assert observed[0][1]["requestId"] == request_id
     assert observed[0][1]["reason"] == "user clicked stop"

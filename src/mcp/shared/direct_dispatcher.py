@@ -24,12 +24,12 @@ from typing import Any
 
 import anyio
 import anyio.abc
-from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
-from pydantic import ValidationError
+from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, REQUEST_TIMEOUT, RequestId
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
@@ -232,21 +232,15 @@ class DirectDispatcher:
                 dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
                 try:
                     return await self._on_request(dctx, method, params)
-                except MCPError:
-                    raise
-                except ValidationError as e:
-                    # Same shape JSONRPCDispatcher writes, so runner-over-direct
-                    # tests see what runner-over-JSONRPC would.
-                    raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="") from e
                 except Exception as e:
-                    # Single owner of the in-proc exception-to-error policy (mirrors
-                    # JSONRPCDispatcher / `_streamable_http_modern._to_jsonrpc_response`
-                    # for the wire paths). True chains the original for in-process
-                    # debugging; False sanitizes to match the wire path's leak guard.
-                    if self._raise_handler_exceptions:
+                    error, unexpected = handler_exception_to_error_data(e)
+                    if unexpected and self._raise_handler_exceptions:
+                        # In-process debugging: chain the real exception so the
+                        # traceback survives. Never reaches the wire.
                         raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
-                    logger.exception("request handler raised")
-                    raise MCPError(code=INTERNAL_ERROR, message="Internal server error") from None
+                    if unexpected:
+                        logger.exception("request handler raised")
+                    raise MCPError(code=error.code, message=error.message, data=error.data) from None
         except TimeoutError:
             raise MCPError(
                 code=REQUEST_TIMEOUT,

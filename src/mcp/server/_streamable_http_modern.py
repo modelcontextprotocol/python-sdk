@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any, Final, TypeVar
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp_types import (
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
     ClientCapabilities,
@@ -135,17 +134,15 @@ async def _to_jsonrpc_response(
     """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
 
     The exception-to-wire boundary for the modern HTTP entry, composed around
-    `serve_one`. `MCPError` and `ValidationError` map via the shared
-    `handler_exception_to_error_data` ladder; any other exception is logged and
-    surfaced as `INTERNAL_ERROR` so handler internals never reach the wire.
+    `serve_one`; the shared `handler_exception_to_error_data` ladder owns the
+    mapping.
     """
     try:
         result = await coro
     except Exception as exc:
-        error = handler_exception_to_error_data(exc)
-        if error is None:
+        error, unexpected = handler_exception_to_error_data(exc)
+        if unexpected:
             logger.exception("request handler raised")
-            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
         return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 

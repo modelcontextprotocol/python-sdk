@@ -23,6 +23,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import ServerSentEvent
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     CallToolRequestParams,
@@ -907,11 +908,11 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 
 @pytest.mark.anyio
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession) -> None:
-    """A server-side error reaches the client as an MCPError with the handler's message."""
+    """A server-side error reaches the client as an opaque INTERNAL_ERROR (the handler's message is not echoed)."""
     with pytest.raises(MCPError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
-    assert exc_info.value.error.code == 0
-    assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
+    assert exc_info.value.error.code == INTERNAL_ERROR
+    assert exc_info.value.error.message == "Internal server error"
 
 
 @pytest.mark.anyio

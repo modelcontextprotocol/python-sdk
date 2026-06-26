@@ -55,25 +55,27 @@ async def test_the_metadata_document_is_built_from_auth_settings() -> None:
 
 
 async def test_a_request_without_a_token_never_reaches_the_protocol() -> None:
-    """The `!!! check`: no `Authorization` header means a 401 that points at the metadata document."""
+    """The `!!! check`: no `Authorization` header means a 401 whose `WWW-Authenticate` points at the metadata."""
     transport = httpx.ASGITransport(app=tutorial001.mcp.streamable_http_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
         response = await http_client.post("/mcp", json={})
     assert response.status_code == 401
-    assert response.json() == {"error": "invalid_token", "error_description": "Authentication required"}
+    assert response.json() == {}
     assert response.headers["www-authenticate"] == (
-        'Bearer error="invalid_token", error_description="Authentication required", '
-        'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
+        'Bearer scope="notes:read", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
     )
 
 
-async def test_a_token_the_verifier_rejects_gets_the_same_401() -> None:
-    """tutorial001: `verify_token` returning `None` and a missing header are indistinguishable to the caller."""
+async def test_a_rejected_token_is_named_invalid_token() -> None:
+    """tutorial001: a token your verifier returns `None` for is a 401 with an RFC 6750 `invalid_token` error."""
     transport = httpx.ASGITransport(app=tutorial001.mcp.streamable_http_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
         response = await http_client.post("/mcp", json={}, headers={"Authorization": "Bearer not-a-real-token"})
     assert response.status_code == 401
-    assert response.json() == {"error": "invalid_token", "error_description": "Authentication required"}
+    assert response.json() == {
+        "error": "invalid_token",
+        "error_description": "The access token is malformed or unknown",
+    }
 
 
 async def test_get_access_token_is_none_outside_an_authenticated_request() -> None:

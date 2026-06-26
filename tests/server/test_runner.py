@@ -776,8 +776,8 @@ async def test_runner_handler_returning_unsupported_type_surfaces_as_error(serve
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-    assert exc.value.error.code == 0
-    assert "int" in exc.value.error.message
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Internal server error"
 
 
 @pytest.mark.anyio

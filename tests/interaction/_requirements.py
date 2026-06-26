@@ -511,14 +511,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
             "receiver does not send a response for the cancelled request."
         ),
-        divergence=Divergence(
-            note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
-            ),
-        ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
             ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
@@ -581,23 +573,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "An unhandled exception in a request handler is returned to the caller as JSON-RPC error "
             "-32603 Internal error."
-        ),
-        divergence=Divergence(
-            note=(
-                "The low-level Server returns code 0 (not a defined JSON-RPC code) instead of -32603 and "
-                "leaks str(exc) as the error message."
-            ),
-        ),
-        arm_exclusions=(
-            ArmExclusion(
-                reason="modern-error-surface",
-                spec_version="2026-07-28",
-                note=(
-                    "The modern entry maps Exception->INTERNAL_ERROR (-32603) with an opaque message, so the "
-                    "2026 arm SATISFIES this requirement; the test pins the legacy code-0 divergence and "
-                    "needs an era-aware assertion before re-admission."
-                ),
-            ),
         ),
     ),
     "protocol:error:invalid-params": Requirement(
@@ -1259,10 +1234,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
-                "which the low-level server converts to error code 0 with the exception text as the message."
+                "which the dispatcher converts to an opaque -32603 Internal error rather than -32602."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1305,7 +1279,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -1334,10 +1307,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
-                "ValueError, which the low-level server converts to error code 0."
+                "ValueError, which the dispatcher converts to an opaque -32603 Internal error."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion

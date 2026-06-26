@@ -6,8 +6,6 @@ from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
-    CancelledNotification,
-    CancelledNotificationParams,
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -22,7 +20,6 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 
 
@@ -30,10 +27,8 @@ from mcp.shared.message import SessionMessage
 async def test_server_remains_functional_after_cancel():
     """Verify server can handle new requests after a cancellation."""
 
-    # Track tool calls
     call_count = 0
     ev_first_call = anyio.Event()
-    first_request_id = None
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
@@ -47,53 +42,38 @@ async def test_server_remains_functional_after_cancel():
         )
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        nonlocal call_count, first_request_id
-        if params.name == "test_tool":
-            call_count += 1
-            if call_count == 1:
-                first_request_id = ctx.request_id
-                ev_first_call.set()
-                await anyio.sleep(5)  # First call is slow
-            return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
-        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
+        nonlocal call_count
+        assert params.name == "test_tool"
+        call_count += 1
+        if call_count == 1:
+            ev_first_call.set()
+            await anyio.Event().wait()  # blocks until cancelled
+        return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
 
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server, mode="legacy") as client:
-        # First request (will be cancelled)
-        async def first_request():
-            try:
-                await client.session.send_request(
-                    CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
-                    CallToolResult,
-                )
-                pytest.fail("First request should have been cancelled")  # pragma: no cover
-            except MCPError:
-                pass  # Expected
+        with anyio.fail_after(5):
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as tg:
 
-        # Start first request
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(first_request)
+                    async def first_request() -> None:
+                        await client.session.send_request(
+                            CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
+                            CallToolResult,
+                        )
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-            # Wait for it to start
-            await ev_first_call.wait()
+                    tg.start_soon(first_request)
+                    await ev_first_call.wait()
+                    scope.cancel()
+            assert scope.cancelled_caught
 
-            # Cancel it
-            assert first_request_id is not None
-            await client.session.send_notification(
-                CancelledNotification(
-                    params=CancelledNotificationParams(request_id=first_request_id, reason="Testing server recovery"),
-                )
-            )
+            # Second request (should work normally)
+            result = await client.call_tool("test_tool", {})
 
-        # Second request (should work normally)
-        result = await client.call_tool("test_tool", {})
-
-        # Verify second request completed successfully
         assert len(result.content) == 1
-        # Type narrowing for pyright
         content = result.content[0]
-        assert content.type == "text"
         assert isinstance(content, TextContent)
         assert content.text == "Call number: 2"
         assert call_count == 2

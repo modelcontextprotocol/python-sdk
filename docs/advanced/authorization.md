@@ -27,7 +27,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 `AuthSettings` is the public face of your resource server:
 
 * `issuer_url`: the authorization server that issues your tokens.
-* `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives. When your verifier returns an `AccessToken.resource`, the SDK rejects the token unless it matches this URL — a token issued for a different resource never reaches a tool.
+* `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives. When your verifier returns an `AccessToken.resource`, the SDK rejects the token unless it matches this URL, so a token issued for a different resource never reaches a tool.
 * `required_scopes`: every token must carry all of them.
 
 !!! tip

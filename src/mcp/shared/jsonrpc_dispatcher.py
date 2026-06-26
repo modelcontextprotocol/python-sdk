@@ -12,7 +12,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Generic, Literal, cast
+from typing import Any, Generic, Literal, NamedTuple, cast
 
 import anyio
 import anyio.abc
@@ -67,21 +67,37 @@ PeerCancelMode = Literal["interrupt", "signal"]
 the handler's scope; `"signal"` only sets `ctx.cancel_requested`."""
 
 
-def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
-    """Map a handler-raised exception to its wire `ErrorData`.
+class MappedError(NamedTuple):
+    error: ErrorData
+    unexpected: bool
+    """True iff ``exc`` hit the opaque fallthrough (no recognized rung). Callers
+    gate `logger.exception` / `_raise_handler_exceptions` on this — never on
+    ``error.code``, since handlers may deliberately raise
+    ``MCPError(code=INTERNAL_ERROR)``."""
 
-    The two rungs every dispatcher shares: an `MCPError` carries its own
-    `ErrorData`; a pydantic `ValidationError` is the spec's INVALID_PARAMS
-    with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
-    any other exception so each caller applies its own catch-all -
-    `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
-    the modern HTTP entry uses `INTERNAL_ERROR`.
+
+def handler_exception_to_error_data(exc: Exception) -> MappedError:
+    """Map a handler-raised exception to its wire `ErrorData` plus an
+    ``unexpected`` flag.
+
+    `MCPError` carries its own `ErrorData`; pydantic `ValidationError` is the
+    spec's INVALID_PARAMS with empty ``data`` (no pydantic text on the wire);
+    everything else is INTERNAL_ERROR with an opaque message so handler
+    internals never reach the peer. The single source of truth for both the
+    wire shape and the "was this unexpected?" classification — callers do not
+    re-derive the rung set.
     """
     if isinstance(exc, MCPError):
-        return exc.error
+        return MappedError(exc.error, unexpected=False)
     if isinstance(exc, ValidationError):
-        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-    return None
+        return MappedError(
+            ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+            unexpected=False,
+        )
+    return MappedError(
+        ErrorData(code=INTERNAL_ERROR, message="Internal server error"),
+        unexpected=True,
+    )
 
 
 def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToken | None:
@@ -693,11 +709,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             if scope.cancelled_caught:
                 # anyio absorbs the scope's own cancel at __exit__, and
                 # `cancelled_caught` (unlike `cancel_called`) guarantees the
-                # result write above did not happen - no double response.
-                # TODO(L38): spec says SHOULD NOT respond after cancel;
-                # the existing server always has, so match that for now.
-                answer_write_started = True
-                await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
+                # result write above did not happen. Spec: receivers SHOULD NOT
+                # respond to a cancelled request; the sender retired its own
+                # waiter when it cancelled (`send_raw_request` finally), so no
+                # reply is needed to unblock it.
+                return
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the transport;
@@ -712,16 +728,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 )
             raise
         except Exception as e:
-            error = handler_exception_to_error_data(e)
-            if error is not None:
-                await self._write_error(req.id, error)
-            else:
+            error, unexpected = handler_exception_to_error_data(e)
+            if unexpected:
                 logger.exception("handler for %r raised", req.method)
-                # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
-                # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                await self._write_error(req.id, ErrorData(code=0, message=str(e)))
-                if self._raise_handler_exceptions:
-                    raise
+            await self._write_error(req.id, error)
+            if unexpected and self._raise_handler_exceptions:
+                raise
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:
