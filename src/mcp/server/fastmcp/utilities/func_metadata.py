@@ -93,7 +93,11 @@ class FuncMetadata(BaseModel):
         if fn_is_async:
             return await fn(**arguments_parsed_dict)
         else:
-            return fn(**arguments_parsed_dict)
+            return await anyio.to_thread.run_sync(lambda: fn(**arguments_parsed_dict))
+            # Sync functions are offloaded to a thread to avoid blocking the event loop.
+            # anyio.to_thread.run_sync() uses copy_context() internally, so contextvars
+            # propagate correctly. Context is passed explicitly via arguments_parsed_dict,
+            # not through contextvars, so it is unaffected.
 
     def convert_result(self, result: Any) -> Any:
         """
