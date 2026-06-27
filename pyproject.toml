@@ -57,6 +57,9 @@ build-constraint-dependencies = [
 dev = [
     # We add mcp[cli] so `uv sync` considers the extras.
     "mcp[cli]",
+    # The codemod is a standalone tool, not a dependency of `mcp`; pull it in here
+    # so the workspace's test environment has it.
+    "mcp-codemod",
     "mcp-example-stories",
     "tomli>=2.0; python_version < '3.11'",
     "pyright>=1.1.400",
@@ -135,6 +138,7 @@ packages = ["src/mcp"]
 typeCheckingMode = "strict"
 include = [
     "src/mcp",
+    "src/mcp-codemod/mcp_codemod",
     "src/mcp-types/mcp_types",
     "tests",
     "docs_src",
@@ -212,10 +216,18 @@ max-returns = 13                                           # Default is 6
 max-statements = 102                                       # Default is 50
 
 [tool.uv.workspace]
-members = ["src/mcp-types", "examples", "examples/clients/*", "examples/servers/*", "examples/snippets"]
+members = [
+    "src/mcp-codemod",
+    "src/mcp-types",
+    "examples",
+    "examples/clients/*",
+    "examples/servers/*",
+    "examples/snippets",
+]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+mcp-codemod = { workspace = true }
 mcp-example-stories = { workspace = true }
 mcp-types = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
@@ -264,7 +276,7 @@ MD059 = false    # descriptive-link-text
 branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
-source = ["src", "src/mcp-types/mcp_types", "tests"]
+source = ["src", "src/mcp-codemod/mcp_codemod", "src/mcp-types/mcp_types", "tests"]
 omit = [
     "src/mcp/client/__main__.py",
     "src/mcp/server/__main__.py",

@@ -6,6 +6,19 @@ This guide covers the breaking changes introduced in v2 of the MCP Python SDK an
 
 Version 2 of the MCP Python SDK introduces several breaking changes to improve the API, align with the MCP specification, and provide better type safety.
 
+## Automated migration
+
+The `mcp-codemod` tool (published from `src/mcp-codemod` in this repository) rewrites every change in this guide whose meaning is unambiguous from the file alone -- the import moves, the symbol renames, the `MCPError` reshape, and the camelCase to snake_case field renames -- and inserts a `# mcp-codemod:` comment above every site it recognized but would not guess at. Run it on a clean branch first, then work through what it marked:
+
+```bash
+uvx mcp-codemod v1-to-v2 ./src
+grep -rn '# mcp-codemod:' ./src
+```
+
+Names are resolved through each file's imports, never matched as text, so an aliased import or an unrelated symbol that shares a name with an SDK one is never touched. Re-running on its own output is a no-op, so it is safe to apply again after a manual fix-up. To preview without writing anything, pass `--dry-run` (add `--diff` to see the full unified diff).
+
+The sections below remain the reference for the changes it cannot make for you: the lowlevel `Server` handler rewrite, relocating transport keyword arguments off the `MCPServer` constructor, and every behavioural change that has no source-level signature.
+
 ## Breaking Changes
 
 ### `MCPServer.call_tool()` returns `CallToolResult`
