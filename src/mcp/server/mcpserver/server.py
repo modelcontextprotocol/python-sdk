@@ -70,7 +70,7 @@ from mcp.server.mcpserver.resources import (
 )
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -211,9 +211,6 @@ class MCPServer(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
-
-        # Configure logging
-        configure_logging(self.settings.log_level)
 
     @property
     def name(self) -> str:
