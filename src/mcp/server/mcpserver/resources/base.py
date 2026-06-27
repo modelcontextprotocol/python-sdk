@@ -3,6 +3,7 @@
 import abc
 from typing import Any
 
+from mcp_types import Annotations, Icon
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -10,8 +11,6 @@ from pydantic import (
     ValidationInfo,
     field_validator,
 )
-
-from mcp.types import Annotations, Icon
 
 
 class Resource(BaseModel, abc.ABC):

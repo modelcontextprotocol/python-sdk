@@ -5,13 +5,7 @@ from typing import Annotated, Literal
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel, Field
-
-from mcp import MCPError
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.shared.exceptions import UrlElicitationRequiredError
-from mcp.types import (
+from mcp_types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitRequestURLParams,
@@ -20,6 +14,12 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+from pydantic import BaseModel, Field
+
+from mcp import MCPError
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.shared.exceptions import UrlElicitationRequiredError
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -414,7 +414,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     async def grow(ctx: Context) -> str:
         mcp.add_tool(extra, name="extra")
         mcp.remove_tool("doomed")
-        await ctx.info("tool set changed")
+        await ctx.info("tool set changed")  # pyright: ignore[reportDeprecated]
         return "mutated"
 
     async def collect(message: IncomingMessage) -> None:

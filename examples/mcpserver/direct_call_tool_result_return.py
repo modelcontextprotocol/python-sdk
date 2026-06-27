@@ -2,10 +2,10 @@
 
 from typing import Annotated
 
+from mcp_types import CallToolResult, TextContent
 from pydantic import BaseModel
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import CallToolResult, TextContent
 
 mcp = MCPServer("Echo Server")
 

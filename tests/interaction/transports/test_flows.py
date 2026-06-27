@@ -9,10 +9,10 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, LoggingMessageNotificationParams, TextContent
 
 from mcp.client.session import LoggingFnT
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import CallToolResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import client_via_http, connect_over_sse, mounted_app
 from tests.interaction._requirements import requirement
 
@@ -32,7 +32,7 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
     @mcp.tool()
     async def announce(label: str, ctx: Context) -> str:
         """Emit one info-level log carrying the caller's label, then return it."""
-        await ctx.info(label)
+        await ctx.info(label)  # pyright: ignore[reportDeprecated]
         return label
 
     received_a: list[object] = []

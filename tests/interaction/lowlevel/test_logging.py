@@ -1,20 +1,16 @@
 """Logging interactions against the low-level Server, driven through the public Client API.
 
-Notification ordering: the in-memory transport delivers every server-to-client message on one
-ordered stream, and the client's receive loop dispatches each incoming message to completion
-before reading the next one. Over streamable HTTP that ordered single-stream guarantee holds
-only for messages that carry a ``related_request_id`` (they ride the originating request's POST
-stream); without it the message routes to the standalone GET stream and may arrive after the
-response. These tests pass ``related_request_id`` so they can collect into a plain list and
-assert after the request completes on every transport leg -- no events, no waiting.
+Notification ordering: await-free callbacks finish in arrival order, and passing
+``related_request_id`` keeps each notification on the originating request's POST stream over
+streamable HTTP, so plain-list collection is deterministic on every transport leg.
 """
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -40,10 +36,10 @@ async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
         assert params.level == "warning"
         return EmptyResult()
 
-    server = Server("logger", on_set_logging_level=set_logging_level)
+    server = Server("logger", on_set_logging_level=set_logging_level)  # pyright: ignore[reportDeprecated]
 
     async with connect(server) as client:
-        result = await client.set_logging_level("warning")
+        result = await client.set_logging_level("warning")  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 
@@ -68,10 +64,10 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "chatty"
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info", data="starting up", logger="app.lifecycle", related_request_id=ctx.request_id
         )
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="error", data={"code": 502, "retryable": True}, related_request_id=ctx.request_id
         )
         return CallToolResult(content=[TextContent(text="done")])
@@ -80,7 +76,9 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
     async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
@@ -110,7 +108,7 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
         for level in ALL_LEVELS:
-            await ctx.session.send_log_message(
+            await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level=level, data=f"a {level} message", related_request_id=ctx.request_id
             )
         return CallToolResult(content=[TextContent(text="logged")])
@@ -119,7 +117,9 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
     async with connect(server, logging_callback=collect) as client:
         await client.call_tool("siren", {})

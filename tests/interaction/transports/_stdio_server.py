@@ -7,12 +7,11 @@ test-only-functions convention.
 """
 
 import sys
+import warnings
 
 import anyio
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.stdio import stdio_server
-from mcp.types import (
+import coverage
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -22,6 +21,10 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -39,7 +42,9 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     assert params.name == "echo"
     assert params.arguments is not None
     text = params.arguments["text"]
-    await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
+        await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")  # pyright: ignore[reportDeprecated]
     return CallToolResult(content=[TextContent(text=text)])
 
 
@@ -48,15 +53,37 @@ async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestPa
     raise NotImplementedError
 
 
-server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", MCPDeprecationWarning)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
 
 async def main() -> None:
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
+    # Flush this process's coverage data before the clean-exit line below. Without this, the
+    # data is only written by coverage's atexit hook during interpreter teardown -- and on a
+    # slow Windows runner that can overrun the transport's termination grace, so the kill
+    # silently destroys the data file and the 100% gate trips on this module's subprocess-only
+    # lines. Saving here puts the write before the line the test synchronizes on: once the
+    # parent has seen "clean exit", the data is durably on disk and the escalation is harmless.
+    # Nothing measured may execute after the save (it would be unrecordable by construction),
+    # hence the excluded lines below. The branch is pragma'd because under coverage the
+    # instance always exists, and without coverage nothing is measured anyway.
+    cov = getattr(coverage.process_startup, "coverage", None)
+    if cov is not None:  # pragma: no branch
+        # stop() is load-bearing twice over: it ends tracing, making itself the last
+        # recordable line, and it leaves nothing new for coverage's atexit re-save to flush --
+        # so a kill landing during interpreter teardown cannot corrupt the file save() wrote
+        # (coverage opens it with sqlite journaling off; a torn rewrite would not roll back).
+        cov.stop()
+        cov.save()  # pragma: lax no cover - untraced: stop() above already ended measurement
     # Reached only when the run loop exits because stdin closed; if the process were terminated
-    # the test's stderr capture would not see this line.
-    print("stdio-echo: clean exit", file=sys.stderr, flush=True)
+    # the test's stderr capture would not see this line. lax no cover: runs after the coverage
+    # save by design, so it can never appear covered.
+    print("stdio-echo: clean exit", file=sys.stderr, flush=True)  # pragma: lax no cover
 
 
 if __name__ == "__main__":

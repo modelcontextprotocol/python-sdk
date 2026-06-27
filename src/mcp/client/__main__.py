@@ -6,8 +6,8 @@ from functools import partial
 from urllib.parse import urlparse
 
 import anyio
+import mcp_types as types
 
-from mcp import types
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client

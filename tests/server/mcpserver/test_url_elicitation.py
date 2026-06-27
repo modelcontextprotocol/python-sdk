@@ -1,15 +1,15 @@
 """Test URL mode elicitation feature (SEP 1036)."""
 
 import anyio
+import mcp_types as types
 import pytest
+from mcp_types import ElicitRequestParams, ElicitResult, TextContent
 from pydantic import BaseModel, Field
 
-from mcp import Client, types
-from mcp.client.session import ClientSession
+from mcp import Client
+from mcp.client import ClientRequestContext
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared._context import RequestContext
-from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
 @pytest.mark.anyio
@@ -28,14 +28,14 @@ async def test_url_elicitation_accept():
         return f"User {result.action}"
 
     # Create elicitation callback that accepts URL mode
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.url == "https://example.com/api_key_setup"
         assert params.elicitation_id == "test-elicitation-001"
         assert params.message == "Please provide your API key to continue."
         return ElicitResult(action="accept")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("request_api_key", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -57,11 +57,11 @@ async def test_url_elicitation_decline():
         # Test only checks decline path
         return f"User {result.action} authorization"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         assert params.mode == "url"
         return ElicitResult(action="decline")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("oauth_flow", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -83,11 +83,11 @@ async def test_url_elicitation_cancel():
         # Test only checks cancel path
         return f"User {result.action} payment"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         assert params.mode == "url"
         return ElicitResult(action="cancel")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("payment_flow", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -110,10 +110,10 @@ async def test_url_elicitation_helper_function():
         # Test only checks accept path - return the type name
         return type(result).__name__
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="accept")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("setup_credentials", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -137,7 +137,7 @@ async def test_url_no_content_in_response():
         assert result.content is None
         return f"Action: {result.action}, Content: {result.content}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         # Verify that this is URL mode
         assert params.mode == "url"
         assert isinstance(params, types.ElicitRequestURLParams)
@@ -147,7 +147,7 @@ async def test_url_no_content_in_response():
         # Return without content - this is correct for URL mode
         return ElicitResult(action="accept")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("check_url_response", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -170,7 +170,7 @@ async def test_form_mode_still_works():
         assert result.data is not None
         return f"Hello, {result.data.name}!"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         # Verify form mode parameters
         assert params.mode == "form"
         assert isinstance(params, types.ElicitRequestFormParams)
@@ -178,7 +178,7 @@ async def test_form_mode_still_works():
         assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"name": "Alice"})
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("ask_name", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -206,10 +206,10 @@ async def test_elicit_complete_notification():
 
         return "Elicitation completed"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="accept")  # pragma: no cover
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("trigger_elicitation", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -263,20 +263,20 @@ async def test_elicit_url_typed_results():
         return "Not cancelled"  # pragma: no cover
 
     # Test declined result
-    async def decline_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def decline_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
-    async with Client(mcp, elicitation_callback=decline_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=decline_callback) as client:
         result = await client.call_tool("test_decline", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Declined"
 
     # Test cancelled result
-    async def cancel_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def cancel_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="cancel")
 
-    async with Client(mcp, elicitation_callback=cancel_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=cancel_callback) as client:
         result = await client.call_tool("test_cancel", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -303,13 +303,13 @@ async def test_deprecated_elicit_method():
             return f"Email: {result.content.get('email', 'none')}"
         return "No email provided"  # pragma: no cover
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         # Verify this is form mode
         assert params.mode == "form"
         assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"email": "test@example.com"})
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("use_deprecated_elicit", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
@@ -331,12 +331,12 @@ async def test_ctx_elicit_url_convenience_method():
         )
         return f"Result: {result.action}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
+    async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.elicitation_id == "ctx-test-001"
         return ElicitResult(action="accept")
 
-    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+    async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool("direct_elicit_url", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Result: accept"

@@ -2,10 +2,10 @@ import threading
 from typing import Any
 
 import pytest
+from mcp_types import EmbeddedResource, TextContent, TextResourceContents
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
-from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 
 
 class TestRenderPrompt:

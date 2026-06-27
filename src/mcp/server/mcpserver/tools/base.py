@@ -4,15 +4,15 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import Icon, ToolAnnotations
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
-from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -111,9 +111,12 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
-        except UrlElicitationRequiredError:
-            # Re-raise UrlElicitationRequiredError so it can be properly handled
-            # as an MCP error response with code -32042
+        except MCPError:
+            # `MCPError` (and subclasses such as `UrlElicitationRequiredError`)
+            # carries a JSON-RPC `ErrorData(code, message, data)` and means
+            # "respond with a protocol error" - re-raise so the kernel surfaces
+            # it as a top-level JSON-RPC error rather than wrapping it as a
+            # `CallToolResult(isError=True)` execution failure.
             raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e

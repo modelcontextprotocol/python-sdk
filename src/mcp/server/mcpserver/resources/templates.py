@@ -3,23 +3,104 @@
 from __future__ import annotations
 
 import functools
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Set
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote
 
 import anyio.to_thread
+from mcp_types import Annotations, Icon
 from pydantic import BaseModel, Field, validate_call
 
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.types import Annotations, Icon
+from mcp.shared.path_security import contains_path_traversal, is_absolute_path
+from mcp.shared.uri_template import UriTemplate
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.context import Context
+
+
+@dataclass(frozen=True)
+class ResourceSecurity:
+    """Security policy applied to extracted resource template parameters.
+
+    These checks run after :meth:`~mcp.shared.uri_template.UriTemplate.match`
+    has extracted and decoded parameter values. They catch path-traversal
+    and absolute-path injection regardless of how the value was encoded in
+    the URI (literal, ``%2F``, ``%5C``, ``%2E%2E``).
+
+    Example::
+
+        # Opt out for a parameter that legitimately contains ..
+        @mcp.resource(
+            "git://diff/{+range}",
+            security=ResourceSecurity(exempt_params={"range"}),
+        )
+        def git_diff(range: str) -> str: ...
+    """
+
+    reject_path_traversal: bool = True
+    """Reject values containing ``..`` as a path component."""
+
+    reject_absolute_paths: bool = True
+    """Reject values that look like absolute filesystem paths."""
+
+    reject_null_bytes: bool = True
+    """Reject values containing NUL (``\\x00``). Null bytes defeat string
+    comparisons (``"..\\x00" != ".."``) and can cause truncation in C
+    extensions or subprocess calls."""
+
+    exempt_params: Set[str] = field(default_factory=frozenset[str])
+    """Parameter names to skip all checks for."""
+
+    def validate(self, params: Mapping[str, str | list[str]]) -> str | None:
+        """Check all parameter values against the configured policy.
+
+        Args:
+            params: Extracted template parameters. List values (from
+                explode variables) are checked element-wise.
+
+        Returns:
+            The name of the first parameter that fails, or ``None`` if
+            all values pass.
+        """
+        for name, value in params.items():
+            if name in self.exempt_params:
+                continue
+            values = value if isinstance(value, list) else [value]
+            for v in values:
+                if self.reject_null_bytes and "\0" in v:
+                    return name
+                if self.reject_path_traversal and contains_path_traversal(v):
+                    return name
+                if self.reject_absolute_paths and is_absolute_path(v):
+                    return name
+        return None
+
+
+DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
+"""Secure-by-default policy: traversal, absolute paths, and null bytes rejected."""
+
+
+class ResourceSecurityError(ValueError):
+    """Raised when an extracted parameter fails :class:`ResourceSecurity` checks.
+
+    Distinct from a simple ``None`` non-match so that template
+    iteration can stop at the first security rejection rather than
+    falling through to a later, possibly more permissive, template.
+    """
+
+    def __init__(self, template: str, param: str) -> None:
+        super().__init__(f"Parameter {param!r} of template {template!r} failed security validation")
+        self.template = template
+        self.param = param
 
 
 class ResourceTemplate(BaseModel):
@@ -36,6 +117,8 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    parsed_template: UriTemplate = Field(exclude=True, description="Parsed RFC 6570 template")
+    security: ResourceSecurity = Field(exclude=True, description="Path-safety policy for extracted parameters")
 
     @classmethod
     def from_function(
@@ -50,11 +133,19 @@ class ResourceTemplate(BaseModel):
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
         context_kwarg: str | None = None,
+        security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ) -> ResourceTemplate:
-        """Create a template from a function."""
+        """Create a template from a function.
+
+        Raises:
+            InvalidUriTemplate: If ``uri_template`` is malformed or uses
+                unsupported RFC 6570 features.
+        """
         func_name = name or fn.__name__
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")  # pragma: no cover
+
+        parsed = UriTemplate.parse(uri_template)
 
         # Find context parameter if it exists
         if context_kwarg is None:  # pragma: no branch
@@ -82,20 +173,35 @@ class ResourceTemplate(BaseModel):
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
+            parsed_template=parsed,
+            security=security,
         )
 
-    def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters.
+    def matches(self, uri: str) -> dict[str, str | list[str]] | None:
+        """Check if a URI matches this template and extract parameters.
 
-        Extracted parameters are URL-decoded to handle percent-encoded characters.
+        Delegates to :meth:`UriTemplate.match` for RFC 6570 extraction,
+        then applies this template's :class:`ResourceSecurity` policy
+        (path traversal, absolute paths).
+
+        Returns:
+            Extracted parameters on success, or ``None`` if the URI
+            doesn't match the template.
+
+        Raises:
+            ResourceSecurityError: If the URI matches but an extracted
+                parameter fails security validation. Raising (rather
+                than returning ``None``) prevents the resource manager
+                from silently falling through to a later, possibly more
+                permissive, template.
         """
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
-        if match:
-            # URL-decode all extracted parameter values
-            return {key: unquote(value) for key, value in match.groupdict().items()}
-        return None
+        params = self.parsed_template.match(uri)
+        if params is None:
+            return None
+        failed = self.security.validate(params)
+        if failed is not None:
+            raise ResourceSecurityError(self.uri_template, failed)
+        return params
 
     async def create_resource(
         self,
@@ -106,7 +212,7 @@ class ResourceTemplate(BaseModel):
         """Create a resource from the template with the given parameters.
 
         Raises:
-            ValueError: If creating the resource fails.
+            ResourceError: If creating the resource fails.
         """
         try:
             # Add context to params if needed
@@ -129,5 +235,8 @@ class ResourceTemplate(BaseModel):
                 meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
-        except Exception as e:
-            raise ValueError(f"Error creating resource from template: {e}")
+        except ResourceError:
+            raise
+        except Exception as exc:
+            logger.exception(f"Error creating resource from template {uri}")
+            raise ResourceError(f"Error creating resource from template {uri}") from exc

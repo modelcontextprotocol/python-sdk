@@ -14,15 +14,15 @@ from urllib.parse import parse_qs, urlsplit
 
 import anyio
 import httpx
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from pydantic import AnyUrl
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.shared.auth import OAuthClientInformationFull
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -104,7 +104,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     # The first PRM discovery GET carries the protocol-version header (an SDK behaviour, not a
     # spec requirement on discovery requests).
     prm_get = next(r for r in requests if r.url.path == "/.well-known/oauth-protected-resource/mcp")
-    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2025-11-25")
+    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2026-07-28")
 
     authorize = parse_qs(urlsplit(headless.authorize_url).query)
     assert authorize["response_type"] == ["code"]
@@ -203,6 +203,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "scope": "mcp",
+            "application_type": "native",
             "client_name": "interaction-suite",
             "software_id": "interaction-test-suite",
         }

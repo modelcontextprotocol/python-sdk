@@ -1,6 +1,7 @@
 """Tests for refactored OAuth client authentication implementation."""
 
 import base64
+import json
 import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -11,13 +12,14 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
-from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
@@ -25,10 +27,14 @@ from mcp.client.auth.utils import (
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
+    union_scopes,
+    validate_authorization_response_iss,
+    validate_metadata_issuer,
 )
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
+    AuthorizationCodeResult,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
@@ -45,13 +51,13 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens  # pragma: no cover
+        return self._tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        return self._client_info  # pragma: no cover
+        return self._client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         self._client_info = client_info
@@ -89,9 +95,9 @@ def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockToken
         """Mock redirect handler."""
         pass  # pragma: no cover
 
-    async def callback_handler() -> tuple[str, str | None]:
+    async def callback_handler() -> AuthorizationCodeResult:
         """Mock callback handler."""
-        return "test_auth_code", "test_state"  # pragma: no cover
+        return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
     return OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
@@ -272,8 +278,8 @@ class TestOAuthFlow:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com",
@@ -517,10 +523,10 @@ class TestOAuthFallback:
         }"""
         response = httpx.Response(200, content=content)
 
-        # Should set metadata
+        # Should set metadata; the empty path is preserved (no trailing slash added)
         await oauth_provider._handle_oauth_metadata_response(response)
         assert oauth_provider.context.oauth_metadata is not None
-        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com"
 
     @pytest.mark.anyio
     async def test_prioritize_www_auth_scope_over_prm(
@@ -819,6 +825,24 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+@pytest.mark.parametrize(
+    ("protocol_version", "expected"),
+    [
+        ("2025-03-26", False),
+        ("2025-06-18", True),
+        ("2025-11-25", True),
+        # Unrecognized strings gate conservatively, even ones sorting after 2025-06-18.
+        ("zzz", False),
+        ("9999-99-99", False),
+    ],
+)
+def test_should_include_resource_param_by_protocol_version(
+    oauth_provider: OAuthClientProvider, protocol_version: str, expected: bool
+) -> None:
+    """Resource param is included only for recognized versions >= 2025-06-18."""
+    assert oauth_provider.context.should_include_resource_param(protocol_version) is expected
+
+
 @pytest.mark.anyio
 async def test_validate_resource_rejects_mismatched_resource(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
@@ -1026,6 +1050,21 @@ class TestCreateClientRegistrationRequest:
 
         assert str(request.url) == "https://auth.example.com/register"
         assert request.method == "POST"
+
+
+def test_registration_request_sends_application_type():
+    """SEP-837: the DCR body carries application_type, defaulting to native and overridable."""
+    redirect_uris: list[AnyUrl] = [AnyUrl("http://localhost:3000/callback")]
+
+    default_request = create_client_registration_request(
+        None, OAuthClientMetadata(redirect_uris=redirect_uris), "https://auth.example.com"
+    )
+    assert json.loads(default_request.content)["application_type"] == "native"
+
+    web_request = create_client_registration_request(
+        None, OAuthClientMetadata(redirect_uris=redirect_uris, application_type="web"), "https://auth.example.com"
+    )
+    assert json.loads(web_request.content)["application_type"] == "web"
 
 
 class TestAuthFlow:
@@ -1350,10 +1389,9 @@ class TestAuthFlow:
         async def capture_redirect(url: str) -> None:
             nonlocal redirect_captured, captured_state
             redirect_captured = True
-            # Verify the new scope is included in authorization URL
-            assert "scope=admin%3Awrite+admin%3Adelete" in url or "scope=admin:write+admin:delete" in url.replace(
-                "%3A", ":"
-            ).replace("+", " ")
+            # SEP-2350: the authorization URL carries the union of the prior and challenged scopes
+            scope = parse_qs(urlparse(url).query)["scope"][0]
+            assert scope == "read write admin:write admin:delete"
             # Extract state from redirect URL
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
@@ -1362,8 +1400,8 @@ class TestAuthFlow:
         oauth_provider.context.redirect_handler = capture_redirect
 
         # Mock callback
-        async def mock_callback() -> tuple[str, str | None]:
-            return "auth_code", captured_state
+        async def mock_callback() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="auth_code", state=captured_state)
 
         oauth_provider.context.callback_handler = mock_callback
 
@@ -1383,8 +1421,8 @@ class TestAuthFlow:
         # Trigger step-up - should get token exchange request
         token_exchange_request = await auth_flow.asend(response_403)
 
-        # Verify scope was updated
-        assert oauth_provider.context.client_metadata.scope == "admin:write admin:delete"
+        # Verify scope was updated to the union of prior and challenged scopes (SEP-2350)
+        assert oauth_provider.context.client_metadata.scope == "read write admin:write admin:delete"
         assert redirect_captured
 
         # Complete the flow with successful token response
@@ -1409,6 +1447,66 @@ class TestAuthFlow:
             pytest.fail("Should have stopped after successful response")  # pragma: no cover
         except StopAsyncIteration:
             pass  # Expected
+
+
+@pytest.mark.anyio
+async def test_403_step_up_preserves_scope_from_stored_token(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """SEP-2350: a restart-loaded token's scope is folded into the step-up union.
+
+    On restart only the token is reloaded (not client_metadata.scope), so the stored token's
+    granted scope must seed the union, or the challenge would re-authorize for less.
+    """
+    client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    # Simulate a restart: a token granted "read" is loaded, but client_metadata carries no scope.
+    oauth_provider.context.current_tokens = OAuthToken(access_token="t", scope="read")
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.client_info = client_info
+    oauth_provider.context.client_metadata.scope = None
+    oauth_provider._initialized = True
+
+    captured_state: str | None = None
+    reauthorize_scope: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state, reauthorize_scope
+        params = parse_qs(urlparse(url).query)
+        reauthorize_scope = params["scope"][0]
+        captured_state = params.get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/mcp"))
+    request = await auth_flow.__anext__()
+    response_403 = httpx.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+    token_exchange_request = await auth_flow.asend(response_403)
+
+    assert reauthorize_scope == "read write"
+
+    # Drive the flow to completion so the context lock is released cleanly
+    token_response = httpx.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
+        request=token_exchange_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
 
 
 @pytest.mark.parametrize(
@@ -1499,8 +1597,8 @@ class TestLegacyServerFallback:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         # Simulate a legacy server like Linear
         provider = OAuthClientProvider(
@@ -1598,8 +1696,8 @@ class TestLegacyServerFallback:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1703,8 +1801,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1738,8 +1836,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -1839,8 +1937,8 @@ class TestSEP985Discovery:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2053,8 +2151,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2074,8 +2172,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         with pytest.raises(ValueError) as exc_info:
             OAuthClientProvider(
@@ -2097,8 +2195,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2188,8 +2286,8 @@ class TestCIMD:
         async def redirect_handler(url: str) -> None:
             pass  # pragma: no cover
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2421,8 +2519,8 @@ class TestSEP2207OfflineAccessScope:
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", captured_state
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2530,8 +2628,8 @@ class TestSEP2207OfflineAccessScope:
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
 
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", captured_state
+        async def callback_handler() -> AuthorizationCodeResult:
+            return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
 
         provider = OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
@@ -2618,3 +2716,456 @@ class TestSEP2207OfflineAccessScope:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+_ISSUER = "https://as.example.com"
+
+
+def _issuer_metadata(*, issuer: str = _ISSUER, iss_supported: bool | None = None) -> OAuthMetadata:
+    # Validate from string inputs so url_preserve_empty_path keeps the issuer as transmitted,
+    # matching the wire path (model_validate_json) rather than normalizing a bare authority.
+    return OAuthMetadata.model_validate(
+        {
+            "issuer": issuer,
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+            "authorization_response_iss_parameter_supported": iss_supported,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("issuer", "iss", "iss_supported"),
+    [
+        pytest.param(_ISSUER, _ISSUER, True, id="advertised-and-correct"),
+        pytest.param(_ISSUER, None, None, id="not-advertised-and-omitted"),
+        pytest.param(_ISSUER, _ISSUER, None, id="not-advertised-but-correct"),
+        # An issuer that genuinely ends in a slash (e.g. Auth0) must match its own iss.
+        pytest.param("https://as.example.com/", "https://as.example.com/", True, id="trailing-slash-issuer"),
+    ],
+)
+def test_validate_authorization_response_iss_accepts(issuer: str, iss: str | None, iss_supported: bool | None):
+    """RFC 9207: a matching or legitimately absent iss is accepted."""
+    validate_authorization_response_iss(iss, _issuer_metadata(issuer=issuer, iss_supported=iss_supported))
+
+
+@pytest.mark.parametrize(
+    ("iss", "iss_supported", "match"),
+    [
+        pytest.param(None, True, "missing iss", id="advertised-but-omitted"),
+        pytest.param("https://evil.example.com", True, "iss mismatch", id="wrong-issuer"),
+        pytest.param("https://evil.example.com", None, "iss mismatch", id="unexpected-when-not-advertised"),
+        pytest.param(f"{_ISSUER}/", True, "iss mismatch", id="trailing-slash-not-normalized"),
+    ],
+)
+def test_validate_authorization_response_iss_rejects(iss: str | None, iss_supported: bool | None, match: str):
+    """RFC 9207: a mismatched iss, or one missing when advertised, is rejected via simple string compare."""
+    with pytest.raises(OAuthFlowError, match=match):
+        validate_authorization_response_iss(iss, _issuer_metadata(iss_supported=iss_supported))
+
+
+def test_validate_authorization_response_iss_without_metadata():
+    """With no AS metadata, a present iss is rejected and an absent one is accepted."""
+    validate_authorization_response_iss(None, None)
+    with pytest.raises(OAuthFlowError, match="iss mismatch"):
+        validate_authorization_response_iss(_ISSUER, None)
+
+
+def test_validate_metadata_issuer_accepts_match():
+    validate_metadata_issuer(_issuer_metadata(issuer=_ISSUER), _ISSUER)
+
+
+def test_validate_metadata_issuer_rejects_mismatch():
+    with pytest.raises(OAuthFlowError, match="metadata issuer mismatch"):
+        validate_metadata_issuer(_issuer_metadata(issuer="https://attacker.example.com"), _ISSUER)
+
+
+@pytest.mark.parametrize(
+    ("previous", "new", "expected"),
+    [
+        pytest.param("mcp:basic", "mcp:write", "mcp:basic mcp:write", id="disjoint-union-order"),
+        pytest.param(
+            "mcp:basic offline_access", "mcp:write mcp:basic", "mcp:basic offline_access mcp:write", id="dedup"
+        ),
+        pytest.param(None, "mcp:write", "mcp:write", id="no-previous"),
+        pytest.param("mcp:basic", None, "mcp:basic", id="no-new"),
+        pytest.param(None, None, None, id="both-empty"),
+    ],
+)
+def test_union_scopes(previous: str | None, new: str | None, expected: str | None):
+    """SEP-2350: union merges previous and new scopes, dedups, and preserves order."""
+    assert union_scopes(previous, new) == expected
+
+
+def test_credentials_match_issuer_same_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://as", None) is True
+
+
+def test_credentials_match_issuer_different_issuer():
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
+    assert credentials_match_issuer(info, "https://other", None) is False
+
+
+def test_credentials_match_issuer_no_recorded_issuer_is_left_alone():
+    """Credentials with no bound issuer (pre-registered / legacy) carry no binding to enforce."""
+    info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")])
+    assert credentials_match_issuer(info, "https://as", None) is True
+
+
+def test_credentials_match_issuer_cimd_is_portable():
+    """A client_id equal to the configured client_metadata_url (CIMD) is portable across servers."""
+    cimd_url = "https://client.example/metadata.json"
+    info = OAuthClientInformationFull(
+        client_id=cimd_url,
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        token_endpoint_auth_method="none",
+        issuer="https://as",
+    )
+    assert credentials_match_issuer(info, "https://other", cimd_url) is True
+
+
+def test_credentials_match_issuer_url_shaped_dcr_id_is_not_portable():
+    """A URL-shaped client_id from DCR (not the configured CIMD URL) stays bound to its issuer."""
+    info = OAuthClientInformationFull(
+        client_id="https://as.example.com/clients/123",
+        redirect_uris=[AnyUrl("http://localhost/cb")],
+        issuer="https://as.example.com",
+    )
+    assert credentials_match_issuer(info, "https://other", "https://client.example/metadata.json") is False
+
+
+@pytest.mark.anyio
+async def test_handle_token_response_backfills_omitted_scope_from_request(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §5.1: an omitted token-response scope means granted == requested.
+
+    The token is stored with the requested scope filled in so it remains self-describing
+    after a restart, when the SEP-2350 step-up union reads it but ``client_metadata.scope``
+    has reverted to its constructor value.
+    """
+    oauth_provider.context.client_metadata.scope = "read admin"
+    response = httpx.Response(
+        200,
+        json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    await oauth_provider._handle_token_response(response)
+
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.scope == "read admin"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read admin"
+
+
+@pytest.mark.anyio
+async def test_handle_token_response_raises_on_non_2xx_with_body(oauth_provider: OAuthClientProvider):
+    response = httpx.Response(
+        400,
+        json={"error": "invalid_grant"},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(400\).*invalid_grant"):
+        await oauth_provider._handle_token_response(response)
+
+
+@pytest.mark.anyio
+async def test_handle_refresh_response_carries_prior_scope_and_refresh_token_when_omitted(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §6: omitted refresh-response scope and refresh_token are carried forward.
+
+    Omitted scope means it is unchanged from the prior access token. Omitted refresh_token
+    means the AS does not rotate refresh tokens; the client keeps using the previously
+    issued one so the next expiry can refresh instead of forcing a full re-authorization.
+    """
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="old", scope="read write", refresh_token="prior-refresh"
+    )
+    response = httpx.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    ok = await oauth_provider._handle_refresh_response(response)
+
+    assert ok is True
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.access_token == "new"
+    assert oauth_provider.context.current_tokens.scope == "read write"
+    assert oauth_provider.context.current_tokens.refresh_token == "prior-refresh"
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.scope == "read write"
+    assert stored.refresh_token == "prior-refresh"
+
+
+@pytest.mark.anyio
+async def test_handle_refresh_response_adopts_rotated_refresh_token_when_returned(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """A refresh response that includes ``refresh_token`` replaces the prior one (rotation)."""
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="old", scope="read write", refresh_token="prior-refresh"
+    )
+    response = httpx.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "rotated"},
+        request=httpx.Request("POST", "https://auth.example.com/token"),
+    )
+    ok = await oauth_provider._handle_refresh_response(response)
+
+    assert ok is True
+    stored = await mock_storage.get_tokens()
+    assert stored is not None
+    assert stored.refresh_token == "rotated"
+
+
+@pytest.mark.anyio
+async def test_issuer_binding_re_evaluated_after_asm_when_prm_discovery_failed(
+    oauth_provider: OAuthClientProvider,
+):
+    """SEP-2352: on the legacy no-PRM path the binding check uses the ASM-discovered issuer.
+
+    PRM discovery fails (404) so ``auth_server_url`` stays ``None`` and the post-PRM check is
+    skipped; when ASM discovery then succeeds via the root well-known fallback, the discovered
+    metadata's issuer is compared against the stored credentials' bound issuer and a mismatch
+    triggers re-registration.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://old-as.example.com",
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(401, request=request)
+
+    # PRM discovery: path-based then root, both 404.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    # ASM discovery via root fallback (no auth_server_url) succeeds with a different issuer.
+    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    # The stale bound credentials are discarded, so the next yield is a DCR request
+    # rather than the authorize redirect.
+    next_req = await auth_flow.asend(asm_response)
+    assert oauth_provider.context.auth_server_url is None
+    assert next_req.method == "POST"
+    assert str(next_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "asm_responses",
+    [
+        pytest.param(
+            [httpx.Response(404), httpx.Response(404)],
+            id="asm-discovery-failed",
+        ),
+        pytest.param(
+            [
+                httpx.Response(
+                    200,
+                    content=(
+                        b'{"issuer": "https://new-as.example.com", '
+                        b'"authorization_endpoint": "https://new-as.example.com/authorize", '
+                        b'"token_endpoint": "https://new-as.example.com/token"}'
+                    ),
+                )
+            ],
+            id="asm-metadata-without-registration-endpoint",
+        ),
+    ],
+)
+async def test_issuer_is_not_stamped_when_registration_falls_back_to_the_resource_origin(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, asm_responses: list[httpx.Response]
+):
+    """SEP-2352: a fallback registration is not recorded as bound to the PRM-advertised AS.
+
+    PRM advertises a new authorization server, so the stored credentials (bound to the old
+    issuer) are discarded. DCR then falls back to the resource-server origin's ``/register``
+    because the new AS's metadata either could not be discovered or omits
+    ``registration_endpoint``. That registration was not derived from the new AS's metadata,
+    so persisting it as bound to the new AS would wedge the binding check on later flows;
+    instead the issuer is left unset.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        issuer="https://api.example.com/",
+    )
+
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_401 = httpx.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            )
+        },
+        request=request,
+    )
+
+    # PRM succeeds and advertises a new AS — the discard block fires.
+    prm_req = await auth_flow.asend(response_401)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+    prm_response = httpx.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}'
+        ),
+        request=prm_req,
+    )
+
+    # ASM discovery for the new AS yields no usable registration_endpoint — either every
+    # well-known URL 404s, or metadata is returned without one.
+    next_req = await auth_flow.asend(prm_response)
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.oauth_metadata is None
+    assert str(next_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    for asm_response in asm_responses:
+        asm_response.request = next_req
+        next_req = await auth_flow.asend(asm_response)
+
+    # Step 4 falls back to the resource-server origin's /register.
+    dcr_req = next_req
+    assert dcr_req.method == "POST"
+    assert str(dcr_req.url) == "https://api.example.com/register"
+    dcr_response = httpx.Response(
+        201,
+        json={"client_id": "fallback-client", "redirect_uris": ["http://localhost:3030/callback"]},
+        request=dcr_req,
+    )
+    token_req = await auth_flow.asend(dcr_response)
+
+    # The persisted record carries no issuer binding — not the PRM-advertised AS we never reached.
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fallback-client"
+    assert stored.issuer is None
+
+    # Drive the flow to completion so the context lock is released cleanly.
+    token_response = httpx.Response(
+        200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
+    )
+    final_req = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_discovered_issuer(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """SEP-2352: a fallback registration on the discovered issuer's own host is still bound.
+
+    Legacy same-origin embedded AS: PRM is absent, root ASM discovery succeeds with
+    ``issuer`` equal to the resource origin and no ``registration_endpoint``. DCR falls
+    back to ``<resource-origin>/register`` — the issuer's own host — so the binding was
+    established and is recorded, preserving auto-recovery on a later AS migration.
+    """
+    oauth_provider.context.current_tokens = None
+    oauth_provider.context.token_expiry_time = None
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = None
+
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def echo_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = echo_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # PRM discovery 404s on both well-known URLs.
+    prm_req = await auth_flow.asend(httpx.Response(401, request=request))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    # Root ASM discovery succeeds with the resource origin as issuer and no registration_endpoint.
+    asm_req = await auth_flow.asend(httpx.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token"}'
+        ),
+        request=asm_req,
+    )
+
+    # DCR falls back to the resource origin's /register — the issuer's own host.
+    dcr_req = await auth_flow.asend(asm_response)
+    assert dcr_req.method == "POST"
+    assert str(dcr_req.url) == "https://api.example.com/register"
+    dcr_response = httpx.Response(
+        201,
+        json={"client_id": "embedded-client", "redirect_uris": ["http://localhost:3030/callback"]},
+        request=dcr_req,
+    )
+    token_req = await auth_flow.asend(dcr_response)
+
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert oauth_provider.context.oauth_metadata is not None
+    assert stored.client_id == "embedded-client"
+    assert stored.issuer == str(oauth_provider.context.oauth_metadata.issuer)
+    assert urlparse(stored.issuer).netloc == "api.example.com"
+
+    token_response = httpx.Response(
+        200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 3600}, request=token_req
+    )
+    final_req = await auth_flow.asend(token_response)
+    try:
+        await auth_flow.asend(httpx.Response(200, request=final_req))
+    except StopAsyncIteration:
+        pass

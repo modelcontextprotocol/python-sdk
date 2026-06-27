@@ -43,13 +43,13 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import anyio
+import mcp_types as types
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp import types
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,

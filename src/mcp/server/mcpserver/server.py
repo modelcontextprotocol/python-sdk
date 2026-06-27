@@ -4,14 +4,42 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
-import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
+from mcp_types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    Annotations,
+    BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
+    CompleteRequestParams,
+    CompleteResult,
+    Completion,
+    GetPromptRequestParams,
+    GetPromptResult,
+    Icon,
+    InputRequiredResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
+from mcp_types import Prompt as MCPPrompt
+from mcp_types import PromptArgument as MCPPromptArgument
+from mcp_types import Resource as MCPResource
+from mcp_types import ResourceTemplate as MCPResourceTemplate
+from mcp_types import Tool as MCPTool
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -31,9 +59,15 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import (
+    DEFAULT_RESOURCE_SECURITY,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceSecurity,
+)
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -43,34 +77,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.types import (
-    Annotations,
-    BlobResourceContents,
-    CallToolRequestParams,
-    CallToolResult,
-    CompleteRequestParams,
-    CompleteResult,
-    Completion,
-    ContentBlock,
-    GetPromptRequestParams,
-    GetPromptResult,
-    Icon,
-    ListPromptsResult,
-    ListResourcesResult,
-    ListResourceTemplatesResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    ToolAnnotations,
-)
-from mcp.types import Prompt as MCPPrompt
-from mcp.types import PromptArgument as MCPPromptArgument
-from mcp.types import Resource as MCPResource
-from mcp.types import ResourceTemplate as MCPResourceTemplate
-from mcp.types import Tool as MCPTool
+from mcp.shared.uri_template import UriTemplate
 
 logger = get_logger(__name__)
 
@@ -149,7 +156,9 @@ class MCPServer(Generic[LifespanResultT]):
         dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ):
+        self._resource_security = resource_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -192,14 +201,14 @@ class MCPServer(Generic[LifespanResultT]):
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
             if not auth_server_provider and not token_verifier:  # pragma: no cover
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        elif auth_server_provider or token_verifier:  # pragma: no cover
+        elif auth_server_provider or token_verifier:
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:  # pragma: no cover
+        if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
@@ -306,31 +315,14 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
-    ) -> CallToolResult:
-        context = Context(request_context=ctx, mcp_server=self)
+    ) -> CallToolResult | InputRequiredResult:
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
         except Exception as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        if isinstance(result, CallToolResult):
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
-            )
-        return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -340,8 +332,13 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
-        context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        try:
+            results = await self.read_resource(params.uri, context)
+        except ResourceNotFoundError as err:
+            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
+        except ResourceError as err:
+            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -377,7 +374,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -399,7 +396,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+    ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
@@ -442,13 +439,15 @@ class MCPServer(Generic[LifespanResultT]):
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
     ) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI."""
+        """Read a resource by URI.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
+        """
         if context is None:
             context = Context(mcp_server=self)
-        try:
-            resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError as exc:
-            raise ResourceError(f"Unknown resource: {uri}") from exc
+        resource = await self._resource_manager.get_resource(uri, context)
 
         try:
             content = await resource.read()
@@ -607,11 +606,7 @@ class MCPServer(Generic[LifespanResultT]):
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )
 
-            # TODO(maxisbey): remove private access — completion needs post-construction
-            #   handler registration, find a better pattern for this
-            self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
-                "completion/complete", handler
-            )
+            self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func
 
         return decorator
@@ -635,6 +630,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
@@ -644,8 +640,9 @@ class MCPServer(Generic[LifespanResultT]):
         - bytes for binary content
         - other types will be converted to JSON
 
-        If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        If the URI contains parameters (e.g. "resource://{param}"), it is
+        registered as a template resource. Otherwise it is registered as a
+        static resource; function parameters on a static URI raise an error.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -656,6 +653,9 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the resource
             annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
+            security: Path-safety policy for extracted template parameters.
+                Defaults to the server's ``resource_security`` setting.
+                Only applies to template resources.
 
         Example:
             ```python
@@ -677,6 +677,15 @@ class MCPServer(Generic[LifespanResultT]):
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+
+        Raises:
+            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the
+                function's parameters, or if a parameter bound to a
+                ``{?...}``/``{&...}`` query variable has no default
+                (the client may omit it).
+            TypeError: If the decorator is applied without being called
+                (``@resource`` instead of ``@resource("uri")``).
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -685,25 +694,42 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
+        # Parse once, early — surfaces malformed-template errors at
+        # decoration time with a clear position, and gives us correct
+        # variable names for all RFC 6570 operators.
+        parsed = UriTemplate.parse(uri)
+        uri_params = set(parsed.variable_names)
+
         def decorator(fn: _CallableT) -> _CallableT:
-            # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+            # Template/static is decided purely by the URI: variables
+            # present means template, none means static.
+            if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
+                    )
+
+                # A {?...}/{&...} query variable is optional on the wire:
+                # match() omits it from the extracted parameters when the
+                # client leaves it out of the URI. The handler parameter
+                # bound to it must therefore have a Python default; without
+                # one, the author only finds out on the first request that
+                # omits it, as an opaque internal error.
+                missing_defaults = sorted(
+                    name
+                    for name in parsed.query_variable_names
+                    if sig.parameters[name].default is inspect.Parameter.empty
+                )
+                if missing_defaults:
+                    raise ValueError(
+                        f"Resource {uri!r}: query parameter(s) {missing_defaults} have no "
+                        f"default value. A client may omit a {{?...}}/{{&...}} query "
+                        f"parameter, so the matching handler parameter must declare a "
+                        f"default."
                     )
 
                 # Register as template
@@ -716,9 +742,24 @@ class MCPServer(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    security=security if security is not None else self._resource_security,
                     meta=meta,
                 )
             else:
+                if func_params:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares parameters {func_params}. Add matching "
+                        f"{{...}} variables to the URI or remove the parameters."
+                    )
+                if context_param is not None:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares a Context parameter. Context injection "
+                        f"for static resources is not supported. "
+                        f"Add a template variable to the URI or remove the "
+                        f"Context parameter."
+                    )
                 # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,
@@ -835,7 +876,7 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
-        def decorator(  # pragma: no cover
+        def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -843,7 +884,7 @@ class MCPServer(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator  # pragma: no cover
+        return decorator
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
@@ -977,6 +1018,7 @@ class MCPServer(Generic[LifespanResultT]):
                         service_documentation_url=self.settings.auth.service_documentation_url,
                         client_registration_options=self.settings.auth.client_registration_options,
                         revocation_options=self.settings.auth.revocation_options,
+                        identity_assertion_enabled=self.settings.auth.identity_assertion_enabled,
                     )
                 )
 

@@ -2,8 +2,8 @@ import logging
 
 import anyio
 import click
+import mcp_types as types
 import uvicorn
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from starlette.middleware.cors import CORSMiddleware
 
@@ -54,7 +54,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
     for i in range(count):
         # Include more detailed message for resumability demonstration
         notification_msg = f"[{i + 1}/{count}] Event from '{caller}' - Use Last-Event-ID to resume if disconnected"
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data=notification_msg,
             logger="notification_stream",

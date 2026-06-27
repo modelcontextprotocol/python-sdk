@@ -24,7 +24,7 @@ flows — with a single subprocess test for stdio.
   rewrite preserved behaviour; a passing test that pins the wrong output exactly does. Known
   divergences are recorded as data on the requirement (see below), not worked around in the test.
 - **Spec-mandated assertions, not implementation quirks.** Error *codes* are asserted against
-  the constants in `mcp.types`; error *message strings* are pinned only where they are the
+  the constants in `mcp_types`; error *message strings* are pinned only where they are the
   SDK's own deliberate output.
 - **No sleeps, no real I/O.** Concurrency is coordinated with `anyio.Event`; every wait that
   could hang is bounded by `anyio.fail_after(5)`. The HTTP and OAuth tests drive the Starlette
@@ -56,10 +56,12 @@ test body — each directory pins its flavour's true output exactly.
 
 Transport-agnostic tests take the `connect` fixture instead of constructing `Client(server)`
 directly, and therefore run once per transport: over the in-memory transport, over the server's
-real streamable HTTP app driven in-process through the streaming bridge, and over the legacy SSE
-transport the same way. A test connects with `async with connect(server, ...) as client:` and
-asserts the same output on every leg, because the transport is not supposed to change observable
-behaviour. Tests that are tied to one transport do not use the fixture: the wire-recording tests
+real streamable HTTP app driven in-process through the streaming bridge (in both stateful and
+stateless configurations), and over the legacy SSE transport the same way. A test connects with
+`async with connect(server, ...) as client:` and asserts the same output on every leg, because the
+transport is not supposed to change observable behaviour. Requirements that need a server-to-client
+back-channel or persisted session state are carved out of the stateless arm via `arm_exclusions`.
+Tests that are tied to one transport do not use the fixture: the wire-recording tests
 (their seam is the in-memory stream pair), the bare-`ClientSession` lifecycle tests, the
 real-clock timeout tests (the timeout machinery is transport-independent and must not race
 transport latency), and everything under `transports/`, which pins behaviour only observable on
@@ -95,6 +97,14 @@ clients can share one session manager.
   would require real-time waits the suite refuses.
 - **`transports`** names the transports a behaviour applies to; omitted means transport-independent.
 - **`issue`** carries the tracking link for a recorded gap once one is filed.
+- **`note`** carries free-form context that does not fit `divergence` or `deferred`.
+- **`added_in`** / **`removed_in`** bound the spec versions the behaviour exists in, as a half-open
+  `[added_in, removed_in)` window.
+- **`supersedes`** / **`superseded_by`** link a retired entry to its replacement; the link is
+  bidirectional and both ends must be versioned.
+- **`arm_exclusions`** carve specific `(transport, spec_version)` matrix cells out with a typed
+  `ArmExclusionReason`.
+- **`known_failures`** mark specific `(transport, spec_version)` cells as strict xfail.
 
 Tests link themselves to the manifest with a decorator:
 
@@ -126,15 +136,60 @@ This is also the triage key for any rewrite: a test that fails on the new code p
 divergence note (the rewrite accidentally fixed a known gap — decide whether to keep the fix) or
 it does not (the rewrite broke something that was correct — fix the rewrite).
 
-### When a new spec revision is released
+### Spec versions and the era axis
 
-1. Update `SPEC_REVISION` and walk the new revision's changelog.
-2. For each changed interaction, find its requirements (the IDs use the wire method strings the
-   changelog speaks in), re-audit the tests against the new text, and update `source` links and
-   assertions where behaviour legitimately changed.
-3. New interactions get new requirements and new tests; removed interactions get their
-   requirements deleted along with their tests.
-4. A behaviour that is correct under both revisions needs no change beyond the `source` link.
+`SPEC_VERSIONS` in `_requirements.py` is the ordered tuple of protocol revisions the suite
+exercises. `SPEC_BASE_URL` (and `SPEC_2026_BASE_URL`) are pinned literals — not derived from
+`SPEC_VERSIONS` — so growing the active axis never repoints existing `source` links. The
+`connect` fixture fans out over `CONNECTABLE_TRANSPORTS × SPEC_VERSIONS`, but the grid is
+filtered per test:
+`pytest_generate_tests` reads the test's stacked `@requirement` marks and calls `compute_cells()`,
+which intersects the admissible cells across every cited requirement — a cell survives only if
+**all** of the test's requirements admit it.
+
+`streamable-http-stateless` is the fourth connectable transport: the 2025-era unofficial stateless
+mode where each request opens a fresh transport, no session id is issued, and there is no standalone
+GET stream. Requirements that need a server→client back-channel or persisted session state are
+excluded from that arm via `arm_exclusions` (reasons `server-initiated-request` and
+`requires-session`).
+
+What admits or excludes a cell:
+
+- **`added_in` / `removed_in`** gate which spec versions a requirement exists in, as a half-open
+  `[added_in, removed_in)` window. A test runs only on versions inside every cited requirement's
+  window.
+- **`arm_exclusions`** carve specific `(transport, spec_version)` cells out with a typed
+  `ArmExclusionReason`. The reason vocabulary doubles as a re-admission checklist: when the gap
+  closes, grep for the reason string to find every cell to re-admit.
+- **`known_failures`** keep a cell in the grid but mark it as a strict xfail — the test runs and
+  must fail; an unexpected pass fails the suite.
+- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently only
+  `sse` is locked to `2025-11-25`). A `(transport, version)` cell is dropped if the version is not
+  in the transport's entry; transports absent from the map serve every spec version. This is the
+  mechanism for cutting an entire transport off from a new revision (or admitting it).
+- **`transports`** is descriptive metadata for the non-`connect` transport-specific suites under
+  `transports/` and does **not** drive cell generation. Only `arm_exclusions`, `added_in`,
+  `removed_in`, and `TRANSPORT_SPEC_VERSIONS` filter the grid.
+- **`supersedes` / `superseded_by`** link a retired entry to its replacement. `test_coverage.py`
+  enforces that links are bidirectional and versioned: the retired entry carries `removed_in`, the
+  replacement carries `added_in`.
+
+Node IDs stay `[transport]` while `len(SPEC_VERSIONS) == 1`, so today's test IDs are
+byte-identical to before the era axis existed. They become `[transport-version]` the moment a
+second version is appended to `SPEC_VERSIONS`.
+
+When a new spec revision lands:
+
+1. Append the version string to `SPEC_VERSIONS` (and to the `SpecVersion` `Literal`).
+2. Walk the new revision's changelog.
+3. For each affected requirement: set `removed_in` on retired behaviour, add a new entry with
+   `added_in` for its replacement, and link the pair with `supersedes` / `superseded_by`.
+   Behaviour that survives unchanged needs nothing beyond a re-audit of its `source` URL.
+4. For requirements that cannot run on the new era's path, add an `arm_exclusions` entry with the
+   appropriate `ArmExclusionReason`.
+5. Review `TRANSPORT_SPEC_VERSIONS`: any era-locked transport will not produce cells on the new
+   version unless its entry is extended (or removed); add an entry for any transport the new
+   revision retires.
 
 ## Writing a test
 
@@ -188,16 +243,18 @@ many requirements at once; if the assertions would be separate, write separate t
 |---|---|
 | the result of a transformation (arguments → output, exception → error result) | `result == snapshot(...)` of the full object, so any field the implementation adds or drops fails the test |
 | pass-through of an opaque value (`_meta`, cursors) | identity against the same variable that was sent — a snapshot of a pass-through value only matches the input because a human checked two literals correspond |
-| an error | `pytest.raises(MCPError)` and a snapshot of `exc.value.error` when the message is the SDK's own; a plain `==` on `.code` against the `mcp.types` constant when it is not |
+| an error | `pytest.raises(MCPError)` and a snapshot of `exc.value.error` when the message is the SDK's own; a plain `==` on `.code` against the `mcp_types` constant when it is not |
 | third-party output embedded in a result (validation messages) | the stable prefix only — never pin text that changes with a dependency upgrade |
 
 ### Notifications and concurrency
 
-The client's receive loop dispatches each incoming message to completion before reading the next,
-and the in-memory transport delivers everything on one ordered stream. Together these guarantee
-that every notification a server handler emits before its response reaches the client callback
-before the originating request returns — so tests collect notifications into a plain list and
-assert after the call, with no synchronisation. The exceptions:
+The client's dispatcher starts a task per incoming notification in arrival order but does not
+await it before reading the next message, so completion order is not structural. What still
+holds: the in-memory transport delivers everything on one ordered stream, and a callback that
+records synchronously (no `await` before the append) finishes its scheduling slice before the
+awaited request's waiter — woken strictly later — resumes. So tests whose callbacks are plain
+appends may still collect into a list and assert after the call. A callback that awaits before
+recording loses that ordering and must synchronise. The other exceptions:
 
 - a notification not triggered by a request the test is awaiting needs an `anyio.Event` set in
   the receiving handler and awaited under `anyio.fail_after(5)`;
@@ -220,9 +277,8 @@ but still inside an outer `async with`, and no restructure can avoid it.
 
 A handful of `# pragma: lax no cover` markers in `src/` cover teardown exception handlers whose
 execution is timing-dependent under the in-process HTTP bridge — the POST-stream and
-stateless-session `except Exception` handlers in `server/streamable_http*.py`, the `_terminated`
-check in `message_router`, and the response-stream double-close guard in
-`BaseSession._receive_loop`. `strict-no-cover` does not check `lax` lines; do not promote them to
-strict `no cover` without first making the teardown ordering deterministic. The suite also relies
-on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that closes a stream the
-SSE leg would otherwise leak.
+stateless-session `except Exception` handlers in `server/streamable_http*.py` and the
+`_terminated` check in `message_router`. `strict-no-cover` does not check `lax` lines; do not
+promote them to strict `no cover` without first making the teardown ordering deterministic. The
+suite also relies on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that
+closes a stream the SSE leg would otherwise leak.

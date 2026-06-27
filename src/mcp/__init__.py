@@ -1,11 +1,4 @@
-from .client.client import Client
-from .client.session import ClientSession
-from .client.session_group import ClientSessionGroup
-from .client.stdio import StdioServerParameters, stdio_client
-from .server.session import ServerSession
-from .server.stdio import stdio_server
-from .shared.exceptions import MCPError, UrlElicitationRequiredError
-from .types import (
+from mcp_types import (
     CallToolRequest,
     ClientCapabilities,
     ClientNotification,
@@ -63,7 +56,17 @@ from .types import (
     ToolUseContent,
     UnsubscribeRequest,
 )
-from .types import Role as SamplingRole
+from mcp_types import Role as SamplingRole
+
+from .client._input_required import InputRequiredRoundsExceededError
+from .client.client import Client
+from .client.session import ClientSession
+from .client.session_group import ClientSessionGroup
+from .client.stdio import StdioServerParameters, stdio_client
+from .server.session import ServerSession
+from .server.stdio import stdio_server
+from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
+from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
 __all__ = [
     "CallToolRequest",
@@ -86,6 +89,7 @@ __all__ = [
     "InitializeRequest",
     "InitializeResult",
     "InitializedNotification",
+    "InputRequiredRoundsExceededError",
     "JSONRPCError",
     "JSONRPCRequest",
     "JSONRPCResponse",
@@ -96,6 +100,7 @@ __all__ = [
     "ListToolsResult",
     "LoggingLevel",
     "LoggingMessageNotification",
+    "MCPDeprecationWarning",
     "MCPError",
     "Notification",
     "PingRequest",
@@ -129,7 +134,9 @@ __all__ = [
     "ToolsCapability",
     "ToolUseContent",
     "UnsubscribeRequest",
+    "UriTemplate",
     "UrlElicitationRequiredError",
+    "InvalidUriTemplate",
     "stdio_client",
     "stdio_server",
 ]

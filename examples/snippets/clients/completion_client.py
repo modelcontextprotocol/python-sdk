@@ -5,9 +5,10 @@ uv run completion-client
 import asyncio
 import os
 
+from mcp_types import PromptReference, ResourceTemplateReference
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.types import PromptReference, ResourceTemplateReference
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(

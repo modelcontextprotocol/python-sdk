@@ -12,18 +12,12 @@ import anyio
 import httpx
 from anyio.abc import TaskGroup
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
-from pydantic import ValidationError
-
-from mcp.client._transport import TransportStreams
-from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.types import (
+from mcp_types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     PARSE_ERROR,
     ErrorData,
-    InitializeResult,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -32,6 +26,14 @@ from mcp.types import (
     RequestId,
     jsonrpc_message_adapter,
 )
+from pydantic import ValidationError
+
+from mcp.client._transport import TransportStreams
+from mcp.shared._compat import resync_tracer
+from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
+from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,6 @@ StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
-MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
@@ -80,23 +81,30 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.session_id: str | None = None
-        self.protocol_version: str | None = None
+        # Captured from each stamped POST's metadata. Reused on outbound HTTP that carries
+        # no per-message header (transport-internal GET/DELETE, and dispatcher-written
+        # response/error/cancel POSTs that bypass the session's stamp). Cleared when an
+        # `initialize` POST goes out so a probe-stamped value cannot leak onto the handshake.
+        self._protocol_version_header: str | None = None
 
     def _prepare_headers(self) -> dict[str, str]:
-        """Build MCP-specific request headers.
+        """Build MCP-specific request headers for any outbound HTTP request.
 
-        These headers will be merged with the httpx.AsyncClient's default headers,
-        with these MCP-specific headers taking precedence.
+        These are merged with the ``httpx.AsyncClient`` defaults (these take
+        precedence). The cached ``MCP-Protocol-Version`` is included whenever
+        present so messages that don't pass through the session's stamp —
+        response/error/cancel POSTs, transport-internal GET/DELETE — still
+        carry the negotiated version. Per-message headers are layered on top
+        by the caller.
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
-        # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
-        if self.protocol_version:
-            headers[MCP_PROTOCOL_VERSION] = self.protocol_version
+        if self._protocol_version_header:
+            headers[MCP_PROTOCOL_VERSION_HEADER] = self._protocol_version_header
         return headers
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
@@ -114,25 +122,12 @@ class StreamableHTTPTransport:
             self.session_id = new_session_id
             logger.info(f"Received session ID: {self.session_id}")
 
-    def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
-        """Extract protocol version from initialization response message."""
-        if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
-            try:
-                # Parse the result as InitializeResult for type safety
-                init_result = InitializeResult.model_validate(message.result, by_name=False)
-                self.protocol_version = init_result.protocol_version
-                logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            except Exception:  # pragma: no cover
-                logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
-                logger.warning(f"Raw result: {message.result}")
-
     async def _handle_sse_event(
         self,
         sse: ServerSentEvent,
         read_stream_writer: StreamWriter,
         original_request_id: RequestId | None = None,
         resumption_callback: Callable[[str], Awaitable[None]] | None = None,
-        is_initialization: bool = False,
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
@@ -145,10 +140,6 @@ class StreamableHTTPTransport:
             try:
                 message = jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
                 logger.debug(f"SSE message: {message}")
-
-                # Extract protocol version from initialization response
-                if is_initialization:
-                    self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
                 if original_request_id is not None and isinstance(message, JSONRPCResponse | JSONRPCError):
@@ -165,7 +156,10 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message, JSONRPCResponse | JSONRPCError)
 
-            except Exception as exc:  # pragma: no cover
+            # Forwarding to a closed read stream lands here when the caller cancels mid-SSE
+            # (BrokenResourceError, not a parse failure); coverage is timing-dependent in the
+            # streaming story's modern HTTP cancellation leg.
+            except Exception as exc:  # pragma: lax no cover
                 logger.exception("Error parsing SSE message")
                 if original_request_id is not None:
                     error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse SSE message: {exc}")
@@ -253,9 +247,17 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_headers()
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
+        if is_initialization:
+            # `initialize` is the negotiation, not a "subsequent request" — discard any
+            # probe-stamped value so the discover→fallback path can't leak it onto the handshake.
+            self._protocol_version_header = None
+        headers = self._prepare_headers()
+        if ctx.metadata is not None and ctx.metadata.headers is not None:
+            headers.update(ctx.metadata.headers)
+            if MCP_PROTOCOL_VERSION_HEADER in ctx.metadata.headers:
+                self._protocol_version_header = ctx.metadata.headers[MCP_PROTOCOL_VERSION_HEADER]
 
         async with ctx.client.stream(
             "POST",
@@ -267,16 +269,35 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:
-                if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
-                    session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
-                    await ctx.read_stream_writer.send(session_message)
-                return
-
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    # A spec-correct server may return the JSON-RPC error in the
+                    # body at a non-2xx status (e.g. 400 for INVALID_PARAMS, 404
+                    # for METHOD_NOT_FOUND). Surface that error rather than the
+                    # status-derived stand-in below.
+                    if response.headers.get("content-type", "").lower().startswith("application/json"):
+                        try:
+                            body = await response.aread()
+                            parsed = jsonrpc_message_adapter.validate_json(body, by_name=False)
+                            if isinstance(parsed, JSONRPCError):
+                                # The server may have set `id: null` (request rejected before its
+                                # id was parsed); use this request's id so correlation works.
+                                reply = JSONRPCError(jsonrpc="2.0", id=message.id, error=parsed.error)
+                                await ctx.read_stream_writer.send(SessionMessage(reply))
+                                return
+                        except (httpx.StreamError, ValidationError):
+                            pass
+                        logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
+                    if response.status_code == 404:
+                        if self.session_id is None:
+                            # No session yet → 404 is the HTTP-level spelling of
+                            # METHOD_NOT_FOUND (gateway / legacy server doesn't know
+                            # this method); "Session terminated" would be a lie here.
+                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
+                        else:
+                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    else:
+                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
@@ -289,11 +310,9 @@ class StreamableHTTPTransport:
             if isinstance(message, JSONRPCRequest):
                 content_type = response.headers.get("content-type", "").lower()
                 if content_type.startswith("application/json"):
-                    await self._handle_json_response(
-                        response, ctx.read_stream_writer, is_initialization, request_id=message.id
-                    )
+                    await self._handle_json_response(response, ctx.read_stream_writer, request_id=message.id)
                 elif content_type.startswith("text/event-stream"):
-                    await self._handle_sse_response(response, ctx, is_initialization)
+                    await self._handle_sse_response(response, ctx)
                 else:
                     logger.error(f"Unexpected content type: {content_type}")
                     error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
@@ -304,7 +323,6 @@ class StreamableHTTPTransport:
         self,
         response: httpx.Response,
         read_stream_writer: StreamWriter,
-        is_initialization: bool = False,
         *,
         request_id: RequestId,
     ) -> None:
@@ -312,11 +330,6 @@ class StreamableHTTPTransport:
         try:
             content = await response.aread()
             message = jsonrpc_message_adapter.validate_json(content, by_name=False)
-
-            # Extract protocol version from initialization response
-            if is_initialization:
-                self._maybe_extract_protocol_version_from_message(message)
-
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
         except (httpx.StreamError, ValidationError) as exc:
@@ -329,7 +342,6 @@ class StreamableHTTPTransport:
         self,
         response: httpx.Response,
         ctx: RequestContext,
-        is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
         last_event_id: str | None = None
@@ -356,7 +368,6 @@ class StreamableHTTPTransport:
                     ctx.read_stream_writer,
                     original_request_id=original_request_id,
                     resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
-                    is_initialization=is_initialization,
                 )
                 # If the SSE event indicates completion, like returning response/error
                 # break the loop
@@ -364,7 +375,7 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
-            logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+            logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:  # pragma: no branch
@@ -586,3 +597,4 @@ async def streamable_http_client(
                 if transport.session_id and terminate_on_close:
                     await transport.terminate_session(client)
                 tg.cancel_scope.cancel()
+        await resync_tracer()

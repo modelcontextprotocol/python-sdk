@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any
+from typing import Any, Literal, TypeVar
 
-from mcp.client._memory import InMemoryTransport
-from mcp.client._transport import Transport
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
-from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server
-from mcp.server.mcpserver import MCPServer
-from mcp.shared.session import ProgressFnT
-from mcp.types import (
+import anyio
+import mcp_types as types
+from mcp_types import (
     CallToolResult,
     CompleteResult,
     EmptyResult,
+    ErrorData,
     GetPromptResult,
     Implementation,
-    InitializeResult,
+    InputRequest,
+    InputRequiredResult,
+    InputResponse,
+    InputResponses,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -30,7 +30,111 @@ from mcp.types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
+    ServerCapabilities,
 )
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
+from typing_extensions import deprecated
+
+from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
+from mcp.client._memory import InMemoryTransport
+from mcp.client._probe import negotiate_auto
+from mcp.client._transport import Transport
+from mcp.client.session import (
+    ClientRequestContext,
+    ClientSession,
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    SamplingFnT,
+)
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server
+from mcp.server.mcpserver import MCPServer
+from mcp.server.runner import modern_on_request
+from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
+from mcp.shared.dispatcher import Dispatcher, ProgressFnT
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+
+ConnectMode = Literal["legacy", "auto"] | str
+"""``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to
+initialize), or a modern protocol-version string (adopt directly). The ``str`` arm is for
+forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
+
+_T = TypeVar("_T")
+_ResultT = TypeVar("_ResultT")
+
+_Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
+"""Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
+are needed onto the exit stack and hand back the ``Dispatcher`` ``ClientSession`` will drive.
+``mode`` and ``raise_exceptions`` are passed at call time so they're read at the same moment
+``__aenter__`` reads them for the handshake step."""
+
+
+def _connect_transport(transport: Transport) -> _Connector:
+    """Connector for the stream-backed paths (URL, user-supplied ``Transport``)."""
+
+    async def connect(exit_stack: AsyncExitStack, _mode: ConnectMode, _raise_exceptions: bool) -> Dispatcher[Any]:
+        read_stream, write_stream = await exit_stack.enter_async_context(transport)
+        return JSONRPCDispatcher(read_stream, write_stream)
+
+    return connect
+
+
+def _connect_inproc(server: Server[Any]) -> _Connector:
+    """Connector for an in-process ``Server``: legacy mode drives the stream loop via
+    ``InMemoryTransport``; any other mode drives the modern per-request path through a
+    ``DirectDispatcher`` peer pair (no streams, no JSON-RPC framing, no initialize handshake)."""
+
+    async def connect(exit_stack: AsyncExitStack, mode: ConnectMode, raise_exceptions: bool) -> Dispatcher[Any]:
+        if mode == "legacy":
+            transport = InMemoryTransport(server, raise_exceptions=raise_exceptions)
+            read_stream, write_stream = await exit_stack.enter_async_context(transport)
+            return JSONRPCDispatcher(read_stream, write_stream)
+        lifespan_state = await exit_stack.enter_async_context(server.lifespan(server))
+        client_disp, server_disp = create_direct_dispatcher_pair(raise_handler_exceptions=raise_exceptions)
+        tg = await exit_stack.enter_async_context(anyio.create_task_group())
+        exit_stack.callback(server_disp.close)
+        on_request = modern_on_request(server, lifespan_state)
+        await tg.start(server_disp.run, on_request, _no_inbound_client_notifications)
+        return client_disp
+
+    return connect
+
+
+def _connected(value: _T | None) -> _T:
+    """Narrow a post-handshake session attribute from ``T | None`` to ``T``.
+
+    ``Client.__aenter__`` only assigns ``_session`` after the handshake succeeds, so inside
+    ``async with Client(...)`` these attributes are always populated; the ``.session`` gate
+    raises before this is reached otherwise. The guard exists for pyright, not runtime.
+    """
+    if value is None:  # pragma: no cover
+        raise RuntimeError("Client must be used within an async context manager")
+    return value
+
+
+def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
+    return types.DiscoverResult(
+        supported_versions=[protocol_version],
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="", version=""),
+        result_type="complete",
+        ttl_ms=0,
+        cache_scope="public",
+    )
+
+
+async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Mapping[str, Any] | None) -> None:
+    """Server-side inbound ``OnNotify`` for the modern in-process path — receives nothing.
+
+    At 2026-07-28 the spec defines no client→server notifications: ``initialized`` and
+    ``roots/list_changed`` are removed, and cancellation is structural (anyio scope cancel
+    through the direct await, not a notify). Server→client notifications (progress, log
+    messages) flow the other way via the per-request ``DispatchContext`` into the client's
+    callbacks, and are not seen here.
+    """
 
 
 @dataclass
@@ -62,7 +166,7 @@ class Client:
     server: Server[Any] | MCPServer | Transport | str
     """The MCP server to connect to.
 
-    If the server is a `Server` or `MCPServer` instance, it will be wrapped in an `InMemoryTransport`.
+    If the server is a `Server` or `MCPServer` instance, it will be connected in-process.
     If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
     If the server is a `Transport` instance, it will be used directly.
     """
@@ -92,46 +196,88 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
+    mode: ConnectMode = "auto"
+    """How to negotiate the protocol version.
+
+    'auto' (the default) probes `server/discover` and falls back to the initialize handshake on legacy servers;
+    for an in-process `Server`/`MCPServer` it dispatches directly without JSON-RPC framing. 'legacy' forces the
+    initialize handshake (byte-identical pre-2026 behavior). A modern protocol-version string (e.g. '2026-07-28')
+    adopts that version directly without a probe — supply `prior_discover` to reuse a known DiscoverResult, or
+    omit it to synthesize a minimal one."""
+
+    prior_discover: types.DiscoverResult | None = None
+    """A previously-obtained DiscoverResult to install via .adopt() when mode is a version pin.
+    Ignored when mode='legacy'."""
+
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    input_required_max_rounds: int = DEFAULT_INPUT_REQUIRED_MAX_ROUNDS
+    """Cap on `InputRequiredResult` retry rounds before `call_tool` / `get_prompt` /
+    `read_resource` give up. Use `client.session.<method>(..., allow_input_required=True)`
+    to drive the loop manually instead."""
+
+    _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
-    _transport: Transport = field(init=False)
+    _connect: _Connector = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if isinstance(self.server, Server | MCPServer):
-            self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
-        elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
+        if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
+            hint = (
+                f" ({self.mode!r} is a handshake-era version; use mode='legacy')"
+                if self.mode in HANDSHAKE_PROTOCOL_VERSIONS
+                else ""
+            )
+            raise ValueError(
+                f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
+            )
+
+        srv = self.server
+        if isinstance(srv, MCPServer):
+            srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
+        if isinstance(srv, Server):
+            self._connect = _connect_inproc(srv)
+        elif isinstance(srv, str):
+            self._connect = _connect_transport(streamable_http_client(srv))
         else:
-            self._transport = self.server
+            self._connect = _connect_transport(srv)
+
+    async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
+        """Enter the resolved connector and return an un-entered ClientSession."""
+        dispatcher = await self._connect(exit_stack, self.mode, self.raise_exceptions)
+        return ClientSession(
+            dispatcher=dispatcher,
+            read_timeout_seconds=self.read_timeout_seconds,
+            sampling_callback=self.sampling_callback,
+            list_roots_callback=self.list_roots_callback,
+            logging_callback=self.logging_callback,
+            message_handler=self.message_handler,
+            client_info=self.client_info,
+            elicitation_callback=self.elicitation_callback,
+        )
 
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
-        if self._session is not None:
+        if self._entered:
             raise RuntimeError("Client is already entered; cannot reenter")
+        self._entered = True
 
         async with AsyncExitStack() as exit_stack:
-            read_stream, write_stream = await exit_stack.enter_async_context(self._transport)
+            session = await self._build_session(exit_stack)
+            session = await exit_stack.enter_async_context(session)
 
-            self._session = await exit_stack.enter_async_context(
-                ClientSession(
-                    read_stream=read_stream,
-                    write_stream=write_stream,
-                    read_timeout_seconds=self.read_timeout_seconds,
-                    sampling_callback=self.sampling_callback,
-                    list_roots_callback=self.list_roots_callback,
-                    logging_callback=self.logging_callback,
-                    message_handler=self.message_handler,
-                    client_info=self.client_info,
-                    elicitation_callback=self.elicitation_callback,
-                )
-            )
+            if self.mode == "legacy":
+                await session.initialize()
+            elif self.mode == "auto":
+                await negotiate_auto(session)
+            else:
+                session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
-            await self._session.initialize()
-
-            # Transfer ownership to self for __aexit__ to handle
+            # Only publish the session after the handshake succeeds, so `_session is not None`
+            # implies the protocol_version/server_info/server_capabilities are populated. If the
+            # handshake raised above, the local exit_stack unwinds the transport for us.
+            self._session = session
             self._exit_stack = exit_stack.pop_all()
             return self
 
@@ -154,22 +300,42 @@ class Client:
             raise RuntimeError("Client must be used within an async context manager")
         return self._session
 
+    # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
+    # type whose protocol_version/server_info/server_capabilities are non-Optional fields,
+    # eliminating these guards (and the one in .session). Same family as resolving the
+    # transport/connector at __post_init__ so the Optional internal fields disappear.
     @property
-    def initialize_result(self) -> InitializeResult:
-        """The server's InitializeResult.
+    def protocol_version(self) -> str:
+        """Negotiated protocol version (set by initialize/discover/adopt during ``__aenter__``)."""
+        return _connected(self.session.protocol_version)
 
-        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
-        Raises RuntimeError if accessed outside the context manager.
-        """
-        result = self.session.initialize_result
-        if result is None:  # pragma: no cover
-            raise RuntimeError("Client must be used within an async context manager")
-        return result
+    @property
+    def server_info(self) -> Implementation:
+        """Server name/version (set by initialize/discover/adopt during ``__aenter__``)."""
+        return _connected(self.session.server_info)
 
+    @property
+    def server_capabilities(self) -> ServerCapabilities:
+        """Server capabilities (set by initialize/discover/adopt during ``__aenter__``)."""
+        return _connected(self.session.server_capabilities)
+
+    @property
+    def instructions(self) -> str | None:
+        """Server-provided instructions text, if any."""
+        return self.session.instructions
+
+    @deprecated(
+        "ping is removed as of 2026-07-28; the method only works under mode='legacy'.",
+        category=MCPDeprecationWarning,
+    )
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
         return await self.session.send_ping(meta=meta)
 
+    @deprecated(
+        "Client-to-server progress is deprecated as of 2026-07-28; progress is server-to-client only.",
+        category=MCPDeprecationWarning,
+    )
     async def send_progress_notification(
         self,
         progress_token: str | int,
@@ -178,16 +344,17 @@ class Client:
         message: str | None = None,
     ) -> None:
         """Send a progress notification to the server."""
-        await self.session.send_progress_notification(
+        await self.session.send_progress_notification(  # pyright: ignore[reportDeprecated]
             progress_token=progress_token,
             progress=progress,
             total=total,
             message=message,
         )
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level=level, meta=meta)
+        return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]
 
     async def list_resources(
         self,
@@ -207,17 +374,42 @@ class Client:
         """List available resource templates from the server."""
         return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> ReadResourceResult:
+    async def read_resource(
+        self,
+        uri: str,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ReadResourceResult:
         """Read a resource from the server.
+
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the read is retried automatically (up to
+        `input_required_max_rounds`).
 
         Args:
             uri: The URI of the resource to read.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
             meta: Additional metadata for the request.
 
         Returns:
             The resource content.
+
+        Raises:
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        return await self.session.read_resource(uri, meta=meta)
+
+        async def retry(r: InputResponses | None, s: str | None) -> ReadResourceResult | InputRequiredResult:
+            return await self.session.read_resource(
+                uri, input_responses=r, request_state=s, meta=meta, allow_input_required=True
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
@@ -234,27 +426,50 @@ class Client:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> CallToolResult:
         """Call a tool on the server.
 
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the call is retried automatically (up to
+        `input_required_max_rounds`). To drive the loop yourself — e.g. to
+        persist `request_state` across process restarts — use
+        `client.session.call_tool(..., allow_input_required=True)`.
+
         Args:
-            name: The name of the tool to call
-            arguments: Arguments to pass to the tool
-            read_timeout_seconds: Timeout for the tool call
-            progress_callback: Callback for progress updates
-            meta: Additional metadata for the request
+            name: The name of the tool to call.
+            arguments: Arguments to pass to the tool.
+            read_timeout_seconds: Timeout for each underlying `tools/call` round.
+            progress_callback: Callback for progress updates.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
+            meta: Additional metadata for the request.
 
         Returns:
             The tool result.
+
+        Raises:
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        return await self.session.call_tool(
-            name=name,
-            arguments=arguments,
-            read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-            meta=meta,
-        )
+
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult:
+            return await self.session.call_tool(
+                name,
+                arguments,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                input_responses=r,
+                request_state=s,
+                meta=meta,
+                allow_input_required=True,
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
 
     async def list_prompts(
         self,
@@ -266,19 +481,66 @@ class Client:
         return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, str] | None = None, *, meta: RequestParamsMeta | None = None
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> GetPromptResult:
         """Get a prompt from the server.
 
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the get is retried automatically (up to
+        `input_required_max_rounds`).
+
         Args:
-            name: The name of the prompt
-            arguments: Arguments to pass to the prompt
-            meta: Additional metadata for the request
+            name: The name of the prompt.
+            arguments: Arguments to pass to the prompt.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
+            meta: Additional metadata for the request.
 
         Returns:
             The prompt content.
+
+        Raises:
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        return await self.session.get_prompt(name=name, arguments=arguments, meta=meta)
+
+        async def retry(r: InputResponses | None, s: str | None) -> GetPromptResult | InputRequiredResult:
+            return await self.session.get_prompt(
+                name, arguments, input_responses=r, request_state=s, meta=meta, allow_input_required=True
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+
+    async def _drive_input_required(
+        self,
+        first: _ResultT | InputRequiredResult,
+        retry: Callable[[InputResponses | None, str | None], Awaitable[_ResultT | InputRequiredResult]],
+    ) -> _ResultT:
+        """Hand an `InputRequiredResult` to the SEP-2322 driver, or pass a terminal result through.
+
+        `dispatch` routes each embedded request through the same callback table
+        that serves legacy server→client RPCs, so the two paths stay
+        behaviourally identical by construction.
+        """
+        if not isinstance(first, InputRequiredResult):
+            return first
+        session = self.session
+
+        async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
+            ctx = ClientRequestContext(session=session, request_id=key, meta=req.params.meta if req.params else None)
+            return await session._dispatch_input_request(ctx, req)  # pyright: ignore[reportPrivateUsage]
+
+        return await run_input_required_driver(
+            first, dispatch=dispatch, retry=retry, max_rounds=self.input_required_max_rounds
+        )
 
     async def complete(
         self,
@@ -302,7 +564,8 @@ class Client:
         """List available tools from the server."""
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
         # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
-        await self.session.send_roots_list_changed()
+        await self.session.send_roots_list_changed()  # pyright: ignore[reportDeprecated]

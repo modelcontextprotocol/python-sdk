@@ -1,9 +1,9 @@
 import pytest
+from mcp_types import TextContent
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
-from mcp.types import TextContent
 
 
 class TestPromptManager:

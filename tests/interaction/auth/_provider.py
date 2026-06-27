@@ -15,14 +15,20 @@ from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
+    IdentityAssertionParams,
     OAuthAuthorizationServerProvider,
     RefreshToken,
     TokenError,
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from tests.interaction._connect import BASE_URL
 
 _TOKEN_LIFETIME_SECONDS = 3600
+
+# The only ID-JAG assertion the in-memory provider accepts; any other value is rejected with
+# invalid_grant, standing in for the signature/policy validation a real AS performs.
+VALID_ASSERTION = "valid-id-jag"
 
 
 class InMemoryAuthorizationServerProvider(
@@ -53,9 +59,14 @@ class InMemoryAuthorizationServerProvider(
         issue_expired_first: bool = False,
         fail_next_refresh: bool = False,
         reject_all_tokens: bool = False,
+        issuer: str | None = None,
     ) -> None:
         self._default_scopes = list(default_scopes) if default_scopes is not None else ["mcp"]
-        self._issuer = "http://127.0.0.1:8000"
+        # The authorization-response iss must equal the AS metadata issuer the client recorded
+        # (RFC 9207 simple string comparison). `real_asm` builds the issuer from an AnyHttpUrl
+        # object, so it carries the trailing slash; the redirect iss matches it. Path-issuer
+        # tests pass the recorded issuer explicitly.
+        self._issuer = issuer if issuer is not None else f"{BASE_URL}/"
         self._deny_authorize = deny_authorize
         self._issue_expired_first = issue_expired_first
         self._fail_next_refresh = fail_next_refresh
@@ -65,6 +76,9 @@ class InMemoryAuthorizationServerProvider(
         self.codes: dict[str, AuthorizationCode] = {}
         self.refresh_tokens: dict[str, RefreshToken] = {}
         self.access_tokens: dict[str, AccessToken] = {}
+        # The most recent jwt-bearer request the SDK handler passed to exchange_identity_assertion,
+        # for tests to assert what the client sent (None until the first exchange).
+        self.last_assertion_params: IdentityAssertionParams | None = None
 
     def _next_expires_in(self) -> int:
         self._tokens_issued += 1
@@ -179,6 +193,28 @@ class InMemoryAuthorizationServerProvider(
             expires_in=self._next_expires_in(),
             scope=" ".join(scopes),
             refresh_token=new_refresh,
+        )
+
+    async def exchange_identity_assertion(
+        self, client: OAuthClientInformationFull, params: IdentityAssertionParams
+    ) -> OAuthToken:
+        """Validate the ID-JAG assertion and mint an MCP access token (RFC 7523 jwt-bearer / SEP-990).
+
+        Records `params` for inspection and rejects any assertion other than `VALID_ASSERTION` with
+        invalid_grant (standing in for signature/policy validation). The granted scopes are exactly
+        those the client requested; a real provider would derive them from the validated ID-JAG.
+        """
+        self.last_assertion_params = params
+        assert client.client_id is not None
+        if params.assertion != VALID_ASSERTION:
+            raise TokenError(error="invalid_grant", error_description="assertion is not valid")
+        scopes = params.scopes if params.scopes is not None else self._default_scopes
+        access = self.mint_access_token(client_id=client.client_id, scopes=scopes, resource=params.resource)
+        return OAuthToken(
+            access_token=access,
+            token_type="Bearer",
+            expires_in=self._next_expires_in(),
+            scope=" ".join(scopes),
         )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:

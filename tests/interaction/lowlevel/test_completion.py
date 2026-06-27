@@ -1,11 +1,9 @@
 """Completion interactions against the low-level Server, driven through the public Client API."""
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     CompleteResult,
@@ -14,6 +12,9 @@ from mcp.types import (
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -123,9 +124,11 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
     server = Server("incomplete")
 
     async with connect(server) as client:
-        assert client.initialize_result.capabilities.completions is None
+        assert client.server_capabilities.completions is None
 
         with pytest.raises(MCPError) as exc_info:
             await client.complete(PromptReference(name="anything"), argument={"name": "topic", "value": ""})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="completion/complete")
+    )

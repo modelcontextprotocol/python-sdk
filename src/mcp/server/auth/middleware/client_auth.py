@@ -96,6 +96,11 @@ class ClientAuthenticator:
                 f"Unsupported auth method: {client.token_endpoint_auth_method}"
             )
 
+        # A client registered for a secret-based auth method but with no stored secret is
+        # misconfigured: nothing was actually verified above, so it must not pass authentication.
+        if client.token_endpoint_auth_method != "none" and not client.client_secret:
+            raise AuthenticationError("Client is registered for secret-based authentication but has no stored secret")
+
         # If client from the store expects a secret, validate that the request provides
         # that secret
         if client.client_secret:

@@ -6,10 +6,11 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
 import httpx
+import mcp_types as types
 from anyio.abc import TaskStatus
 from httpx_sse import SSEError, aconnect_sse
 
-from mcp import types
+from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
@@ -157,3 +158,4 @@ async def sse_client(
 
                 yield read_stream, write_stream
                 tg.cancel_scope.cancel()
+            await resync_tracer()

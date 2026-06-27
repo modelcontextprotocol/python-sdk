@@ -4,11 +4,11 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from mcp_types import JSONRPCNotification, JSONRPCRequest
 
 import mcp.shared.memory
 from mcp.client._transport import WriteStream
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 
 class SpyMemoryObjectSendStream:

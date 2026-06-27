@@ -8,7 +8,7 @@ from typing import TypeVar
 
 import anyio
 import click
-from mcp import types
+import mcp_types as types
 from mcp.server import Server, ServerRequestContext
 
 T = TypeVar("T")

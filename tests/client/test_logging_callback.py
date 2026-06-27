@@ -1,14 +1,15 @@
 from typing import Literal
 
+import mcp_types as types
 import pytest
-
-from mcp import Client, types
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from mcp_types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+
+from mcp import Client
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.session import RequestResponder
 
 
 class LoggingCollector:
@@ -36,7 +37,7 @@ async def test_logging_callback():
         message: str, level: Literal["debug", "info", "warning", "error"], logger: str, ctx: Context
     ) -> bool:
         """Send a log notification to the client."""
-        await ctx.log(level=level, data=message, logger_name=logger)
+        await ctx.log(level=level, data=message, logger_name=logger)  # pyright: ignore[reportDeprecated]
         return True
 
     @server.tool("test_tool_with_log_dict")
@@ -46,7 +47,7 @@ async def test_logging_callback():
         ctx: Context,
     ) -> bool:
         """Send a log notification with a dict payload."""
-        await ctx.log(
+        await ctx.log(  # pyright: ignore[reportDeprecated]
             level=level,
             data={"message": "Test log message", "extra_string": "example", "extra_dict": {"a": 1, "b": 2, "c": 3}},
             logger_name=logger,
@@ -64,6 +65,7 @@ async def test_logging_callback():
         server,
         logging_callback=logging_collector,
         message_handler=message_handler,
+        mode="legacy",
     ) as client:
         # First verify our test tool works
         result = await client.call_tool("test_tool", {})
