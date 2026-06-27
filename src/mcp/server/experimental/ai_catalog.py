@@ -67,10 +67,7 @@ def discovery_response(request: Request, body: bytes, media_type: str) -> Respon
     if _if_none_match_matches(request.headers.get("if-none-match"), etag):
         return Response(
             status_code=304,
-            headers={
-                "ETag": etag,
-                "Cache-Control": DISCOVERY_HEADERS["Cache-Control"],
-            },
+            headers={**DISCOVERY_HEADERS, "ETag": etag},
         )
     return Response(body, media_type=media_type, headers={**DISCOVERY_HEADERS, "ETag": etag})
 
