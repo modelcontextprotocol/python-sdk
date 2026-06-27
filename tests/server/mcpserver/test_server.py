@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -83,6 +83,28 @@ class TestServer:
 
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
+
+    @pytest.mark.parametrize("transport", ["stdio", "sse", "streamable-http"])
+    def test_keyboard_interrupt_exits_cleanly(self, transport: Literal["stdio", "sse", "streamable-http"]):
+        mcp = MCPServer("test")
+
+        with patch("mcp.server.mcpserver.server.anyio.run", side_effect=KeyboardInterrupt) as run:
+            mcp.run(transport)
+
+        assert run.call_count == 1
+        if transport == "stdio":
+            run.assert_called_once_with(mcp.run_stdio_async)
+
+    def test_run_propagates_non_interrupt_errors(self):
+        mcp = MCPServer("test")
+
+        with (
+            patch("mcp.server.mcpserver.server.anyio.run", side_effect=RuntimeError("boom")) as run,
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            mcp.run("stdio")
+
+        run.assert_called_once_with(mcp.run_stdio_async)
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
