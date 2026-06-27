@@ -85,7 +85,15 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
 OPEN_CLASSES: dict[str, frozenset[str]] = {
     "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
     "2026-07-28": frozenset(
-        {"MetaObject", "NotificationMetaObject", "RequestMetaObject", "InputSchema", "OutputSchema", "Result"}
+        {
+            "MetaObject",
+            "NotificationMetaObject",
+            "RequestMetaObject",
+            "SubscriptionsListenResultMeta",
+            "InputSchema",
+            "OutputSchema",
+            "Result",
+        }
     ),
 }
 

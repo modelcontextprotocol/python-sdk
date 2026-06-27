@@ -182,7 +182,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_subscriptions_listen: Callable[
             [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
-            Awaitable[types.EmptyResult],
+            Awaitable[types.SubscriptionsListenResult],
         ]
         | None = None,
         on_list_prompts: Callable[
@@ -264,7 +264,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_subscriptions_listen: Callable[
             [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
-            Awaitable[types.EmptyResult],
+            Awaitable[types.SubscriptionsListenResult],
         ]
         | None = None,
         on_list_prompts: Callable[
@@ -355,7 +355,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_subscriptions_listen: Callable[
             [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
-            Awaitable[types.EmptyResult],
+            Awaitable[types.SubscriptionsListenResult],
         ]
         | None = None,
         on_list_prompts: Callable[
