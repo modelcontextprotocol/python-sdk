@@ -11,9 +11,14 @@ from mcp_types import (
     Annotations,
     BlobResourceContents,
     CallToolResult,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmptyResult,
     ErrorData,
     Icon,
+    InputRequiredResult,
+    InputResponses,
     ListResourcesResult,
     ListResourceTemplatesResult,
     ReadResourceResult,
@@ -26,6 +31,7 @@ from mcp_types import (
 )
 
 from mcp import MCPError
+from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
@@ -312,3 +318,51 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
     assert received == snapshot(
         [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
     )
+
+
+@requirement("resources:mrtr:read:basic")
+async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_the_contents(connect: Connect) -> None:
+    """A resources/read answered with input_required is fulfilled by the elicitation callback and retried.
+
+    The retry carries the callback's responses and the echoed request_state, and returns the resource
+    contents. Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported
+    Requests). Low-level Server only — MCPServer cannot return InputRequiredResult from resources.
+    """
+    sent = ElicitRequestFormParams(
+        message="Who is reading?",
+        requested_schema={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    )
+    answer = ElicitResult(action="accept", content={"name": "alice"})
+    state = "state-1"
+    rounds: list[tuple[InputResponses | None, str | None]] = []
+    callback_received: list[ElicitRequestFormParams] = []
+
+    async def read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> ReadResourceResult | InputRequiredResult:
+        assert params.uri == "file:///profile.txt"
+        rounds.append((params.input_responses, params.request_state))
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"who": ElicitRequest(params=sent)}, request_state=state)
+        response = params.input_responses["who"]
+        assert isinstance(response, ElicitResult)
+        assert response.content is not None
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=params.uri, text=f"hello {response.content['name']}")]
+        )
+
+    server = Server("library", on_read_resource=read_resource)
+
+    async def elicit(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        assert isinstance(params, ElicitRequestFormParams)
+        callback_received.append(params)
+        return answer
+
+    async with connect(server, elicitation_callback=elicit) as client:
+        result = await client.read_resource("file:///profile.txt")
+
+    assert result == snapshot(
+        ReadResourceResult(contents=[TextResourceContents(uri="file:///profile.txt", text="hello alice")])
+    )
+    assert callback_received == [sent]
+    assert rounds == [(None, None), ({"who": answer}, state)]

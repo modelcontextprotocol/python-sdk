@@ -12,6 +12,7 @@ from mcp_types import (
     CallToolResult,
     ElicitCompleteNotification,
     ElicitCompleteNotificationParams,
+    ElicitRequest,
     ElicitRequestedSchema,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
@@ -19,6 +20,7 @@ from mcp_types import (
     ErrorData,
     Implementation,
     InitializeResult,
+    InputRequiredResult,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -663,3 +665,281 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
     assert len(server_received) == 1
     assert isinstance(server_received[0], JSONRPCResponse)
     assert server_received[0].id == 2
+
+
+@requirement("elicitation:mrtr:form:basic")
+async def test_embedded_form_elicitation_accepted_content_returns_to_retried_handler(connect: Connect) -> None:
+    """An embedded form elicitation delivers its message and requested schema to the client's
+    elicitation callback as sent, and the accepted content reaches the retried handler in
+    inputResponses.
+
+    Spec-mandated: at 2026-07-28 elicitation/create rides the multi-round-trip flow (an
+    input_required result the client fulfils and retries) instead of a server-initiated request.
+    """
+    received: list[types.ElicitRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="signup", description="Register the user.", input_schema={"type": "object"})]
+        )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "signup"
+        if not params.input_responses:
+            return InputRequiredResult(
+                input_requests={
+                    "signup": ElicitRequest(
+                        params=ElicitRequestFormParams(message="Choose a username.", requested_schema=REQUESTED_SCHEMA)
+                    )
+                }
+            )
+        answer = params.input_responses["signup"]
+        assert isinstance(answer, ElicitResult)
+        return CallToolResult(content=[TextContent(text=answer.action)], structured_content=answer.content)
+
+    server = Server("registrar", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        received.append(params)
+        return ElicitResult(action="accept", content={"username": "ada", "newsletter": True})
+
+    async with connect(server, elicitation_callback=answer_form) as client:
+        result = await client.call_tool("signup", {})
+
+    assert received == snapshot(
+        [
+            ElicitRequestFormParams(
+                message="Choose a username.",
+                requested_schema={
+                    "properties": {"username": {"type": "string"}, "newsletter": {"type": "boolean"}},
+                    "required": ["username"],
+                    "type": "object",
+                },
+            )
+        ]
+    )
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="accept")], structured_content={"username": "ada", "newsletter": True})
+    )
+
+
+@requirement("elicitation:mrtr:form:action:decline")
+async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no_content(connect: Connect) -> None:
+    """An embedded form elicitation answered with action 'decline' reaches the retried handler in
+    inputResponses with no content.
+
+    The spec says decline content is typically omitted; the pinned shape is the SDK passing the
+    callback's contentless ElicitResult through unmodified.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="confirm", description="Ask for confirmation.", input_schema={"type": "object"})]
+        )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "confirm"
+        if not params.input_responses:
+            return InputRequiredResult(
+                input_requests={
+                    "confirm": ElicitRequest(
+                        params=ElicitRequestFormParams(
+                            message="Proceed?", requested_schema={"type": "object", "properties": {}}
+                        )
+                    )
+                }
+            )
+        answer = params.input_responses["confirm"]
+        assert isinstance(answer, ElicitResult)
+        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+
+    server = Server("confirmer", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action="decline")
+
+    async with connect(server, elicitation_callback=answer_form) as client:
+        result = await client.call_tool("confirm", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
+
+
+@requirement("elicitation:mrtr:form:action:cancel")
+async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_content(connect: Connect) -> None:
+    """An embedded form elicitation answered with action 'cancel' reaches the retried handler in
+    inputResponses with no content.
+
+    The spec says cancel content is typically omitted; the pinned shape is the SDK passing the
+    callback's contentless ElicitResult through unmodified.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="confirm", description="Ask for confirmation.", input_schema={"type": "object"})]
+        )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "confirm"
+        if not params.input_responses:
+            return InputRequiredResult(
+                input_requests={
+                    "confirm": ElicitRequest(
+                        params=ElicitRequestFormParams(
+                            message="Proceed?", requested_schema={"type": "object", "properties": {}}
+                        )
+                    )
+                }
+            )
+        answer = params.input_responses["confirm"]
+        assert isinstance(answer, ElicitResult)
+        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+
+    server = Server("confirmer", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action="cancel")
+
+    async with connect(server, elicitation_callback=answer_form) as client:
+        result = await client.call_tool("confirm", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
+
+
+@requirement("elicitation:mrtr:form:schema:primitives")
+async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as_sent(connect: Connect) -> None:
+    """String (with format), integer, number, and boolean requested-schema fields on an embedded
+    form elicitation reach the client callback intact.
+
+    Spec-mandated: the requested schema's primitive property types survive the embed and delivery
+    unchanged. One representative constraint per type; the exhaustive keyword sweep stays with the
+    2025 push-path sibling.
+    """
+    schema: ElicitRequestedSchema = {
+        "type": "object",
+        "properties": {
+            "email": {"type": "string", "format": "email", "title": "Email"},
+            "age": {"type": "integer", "minimum": 0},
+            "score": {"type": "number"},
+            "subscribed": {"type": "boolean", "default": False},
+        },
+        "required": ["email"],
+    }
+    received: list[types.ElicitRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="profile", description="Collect a profile.", input_schema={"type": "object"})]
+        )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "profile"
+        if not params.input_responses:
+            return InputRequiredResult(
+                input_requests={
+                    "profile": ElicitRequest(
+                        params=ElicitRequestFormParams(message="Complete your profile.", requested_schema=schema)
+                    )
+                }
+            )
+        answer = params.input_responses["profile"]
+        assert isinstance(answer, ElicitResult)
+        return CallToolResult(content=[TextContent(text=answer.action)], structured_content=answer.content)
+
+    server = Server("profiler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        received.append(params)
+        return ElicitResult(
+            action="accept", content={"email": "ada@example.com", "age": 36, "score": 9.5, "subscribed": True}
+        )
+
+    async with connect(server, elicitation_callback=answer_form) as client:
+        result = await client.call_tool("profile", {})
+
+    assert received == snapshot(
+        [
+            ElicitRequestFormParams(
+                message="Complete your profile.",
+                requested_schema={
+                    "properties": {
+                        "email": {"type": "string", "format": "email", "title": "Email"},
+                        "age": {"type": "integer", "minimum": 0},
+                        "score": {"type": "number"},
+                        "subscribed": {"type": "boolean", "default": False},
+                    },
+                    "required": ["email"],
+                    "type": "object",
+                },
+            )
+        ]
+    )
+    assert result == snapshot(
+        CallToolResult(
+            content=[TextContent(text="accept")],
+            structured_content={"email": "ada@example.com", "age": 36, "score": 9.5, "subscribed": True},
+        )
+    )
+
+
+@requirement("elicitation:mrtr:capability:not-declared")
+async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitation_capability(
+    connect: Connect,
+) -> None:
+    """PINS A KNOWN GAP: the spec forbids embedding an elicitation/create for a client that has not
+    declared the elicitation capability, but the SDK has no embed gate; the request is sent as-is.
+
+    The handler proves the precondition in-band (this connection's envelope declared no elicitation
+    capability) and the client receives the forbidden embed through the documented manual-loop
+    escape hatch `client.session.call_tool(..., allow_input_required=True)`; the auto loop would
+    surface only the client's local refusal, the wrong actor for this server-side obligation. See
+    the divergence on the requirement.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
+        assert params.name == "ask"
+        # In-band precondition: the request envelope declared no elicitation capability.
+        assert ctx.session.client_params is not None
+        assert ctx.session.client_params.capabilities.elicitation is None
+        return InputRequiredResult(
+            input_requests={
+                "ask": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="Anyone there?", requested_schema={"type": "object", "properties": {}}
+                    )
+                )
+            }
+        )
+
+    server = Server("asker", on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        raw = await client.session.call_tool("ask", {}, allow_input_required=True)
+
+    assert isinstance(raw, InputRequiredResult)
+    assert raw == snapshot(
+        InputRequiredResult(
+            input_requests={
+                "ask": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="Anyone there?", requested_schema={"properties": {}, "type": "object"}
+                    )
+                )
+            }
+        )
+    )
