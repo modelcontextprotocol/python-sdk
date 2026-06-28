@@ -91,12 +91,14 @@ async def main() -> None:
 An extension can register **new request methods**: its own verbs, served next to the
 spec's:
 
-```python title="server.py" hl_lines="13-19 23 32-40"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial002.py"
 ```
 
 * `SearchParams` subclasses `RequestParams`, so the 2026 `_meta` envelope parses
-  uniformly and your handler gets validated params, never a raw dict.
+  uniformly and your handler gets validated params, never a raw dict. Bound what
+  the client controls: `Field(ge=1, le=100)` rejects an absurd `limit` before
+  your code allocates anything for it.
 * `require_client_extension(ctx, EXTENSION_ID)` is the gate: a client that did not
   declare the extension gets the `-32021` (missing required client capability) error,
   with the machine-readable `requiredCapabilities` payload the spec asks for.

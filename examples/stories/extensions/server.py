@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import mcp_types as types
+from pydantic import Field
 
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding, ToolBinding
@@ -23,7 +24,7 @@ class SearchParams(types.RequestParams):
     """Subclass `RequestParams` so `_meta` (and the 2026 envelope keys) parse uniformly."""
 
     query: str
-    limit: int = 3
+    limit: int = Field(default=3, ge=1, le=25)
 
 
 class SearchResult(types.Result):

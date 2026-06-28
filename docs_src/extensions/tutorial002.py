@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import mcp_types as types
+from pydantic import Field
 
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
@@ -12,7 +13,7 @@ EXTENSION_ID = "com.example/search"
 
 class SearchParams(types.RequestParams):
     query: str
-    limit: int = 10
+    limit: int = Field(default=10, ge=1, le=100)
 
 
 class SearchResult(types.Result):
