@@ -154,7 +154,7 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
 async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
     """`Client(..., mode='auto')` sends `server/discover` first and adopts the returned version and server_info.
 
-    Requirement `lifecycle:discover:basic` (spec basic/lifecycle#discover): the probe is a
+    Requirement `lifecycle:discover:basic` (spec server/discover): the probe is a
     single `server/discover` request whose result carries supported versions, capabilities,
     server_info and the cache-hint fields, after which the session is modern-negotiated.
     """
@@ -179,7 +179,7 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
 async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version() -> None:
     """A -32022 from `server/discover` triggers exactly one retry at the highest mutual modern version.
 
-    Requirement `lifecycle:discover:retry-on-32022` (spec basic/lifecycle#version-errors): the
+    Requirement `lifecycle:discover:retry-on-32022` (spec basic/versioning#protocol-version-negotiation): the
     client intersects `error.data.supported` with its own modern versions and re-probes once;
     the second success is adopted. The server's `server/discover` handler is overridden to fail
     the first call and succeed on the second.
@@ -349,7 +349,7 @@ async def test_every_request_on_a_modern_session_carries_the_three_key_meta_enve
 async def test_http_protocol_version_header_matches_meta_protocol_version_on_every_post() -> None:
     """On streamable-HTTP, the `MCP-Protocol-Version` header on each POST equals `_meta.protocolVersion` in its body.
 
-    Requirement `lifecycle:envelope:header-matches-meta` (spec streamable-http#headers): the
+    Requirement `lifecycle:envelope:header-matches-meta` (spec streamable-http#protocol-version-header): the
     body-derived header and the envelope's protocol version are kept in lockstep so the server's
     header-based routing and body-based validation never disagree.
     """

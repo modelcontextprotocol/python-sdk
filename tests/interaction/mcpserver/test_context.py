@@ -27,7 +27,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("mcpserver:context:logging")
+@requirement("mcpserver:context:log-from-handler")
 @requirement("logging:capability:declared")
 async def test_context_logging_helpers_send_log_notifications(connect: Connect) -> None:
     """Each Context logging helper sends a log message notification at the matching severity.
@@ -121,7 +121,7 @@ async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Con
     assert request_id
 
 
-@requirement("mcpserver:context:logging")
+@requirement("mcpserver:context:log-from-handler")
 @requirement("protocol:progress:no-token")
 async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect) -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
@@ -153,7 +153,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     )
 
 
-@requirement("mcpserver:context:elicit")
+@requirement("mcpserver:context:elicit-from-handler")
 @requirement("tools:call:elicitation-roundtrip")
 async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     """Context.elicit sends a form elicitation built from a pydantic schema and returns a typed result.

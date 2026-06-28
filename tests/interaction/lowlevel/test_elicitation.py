@@ -240,7 +240,7 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
     assert result == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
 
 
-@requirement("elicitation:url:decline")
+@requirement("elicitation:url:action:decline")
 async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
     """A declined URL elicitation returns the decline action to the handler with no content."""
 
@@ -269,7 +269,7 @@ async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
 
 
-@requirement("elicitation:url:cancel")
+@requirement("elicitation:url:action:cancel")
 async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
     """A cancelled URL elicitation returns the cancel action to the handler with no content."""
 

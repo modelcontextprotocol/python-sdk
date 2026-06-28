@@ -110,7 +110,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
     )
 
 
-@requirement("mcpserver:resource:unknown-uri")
+@requirement("resources:read:unknown-uri")
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
     """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
     mcp = MCPServer("library")

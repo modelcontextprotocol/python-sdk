@@ -572,6 +572,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="Closing the transport fails all in-flight requests with a connection-closed error.",
     ),
+    "protocol:error:handler-error-passthrough": Requirement(
+        source="sdk",
+        behavior=(
+            "An MCPError raised by a request handler is returned to the caller as a JSON-RPC error "
+            "carrying the handler-chosen code and message verbatim."
+        ),
+    ),
     "protocol:error:internal-error": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior=(
@@ -635,12 +642,23 @@ REQUIREMENTS: dict[str, Requirement] = {
             "extension."
         ),
     ),
-    "meta:request-to-handler": Requirement(
+    "protocol:meta:request-to-handler": Requirement(
         source=f"{SPEC_BASE_URL}/basic#_meta",
         behavior="The _meta object the client attaches to a request is visible to the server handler.",
-        arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="legacy-only-vocabulary",
+                spec_version="2026-07-28",
+                note=(
+                    "The pass-through itself holds at 2026, but the modern envelope merges the reserved "
+                    "io.modelcontextprotocol/* keys into every request's _meta, so the test's "
+                    "nothing-else-injected equality assertion only holds on the legacy wire; needs an "
+                    "era-aware assertion before re-admission."
+                ),
+            ),
+        ),
     ),
-    "meta:result-to-client": Requirement(
+    "protocol:meta:result-to-client": Requirement(
         source=f"{SPEC_BASE_URL}/basic#_meta",
         behavior="The _meta object a handler attaches to its result is delivered to the client.",
     ),
@@ -1037,7 +1055,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer: Context helpers (SDK)
     # ═══════════════════════════════════════════════════════════════════════════
-    "mcpserver:context:logging": Requirement(
+    "mcpserver:context:log-from-handler": Requirement(
         source="sdk",
         behavior=(
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
@@ -1050,7 +1068,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Context.report_progress sends a progress notification against the requesting client's progress token."
         ),
     ),
-    "mcpserver:context:elicit": Requirement(
+    "mcpserver:context:elicit-from-handler": Requirement(
         source="sdk",
         behavior=(
             "Context.elicit sends a form elicitation built from a typed schema and returns a typed "
@@ -1121,8 +1139,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="resources/read returns text contents carrying uri, mimeType, and the text.",
     ),
     "resources:read:unknown-uri": Requirement(
-        source=f"{SPEC_BASE_URL}/server/resources#error-handling",
-        behavior="resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).",
+        source=f"{SPEC_2026_BASE_URL}/server/resources#error-handling",
+        behavior=(
+            "resources/read for a URI matching no registered resource returns JSON-RPC error -32602 "
+            "(invalid params) with the requested URI in error.data, per SEP-2164."
+        ),
     ),
     "resources:subscribe": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -1226,13 +1247,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A function registered with a URI template is listed by resources/templates/list and matched "
             "by resources/read, receiving the parameters extracted from the requested URI."
-        ),
-    ),
-    "mcpserver:resource:unknown-uri": Requirement(
-        source=f"{SPEC_BASE_URL}/server/resources#error-handling",
-        behavior=(
-            "resources/read for a URI matching no registered resource returns JSON-RPC error -32602 "
-            "(invalid params) with the requested URI in error.data, per SEP-2164."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1528,7 +1542,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "rejects every tool-enabled request before it is sent."
         ),
     ),
-    "sampling:create-message:audio-content": Requirement(
+    "sampling:create:audio-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#audio-content",
         behavior="Sampling messages can carry audio content: base64 data with a mimeType.",
         arm_exclusions=(
@@ -1536,7 +1550,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
-    "sampling:create-message:image-content": Requirement(
+    "sampling:create:image-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#image-content",
         behavior="Sampling messages can carry image content: base64 data with a mimeType.",
         arm_exclusions=(
@@ -1544,7 +1558,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
-    "sampling:create-message:not-supported": Requirement(
+    "sampling:create:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
         behavior=(
             "A sampling request to a client that did not declare the sampling capability fails with an "
@@ -1832,20 +1846,28 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
+    "elicitation:url:action:cancel": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
+    ),
+    "elicitation:url:action:decline": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A URL-mode elicitation answered with decline returns the action with no content.",
+        arm_exclusions=(
+            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
+            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        ),
+    ),
     "elicitation:url:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation-requests",
         behavior=(
             "A url-mode elicitation delivers the elicitation id and URL to the client callback exactly as "
             "the server sent them."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
-    ),
-    "elicitation:url:cancel": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
-        behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
         arm_exclusions=(
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
@@ -1872,14 +1894,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (spec PR #2891); notifications/elicitation/complete removed, no replacement.",
-    ),
-    "elicitation:url:decline": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
-        behavior="A URL-mode elicitation answered with decline returns the action with no content.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
     ),
     "elicitation:url:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#error-handling",
@@ -3453,7 +3467,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:403-scope-union": Requirement(
+    "client-auth:stepup:scope-union": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
         behavior=(
             "On a 403 insufficient_scope step-up, the re-authorization request carries the union of the "
@@ -3496,7 +3510,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
-    "client-auth:authorize:offline-access-consent": Requirement(
+    "client-auth:scope:offline-access-gate": Requirement(
         source="sdk",
         behavior=(
             "When the authorization server's metadata advertises offline_access in scopes_supported and "
@@ -3530,7 +3544,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:dcr:registration-error-surfaces": Requirement(
+    "client-auth:dcr:registration-rejected-error": Requirement(
         source="sdk",
         behavior=(
             "A 400 from the registration endpoint surfaces to the caller as an OAuthRegistrationError "
@@ -3692,7 +3706,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:authorization-response:iss-verify": Requirement(
+    "client-auth:iss:mismatch-reject": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
         behavior=(
             "The client validates the RFC 9207 iss authorization-response parameter against the "
