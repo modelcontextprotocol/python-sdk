@@ -7,6 +7,8 @@ the `ui://` resource MIME type, capability advertisement, and `ui://`-scheme
 validation).
 """
 
+from typing import Any
+
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -24,6 +26,7 @@ from mcp.server.apps import (
 )
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
+from mcp.server.mcpserver.resources import TextResource
 
 pytestmark = pytest.mark.anyio
 
@@ -101,9 +104,12 @@ async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> No
     assert fallback.content == snapshot([TextContent(text="The time is 2026-06-26T00:00:00Z.")])
 
 
-async def test_client_supports_apps_reads_lowlevel_request_context() -> None:
-    """SDK-defined: `client_supports_apps` accepts a lowlevel `ServerRequestContext` too,
-    reading the client's advertised extensions off `session.client_params`."""
+async def _observed_client_supports_apps(extensions: dict[str, dict[str, Any]] | None) -> bool:
+    """Run one probe `tools/call` and report what `client_supports_apps` saw server-side.
+
+    Exercises the lowlevel `ServerRequestContext` form, which reads the client's
+    advertised extensions off `session.client_params`.
+    """
     observed: list[bool] = []
 
     async def list_tools(
@@ -117,13 +123,29 @@ async def test_client_supports_apps_reads_lowlevel_request_context() -> None:
         return CallToolResult(content=[TextContent(text="ok")])
 
     server = Server("probe", on_list_tools=list_tools, on_call_tool=call_tool)
+    async with Client(server, extensions=extensions) as client:
+        await client.call_tool("probe", {})
+    return observed[0]
 
-    async with Client(server, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as supports:
-        await supports.call_tool("probe", {})
-    async with Client(server) as plain:
-        await plain.call_tool("probe", {})
 
-    assert observed == [True, False]
+@pytest.mark.parametrize(
+    ("extensions", "expected"),
+    [
+        pytest.param({EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}, True, id="html-mime-listed"),
+        pytest.param({EXTENSION_ID: {"mimeTypes": (APP_MIME_TYPE,)}}, True, id="in-process-tuple-mime-types"),
+        pytest.param(None, False, id="extension-not-declared"),
+        pytest.param({EXTENSION_ID: {"mimeTypes": ["application/x-other"]}}, False, id="html-mime-not-offered"),
+        pytest.param({EXTENSION_ID: {}}, False, id="mime-types-key-missing"),
+    ],
+)
+async def test_client_supports_apps_from_lowlevel_request_context(
+    extensions: dict[str, dict[str, Any]] | None, expected: bool
+) -> None:
+    """ext-apps: `client_supports_apps` is `True` only when the client declared the ui
+    extension AND listed `text/html;profile=mcp-app` in its `mimeTypes` settings — a
+    required field, so its absence means unsupported (the reference SDK's check is
+    `uiCap?.mimeTypes?.includes(...)`)."""
+    assert await _observed_client_supports_apps(extensions) is expected
 
 
 def test_apps_tool_rejects_non_ui_resource_uri() -> None:
@@ -151,6 +173,7 @@ async def test_apps_tool_stamps_visibility_when_given() -> None:
     """SDK-defined: `@apps.tool(visibility=...)` is stamped into `_meta.ui.visibility`."""
     apps = Apps()
     apps.tool(resource_uri="ui://v/app.html", visibility=["app"])(_widget)
+    apps.add_html_resource("ui://v/app.html", "<title>v</title>")
 
     async with Client(MCPServer("v", extensions=[apps])) as client:
         result = await client.list_tools()
@@ -165,6 +188,7 @@ async def test_apps_tool_merges_extra_meta_alongside_ui() -> None:
     (previously a `meta=` argument raised a duplicate-keyword TypeError)."""
     apps = Apps()
     apps.tool(resource_uri="ui://m/app.html", meta={"com.example/k": 1})(_widget)
+    apps.add_html_resource("ui://m/app.html", "<title>m</title>")
 
     async with Client(MCPServer("m", extensions=[apps])) as client:
         result = await client.list_tools()
@@ -200,23 +224,39 @@ async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -
     )
 
 
-async def test_client_supports_apps_false_when_mime_type_not_offered() -> None:
-    """SDK-defined: a client advertising the extension but NOT the
-    `text/html;profile=mcp-app` MIME type does not count as Apps-capable."""
-    observed: list[bool] = []
+def test_apps_tool_with_unregistered_resource_uri_is_rejected_at_construction() -> None:
+    """SDK-defined: a tool whose `resource_uri` has no matching registered resource would
+    advertise a `_meta.ui.resourceUri` that 404s on `resources/read`; the misconfiguration
+    is rejected when the server consumes the extension."""
+    apps = Apps()
+    apps.tool(resource_uri="ui://missing/app.html")(_widget)
 
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "probe"
-        observed.append(client_supports_apps(ctx))
-        return CallToolResult(content=[])
+    with pytest.raises(ValueError) as exc_info:
+        MCPServer("broken", extensions=[apps])
+    assert str(exc_info.value) == snapshot(
+        "Apps tool '_widget' binds resource_uri 'ui://missing/app.html', but no such resource "
+        "is registered; add it with add_html_resource() or add_resource()"
+    )
 
-    async def list_tools(
-        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
-    ) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
 
-    server = Server("probe", on_call_tool=call_tool, on_list_tools=list_tools)
-    async with Client(server, extensions={EXTENSION_ID: {"mimeTypes": ["application/x-other"]}}) as client:
-        await client.call_tool("probe", {})
+async def test_add_resource_registers_a_prebuilt_ui_resource() -> None:
+    """SDK-defined: `add_resource` is the escape hatch for pre-built `ui://` resources
+    that `add_html_resource` cannot express; it satisfies a tool's `resource_uri` binding."""
+    apps = Apps()
+    apps.tool(resource_uri="ui://prebuilt/app.html")(_widget)
+    apps.add_resource(
+        TextResource(uri="ui://prebuilt/app.html", name="prebuilt", mime_type=APP_MIME_TYPE, text="<title>p</title>")
+    )
 
-    assert observed == [False]
+    async with Client(MCPServer("p", extensions=[apps])) as client:
+        result = await client.read_resource("ui://prebuilt/app.html")
+
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].text == "<title>p</title>"
+
+
+def test_add_resource_rejects_non_ui_resource_uri() -> None:
+    """SDK-defined: `add_resource` accepts only `ui://` URIs, like the other registrars."""
+    apps = Apps()
+    with pytest.raises(ValueError):
+        apps.add_resource(TextResource(uri="https://example.com/app.html", name="x", text="x"))

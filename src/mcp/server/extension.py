@@ -12,9 +12,9 @@ methods have sensible defaults, so an extension overrides only what it needs. A
 purely additive extension (Apps) overrides `tools`/`resources`; an interceptive
 one overrides `methods`/`intercept_tool_call`.
 
-This module lives at the `mcp.server` tier (not `mcp.server.mcpserver`) so that
-third-party extensions and helper modules like `mcp.server.apps` depend only on
-the base class, never on the composition tier that consumes it.
+This module lives at the `mcp.server` tier (not `mcp.server.mcpserver`) so the
+base class itself never drags in the composition tier that consumes it;
+extensions remain importable without constructing an `MCPServer`.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import CallToolRequestParams
+from mcp_types.methods import SPEC_CLIENT_METHODS
 from pydantic import BaseModel
 
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
@@ -34,9 +35,13 @@ if TYPE_CHECKING:
 
 RequestHandler = Callable[[ServerRequestContext[Any, Any], Any], Awaitable[HandlerResult]]
 
-# Extension identifiers follow the `_meta` key grammar: a mandatory reverse-DNS
-# prefix, a slash, then the extension name (SEP-2133 / the spec's _meta rules).
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9.-]+/[A-Za-z0-9._-]+$")
+# Extension identifiers follow the `_meta` key grammar with a mandatory prefix
+# (SEP-2133 / basic/index.mdx): dot-separated labels, each starting with a
+# letter and ending with a letter or digit (hyphens interior), then `/`, then a
+# name that starts and ends alphanumeric (`.`/`_`/`-` interior).
+_LABEL = r"[A-Za-z](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_NAME = r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
+_IDENTIFIER_RE = re.compile(rf"{_LABEL}(?:\.{_LABEL})*/{_NAME}")
 
 
 def validate_extension_identifier(identifier: Any, *, owner: str) -> None:
@@ -44,7 +49,7 @@ def validate_extension_identifier(identifier: Any, *, owner: str) -> None:
 
     SEP-2133 requires extension identifiers to carry a reverse-DNS prefix.
     """
-    if not isinstance(identifier, str) or not _IDENTIFIER_RE.match(identifier):
+    if not isinstance(identifier, str) or not _IDENTIFIER_RE.fullmatch(identifier):
         raise TypeError(
             f"{owner}.identifier must be a `vendor-prefix/name` string "
             f"(reverse-DNS prefix required), got {identifier!r}"
@@ -77,12 +82,33 @@ class MethodBinding:
     method at any other version is rejected as `METHOD_NOT_FOUND`, mirroring the
     spec's `(method, version)` boundary table. `None` (the default) admits the
     method at every version.
+
+    Extension methods are additive: `method` must not name a spec-defined
+    request method (`tools/list`, `completion/complete`, ...) — those handlers
+    belong to the server, and an extension binding one would silently shadow or
+    be shadowed by it. Both constraints are enforced at construction. To
+    re-provide a spec method the 2026 revision removed (e.g. `logging/setLevel`
+    for legacy clients), use the lowlevel `Server.add_request_handler` API
+    instead — the runner's per-version surface gate would never route such a
+    method to an extension handler anyway.
     """
 
     method: str
     params_type: type[BaseModel]
     handler: RequestHandler
     protocol_versions: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.method in SPEC_CLIENT_METHODS:
+            raise ValueError(
+                f"MethodBinding cannot bind spec method {self.method!r}; extension methods are "
+                "additive — use Extension.intercept_tool_call or Server.middleware to wrap core behaviour"
+            )
+        if self.protocol_versions is not None and not self.protocol_versions:
+            raise ValueError(
+                f"MethodBinding for {self.method!r} has an empty protocol_versions set, so it could "
+                "never be served; use None to admit every version"
+            )
 
 
 class Extension:

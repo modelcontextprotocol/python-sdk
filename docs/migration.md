@@ -414,8 +414,9 @@ reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
 (the 2026-07-28 capability map). An extension subclasses `mcp.server.extension.Extension`
 and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
 (additive) and `intercept_tool_call()` (wraps `tools/call`). The `identifier` must be a
-`vendor-prefix/name` string, enforced when the subclass is defined. Pass instances at
-construction:
+`vendor-prefix/name` string following the spec's `_meta` key grammar; a class-level
+`identifier` is validated when the subclass is defined, one assigned in `__init__` when
+the extension is registered. Pass instances at construction:
 
 ```python
 from mcp.server.mcpserver import MCPServer
@@ -426,11 +427,20 @@ mcp = MCPServer("demo", extensions=[Apps()])
 
 The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
 it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
-`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback (checking the
-client advertised the `text/html;profile=mcp-app` MIME type).
+`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback — `True` only
+when the client's ui-extension settings list the `text/html;profile=mcp-app`
+MIME type, per the Apps spec's required `mimeTypes` field. Every
+`@apps.tool(resource_uri=...)` must have a matching resource registered on the
+same `Apps` instance (`add_html_resource` for inline HTML, `add_resource` for a
+pre-built `Resource`); a tool bound to an unregistered URI raises at
+`MCPServer(...)` construction rather than 404ing on `resources/read` at runtime.
 
-A `MethodBinding` may set `protocol_versions` to scope an extension method to
-specific wire versions; a request at any other version is `METHOD_NOT_FOUND`. An
+Extension methods are strictly additive: a `MethodBinding` cannot name a
+spec-defined request method, and registering one whose method collides with
+another handler raises at construction. A `MethodBinding` may set
+`protocol_versions` to scope an extension method to specific wire versions
+(`frozenset()` is rejected — use `None` to admit every version); a request at
+any other version is `METHOD_NOT_FOUND`. An
 extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
 to reject a request with the `-32021` (missing required client capability) error
 when the client did not declare the extension.

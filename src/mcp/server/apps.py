@@ -38,7 +38,7 @@ from pydantic.alias_generators import to_camel
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, ResourceBinding, ToolBinding
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.resources import TextResource
+from mcp.server.mcpserver.resources import Resource, TextResource
 
 EXTENSION_ID = "io.modelcontextprotocol/ui"
 """The MCP Apps extension identifier (the shipped TS/C# constant)."""
@@ -85,7 +85,7 @@ class Apps(Extension):
     identifier = EXTENSION_ID
 
     def __init__(self) -> None:
-        self._tools: list[ToolBinding] = []
+        self._tools: list[tuple[ToolBinding, str]] = []  # (binding, bound resource_uri)
         self._resources: list[ResourceBinding] = []
 
     def tool(
@@ -117,7 +117,8 @@ class Apps(Extension):
             ui["visibility"] = list(visibility)
 
         def decorator(fn: _CallableT) -> _CallableT:
-            self._tools.append(ToolBinding(fn=fn, meta={**(meta or {}), "ui": ui}, kwargs=tool_kwargs))
+            binding = ToolBinding(fn=fn, meta={**(meta or {}), "ui": ui}, kwargs=tool_kwargs)
+            self._tools.append((binding, resource_uri))
             return fn
 
         return decorator
@@ -147,7 +148,6 @@ class Apps(Extension):
         Raises:
             ValueError: If `uri` does not use the `ui://` scheme.
         """
-        _require_ui_scheme(uri)
         ui: dict[str, Any] = {}
         if csp is not None:
             ui["csp"] = csp.model_dump(by_alias=True, exclude_none=True)
@@ -157,19 +157,48 @@ class Apps(Extension):
             ui["domain"] = domain
         if prefers_border is not None:
             ui["prefersBorder"] = prefers_border
-        resource = TextResource(
-            uri=uri,
-            name=name or uri,
-            title=title,
-            description=description,
-            mime_type=APP_MIME_TYPE,
-            meta={"ui": ui} if ui else None,
-            text=html,
+        self.add_resource(
+            TextResource(
+                uri=uri,
+                name=name or uri,
+                title=title,
+                description=description,
+                mime_type=APP_MIME_TYPE,
+                meta={"ui": ui} if ui else None,
+                text=html,
+            )
         )
+
+    def add_resource(self, resource: Resource) -> None:
+        """Register a pre-built `ui://` resource.
+
+        The escape hatch for resources `add_html_resource` cannot express (e.g. a
+        `FileResource` serving HTML from disk). The resource should carry the
+        `text/html;profile=mcp-app` MIME type for hosts to render it.
+
+        Raises:
+            ValueError: If the resource URI does not use the `ui://` scheme.
+        """
+        _require_ui_scheme(resource.uri)
         self._resources.append(ResourceBinding(resource=resource))
 
     def tools(self) -> Sequence[ToolBinding]:
-        return self._tools
+        """The bound tools.
+
+        Raises:
+            ValueError: If a tool's `resource_uri` has no matching resource
+                registered on this instance — a tool advertising a
+                `_meta.ui.resourceUri` that 404s on `resources/read` is a
+                misconfiguration, caught when the server consumes the extension.
+        """
+        registered = {binding.resource.uri for binding in self._resources}
+        for tool, uri in self._tools:
+            if uri not in registered:
+                raise ValueError(
+                    f"Apps tool {tool.fn.__name__!r} binds resource_uri {uri!r}, but no such resource "
+                    "is registered; add it with add_html_resource() or add_resource()"
+                )
+        return [tool for tool, _ in self._tools]
 
     def resources(self) -> Sequence[ResourceBinding]:
         return self._resources
@@ -188,7 +217,7 @@ def client_supports_apps(ctx: Context[Any] | ServerRequestContext[Any, Any]) -> 
     if settings is None:
         return False
     mime_types = settings.get("mimeTypes")
-    return mime_types is None or APP_MIME_TYPE in mime_types
+    return isinstance(mime_types, list | tuple) and APP_MIME_TYPE in mime_types
 
 
 def _client_capabilities(ctx: Context[Any] | ServerRequestContext[Any, Any]) -> Any:

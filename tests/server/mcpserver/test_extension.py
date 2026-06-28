@@ -26,6 +26,7 @@ from mcp.server.extension import (
     ResourceBinding,
     ToolBinding,
     compose_tool_call_interceptor,
+    validate_extension_identifier,
 )
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
@@ -74,16 +75,18 @@ class _PingRequest(types.Request[_PingParams, Literal["com.example/ping"]]):
     params: _PingParams
 
 
+async def _pong_handler(ctx: ServerRequestContext[Any, Any], params: _PingParams) -> _PingResult:
+    """The shared `com.example/ping` handler (dispatched by the reachability test)."""
+    return _PingResult(pong=True)
+
+
 class _MethodExt(Extension):
     """Override `methods()` to serve a new vendor request verb."""
 
     identifier = "com.example/method"
 
-    def methods(self):
-        async def handler(ctx: ServerRequestContext[Any, Any], params: _PingParams) -> _PingResult:
-            return _PingResult(pong=True)
-
-        return [MethodBinding("com.example/ping", _PingParams, handler)]
+    def methods(self) -> list[MethodBinding]:
+        return [MethodBinding("com.example/ping", _PingParams, _pong_handler)]
 
 
 class _ReplacingExt(Extension):
@@ -356,6 +359,91 @@ async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version
             await client.session.send_request(cast("types.ClientRequest", request), _VersionPinnedResult)
 
     assert exc_info.value.code == METHOD_NOT_FOUND
+    assert exc_info.value.error.data == "com.example/pinned"
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "io.modelcontextprotocol/ui",
+        "com.example/my_ext",
+        "com.x-y.z2/n.a-b_c",
+        "example/x",
+        "a/b",
+        "com.example/9start",
+    ],
+)
+def test_grammar_conformant_extension_identifiers_are_accepted(identifier: str) -> None:
+    """Spec `_meta` key grammar: dot-separated labels (letter start, letter/digit end,
+    hyphens interior), a slash, then a name that starts and ends alphanumeric."""
+    validate_extension_identifier(identifier, owner="T")
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "noprefix",
+        "-foo/bar",
+        ".leading/x",
+        "a..b/x",
+        "foo-/x",
+        "9foo/x",
+        "foo/-bar",
+        "foo/bar-",
+        "foo/",
+        "/bar",
+        "foo/ba r",
+        "io.modelcontextprotocol/ui\n",
+        "",
+        None,
+        42,
+    ],
+)
+def test_malformed_extension_identifiers_are_rejected(identifier: Any) -> None:
+    """Spec `_meta` key grammar: malformed prefixes (bad label start/end, empty labels)
+    and malformed names are rejected, as are non-strings."""
+    with pytest.raises(TypeError):
+        validate_extension_identifier(identifier, owner="T")
+
+
+@pytest.mark.parametrize("method", ["tools/list", "completion/complete"])
+def test_method_binding_rejects_spec_methods(method: str) -> None:
+    """SDK-defined: extension methods are additive — binding a spec-defined request method
+    would silently shadow (or be shadowed by) the server's own handler, so it is rejected
+    when the binding is constructed."""
+    with pytest.raises(ValueError):
+        MethodBinding(method, _PingParams, _pong_handler)
+
+
+def test_method_binding_rejects_empty_protocol_versions() -> None:
+    """SDK-defined: an empty `protocol_versions` set would make the method unreachable at
+    every version; `None` is the universal-version spelling."""
+    with pytest.raises(ValueError) as exc_info:
+        MethodBinding("com.example/dead", _PingParams, _pong_handler, frozenset())
+    assert str(exc_info.value) == snapshot(
+        "MethodBinding for 'com.example/dead' has an empty protocol_versions set, so it could "
+        "never be served; use None to admit every version"
+    )
+
+
+class _OtherMethodExt(Extension):
+    """A second extension binding the same verb as `_MethodExt`."""
+
+    identifier = "com.example/other-method"
+
+    def methods(self) -> list[MethodBinding]:
+        return [MethodBinding("com.example/ping", _PingParams, _pong_handler)]
+
+
+def test_colliding_extension_methods_are_rejected_at_registration() -> None:
+    """SDK-defined: two extensions binding the same method would silently last-write-win;
+    the collision is rejected when the second extension is applied."""
+    with pytest.raises(ValueError) as exc_info:
+        MCPServer("test", extensions=[_MethodExt(), _OtherMethodExt()])
+    assert str(exc_info.value) == snapshot(
+        "Extension 'com.example/other-method' binds method 'com.example/ping', which is already "
+        "registered; extension methods are additive and cannot replace another handler"
+    )
 
 
 _NEEDS_EXT = "com.example/needed"

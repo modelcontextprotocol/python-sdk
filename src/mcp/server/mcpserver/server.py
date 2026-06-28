@@ -291,6 +291,11 @@ class MCPServer(Generic[LifespanResultT]):
         for resource in extension.resources():
             self.add_resource(resource.resource)
         for method in extension.methods():
+            if self._lowlevel_server.get_request_handler(method.method) is not None:
+                raise ValueError(
+                    f"Extension {identifier!r} binds method {method.method!r}, which is already "
+                    "registered; extension methods are additive and cannot replace another handler"
+                )
             handler = _version_gated(method) if method.protocol_versions is not None else method.handler
             self._lowlevel_server.add_request_handler(method.method, method.params_type, handler)
 
