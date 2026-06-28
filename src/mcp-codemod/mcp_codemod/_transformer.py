@@ -45,12 +45,15 @@ from mcp_codemod._mappings import (
     ERRORDATA_QNAMES,
     FASTMCP_QNAMES,
     LOWLEVEL_DECORATOR_METHODS,
+    LOWLEVEL_REMOVED_ATTRS,
     LOWLEVEL_SERVER_QNAMES,
     MCPERROR_QNAMES,
     MODULE_RENAMES,
+    REHOMED_IMPORTS,
     REMOVED_APIS,
     REMOVED_ATTRS,
     REMOVED_CTOR_PARAMS,
+    REMOVED_MODULES,
     SYMBOL_RENAMES,
     TRANSPORT_CLIENT_QNAMES,
     TRANSPORT_CLIENT_REMOVED_PARAMS,
@@ -113,6 +116,14 @@ def _rename_module(dotted: str) -> str | None:
     return None
 
 
+def _removed_module(dotted: str) -> str | None:
+    """Return the guidance for a module path v2 deleted, or None if it survives."""
+    for root, guidance in REMOVED_MODULES.items():
+        if dotted == root or dotted.startswith(root + "."):
+            return guidance
+    return None
+
+
 def _dotted_name(dotted: str) -> cst.Attribute | cst.Name:
     # A dotted module path always parses to a Name or a chain of Attributes, which
     # is the only thing import nodes accept; `parse_expression` just cannot say so.
@@ -122,6 +133,43 @@ def _dotted_name(dotted: str) -> cst.Attribute | cst.Name:
 def _names_the_sdk(module: str) -> bool:
     """Whether a dotted module path belongs to the SDK: `mcp`, `mcp_types`, or below."""
     return module in ("mcp", "mcp_types") or module.startswith(("mcp.", "mcp_types."))
+
+
+def _split_rehomed_imports(
+    statement: cst.SimpleStatementLine, imported: cst.ImportFrom
+) -> cst.SimpleStatementLine | cst.FlattenSentinel[cst.BaseStatement] | None:
+    """Move `REHOMED_IMPORTS` names out of an already-renamed from-import.
+
+    Returns None when the statement imports none of them. The rehomed names keep
+    their `as` aliases; when nothing else was imported, the new statement takes
+    the original's place wholesale, formatting included.
+    """
+    assert imported.module is not None and not isinstance(imported.names, cst.ImportStar)
+    module = get_full_name_for_node(imported.module) or ""
+    moved: list[cst.ImportAlias] = []
+    kept: list[cst.ImportAlias] = []
+    targets: set[str] = set()
+    for alias in imported.names:
+        name = cst.ensure_type(alias.name, cst.Name).value
+        target = REHOMED_IMPORTS.get((module, name))
+        if target is None:
+            kept.append(alias)
+        else:
+            moved.append(alias.with_changes(comma=cst.MaybeSentinel.DEFAULT))
+            targets.add(target)
+    if not moved:
+        return None
+    # Every current row rehomes to one module; revisit if a second target appears.
+    replacement = cst.SimpleStatementLine(
+        body=[cst.ImportFrom(module=_dotted_name(targets.pop()), names=moved)],
+    )
+    if not kept:
+        return replacement.with_changes(
+            leading_lines=statement.leading_lines, trailing_whitespace=statement.trailing_whitespace
+        )
+    kept[-1] = kept[-1].with_changes(comma=cst.MaybeSentinel.DEFAULT)
+    remaining = statement.with_changes(body=[imported.with_changes(names=kept)])
+    return cst.FlattenSentinel([remaining, replacement])
 
 
 def _with_markers(statement: _StatementT, messages: Sequence[str]) -> _StatementT:
@@ -193,8 +241,15 @@ class _PrePass(cst.CSTVisitor):
                 self.unrenamed_reference_roots.add(qualified.name.split(".")[0])
 
     def _record_lowlevel_server(self, value: cst.BaseExpression | None, target: cst.BaseExpression) -> None:
-        """When `value` calls the lowlevel `Server(...)`, remember the name it binds."""
-        if not isinstance(value, cst.Call) or not isinstance(target, cst.Name):
+        """When `value` calls the lowlevel `Server(...)`, remember the name it binds.
+
+        The target's full spelling is recorded, so an attribute binding like
+        `self.server = Server(...)` is recognized exactly like a plain name.
+        """
+        if not isinstance(value, cst.Call):
+            return
+        bound = get_full_name_for_node(target)
+        if bound is None:
             return
         qualified = {
             q.name
@@ -202,7 +257,7 @@ class _PrePass(cst.CSTVisitor):
             if q.source is not QualifiedNameSource.LOCAL
         }
         if qualified & LOWLEVEL_SERVER_QNAMES:
-            self.lowlevel_server_vars.add(target.value)
+            self.lowlevel_server_vars.add(bound)
 
     def _record_class_field(self, target: cst.BaseExpression) -> None:
         """Remember a camelCase name a class body in this file declares as its own."""
@@ -309,14 +364,19 @@ class _V1ToV2(cst.CSTTransformer):
         result = super().on_leave(original_node, updated_node)
         if isinstance(original_node, cst.SimpleStatementLine | cst.BaseCompoundStatement):
             pending = self._pending_markers.pop()
-            if (
-                pending
-                and self._add_markers
-                and isinstance(result, cst.SimpleStatementLine | cst.BaseCompoundStatement)
-            ):
-                # `result` is the same statement node `on_leave` was about to return,
-                # just with the marker comments prepended to its leading lines.
-                result = cast(_NodeT, _with_markers(result, pending))
+            if pending and self._add_markers:
+                # At statement level every transform here returns the statement
+                # itself or a FlattenSentinel of statements -- nothing is removed.
+                if isinstance(result, cst.FlattenSentinel):
+                    # A split statement: the markers belong above its first piece,
+                    # which takes the original's place in the module.
+                    pieces = list(result)
+                    statement = cast("cst.SimpleStatementLine | cst.BaseCompoundStatement", pieces[0])
+                    pieces[0] = cast(_NodeT, _with_markers(statement, pending))
+                    result = cst.FlattenSentinel(pieces)
+                else:
+                    narrowed = cast("cst.SimpleStatementLine | cst.BaseCompoundStatement", result)
+                    result = cast(_NodeT, _with_markers(narrowed, pending))
         return result
 
     def visit_ClassDef(self, node: cst.ClassDef) -> None:
@@ -387,6 +447,13 @@ class _V1ToV2(cst.CSTTransformer):
             return updated_node
         module = get_full_name_for_node(updated_node.module) or ""
 
+        # Importing from a deleted module namespace: one marker for the whole
+        # statement says everything the per-name checks below could, so they are
+        # skipped (the names of a deleted module are gone with it).
+        if (module_guidance := _removed_module(module)) is not None:
+            self._diag(original_node, "removed_module", "manual", f"`{module}` {module_guidance}")
+            return updated_node
+
         # `QualifiedNameProvider` resolves *references* to a binding; the import
         # alias that creates the binding gets nothing, so it is handled here: a
         # renamed symbol is renamed in place, and importing a name that no longer
@@ -398,7 +465,7 @@ class _V1ToV2(cst.CSTTransformer):
             for alias in updated_node.names:
                 # In a `from X import name` statement the alias is always a bare Name.
                 qualified = f"{module}.{cst.ensure_type(alias.name, cst.Name).value}"
-                if (guidance := REMOVED_APIS.get(qualified)) is not None:
+                if (guidance := _removed_module(qualified) or REMOVED_APIS.get(qualified)) is not None:
                     self._diag(original_node, "removed_api", "manual", f"`{qualified}` {guidance}")
                 elif new := SYMBOL_RENAMES.get(qualified):
                     renamed_any = True
@@ -418,7 +485,9 @@ class _V1ToV2(cst.CSTTransformer):
         renamed_any = False
         for alias in updated_node.names:
             dotted = get_full_name_for_node(alias.name) or ""
-            if (renamed := _rename_module(dotted)) is not None:
+            if (guidance := _removed_module(dotted)) is not None:
+                self._diag(original_node, "removed_module", "manual", f"`{dotted}` {guidance}")
+            elif (renamed := _rename_module(dotted)) is not None:
                 renamed_any = True
                 self.rewrites["module_rename"] += 1
                 root = dotted.split(".")[0]
@@ -460,6 +529,13 @@ class _V1ToV2(cst.CSTTransformer):
             return updated_node
         if imported.relative or imported.module is None:
             return updated_node
+        # `leave_ImportFrom` already renamed the module and its names, so a name
+        # whose public v2 home is elsewhere (`Context` under `.server`) is split
+        # out of the statement here, against the renamed spelling.
+        rehomed = _split_rehomed_imports(updated_node, imported)
+        if rehomed is not None:
+            self.rewrites["import_rehome"] += 1
+            return rehomed
         parent = get_full_name_for_node(imported.module) or ""
         moved: cst.ImportAlias | None = None
         kept: list[cst.ImportAlias] = []
@@ -520,6 +596,15 @@ class _V1ToV2(cst.CSTTransformer):
         ):
             self.rewrites["mcperror_attr"] += 1
             return updated_node.with_changes(value=cst.ensure_type(updated_node.value, cst.Attribute).value)
+
+        # An attribute the lowlevel `Server` lost whose name survives elsewhere on
+        # v2, matched only against a receiver the pre-pass proved is such a server
+        # (`server` or `self.server` alike).
+        if (get_full_name_for_node(original_node.value) or "") in self._lowlevel_server_vars and (
+            lowlevel_guidance := LOWLEVEL_REMOVED_ATTRS.get(original_node.attr.value)
+        ) is not None:
+            self._diag(original_node, "removed_attr", "manual", lowlevel_guidance)
+            return updated_node
 
         qualified_names = self._qualified(original_node)
         dotted = get_full_name_for_node(original_node)
@@ -720,16 +805,16 @@ class _V1ToV2(cst.CSTTransformer):
         if (
             isinstance(decorator, cst.Call)
             and isinstance(decorator.func, cst.Attribute)
-            and isinstance(decorator.func.value, cst.Name)
-            and decorator.func.value.value in self._lowlevel_server_vars
+            and (get_full_name_for_node(decorator.func.value) or "") in self._lowlevel_server_vars
             and decorator.func.attr.value in LOWLEVEL_DECORATOR_METHODS
         ):
             method = decorator.func.attr.value
+            receiver = get_full_name_for_node(decorator.func.value)
             self._diag(
                 original_node,
                 "lowlevel_decorator",
                 "manual",
-                f"the lowlevel `@{decorator.func.value.value}.{method}()` decorator was removed: pass "
+                f"the lowlevel `@{receiver}.{method}()` decorator was removed: pass "
                 f"`{LOWLEVEL_DECORATOR_METHODS[method]}=` to the `Server(...)` constructor and rewrite "
                 f"the handler to take `(ctx, params)` and return a result model",
             )

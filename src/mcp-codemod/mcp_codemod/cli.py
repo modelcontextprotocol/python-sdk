@@ -7,6 +7,7 @@ from difflib import unified_diff
 from importlib.metadata import version
 from pathlib import Path
 
+from mcp_codemod._dependencies import DependencyReport, update_dependencies
 from mcp_codemod._runner import RunReport, discover, run
 from mcp_codemod._transformer import MARKER
 
@@ -50,7 +51,14 @@ def _print_diffs(report: RunReport) -> None:
         )
 
 
-def _print_summary(report: RunReport, *, roots: Sequence[Path], dry_run: bool, markers: bool) -> None:
+def _print_summary(
+    report: RunReport,
+    dependencies: Sequence[DependencyReport],
+    *,
+    roots: Sequence[Path],
+    dry_run: bool,
+    markers: bool,
+) -> None:
     for file in report.files:
         if file.result is None:
             print(f"{file.path}: failed ({file.error})", file=sys.stderr)
@@ -60,10 +68,24 @@ def _print_summary(report: RunReport, *, roots: Sequence[Path], dry_run: bool, m
         rewritten = sum(file.result.rewrites.values())
         attention = sum(1 for diagnostic in file.result.diagnostics if diagnostic.severity != "info")
         print(f"{file.path}: {rewritten} rewritten, {attention} need review")
+    for dependency in dependencies:
+        if dependency.error is not None:
+            print(f"{dependency.path}: failed ({dependency.error})", file=sys.stderr)
+        elif dependency.changed:
+            flagged = sum(1 for diagnostic in dependency.diagnostics if diagnostic.severity != "info")
+            updated = len(dependency.diagnostics) - flagged
+            note = "mcp requirement updated for v2" if updated else f"{flagged} need review"
+            print(f"{dependency.path}: {note}")
 
     print(f"\n{len(report.changed)} of {len(report.files)} files rewritten.")
     severities = report.diagnostics
-    attention = severities["review"] + severities["manual"]
+    pending = [
+        (dependency.path, diagnostic)
+        for dependency in dependencies
+        for diagnostic in dependency.diagnostics
+        if diagnostic.severity != "info"
+    ]
+    attention = severities["review"] + severities["manual"] + len(pending)
     if attention:
         if markers and not dry_run:
             targets = " ".join(str(root) for root in roots)
@@ -77,17 +99,22 @@ def _print_summary(report: RunReport, *, roots: Sequence[Path], dry_run: bool, m
                 for diagnostic in file.result.diagnostics:
                     if diagnostic.severity != "info":
                         print(f"  {file.path}:{diagnostic.line}: {diagnostic.message}")
+            for path, diagnostic in pending:
+                print(f"  {path}:{diagnostic.line}: {diagnostic.message}")
     if dry_run:
         print("Dry run: nothing was written.")
-    if report.failed:
-        print(f"{len(report.failed)} files failed.", file=sys.stderr)
+    failures = len(report.failed) + sum(1 for dependency in dependencies if dependency.error is not None)
+    if failures:
+        print(f"{failures} files failed.", file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the codemod. Returns 0, or 1 if any file failed."""
     args = _build_parser().parse_args(argv)
     report = run(discover(args.paths), write=not args.dry_run, add_markers=not args.no_markers)
+    dependencies = update_dependencies(args.paths, write=not args.dry_run, add_markers=not args.no_markers)
     if args.diff:
         _print_diffs(report)
-    _print_summary(report, roots=args.paths, dry_run=args.dry_run, markers=not args.no_markers)
-    return 1 if report.failed else 0
+    _print_summary(report, dependencies, roots=args.paths, dry_run=args.dry_run, markers=not args.no_markers)
+    failed = report.failed or any(dependency.error is not None for dependency in dependencies)
+    return 1 if failed else 0

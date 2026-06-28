@@ -1,0 +1,30 @@
+[
+  {
+    "slug": "official-servers",
+    "url": "https://github.com/modelcontextprotocol/servers",
+    "sha": "7b1170d1da1e36bc9f553f51e76e64cbfd652b3e",
+    "include": ["src/fetch", "src/git", "src/time"],
+    "note": "The official reference servers; lowlevel Server and FastMCP usage."
+  },
+  {
+    "slug": "mcp-obsidian",
+    "url": "https://github.com/MarkusPfundstein/mcp-obsidian",
+    "sha": "32285e9ac07049a8a23ea7d7903603a3e48a1bf7",
+    "include": [],
+    "note": "Popular community server; lowlevel Server with mcp.types throughout."
+  },
+  {
+    "slug": "awslabs-aws-documentation",
+    "url": "https://github.com/awslabs/mcp",
+    "sha": "3a5294539de4de3a91d0ee72d5487bc8b8b1fcd7",
+    "include": ["src/aws-documentation-mcp-server"],
+    "note": "One server from the awslabs monorepo; production FastMCP usage."
+  },
+  {
+    "slug": "android-mcp-server",
+    "url": "https://github.com/minhalvp/android-mcp-server",
+    "sha": "451d255a7305e6efef8a1a2b7374a21c512bba45",
+    "include": [],
+    "note": "Small community FastMCP server."
+  }
+]

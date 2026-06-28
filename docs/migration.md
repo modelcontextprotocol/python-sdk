@@ -8,7 +8,7 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Automated migration
 
-The `mcp-codemod` tool (published from `src/mcp-codemod` in this repository) rewrites every change in this guide whose meaning is unambiguous from the file alone -- the import moves, the symbol renames, the `MCPError` reshape, and the camelCase to snake_case field renames -- and inserts a `# mcp-codemod:` comment above every site it recognized but would not guess at. Run it on a clean branch first, then work through what it marked:
+The `mcp-codemod` tool (published from `src/mcp-codemod` in this repository) rewrites every change in this guide whose meaning is unambiguous from the file alone -- the import moves, the symbol renames, the `MCPError` reshape, the camelCase to snake_case field renames, and the `mcp` requirement in `pyproject.toml` / `requirements*.txt` -- and inserts a `# mcp-codemod:` comment above every site it recognized but would not guess at. Run it on a clean branch first, then work through what it marked:
 
 ```bash
 uvx mcp-codemod v1-to-v2 ./src

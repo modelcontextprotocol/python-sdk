@@ -16,12 +16,16 @@ __all__ = [
     "ERRORDATA_QNAMES",
     "FASTMCP_QNAMES",
     "LOWLEVEL_DECORATOR_METHODS",
+    "LOWLEVEL_REMOVED_ATTRS",
     "LOWLEVEL_SERVER_QNAMES",
     "MCPERROR_QNAMES",
     "MODULE_RENAMES",
+    "REHOMED_IMPORTS",
     "REMOVED_APIS",
     "REMOVED_ATTRS",
     "REMOVED_CTOR_PARAMS",
+    "REMOVED_EXTRAS",
+    "REMOVED_MODULES",
     "SYMBOL_RENAMES",
     "TRANSPORT_CLIENT_QNAMES",
     "TRANSPORT_CLIENT_REMOVED_PARAMS",
@@ -40,6 +44,40 @@ MODULE_RENAMES: dict[str, str] = {
     "mcp.server.fastmcp.server": "mcp.server.mcpserver.server",
     "mcp.shared.version": "mcp_types.version",
     "mcp.types": "mcp_types",
+}
+
+# Imports whose v2 module is importable but is not the name's PUBLIC home,
+# keyed by (renamed module, imported name) and applied after `MODULE_RENAMES`:
+# `Context` moved out of `server.py` on v2, and while the module still imports
+# it, a type checker treats a name a module does not re-export as private. The
+# package declares it in `__all__`, so the import is split out to point there.
+REHOMED_IMPORTS: dict[tuple[str, str], str] = {
+    ("mcp.server.mcpserver.server", "Context"): "mcp.server.mcpserver",
+}
+
+# v1 module namespaces that no longer exist on v2 under any name, keyed by their
+# roots and matched by longest prefix like `MODULE_RENAMES`. An import of one is
+# marked (never rewritten or deleted); together with the renames these account
+# for every public module v1 shipped, which `tests/codemod/test_mappings.py`
+# pins against the frozen v1 module list and the installed v2 package.
+REMOVED_MODULES: dict[str, str] = {
+    "mcp.client.experimental": (
+        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
+    ),
+    "mcp.server.experimental": (
+        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
+    ),
+    "mcp.server.lowlevel.experimental": (
+        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
+    ),
+    "mcp.shared.experimental": (
+        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
+    ),
+    "mcp.client.websocket": "removed: the WebSocket transport was deleted",
+    "mcp.server.websocket": "removed: the WebSocket transport was deleted",
+    "mcp.server.lowlevel.func_inspection": "removed: it was an internal helper of the lowlevel server",
+    "mcp.shared.progress": "removed: report progress with `ctx.report_progress()` inside a handler",
+    "mcp.shared.response_router": "removed: superseded by `JSONRPCDispatcher`",
 }
 
 # Symbol renames, keyed by every v1 qualified name the symbol was reachable from.
@@ -109,6 +147,13 @@ REMOVED_APIS: dict[str, str] = {
     "mcp.types.TASK_STATUS_COMPLETED": 'removed: use the literal string `"completed"`',
     "mcp.types.TASK_STATUS_FAILED": 'removed: use the literal string `"failed"`',
     "mcp.types.TASK_STATUS_CANCELLED": 'removed: use the literal string `"cancelled"`',
+}
+
+# Extras the v1 `mcp` distribution declared that v2 does not, with guidance.
+# Pinned against the installed distribution's `Provides-Extra` metadata by
+# `tests/codemod/test_mappings.py`.
+REMOVED_EXTRAS: dict[str, str] = {
+    "ws": "the `ws` extra was removed with the WebSocket transport",
 }
 
 # Attribute and method names that vanished from a class that still exists. These
@@ -238,6 +283,15 @@ TRANSPORT_CTOR_PARAMS: frozenset[str] = frozenset(
 # `MCPServer.__init__` keyword arguments removed outright on v2.
 REMOVED_CTOR_PARAMS: dict[str, str] = {
     "mount_path": "removed: mount the app under a Starlette route instead",
+}
+
+# Attributes removed from the lowlevel `Server` whose NAMES survive elsewhere on
+# v2 (`Context.request_context` is a live idiom), so unlike `REMOVED_ATTRS` they
+# are only matched against a receiver the pre-pass proved is a lowlevel server.
+LOWLEVEL_REMOVED_ATTRS: dict[str, str] = {
+    "request_context": (
+        "`Server.request_context` and the `request_ctx` ContextVar were removed: handlers now receive `ctx` explicitly"
+    ),
 }
 
 # The v1 lowlevel `Server` decorator-factory methods and the `on_*` keyword each

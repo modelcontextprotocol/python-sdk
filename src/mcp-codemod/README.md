@@ -40,6 +40,11 @@ manual fix-up.
   change.
 - The `streamable_http_client(...) as (read, write, _)` three-tuple to the v2
   two-tuple.
+- The `mcp` requirement in `pyproject.toml` and `requirements*.txt`, to
+  `>=2,<3`, wherever the current constraint cannot accept any v2 release. Only
+  the version specifier changes; the name, extras, environment marker, and
+  formatting keep your spelling. A constraint that already admits v2, a Poetry
+  dependency table, and the removed `ws` extra are marked instead of guessed at.
 
 ## What it marks instead
 
@@ -48,7 +53,10 @@ The codemod never guesses at these; it leaves them exactly as written and adds a
 `# mcp-codemod:` comment explaining what to do:
 
 - Removed APIs that have no drop-in replacement (`create_connected_server_and_client_session`,
-  the WebSocket transport, `mcp.shared.progress`, `get_context()`).
+  the WebSocket transport, `mcp.shared.progress`, `get_context()`), and imports
+  of whole module namespaces v2 deleted (the experimental tasks API, which is
+  first-class on v2). Together with the renames these account for every public
+  module v1 shipped, so an import is never left to fail unexplained.
 - The v1 `mcp.types` names with no v2 home (`Cursor`, the `TASK_*` constants, the
   type-machinery aliases). `mcp_types` is not a name-superset of v1's `mcp.types`,
   so these are marked with their replacement instead of being rewritten into an

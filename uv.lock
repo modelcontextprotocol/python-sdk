@@ -1103,10 +1103,14 @@ name = "mcp-codemod"
 source = { editable = "src/mcp-codemod" }
 dependencies = [
     { name = "libcst" },
+    { name = "packaging" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "libcst", specifier = ">=1.8.6" }]
+requires-dist = [
+    { name = "libcst", specifier = ">=1.8.6" },
+    { name = "packaging", specifier = ">=24.0" },
+]
 
 [[package]]
 name = "mcp-everything-server"

@@ -28,6 +28,8 @@ dependencies = [
     # 1.8.6 is the first release verified to parse and run on Python 3.14, which
     # the SDK supports; older floors trade an untested resolution for nothing.
     "libcst>=1.8.6",
+    # Parses the PEP 508 requirement strings the dependency updater rewrites.
+    "packaging>=24.0",
 ]
 
 [project.scripts]

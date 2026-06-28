@@ -317,7 +317,7 @@ def test_the_websocket_client_import_is_flagged() -> None:
     result = transform(source)
     assert any(d.severity == "manual" and "WebSocket" in d.message for d in result.diagnostics)
     assert result.code == snapshot("""\
-# mcp-codemod: `mcp.client.websocket.websocket_client` removed: the WebSocket transport was deleted
+# mcp-codemod: `mcp.client.websocket` removed: the WebSocket transport was deleted
 from mcp.client.websocket import websocket_client
 
 
@@ -912,24 +912,6 @@ def test_surviving_constructor_keywords_are_not_flagged() -> None:
     assert transform(source).diagnostics == []
 
 
-def test_a_lowlevel_server_bound_to_an_attribute_is_not_tracked() -> None:
-    """Only a plain-name binding of a lowlevel `Server(...)` is tracked, so a registration
-    on a server held in an instance attribute is left alone with no diagnostic."""
-    source = textwrap.dedent("""\
-        from mcp.server.lowlevel import Server
-
-
-        class Holder:
-            def __init__(self) -> None:
-                self.s = Server("x")
-
-                @self.s.call_tool()
-                async def handle(name, arguments):
-                    return []
-        """)
-    assert transform(source).diagnostics == []
-
-
 def test_transforming_already_transformed_code_is_a_noop() -> None:
     """Running the codemod over its own output changes nothing, even for a source that exercises
     a module rename, a symbol rename, a camelCase attribute rename, and a flag-only diagnostic.
@@ -1490,12 +1472,17 @@ def test_a_removed_nested_class_reached_through_its_parent_is_marked() -> None:
 
 
 def test_the_server_submodule_import_targets_the_v2_submodule() -> None:
-    """`mcp.server.fastmcp.server` maps to the literal v2 submodule, where every one
-    of its public names (`Settings` is the giveaway -- the package does not export
-    it) still lives.
+    """`mcp.server.fastmcp.server` maps to the literal v2 submodule, where its
+    module-level names (`Settings` is the giveaway -- the package does not export
+    it) still live; `Context` alone is rehomed to the package, its public v2 home.
     """
     source = "from mcp.server.fastmcp.server import Context, Settings\n"
-    assert transform(source).code == snapshot("from mcp.server.mcpserver.server import Context, Settings\n")
+    assert transform(source).code == snapshot(
+        """\
+from mcp.server.mcpserver.server import Settings
+from mcp.server.mcpserver import Context
+"""
+    )
 
 
 def test_a_resolvable_non_mcp_receiver_is_never_flagged() -> None:
@@ -1528,4 +1515,136 @@ def test_no_unbind_marker_when_another_import_keeps_the_root_bound() -> None:
     result = transform(source)
     assert "import mcp_types" in result.code
     assert "mcp_types.Tool" in result.code
+    assert result.diagnostics == []
+
+
+def test_an_import_of_a_removed_module_is_marked_and_kept() -> None:
+    """`import mcp.shared.progress` names a module v2 deleted outright; the import is
+    kept exactly as written and marked with the replacement guidance.
+    """
+    source = "import mcp.shared.progress\n"
+    result = transform(source)
+    assert "import mcp.shared.progress\n" in result.code
+    assert [diagnostic.transform for diagnostic in result.diagnostics] == ["removed_module"]
+    assert "ctx.report_progress()" in result.diagnostics[0].message
+
+
+def test_a_from_import_out_of_a_removed_namespace_gets_one_marker() -> None:
+    """A `from` import out of a deleted namespace gets a single whole-statement
+    marker; per-name markers would only repeat it.
+    """
+    source = "from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution\n"
+    result = transform(source)
+    assert result.code.count("# mcp-codemod:") == 1
+    assert [diagnostic.severity for diagnostic in result.diagnostics] == ["manual"]
+    assert "first-class on v2" in result.diagnostics[0].message
+
+
+def test_a_removed_module_imported_from_its_parent_package_is_marked() -> None:
+    """`from mcp.client import websocket` binds the deleted module through its parent,
+    so the per-name check resolves `mcp.client.websocket` against the removed roots.
+    """
+    source = "from mcp.client import websocket\n"
+    result = transform(source)
+    assert result.code.count("# mcp-codemod:") == 1
+    assert "`mcp.client.websocket` removed" in result.diagnostics[0].message
+
+
+def test_context_imported_from_the_server_module_is_rehomed_to_the_package() -> None:
+    """`Context` moved out of `server.py` on v2; importing it from there would be a
+    private-usage to a type checker, so the import is split out to the package,
+    which declares it publicly.
+    """
+    source = "from mcp.server.fastmcp.server import Context, FastMCP, Settings\n"
+    assert transform(source).code == snapshot(
+        """\
+from mcp.server.mcpserver.server import MCPServer, Settings
+from mcp.server.mcpserver import Context
+"""
+    )
+
+
+def test_a_rehomed_import_keeps_its_alias_and_takes_the_statement_over_when_alone() -> None:
+    """A lone rehomed name replaces the whole statement, `as` alias and all."""
+    source = "from mcp.server.fastmcp.server import Context as Ctx\n"
+    assert transform(source).code == snapshot("from mcp.server.mcpserver import Context as Ctx\n")
+
+
+def test_request_context_on_a_proven_lowlevel_server_is_flagged() -> None:
+    """`Server.request_context` is gone on v2, but `Context.request_context` lives;
+    only a receiver the pre-pass proved holds a lowlevel `Server` is flagged, so
+    the live idiom is never touched (which `test_the_v2_request_context_idiom_is_
+    never_flagged` pins).
+    """
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        server = Server("git")
+
+
+        async def progress(token: str) -> None:
+            ctx = server.request_context
+            await ctx.session.send_progress_notification(token, 1.0)
+        """)
+    result = transform(source)
+    assert "server.request_context" in result.code
+    assert [diagnostic.severity for diagnostic in result.diagnostics] == ["manual"]
+    assert "handlers now receive `ctx` explicitly" in result.diagnostics[0].message
+
+
+def test_a_lowlevel_server_bound_to_an_attribute_is_recognized() -> None:
+    """`self.server = Server(...)` binds the server to an attribute; its decorators
+    and removed attributes get the same treatment as a plain name binding."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+
+        class App:
+            def __init__(self) -> None:
+                self.server = Server("demo")
+
+            def current(self) -> object:
+                return self.server.request_context
+        """)
+    result = transform(source)
+    assert [diagnostic.severity for diagnostic in result.diagnostics] == ["manual"]
+    assert "handlers now receive `ctx` explicitly" in result.diagnostics[0].message
+
+
+def test_a_marker_survives_a_statement_split() -> None:
+    """A removed-module flag on an import that is also being split for a renamed
+    sibling lands above the split's first piece instead of being dropped."""
+    result = transform("from mcp.server import websocket, fastmcp\n")
+    assert result.code == snapshot(
+        """\
+# mcp-codemod: `mcp.server.websocket` removed: the WebSocket transport was deleted
+from mcp.server import websocket
+import mcp.server.mcpserver as fastmcp
+"""
+    )
+
+
+def test_a_tuple_assignment_involving_a_server_call_is_passed_over() -> None:
+    """A tuple target has no single dotted spelling to track, so the pre-pass
+    records nothing and the module is returned unchanged."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        primary, label = Server("a"), "main"
+        """)
+    result = transform(source)
+    assert result.code == source
+    assert result.diagnostics == []
+
+
+def test_unpacking_a_call_result_is_passed_over() -> None:
+    """A tuple target has no single dotted spelling to track, so a call result that
+    is unpacked records nothing and the module is returned unchanged."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        server, transport = build(Server("x"))
+        """)
+    result = transform(source)
+    assert result.code == source
     assert result.diagnostics == []

@@ -165,3 +165,49 @@ def test_a_dry_run_lists_every_site_instead_of_the_grep_hint(
     assert "grep -rn" not in captured.out
     assert "Dry run: nothing was written." in captured.out
     assert "failed (" in captured.err
+
+
+def test_the_cli_updates_dependency_files_alongside_the_sources(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One run migrates the code and the project's `mcp` requirement together, and
+    a dependency flag joins the still-need-a-human accounting.
+    """
+    (tmp_path / "server.py").write_text("from mcp.server.fastmcp import FastMCP\n")
+    (tmp_path / "pyproject.toml").write_text('[project]\ndependencies = ["mcp>=1.2,<2"]\n')
+    (tmp_path / "requirements.txt").write_text("mcp[ws]==1.9.4\n")
+    code = main(["v1-to-v2", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "mcp.server.mcpserver" in (tmp_path / "server.py").read_text()
+    assert '"mcp>=2,<3"' in (tmp_path / "pyproject.toml").read_text()
+    assert "# mcp-codemod:" in (tmp_path / "requirements.txt").read_text()
+    assert f"{tmp_path / 'pyproject.toml'}: mcp requirement updated for v2" in captured.out
+    assert f"{tmp_path / 'requirements.txt'}: 1 need review" in captured.out
+    assert "1 sites still need a human" in captured.out
+
+
+def test_a_broken_pyproject_fails_the_run_without_stopping_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unparseable dependency file is reported on stderr and sets the exit code,
+    while the source files still migrate."""
+    (tmp_path / "server.py").write_text("from mcp.server.fastmcp import FastMCP\n")
+    (tmp_path / "pyproject.toml").write_text("[broken")
+    code = main(["v1-to-v2", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "mcp.server.mcpserver" in (tmp_path / "server.py").read_text()
+    assert "TOMLDecodeError" in captured.err
+
+
+def test_no_markers_lists_dependency_sites_in_the_summary(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Under `--no-markers` a dependency flag cannot live in the file, so the
+    summary lists it with its location like any other site."""
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("mcp[ws]==1.9.4\n")
+    code = main(["v1-to-v2", "--no-markers", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert requirements.read_text() == "mcp[ws]==1.9.4\n"
+    assert f"{requirements}:1: the `ws` extra was removed" in captured.out
