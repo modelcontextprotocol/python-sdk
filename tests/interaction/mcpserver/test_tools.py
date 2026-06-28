@@ -394,9 +394,11 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     add_tool and remove_tool only update the registry: a connected client that listed the tools
     before the mutation has no way to learn it should list them again. The spec provides
-    notifications/tools/list_changed for exactly this; MCPServer never sends it. The tool emits
-    one log message as a sentinel so the test proves notifications do reach the collector -- the
-    log message arrives, a list_changed does not.
+    notifications/tools/list_changed for exactly this; MCPServer never sends it. The mutation
+    happens out-of-band, between requests -- the spec's "MAY change over time" allowance; varying
+    the set as a side effect of another request on the connection is forbidden at 2026-07-28. The
+    sentinel tool logs one message after the mutation so the test proves notifications do reach
+    the collector -- the log message arrives, a list_changed does not.
     """
     received: list[IncomingMessage] = []
     mcp = MCPServer("mutable")
@@ -411,22 +413,23 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
         raise NotImplementedError
 
     @mcp.tool()
-    async def grow(ctx: Context) -> str:
-        mcp.add_tool(extra, name="extra")
-        mcp.remove_tool("doomed")
-        await ctx.info("tool set changed")  # pyright: ignore[reportDeprecated]
-        return "mutated"
+    async def sentinel(ctx: Context) -> str:
+        await ctx.info("after the mutation")  # pyright: ignore[reportDeprecated]
+        return "sentinel ran"
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
     async with connect(mcp, message_handler=collect) as client:
         before = await client.list_tools()
-        await client.call_tool("grow", {})
+        # Out-of-band: no request is in flight while the set changes.
+        mcp.add_tool(extra, name="extra")
+        mcp.remove_tool("doomed")
+        await client.call_tool("sentinel", {})
         after = await client.list_tools()
 
-    assert [tool.name for tool in before.tools] == ["doomed", "grow"]
-    assert [tool.name for tool in after.tools] == ["grow", "extra"]
+    assert [tool.name for tool in before.tools] == ["doomed", "sentinel"]
+    assert [tool.name for tool in after.tools] == ["sentinel", "extra"]
     assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="after the mutation"))]
     )

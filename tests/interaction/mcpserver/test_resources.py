@@ -41,6 +41,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
 
 @requirement("mcpserver:resource:static")
+@requirement("mcpserver:resource:template")
 async def test_list_static_and_templated_resources(connect: Connect) -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 

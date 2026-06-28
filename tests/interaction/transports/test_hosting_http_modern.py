@@ -4,7 +4,9 @@ These tests speak HTTP directly to the server's mounted ASGI app via the in-proc
 asserting the wire contract for a 2026-07-28 POST -- one self-contained request, no initialize
 handshake, no ``Mcp-Session-Id``, JSON response body -- and that 2025-era traffic on the same
 endpoint is byte-unchanged. The SDK client never exposes the response headers or the raw
-result-envelope shape, so every assertion here is necessarily wire-level.
+result-envelope shape, so every assertion here is necessarily wire-level. A handful of tests
+instead drive the SDK client against the mounted entry, for serving behaviour that is specific
+to this transport but observable through the public API.
 """
 
 import json
@@ -21,12 +23,15 @@ from mcp_types import (
     HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     PROTOCOL_VERSION_META_KEY,
     CallToolRequestParams,
     CallToolResult,
     DiscoverResult,
+    ElicitRequestParams,
+    ElicitResult,
     EmptyResult,
     ErrorData,
     GetPromptRequestParams,
@@ -55,10 +60,12 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 from starlette.requests import Request as StarletteRequest
 
 from mcp import MCPError
+from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import NoBackChannelError
 from tests.interaction._connect import (
     BASE_URL,
     base_headers,
@@ -1416,6 +1423,81 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
     [first_frame] = parse_sse_messages([first])
     assert first_frame.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
         {"jsonrpc": "2.0", "method": "notifications/progress", "params": {"progressToken": "t", "progress": 1.0}}
+    )
+
+
+@requirement("mrtr:push-api:loud-fail-2026")
+async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call_still_completes() -> None:
+    """A request-scoped push elicit over the modern HTTP entry raises the typed local error and the
+    call still completes -- the related_request_id leg that the in-memory pair transmits (the
+    divergence pinned in lowlevel/test_mrtr.py) loud-fails here, byte-identical to the standalone
+    legs, because this entry's per-request dispatch context hard-codes its back-channel away.
+
+    The outcome is spec-mandated (the previous server-initiated request pattern is no longer
+    supported) but the enforcement at this pin is incidental -- no back-channel, not an era gate.
+    Transport-pinned: the modern entry's gate is the only enforcement of the 2026 push prohibition
+    that holds on this leg, so it gets its own regression pin against the requirement's divergence
+    matrix.
+    """
+    caught: list[NoBackChannelError] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
+        # tools/list right after the tools/call result.
+        return ListToolsResult(tools=[Tool(name="ask", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "ask"
+        assert ctx.request_id is not None
+        try:
+            # The related id selects the per-request dispatch channel -- the leg whose in-memory
+            # twin still transmits the forbidden frame.
+            await ctx.session.elicit_form(
+                "Need a name",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+                related_request_id=ctx.request_id,
+            )
+        except NoBackChannelError as exc:
+            caught.append(exc)
+        return CallToolResult(content=[TextContent(text="fallback")])
+
+    server = Server("scoped-push", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    # Registered so the client declares the elicitation capability in the per-request envelope,
+    # isolating the failure to the missing back-channel rather than to capability gating; the
+    # body is itself the never-delivered assertion.
+    async def never_deliverable(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        raise NotImplementedError
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="srv", version="0"),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+                elicitation_callback=never_deliverable,
+            ) as client,
+        ):
+            result = await client.call_tool("ask", {})
+
+    # The failed push did not poison the request: the call completes with the handler's fallback.
+    assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
+    assert len(caught) == 1
+    assert caught[0].method == "elicitation/create"
+    assert caught[0].error == snapshot(
+        ErrorData(
+            code=INVALID_REQUEST,
+            message=(
+                "Cannot send 'elicitation/create': this transport context has no back-channel "
+                "for server-initiated requests."
+            ),
+        )
     )
 
 
