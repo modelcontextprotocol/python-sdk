@@ -345,7 +345,6 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
 
 
 @requirement("hosting:http:dns-rebinding")
-@requirement("transport:streamable-http:origin-validation")
 async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> None:
     """A disallowed Origin returns 403 (and Host 421) with protection enabled; disabled lets both through.
 

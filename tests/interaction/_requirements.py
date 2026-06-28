@@ -359,15 +359,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
-    "lifecycle:stateless:no-initialize": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
-        behavior=(
-            "A ClientSession pinned to 2026-07-28 is born initialized: initialize() is idempotent "
-            "and returns the synthesized result without any frame sent."
-        ),
-        added_in="2026-07-28",
-        deferred="covered by a tests/client/ unit test; not observable as an interaction",
-    ),
     "lifecycle:stateless:caller-meta-preserved": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic#_meta",
         behavior=(
@@ -2522,7 +2513,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server-initiated request nested inside an in-flight call round-trips over stateful streamable HTTP."
         ),
         transports=("streamable-http",),
-        note="Only observable over streamable HTTP: exercises stateful HTTP session callbacks.",
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated requests are forbidden on streamable HTTP, "
+            "replaced by MRTR input requests embedded in InputRequiredResult."
+        ),
     ),
     "transport:streamable-http:resumability": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
@@ -2530,12 +2525,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); Last-Event-ID resumability/redelivery dropped, no replacement.",
-    ),
-    "transport:streamable-http:origin-validation": Requirement(
-        source=f"{SPEC_BASE_URL}/basic/transports#security-warning",
-        behavior="Requests with an invalid Origin header are rejected with 403 before reaching the session.",
-        transports=("streamable-http",),
-        note="Only observable over streamable HTTP: Origin is an HTTP header.",
     ),
     "transport:sse": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
@@ -3314,14 +3303,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "After initialization, the client sends the negotiated MCP-Protocol-Version header on every "
             "subsequent HTTP request."
-        ),
-        transports=("streamable-http",),
-        note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",
-    ),
-    "client-transport:http:protocol-version-stored": Requirement(
-        source="sdk",
-        behavior=(
-            "The client transport stores the negotiated protocol version and sends it on every subsequent request."
         ),
         transports=("streamable-http",),
         note="Only observable over HTTP: MCP-Protocol-Version is an HTTP header.",

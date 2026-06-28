@@ -95,7 +95,6 @@ async def test_every_request_after_initialize_carries_the_issued_session_id(reco
     assert session_id
 
 
-@requirement("client-transport:http:protocol-version-stored")
 @requirement("client-transport:http:protocol-version-header")
 async def test_every_request_after_initialize_carries_the_negotiated_protocol_version(
     recorded: list[httpx.Request],
