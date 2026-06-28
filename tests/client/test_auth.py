@@ -1998,6 +1998,16 @@ class TestWWWAuthenticate:
                 "admin:write resource:read",
             ),
             (
+                'Bearer error_scope="decoy", scope="read write"',
+                "scope",
+                "read write",
+            ),
+            (
+                'Bearer realm="api, scope=decoy", scope="read write"',
+                "scope",
+                "read write",
+            ),
+            (
                 'Bearer realm="api", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource", '
                 'error="insufficient_scope"',
                 "resource_metadata",
@@ -2047,6 +2057,19 @@ class TestWWWAuthenticate:
             # Header without requested field
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            ('Bearer custom_scope="leaked"', "scope", "substring auth-param should not match scope"),
+            ('Bearer realm="api scope=leaked"', "scope", "auth-param inside quoted value should not match scope"),
+            ('Bearer realm="api, scope=leaked"', "scope", "auth-param after quoted comma should not match scope"),
+            (
+                'Bearer x_resource_metadata="https://decoy.example.com"',
+                "resource_metadata",
+                "substring auth-param should not match resource_metadata",
+            ),
+            (
+                'Bearer realm="api, resource_metadata=https://decoy.example.com"',
+                "resource_metadata",
+                "auth-param after quoted comma should not match resource_metadata",
+            ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),

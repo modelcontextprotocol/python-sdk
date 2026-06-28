@@ -26,13 +26,25 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
-    pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    header_value = www_auth_header.strip()
+    auth_params = re.sub(r"^\S+\s+", "", header_value, count=1)
 
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
+    # Split auth-params on commas, but only outside quoted values.
+    in_quotes = False
+    param_start = 0
+    for index, char in enumerate(auth_params + ","):
+        if char == '"':
+            in_quotes = not in_quotes
+        elif char == "," and not in_quotes:
+            param = auth_params[param_start:index].strip()
+            param_start = index + 1
+
+            name, separator, value = param.partition("=")
+            if separator and name.strip() == field_name:
+                match = re.match(r'\s*(?:"([^"]+)"|([^\s,]+))', value)
+                if match:
+                    # Return quoted value if present, otherwise unquoted value
+                    return match.group(1) or match.group(2)
 
     return None
 
