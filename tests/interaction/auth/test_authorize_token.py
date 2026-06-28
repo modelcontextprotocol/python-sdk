@@ -26,7 +26,7 @@ from inline_snapshot import snapshot
 from mcp_types import ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthFlowError
+from mcp.client.auth import OAuthFlowError, OAuthTokenError
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
 from tests.interaction._connect import BASE_URL
@@ -188,12 +188,16 @@ async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
 
 
 @requirement("client-auth:iss:mismatch-reject")
+@requirement("client-auth:iss:unadvertised-present-validated")
 async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
     """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
 
     `iss_override` makes the headless callback return an issuer the AS never advertised; the SDK
     compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange --
     the recorded traffic shows no /token POST, so the tainted authorization code is never exchanged.
+    Also pins the mismatch arm of `client-auth:iss:unadvertised-present-validated`: the served AS
+    metadata never advertises `authorization_response_iss_parameter_supported`, so this rejection is
+    RFC 9207 validation table row 3 -- a present iss is validated regardless of advertisement.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -420,4 +424,245 @@ async def test_an_authorize_error_on_the_callback_aborts_the_flow_before_the_tok
             await connect_with_oauth(server, provider=provider, headless=headless, on_request=on_request).__aenter__()
 
     assert headless.error == "access_denied"
+    assert find(recorded, "POST", "/token") == []
+
+
+@requirement("client-auth:token:error-surfaces")
+async def test_a_token_endpoint_error_response_aborts_the_flow_without_a_bearer_request() -> None:
+    """A token-endpoint error response aborts the flow as `OAuthTokenError`, and no bearer is ever sent.
+
+    SDK-defined surfacing (no spec mandate governs client-side token-error handling):
+    `code_override` forges the authorization code at the callback boundary, so the SDK's own
+    token handler produces a genuine RFC 6749 `invalid_grant` 400 -- no shim anywhere. The
+    matched message pins only the SDK-authored prefix naming the HTTP status; the tail is the
+    server handler's JSON, and the absent machine-readable code is the deferred
+    `client-auth:token-error:machine-readable-code`. The recorded traffic proves the failed
+    exchange was not retried and no request ever carried a bearer token.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth(code_override="forged-code")
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(OAuthTokenError, match=r"^Token exchange failed \(400\): "), flatten_subgroups=True
+        ):
+            await connect_with_oauth(server, provider=provider, headless=headless, on_request=on_request).__aenter__()
+
+    # The flow genuinely reached the token step via a real authorize round trip...
+    assert find(recorded, "GET", "/authorize") != []
+    # ...the failed exchange was not retried (no loop)...
+    assert len(find(recorded, "POST", "/token")) == 1
+    # ...and no request ever carried a bearer: the failure pre-empted token use entirely.
+    assert all("authorization" not in r.headers for r in find(recorded, "POST", "/mcp"))
+
+
+def canned_asm(*, iss_advertised: bool | None) -> dict[str, bytes]:
+    """Build a `serve=` override: canned AS metadata with a slash-explicit issuer literal.
+
+    The SDK server's `build_metadata` never sets `authorization_response_iss_parameter_supported`,
+    so the advertising arms of the RFC 9207 validation table need this override; `None` omits the
+    field (`exclude_none`), keeping the document an unadvertising AS whose issuer bytes are still
+    harness-pinned.
+    """
+    override = OAuthMetadata(
+        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
+        token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
+        registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
+        scopes_supported=["mcp"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        code_challenge_methods_supported=["S256"],
+        authorization_response_iss_parameter_supported=iss_advertised,
+    )
+    return {ASM_PATH: override.model_dump_json(exclude_none=True).encode()}
+
+
+@requirement("client-auth:iss:match")
+async def test_a_matching_iss_lets_the_flow_redeem_the_code_when_the_as_advertises_iss_support() -> None:
+    """A callback iss equal to the recorded metadata issuer proceeds to redeem the code (RFC 9207 table row 1).
+
+    Spec-mandated: advertised support + present matching iss -> compare and proceed. The shim
+    serves AS metadata advertising `authorization_response_iss_parameter_supported`; the suite's
+    provider stamps the matching iss on the success redirect. `headless.iss` proves the callback
+    really carried the recorded issuer (completion alone could also mean the value was never
+    looked at -- the rejection arms of the family are the discriminators). Whether the SDK
+    consulted the advertisement flag is not asserted: rows 1 and 3 share one unconditional
+    comparison branch, so the flag's effect is only observable on the absent-iss arms.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    storage = InMemoryTokenStorage()
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            app_shim=lambda app: shimmed_app(app, serve=canned_asm(iss_advertised=True)),
+            on_request=on_request,
+        ) as (client, headless):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
+    assert headless.iss == f"{BASE_URL}/"
+    # One authorize and one token exchange: the flow proceeded directly, no rejection/retry loop.
+    assert len(find(recorded, "GET", "/authorize")) == 1
+    assert len(find(recorded, "POST", "/token")) == 1
+
+
+@requirement("client-auth:iss:no-normalize")
+async def test_an_iss_differing_only_by_a_trailing_slash_is_rejected_without_normalization() -> None:
+    """An iss equal to the recorded issuer up to a trailing slash is a mismatch: nothing is normalized away.
+
+    Spec-mandated: the comparison is RFC 9207 simple string comparison, and the client MUST NOT
+    apply scheme or host case folding, default-port elision, trailing-slash, or percent-encoding
+    normalization before comparing; the trailing-slash arm is pinned as the representative class
+    (the SDK's comparison is a single string inequality). Both spellings are harness literals:
+    the canned metadata carries the slash-explicit issuer and the provider stamps the slash-less
+    redirect iss. Natural metadata would instead source the slash from the SDK server's issuer
+    serialization -- the load-bearing, churn-prone arm of that difference -- whereas the client's
+    metadata parse preserves the served bytes and contributes nothing to it.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issuer=BASE_URL)
+    server = Server("guarded", on_list_tools=list_tools)
+    mismatch = re.escape(f"Authorization response iss mismatch: {BASE_URL} != {BASE_URL}/")
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError, match=f"^{mismatch}$"), flatten_subgroups=True):
+            await connect_with_oauth(
+                server,
+                provider=provider,
+                app_shim=lambda app: shimmed_app(app, serve=canned_asm(iss_advertised=None)),
+                on_request=on_request,
+            ).__aenter__()
+
+    # The recorded unauthenticated trigger POST guards the negative below against an unwired hook.
+    assert find(recorded, "POST", "/mcp") != []
+    assert find(recorded, "POST", "/token") == []
+
+
+@requirement("client-auth:iss:supported-missing-reject")
+async def test_a_missing_iss_is_rejected_when_the_as_advertises_iss_support() -> None:
+    """A callback without iss is rejected before the code is redeemed when the AS advertises iss support (row 2).
+
+    Spec-mandated: advertised support + absent iss -> reject. The SDK's whole authorization-response
+    input is the callback's `AuthorizationCodeResult`, so the absence is constructed at that boundary
+    with `omit_iss` (the suite's AS emits iss on every success redirect; the redirect itself is
+    unchanged). No /token POST is recorded -- the authorization code is never exchanged.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth(omit_iss=True)
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(
+                OAuthFlowError,
+                match="^Authorization response missing iss parameter advertised by the authorization server$",
+            ),
+            flatten_subgroups=True,
+        ):
+            await connect_with_oauth(
+                server,
+                provider=provider,
+                headless=headless,
+                app_shim=lambda app: shimmed_app(app, serve=canned_asm(iss_advertised=True)),
+                on_request=on_request,
+            ).__aenter__()
+
+    assert find(recorded, "POST", "/mcp") != []
+    assert find(recorded, "POST", "/token") == []
+
+
+@requirement("client-auth:iss:unadvertised-proceed")
+async def test_a_missing_iss_is_tolerated_when_the_as_does_not_advertise_iss_support() -> None:
+    """A callback without iss proceeds with the code exchange when the AS does not advertise iss support (row 4).
+
+    Spec-mandated: no advertisement + absent iss -> proceed. The SDK server's `build_metadata`
+    never sets `authorization_response_iss_parameter_supported`, so the natural metadata route IS
+    the unadvertising AS; if it ever started advertising, this test would fail loudly (absent iss
+    + advertised -> the row-2 reject), so the precondition cannot silently rot. The absent iss is
+    constructed at the callback boundary with `omit_iss`.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    storage = InMemoryTokenStorage()
+    headless = HeadlessOAuth(omit_iss=True)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, storage=storage, headless=headless, on_request=on_request
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
+    # Exactly one token exchange: the flow proceeded directly, no rejection/retry detour.
+    assert len(find(recorded, "POST", "/token")) == 1
+
+
+@requirement("client-auth:iss:unadvertised-present-validated")
+async def test_a_present_iss_is_validated_and_accepted_even_when_the_as_does_not_advertise_support() -> None:
+    """A present iss is compared against the recorded issuer even without metadata advertisement (row 3, match arm).
+
+    Spec-mandated, and the point where the MCP spec deliberately exceeds RFC 9207's local-policy
+    provision: a present iss is validated regardless of advertisement. The natural AS metadata is
+    the unadvertising AS and the provider stamps the matching iss; `headless.iss` proves it was
+    present on the callback. The match arm alone cannot prove the comparison ran -- the same
+    entry's mismatch arm is pinned by `test_a_mismatched_iss_on_the_callback_aborts_the_flow`,
+    which drives a mismatched iss against the same unadvertising AS.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    storage = InMemoryTokenStorage()
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (
+            client,
+            headless,
+        ):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
+    assert headless.iss == f"{BASE_URL}/"
+    assert len(find(recorded, "POST", "/token")) == 1
+
+
+@requirement("client-auth:iss:error-response-validated")
+async def test_an_error_redirect_with_a_mismatched_iss_is_rejected_on_iss_before_the_missing_code_error() -> None:
+    """iss validation applies equally to error responses: the mismatch is raised before the missing-code error.
+
+    Spec-mandated at 2026-07-28 (SEP-2468): the AS denies the authorize request, producing a real
+    RFC 6749 error redirect (`error=access_denied`, no code, no iss), and `iss_override` supplies
+    the mismatching issuer at the callback boundary -- the SDK never parses a callback URL, so its
+    whole authorization-response input is the callback's `AuthorizationCodeResult`. Raising the
+    iss mismatch in preference to "No authorization code received" (the arm the error-surfaces
+    test above pins) is the observable proving the validation ran on an error response. The
+    MUST-NOT-act-on-or-display half is not asserted: the callback contract carries no error
+    fields, so the negative would be vacuously true by construction (the manifest note records it).
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(deny_authorize=True)
+    server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth(iss_override="https://attacker.example.com")
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(OAuthFlowError, match="^Authorization response iss mismatch:"), flatten_subgroups=True
+        ):
+            await connect_with_oauth(server, provider=provider, headless=headless, on_request=on_request).__aenter__()
+
+    # The callback genuinely was an error response, and the tainted exchange never started.
+    assert headless.error == "access_denied"
+    # The recorded unauthenticated trigger POST guards the negative below against an unwired hook.
+    assert find(recorded, "POST", "/mcp") != []
     assert find(recorded, "POST", "/token") == []

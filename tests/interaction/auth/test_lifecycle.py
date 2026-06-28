@@ -14,8 +14,9 @@ import anyio
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
+from mcp_types import INTERNAL_ERROR, ErrorData, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
@@ -25,6 +26,7 @@ from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
     REDIRECT_URI,
+    AppShim,
     InMemoryTokenStorage,
     RecordedRequest,
     auth_settings,
@@ -135,6 +137,79 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     assert storage.tokens.expires_in == 3600
 
 
+@requirement("client-auth:refresh:rotation-handling")
+async def test_the_rotated_refresh_token_from_a_refresh_response_replaces_the_stored_one() -> None:
+    """A new refresh token in a refresh response replaces the stored one (RFC 6749 §6 rotation).
+
+    Choreography twin of `test_an_expired_access_token_is_transparently_refreshed_before_the_next_request`,
+    which pins the access-token/bearer side of the same single refresh; this test pins the
+    refresh-token side. The provider's refresh exchange rotates -- it mints a new refresh token
+    and consumes the presented one -- so after the flow, storage must hold a refresh token that
+    is not the one the client presented, is the one the AS actually minted, and is the only
+    live one: the client adopted the rotation instead of keeping the credential it sent.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
+    storage = InMemoryTokenStorage()
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            await client.list_tools()
+
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code", "refresh_token"])
+
+    presented = form_body(token_posts[1])["refresh_token"]
+    assert storage.tokens is not None
+    # The persisted refresh token is not the one the client sent: replacement happened...
+    assert storage.tokens.refresh_token != presented
+    # ...and it is the token the AS minted in the rotation, while the AS consumed the old one,
+    # so the stored credential is the only live one.
+    assert storage.tokens.refresh_token in provider.refresh_tokens
+    assert presented not in provider.refresh_tokens
+
+
+@requirement("client-auth:refresh:rotation-handling")
+async def test_a_refresh_response_without_a_refresh_token_preserves_the_stored_one() -> None:
+    """A refresh response that omits `refresh_token` leaves the stored one in place.
+
+    RFC 6749 §6 lets the authorization server omit `refresh_token` from a refresh response, in
+    which case the client keeps the one it holds; the 2026 Refresh Tokens section (SEP-2207)
+    restates this as "MUST NOT assume refresh tokens will be issued". The provider models the
+    non-rotating AS: its refresh response carries only a new access token (`exclude_none`
+    serialization keeps the key genuinely absent from the wire) and the presented token stays
+    valid server-side. The preserved token alone could pass vacuously if the refresh response
+    were dropped entirely, so the adopted `expires_in` (the first token's was -3600) proves it
+    was not, and the single authorize/register pair proves the omission was treated as normal
+    rather than triggering a re-authorization.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True, rotate_refresh_tokens=False)
+    storage = InMemoryTokenStorage()
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code", "refresh_token"])
+
+    assert storage.tokens is not None
+    # Preserved through a response that omitted it: byte-identical to the one presented.
+    assert storage.tokens.refresh_token == form_body(token_posts[1])["refresh_token"]
+    # The refresh response WAS adopted (the first token's expires_in was -3600).
+    assert storage.tokens.expires_in == 3600
+
+    # The missing refresh_token triggered neither a re-authorization nor a re-registration.
+    counts = path_counts(recorded)
+    assert counts[("GET", "/authorize")] == 1
+    assert counts[("POST", "/register")] == 1
+
+
 @requirement("client-auth:403-scope-upgrade")
 async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challenged_scope() -> None:
     """A 403 `insufficient_scope` challenge is answered by one re-authorize with the challenge's scope.
@@ -145,7 +220,8 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     wider scope; step-up reuses cached metadata and the existing client registration,
     re-authorizes with the new scope, and the connect completes. The client is pre-registered
     with both scopes so the server's authorize handler accepts the wider second request. One
-    re-authorize, one retry; the spec's SHOULD-retry-limit ("a few") is not enforced.
+    re-authorize, one retry; the SDK has no configurable retry counter -- the structural
+    per-send bound is pinned by `client-auth:stepup:retry-cap`.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -208,7 +284,8 @@ async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenge
     assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
 
 
-@requirement("client-auth:as-binding")
+@requirement("client-auth:as-binding:reregister")
+@requirement("client-auth:as-binding:no-cred-reuse")
 async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_client_re_registers() -> None:
     """Credentials bound to a stale issuer are dropped and re-registered against the current AS.
 
@@ -507,3 +584,161 @@ async def test_registration_priority_prefers_preregistered_then_cimd_then_dcr(
     else:
         assert find(recorded, "POST", "/register") == []
         assert chosen_client_id == expected_client_id
+
+
+@requirement("client-auth:stepup:retry-cap")
+async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_another_authorize() -> None:
+    """A persistent 403 gets one step-up and one retry, then the retried request's 403 surfaces as an error.
+
+    The spec's per-send retry limit is a SHOULD; the SDK's bound is structural, not a counter:
+    the auth flow performs one scope-union re-authorize, yields one retry, and its generator
+    ends, so the second `insufficient_scope` 403 is the final response and the legacy transport
+    surfaces it as the INTERNAL_ERROR stand-in. The shim 403s every authenticated `/mcp` POST
+    from the third onward -- the `list_tools` request -- because the legacy client silently
+    drops a non-2xx response to a notification POST, which would smear the property across two
+    sends (cross-send attempt memory is the separate deferred
+    `client-auth:stepup:attempt-tracking` entry).
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    challenge = 'Bearer error="insufficient_scope", scope="mcp write"'
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=step_up_shim(challenge, on_nth_authenticated_post=3, persist=True),
+            on_request=on_request,
+        ) as (client, headless):
+            # The README-sanctioned non-collapsible shape: a sync `with` adjacent to an `async
+            # with` mis-traces its body arc under branch coverage.
+            with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+                await client.list_tools()
+
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Server returned an error response"))
+
+    # Exactly one step-up, carrying the SEP-2350 scope union -- the second 403 triggered no third.
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+    # init-retry, initialized, challenged list_tools, retried list_tools -- and no fifth.
+    authenticated_posts = [r for r in find(recorded, "POST", "/mcp") if "authorization" in r.headers]
+    assert len(authenticated_posts) == 4
+    counts = path_counts(recorded)
+    assert counts[("POST", "/mcp")] == 5
+    assert counts[("POST", "/token")] == 2
+
+
+def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Event, AppShim]:
+    """Build an `app_shim` that 403s the first authenticated GET to `/mcp` with the given challenge.
+
+    Later authenticated GETs pass through the wrapped app. The status of every authenticated
+    GET's response (the shim's own 403 included) is appended to the returned list, and the
+    returned event is set when one of those responses starts with status 200 -- the reopened
+    stream -- so the test can wait on the SDK's background GET task without sleeping.
+    Response-status observation is unique to this one test, so the shim stays file-local.
+    """
+    statuses: list[int] = []
+    reopened = anyio.Event()
+    fired = False
+
+    def factory(app: ASGIApp) -> ASGIApp:
+        async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal fired
+            if not (
+                scope["type"] == "http"
+                and scope["path"] == "/mcp"
+                and scope["method"] == "GET"
+                and b"authorization" in dict(scope["headers"])
+            ):
+                await app(scope, receive, send)
+                return
+
+            async def recording_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    statuses.append(message["status"])
+                    if message["status"] == 200:
+                        reopened.set()
+                await send(message)
+
+            if not fired:
+                fired = True
+                await recording_send(
+                    {
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [(b"www-authenticate", www_authenticate.encode())],
+                    }
+                )
+                await recording_send({"type": "http.response.body", "body": b""})
+                return
+            # Tail call: the reopened SSE stream stays open until the test's exit cancels it,
+            # so nothing may follow this await.
+            await app(scope, receive, recording_send)
+
+        return wrapped
+
+    return statuses, reopened, factory
+
+
+@requirement("client-auth:stepup:get-stream-403")
+async def test_a_403_on_the_get_stream_open_steps_up_and_reopens_the_stream_with_the_upgraded_token() -> None:
+    """A 403 `insufficient_scope` on the standalone GET stream open steps up and reopens the stream.
+
+    The standalone GET is a 2025-11-25 transport mechanism (removed at 2026-07-28) that this
+    suite's legacy-mode connect opens itself after `notifications/initialized`; `Client` cannot
+    observe it at all, which is why the file-local shim records each authenticated GET's
+    response status. Steps:
+
+    1. the SDK opens the GET stream and the shim 403s it with a wider-scope challenge;
+    2. the auth flow re-authorizes with the SEP-2350 union and retries the GET inside the same
+       stream-open call -- the real bearer middleware, not the shim, accepts the upgraded token;
+    3. the test waits for the reopened stream's 200 before acting, closing the only racy seam
+       (the GET task is started by the SDK, never awaited by the test);
+    4. a post-reopen `list_tools` proves the session, auth-context lock, and upgraded token
+       remain usable by the foreground.
+
+    The failure arm (a step-up that fails again on the GET leg) is deliberately unpinned: the
+    transport swallows GET failures into a timed reconnect loop this suite cannot observe
+    without sleeps.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    statuses, reopened, app_shim = get_stream_step_up_shim('Bearer error="insufficient_scope", scope="mcp write"')
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=app_shim,
+            on_request=on_request,
+        ) as (client, headless):
+            await reopened.wait()
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    # The challenged open, then the server-accepted reopen.
+    assert statuses == [403, 200]
+
+    # The same one-step-up bound and SEP-2350 union as the POST path.
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+    # The reopened stream carries the upgraded token, which is the one persisted to storage.
+    first_get, second_get = find(recorded, "GET", "/mcp")
+    assert storage.tokens is not None
+    assert second_get.headers["authorization"] == f"Bearer {storage.tokens.access_token}"
+    assert first_get.headers["authorization"] != second_get.headers["authorization"]
