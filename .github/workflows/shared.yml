@@ -27,8 +27,6 @@ jobs:
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
           extra_args: --all-files --verbose
-        env:
-          SKIP: no-commit-to-branch,readme-v1-frozen
 
       - name: Surface types match vendored schema
         run: |
@@ -41,19 +39,6 @@ jobs:
         run: |
           uv run --isolated --no-project --with ./src/mcp-types python -c \
             "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types.v2025_11_25, mcp_types.v2026_07_28"
-
-      # TODO(Max): Drop this in v2. Deliberate updates (e.g. the v2 status
-      # banner) go through the 'override-readme-freeze' label.
-      - name: Check README.md is not modified
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'override-readme-freeze')
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          if git diff --name-only "$BASE_SHA" -- README.md | grep -q .; then
-            echo "::error::README.md is frozen at v1. Edit README.v2.md instead."
-            exit 1
-          fi
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
@@ -116,7 +101,7 @@ jobs:
         run: uv sync --frozen --all-extras --python 3.10
 
       - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check --readme README.v2.md
+        run: uv run --frozen scripts/update_readme_snippets.py --check
 
   # `mkdocs.yml` sets `strict: true` and `pymdownx.snippets: check_paths: true`,
   # but until this job existed the docs were only ever built post-merge by

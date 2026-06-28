@@ -67,12 +67,8 @@ def _retired_names_used(source: str) -> list[str]:
 
 
 def _referenced_examples() -> set[str]:
-    """Every `docs_src/...` path that some docs page or the README actually includes.
-
-    The README is globbed rather than named so this survives the planned
-    `README.v2.md` -> `README.md` rename instead of crashing on a missing file.
-    """
-    pages = [*sorted((REPO_ROOT / "docs").rglob("*.md")), *sorted(REPO_ROOT.glob("README*.md"))]
+    """Every `docs_src/...` path that some docs page or the README actually includes."""
+    pages = [*sorted((REPO_ROOT / "docs").rglob("*.md")), REPO_ROOT / "README.md"]
     return {ref for page in pages for ref in _INCLUDE_DIRECTIVE.findall(page.read_text(encoding="utf-8"))}
 
 

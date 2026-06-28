@@ -12,8 +12,7 @@
   shim) must be documented in `docs/migration.md`.
 - `v1.x` is the release branch for the current stable line. Backport PRs target
   this branch and use a `[v1.x]` title prefix.
-- `README.md` is frozen at v1 (a pre-commit hook rejects edits). Edit
-  `README.v2.md` instead.
+- `README.md` documents v2. The v1 README lives on the `v1.x` branch.
 
 ## Package Management
 
