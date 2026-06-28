@@ -141,7 +141,7 @@ async def test_read_resource_binary(connect: Connect, unstamped: Unstamp) -> Non
     )
 
 
-@requirement("resources:read:unknown-uri")
+@requirement("protocol:error:handler-error-passthrough")
 async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
 

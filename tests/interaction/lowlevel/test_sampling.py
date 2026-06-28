@@ -155,7 +155,7 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     )
 
 
-@requirement("sampling:create-message:image-content")
+@requirement("sampling:create:image-content")
 async def test_create_message_request_with_image_content_reaches_callback(connect: Connect) -> None:
     """A sampling request message carrying image content arrives at the client callback intact.
 
@@ -207,7 +207,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     )
 
 
-@requirement("sampling:create-message:image-content")
+@requirement("sampling:create:image-content")
 async def test_create_message_result_with_image_content_returns_to_handler(connect: Connect) -> None:
     """A sampling result whose content is an image is returned to the requesting handler intact.
 
@@ -281,7 +281,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="-1: User rejected sampling request")]))
 
 
-@requirement("sampling:create-message:not-supported")
+@requirement("sampling:create:not-supported")
 async def test_create_message_without_callback_is_error(connect: Connect) -> None:
     """A sampling request to a client with no sampling callback fails with the SDK's default error."""
 
@@ -437,7 +437,7 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
     assert captured == snapshot([SamplingCapability()])
 
 
-@requirement("sampling:create-message:audio-content")
+@requirement("sampling:create:audio-content")
 async def test_create_message_request_with_audio_content_reaches_callback(connect: Connect) -> None:
     """A sampling request message carrying audio content arrives at the client callback intact.
 
@@ -489,7 +489,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     )
 
 
-@requirement("sampling:create-message:audio-content")
+@requirement("sampling:create:audio-content")
 async def test_create_message_result_with_audio_content_returns_to_handler(connect: Connect) -> None:
     """A sampling result whose content is audio is returned to the requesting handler intact.
 
