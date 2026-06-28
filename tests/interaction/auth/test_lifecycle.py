@@ -179,7 +179,7 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     assert counts[("POST", "/token")] == 2
 
 
-@requirement("client-auth:403-scope-union")
+@requirement("client-auth:stepup:scope-union")
 async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenged_scopes() -> None:
     """The step-up re-authorize requests the union of the previously requested and challenged scopes.
 

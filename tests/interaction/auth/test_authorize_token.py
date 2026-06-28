@@ -113,7 +113,7 @@ async def recorded_oauth_flow() -> AsyncIterator[RecordedFlow]:
 
 @requirement("client-auth:pkce:s256")
 @requirement("client-auth:resource-parameter")
-@requirement("client-auth:authorize:offline-access-consent")
+@requirement("client-auth:scope:offline-access-gate")
 async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
@@ -187,7 +187,7 @@ async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
             await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
 
 
-@requirement("client-auth:authorization-response:iss-verify")
+@requirement("client-auth:iss:mismatch-reject")
 async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
     """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
 
