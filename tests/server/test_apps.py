@@ -209,10 +209,10 @@ async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -
     )
 
     async with Client(MCPServer("r", extensions=[apps])) as client:
+        listed = await client.list_resources()
         result = await client.read_resource("ui://r/app.html")
 
-    assert isinstance(result.contents[0], TextResourceContents)
-    assert result.contents[0].meta == snapshot(
+    expected_ui_meta = snapshot(
         {
             "ui": {
                 "csp": {"connectDomains": ["https://api.example.com"]},
@@ -222,6 +222,11 @@ async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -
             }
         }
     )
+    # Hosts read `_meta.ui` from the read content item, with the list entry as
+    # fallback — the SDK stamps the same value in both places.
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].meta == expected_ui_meta
+    assert listed.resources[0].meta == expected_ui_meta
 
 
 def test_apps_tool_with_unregistered_resource_uri_is_rejected_at_construction() -> None:
@@ -260,3 +265,38 @@ def test_add_resource_rejects_non_ui_resource_uri() -> None:
     apps = Apps()
     with pytest.raises(ValueError):
         apps.add_resource(TextResource(uri="https://example.com/app.html", name="x", text="x"))
+
+
+def test_apps_tool_rejects_a_ui_meta_key() -> None:
+    """SDK-defined: the decorator owns `_meta['ui']` — a caller-supplied `'ui'` entry would be
+    silently clobbered, so it is rejected at decoration time (use `resource_uri=`/`visibility=`)."""
+    apps = Apps()
+    with pytest.raises(ValueError) as exc_info:
+        apps.tool(resource_uri="ui://c/app.html", meta={"ui": {"resourceUri": "ui://other.html"}})
+    assert str(exc_info.value) == snapshot(
+        "Apps.tool() owns _meta['ui']; pass resource_uri=/visibility= instead of a 'ui' meta key"
+    )
+
+
+async def test_add_resource_defaults_the_mime_type_to_the_app_mime() -> None:
+    """ext-apps: hosts only render `ui://` resources served as `text/html;profile=mcp-app`,
+    so a resource registered without an explicit `mime_type` gets it by default."""
+    apps = Apps()
+    apps.add_resource(TextResource(uri="ui://d/app.html", name="d", text="<title>d</title>"))
+
+    async with Client(MCPServer("d", extensions=[apps])) as client:
+        result = await client.read_resource("ui://d/app.html")
+
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].mime_type == APP_MIME_TYPE
+
+
+def test_add_resource_rejects_an_explicit_non_app_mime_type() -> None:
+    """ext-apps: an explicit `mime_type` other than `text/html;profile=mcp-app` would make
+    the resource unrenderable; the mismatch is rejected at registration."""
+    apps = Apps()
+    with pytest.raises(ValueError) as exc_info:
+        apps.add_resource(TextResource(uri="ui://e/app.html", name="e", mime_type="text/html", text="x"))
+    assert str(exc_info.value) == snapshot(
+        "MCP Apps resources are served as 'text/html;profile=mcp-app', got 'text/html'"
+    )

@@ -43,6 +43,8 @@ nav:
       - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
       - Middleware: advanced/middleware.md
+      - Extensions: advanced/extensions.md
+      - MCP Apps: advanced/apps.md
       - OpenTelemetry: advanced/opentelemetry.md
       - Authorization: advanced/authorization.md
       - OAuth clients: advanced/oauth-clients.md

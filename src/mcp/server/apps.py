@@ -109,9 +109,12 @@ class Apps(Extension):
             meta: Additional `_meta` keys to merge with the `ui` entry.
 
         Raises:
-            ValueError: If `resource_uri` does not use the `ui://` scheme.
+            ValueError: If `resource_uri` does not use the `ui://` scheme, or
+                `meta` carries a `"ui"` key (the decorator owns `_meta["ui"]`).
         """
         _require_ui_scheme(resource_uri)
+        if meta and "ui" in meta:
+            raise ValueError("Apps.tool() owns _meta['ui']; pass resource_uri=/visibility= instead of a 'ui' meta key")
         ui: dict[str, Any] = {"resourceUri": resource_uri}
         if visibility is not None:
             ui["visibility"] = list(visibility)
@@ -173,13 +176,20 @@ class Apps(Extension):
         """Register a pre-built `ui://` resource.
 
         The escape hatch for resources `add_html_resource` cannot express (e.g. a
-        `FileResource` serving HTML from disk). The resource should carry the
-        `text/html;profile=mcp-app` MIME type for hosts to render it.
+        `FileResource` serving HTML from disk). A resource without an explicit
+        `mime_type` is served as `text/html;profile=mcp-app` — hosts will not
+        render a `ui://` resource under any other MIME type, so an explicit
+        mismatch is rejected.
 
         Raises:
-            ValueError: If the resource URI does not use the `ui://` scheme.
+            ValueError: If the resource URI does not use the `ui://` scheme, or
+                its explicit `mime_type` is not `text/html;profile=mcp-app`.
         """
         _require_ui_scheme(resource.uri)
+        if "mime_type" not in resource.model_fields_set:
+            resource = resource.model_copy(update={"mime_type": APP_MIME_TYPE})
+        elif resource.mime_type != APP_MIME_TYPE:
+            raise ValueError(f"MCP Apps resources are served as {APP_MIME_TYPE!r}, got {resource.mime_type!r}")
         self._resources.append(ResourceBinding(resource=resource))
 
     def tools(self) -> Sequence[ToolBinding]:

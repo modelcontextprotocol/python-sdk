@@ -56,6 +56,13 @@ lowlevel   = false
 transports = ["in-memory", "http-asgi"]
 era        = "dual-in-body"
 
+[story.extensions]
+# Same constraints as `apps`: MCPServer-tier extension API, capability map rides
+# server/discover (modern only), client guards the capability assert by presence.
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
 [story.schema_validators]
 
 [story.middleware]
