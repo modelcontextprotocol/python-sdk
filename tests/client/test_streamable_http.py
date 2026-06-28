@@ -77,8 +77,63 @@ async def test_sse_response_disconnect_before_any_event_id_fails_request() -> No
 
         async with read_stream_writer, read_stream:
             await transport._handle_sse_response(response, ctx)
-            message = await read_stream.receive()
+            with anyio.fail_after(5):
+                message = await read_stream.receive()
 
+    assert isinstance(message, SessionMessage)
+    assert isinstance(message.message, JSONRPCError)
+    assert message.message.id == 1
+    assert message.message.error.code == CONNECTION_CLOSED
+
+
+@pytest.mark.anyio
+async def test_reconnection_empty_streams_count_toward_max_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    class PrimingOnlyEventSource:
+        def __init__(self) -> None:
+            self.response = httpx.Response(200)
+
+        async def __aenter__(self) -> "PrimingOnlyEventSource":
+            nonlocal reconnect_attempts
+            reconnect_attempts += 1
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def aiter_sse(self) -> object:
+            yield type(
+                "SSE",
+                (),
+                {"event": "message", "data": "", "id": f"event-{reconnect_attempts}", "retry": 0},
+            )()
+
+    def connect_sse(*args: object, **kwargs: object) -> PrimingOnlyEventSource:
+        return PrimingOnlyEventSource()
+
+    reconnect_attempts = 0
+    monkeypatch.setattr(
+        "mcp.client.streamable_http.aconnect_sse",
+        connect_sse,
+    )
+
+    transport = StreamableHTTPTransport("http://example.com/mcp")
+    async with httpx.AsyncClient() as client:
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+        request = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "noop", "arguments": {}})
+        ctx = RequestContext(
+            client=client,
+            session_id=None,
+            session_message=SessionMessage(request),
+            metadata=None,
+            read_stream_writer=read_stream_writer,
+        )
+
+        async with read_stream_writer, read_stream:
+            with anyio.fail_after(5):
+                await transport._handle_reconnection(ctx, "event-1", retry_interval_ms=0)
+                message = await read_stream.receive()
+
+    assert reconnect_attempts == 2
     assert isinstance(message, SessionMessage)
     assert isinstance(message.message, JSONRPCError)
     assert message.message.id == 1
