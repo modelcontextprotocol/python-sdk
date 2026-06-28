@@ -22,7 +22,7 @@ from pydantic import AnyUrl
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.shared.auth import OAuthClientInformationFull
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -213,6 +213,74 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
     assert storage.client_info.client_id is not None
     assert storage.client_info.client_secret is not None
     assert list(provider.clients) == [storage.client_info.client_id]
+
+
+@requirement("client-auth:dcr:grant-types-default")
+async def test_dcr_defaults_grant_types_to_authorization_code_and_refresh_token_when_omitted() -> None:
+    """Registration metadata without `grant_types` sends `["authorization_code", "refresh_token"]`.
+
+    The 2026 Refresh Tokens section (SEP-2207) says clients that desire refresh tokens SHOULD
+    include `refresh_token` in their `grant_types` client metadata; the SDK satisfies the
+    SHOULD when the consumer says nothing. The metadata here is constructed without
+    `grant_types` -- deliberately not via `oauth_client_metadata()`, which sets it explicitly --
+    and the recorded `/register` body is snapshotted in full so a field the default machinery
+    adds or drops fails. The completed flow proves the real AS accepted the registration.
+    """
+    requests: list[httpx.Request] = []
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    client_metadata = OAuthClientMetadata(client_name="interaction-suite", redirect_uris=[AnyUrl(REDIRECT_URI)])
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, client_metadata=client_metadata, on_request=requests.append
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "whoami"
+
+    register = next(r for r in requests if r.url.path == "/register")
+    assert json.loads(register.content) == snapshot(
+        {
+            "redirect_uris": ["http://127.0.0.1:8000/oauth/callback"],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "scope": "mcp",
+            "application_type": "native",
+            "client_name": "interaction-suite",
+        }
+    )
+
+
+@requirement("client-auth:dcr:grant-types-default")
+async def test_dcr_sends_consumer_set_grant_types_verbatim() -> None:
+    """A consumer-set `grant_types` is sent on the registration request verbatim, never rewritten.
+
+    The other half of the SEP-2207 grant-types default: the metadata sets
+    `["authorization_code"]` -- deliberately not the default pair, so pass-through is
+    distinguishable from defaulting. Plain `==` against the consumer's own value (snapshotting
+    a value the test itself supplied would prove nothing); the completed flow proves the real
+    AS accepted the narrower grant set end to end.
+    """
+    requests: list[httpx.Request] = []
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    client_metadata = OAuthClientMetadata(
+        client_name="interaction-suite",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        grant_types=["authorization_code"],
+    )
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, client_metadata=client_metadata, on_request=requests.append
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "whoami"
+
+    register = next(r for r in requests if r.url.path == "/register")
+    assert json.loads(register.content)["grant_types"] == ["authorization_code"]
 
 
 async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_wrapped_app() -> None:

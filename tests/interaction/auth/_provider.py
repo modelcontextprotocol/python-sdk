@@ -49,6 +49,9 @@ class InMemoryAuthorizationServerProvider(
         `fail_next_refresh`: the next refresh-token exchange raises `invalid_grant` once.
         `reject_all_tokens`: `load_access_token` returns None for every token, so the bearer
             middleware 401s every authenticated request.
+        `rotate_refresh_tokens`: when False, the refresh exchange issues only a new access
+            token (the response carries no `refresh_token` and the presented one stays valid),
+            modelling an RFC 6749 §6 non-rotating authorization server.
     """
 
     def __init__(
@@ -59,6 +62,7 @@ class InMemoryAuthorizationServerProvider(
         issue_expired_first: bool = False,
         fail_next_refresh: bool = False,
         reject_all_tokens: bool = False,
+        rotate_refresh_tokens: bool = True,
         issuer: str | None = None,
     ) -> None:
         self._default_scopes = list(default_scopes) if default_scopes is not None else ["mcp"]
@@ -71,6 +75,7 @@ class InMemoryAuthorizationServerProvider(
         self._issue_expired_first = issue_expired_first
         self._fail_next_refresh = fail_next_refresh
         self._reject_all_tokens = reject_all_tokens
+        self._rotate_refresh_tokens = rotate_refresh_tokens
         self._tokens_issued = 0
         self.clients: dict[str, OAuthClientInformationFull] = {}
         self.codes: dict[str, AuthorizationCode] = {}
@@ -178,11 +183,23 @@ class InMemoryAuthorizationServerProvider(
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
     ) -> OAuthToken:
-        """Mint a new access token and rotate the refresh token, consuming the old one."""
+        """Mint a new access token and rotate the refresh token, consuming the old one.
+
+        Unless `rotate_refresh_tokens` is off: then only a new access token is minted, the
+        response carries no `refresh_token`, and the presented one stays valid.
+        """
         assert client.client_id is not None
         if self._fail_next_refresh:
             self._fail_next_refresh = False
             raise TokenError(error="invalid_grant", error_description="refresh denied by harness")
+        if not self._rotate_refresh_tokens:
+            access = self.mint_access_token(client_id=client.client_id, scopes=scopes)
+            return OAuthToken(
+                access_token=access,
+                token_type="Bearer",
+                expires_in=self._next_expires_in(),
+                scope=" ".join(scopes),
+            )
         access = self.mint_access_token(client_id=client.client_id, scopes=scopes)
         new_refresh = f"refresh_{secrets.token_hex(16)}"
         self.refresh_tokens[new_refresh] = RefreshToken(token=new_refresh, client_id=client.client_id, scopes=scopes)

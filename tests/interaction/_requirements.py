@@ -5220,6 +5220,57 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:stepup:retry-cap": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
+        behavior=(
+            "Step-up re-authorization is bounded per request send: one re-authorization and one "
+            "retry, after which a further insufficient_scope 403 on the retried request "
+            "surfaces to the caller as an error without another authorization attempt."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The bound is structural -- the auth flow performs at most one "
+            "step-up before its generator ends -- not a configurable retry count; the surfaced "
+            "error is the transport's INTERNAL_ERROR stand-in for a non-2xx final response. "
+            "Cross-request attempt tracking is the separate deferred "
+            "client-auth:stepup:attempt-tracking."
+        ),
+    ),
+    "client-auth:stepup:get-stream-403": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
+        behavior=(
+            "A 403 insufficient_scope challenge on the standalone GET stream open receives the "
+            "same step-up handling as the POST path: the scope union is re-authorized once and "
+            "the stream is established on the retried GET with the upgraded token."
+        ),
+        transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note=(
+            "OAuth is HTTP-only. The standalone GET stream is a 2025-11-25 transport mechanism "
+            "removed at 2026-07-28; the auth suite's legacy-mode connect is its natural home. "
+            "The uniformity is structural (the OAuth provider wraps every request the transport "
+            "issues), but the GET leg's choreography is pinned because a failed step-up there "
+            "would otherwise vanish into the stream's silent reconnect loop."
+        ),
+    ),
+    "client-auth:stepup:attempt-tracking": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
+        behavior=(
+            "The client tracks scope-upgrade attempts across request sends to avoid repeated "
+            "failures for the same resource and operation combination."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only. The per-send bound is client-auth:stepup:retry-cap.",
+        deferred=(
+            "Not implemented in the SDK: the client OAuth provider keeps no cross-request memory "
+            "of scope-upgrade attempts. The 403 insufficient_scope branch "
+            "(src/mcp/client/auth/oauth2.py:704-734) performs one inline step-up per send with no "
+            "attempt counter and no (resource, operation) key, and OAuthContext (oauth2.py:98) "
+            "carries no field recording prior step-up failures, so a second send for the same "
+            "resource and operation re-attempts the upgrade unconditionally. The per-send "
+            '"repeated 403s do not loop" half of this spec line is client-auth:403-scope-upgrade.'
+        ),
+    ),
     "client-auth:as-metadata-discovery:priority-order": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
         behavior=(
@@ -5306,12 +5357,68 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    "client-auth:as-binding": Requirement(
+    "client-auth:dcr:app-type-heuristic": Requirement(
+        source=(
+            f"{SPEC_2026_BASE_URL}"
+            "/basic/authorization/client-registration#application-type-and-redirect-uri-constraints"
+        ),
+        behavior=(
+            "When the client metadata does not set application_type, dynamic client "
+            "registration derives it from the redirect URIs: a loopback host or custom URI "
+            "scheme yields 'native', otherwise 'web' (SEP-837)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The spec MUST (always send an application_type) IS satisfied "
+            "at this pin: OAuthClientMetadata defaults the field to 'native' and every "
+            "registration body carries it, pinned incidentally by the "
+            "client-auth:dcr:grant-types-default body snapshot. Only the derive-from-redirect-"
+            "URIs strategy for the 'web' SHOULD is unimplemented; a web-app consumer sets "
+            "application_type='web' explicitly and it is transmitted verbatim."
+        ),
+        deferred=(
+            "Not implemented in the SDK: application_type is a static model default ('native') "
+            "on OAuthClientMetadata (src/mcp/shared/auth.py); no code path inspects the "
+            "redirect URIs to choose between 'native' and 'web'."
+        ),
+    ),
+    "client-auth:dcr:grant-types-default": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#refresh-tokens",
+        behavior=(
+            "When the client metadata does not set grant_types, the dynamic-registration "
+            "request carries ['authorization_code', 'refresh_token'] so the authorization "
+            "server may issue refresh tokens (SEP-2207); a consumer-set grant_types is sent "
+            "verbatim, never rewritten."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. A SHOULD. Python implements the default on the "
+            "OAuthClientMetadata model (a field default), not in registration code, so it is "
+            "present from construction -- wire-observably identical to injecting it at "
+            "registration time, which is what the registration body pins."
+        ),
+    ),
+    "client-auth:as-binding:reregister": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/authorization/client-registration#authorization-server-binding",
         behavior=(
-            "Stored client credentials are bound to the issuer that registered them; when the authorization "
-            "server changes, the client discards them and re-registers rather than reusing them (SEP-2352)."
+            "Stored client credentials are bound to the issuer that registered them; when the "
+            "authorization server changes, the client discards them and re-registers with the "
+            "new authorization server (SEP-2352)."
         ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:as-binding:no-cred-reuse": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization/client-registration#authorization-server-binding",
+        behavior=(
+            "When the authorization server changes, the client never reuses credentials from "
+            "the previous authorization server: the stale client_id reaches neither the "
+            "authorize nor the token endpoint (SEP-2352)."
+        ),
+        added_in="2026-07-28",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
@@ -5406,6 +5513,29 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:refresh:rotation-handling": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#refresh-tokens",
+        behavior=(
+            "On a refresh-token exchange, a new refresh_token in the response replaces the "
+            "stored one, and a response that omits refresh_token leaves the stored one in "
+            "place -- the client never assumes a refresh token will be issued "
+            "(RFC 6749 section 6 / SEP-2207)."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. No added_in: the replace/preserve mechanics are RFC 6749 "
+            "section 6 client behaviour that predates the 2026 Refresh Tokens section restating "
+            "them (the add plan classifies this entry era PRE-EXISTING), and the auth tests "
+            "bypass the connect fixture so era fields drive no cells. The follow-on claim -- "
+            "the NEXT refresh presents the rotated token -- is real-time-bound at this pin: a "
+            "token that is already expired when its refresh response arrives is not refreshed "
+            "again on the same request; the request goes out unauthenticated and 401s into a "
+            "full re-authorization (oauth2.py sends at most one refresh per request and only "
+            "attaches a bearer it considers valid), so a second same-connection refresh cannot "
+            "be driven without wall-clock waits. The tests therefore pin replacement and "
+            "preservation at the storage/wire seam of a single refresh."
+        ),
+    ),
     "client-auth:refresh:transparent": Requirement(
         source="sdk",
         behavior=(
@@ -5460,11 +5590,126 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:iss:match": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "When the authorization server's metadata advertises "
+            "authorization_response_iss_parameter_supported and the callback's iss equals the "
+            "recorded metadata issuer, the client proceeds to redeem the authorization code "
+            "(RFC 9207 validation table row 1)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:iss:no-normalize": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "The iss comparison is simple string comparison (RFC 3986 section 6.2.1): a value "
+            "differing from the recorded issuer only by a trailing slash is rejected as a "
+            "mismatch -- no scheme or host case folding, default-port elision, trailing-slash, "
+            "or percent-encoding normalization is applied before comparison."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The comparison is a single string inequality; the test pins the "
+            "trailing-slash arm as the representative normalization class."
+        ),
+    ),
+    "client-auth:iss:supported-missing-reject": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "When the authorization server's metadata advertises "
+            "authorization_response_iss_parameter_supported: true and the callback carries no "
+            "iss, the client rejects the authorization response before redeeming the code "
+            "(RFC 9207 validation table row 2)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:iss:unadvertised-proceed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "When the authorization server's metadata does not advertise "
+            "authorization_response_iss_parameter_supported and the callback carries no iss, "
+            "the client proceeds with the code exchange (RFC 9207 validation table row 4)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:iss:unadvertised-present-validated": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "A present iss is validated against the recorded issuer regardless of metadata "
+            "advertisement (RFC 9207 validation table row 3, where this specification "
+            "deliberately exceeds RFC 9207's local-policy provision): a matching iss proceeds "
+            "and a mismatching iss is rejected."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. Covered by two tests: the match half directly, and the "
+            "mismatch half by the client-auth:iss:mismatch-reject test, which drives a "
+            "mismatched iss against the suite's unadvertising authorization server."
+        ),
+    ),
+    "client-auth:iss:error-response-validated": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "iss validation applies equally to error responses: a mismatched iss on an error "
+            "callback is rejected before the flow acts on the response, and on mismatch the "
+            "client must not act on or display error, error_description, or error_uri."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The non-surfacing half holds by construction: the callback "
+            "contract (AuthorizationCodeResult) carries no error fields, so those values never "
+            "enter the SDK; the test pins the observable half -- the iss mismatch is raised in "
+            "preference to the missing-authorization-code failure."
+        ),
+    ),
     "client-auth:token-endpoint-auth-method": Requirement(
         source="sdk",
         behavior="The client authenticates to the token endpoint using the auth method established at registration.",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
+    ),
+    "client-auth:token-error:machine-readable-code": Requirement(
+        source="sdk",
+        behavior=(
+            "An RFC 6749 error response from the token endpoint (e.g. invalid_grant, "
+            "invalid_client, on either the authorization-code exchange or a refresh) surfaces "
+            "to the caller as a typed OAuth error carrying the wire error code as a "
+            "machine-readable field, not only embedded in the message text."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only. The weak testable sibling is client-auth:token:error-surfaces.",
+        deferred=(
+            "Not implemented in the SDK: OAuthTokenError (src/mcp/client/auth/exceptions.py) "
+            "carries only a message string; the token-response handler embeds the RFC 6749 "
+            "error body in an f-string and the refresh-response handler clears tokens without "
+            "reading the body (src/mcp/client/auth/oauth2.py), so there is no machine-readable "
+            "error code for a caller to branch on."
+        ),
+    ),
+    "client-auth:token:error-surfaces": Requirement(
+        source="sdk",
+        behavior=(
+            "A non-2xx response from the token endpoint on the authorization-code exchange "
+            "aborts the flow and surfaces to the caller as an error naming the HTTP status; "
+            "the flow does not loop, and no request is ever sent with a bearer token."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. Completes the endpoint error-surfaces family alongside "
+            "client-auth:authorize:error-surfaces and "
+            "client-auth:dcr:registration-rejected-error; the machine-readable half is "
+            "client-auth:token-error:machine-readable-code (deferred)."
+        ),
     ),
     "client-auth:token-provenance": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",

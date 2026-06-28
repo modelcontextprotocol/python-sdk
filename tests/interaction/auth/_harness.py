@@ -132,25 +132,44 @@ class HeadlessOAuth:
     `redirect_handler` GETs the authorize URL on the bound client (with `auth=None` so the
     request does not re-enter the locked auth flow), parses `code` and `state` from the 302
     `Location`, and stashes them; `callback_handler` returns the stashed pair. Tests inspect
-    `authorize_url` to assert what the SDK put on the authorize request.
+    `authorize_url` to assert what the SDK put on the authorize request, and `iss`/`error` to
+    assert what the redirect carried — both record the redirect regardless of the
+    callback-boundary levers below.
 
     `state_override`: when set, `callback_handler` returns this value as the state instead of
     the one parsed from the redirect, so tests can drive the state-mismatch path.
 
     `iss_override`: when set, `callback_handler` returns this value as the RFC 9207 issuer
     instead of the one parsed from the redirect, so tests can drive the iss-mismatch path.
+
+    `code_override`: when set, `callback_handler` returns this value as the authorization code
+    instead of the one parsed from the redirect, so tests can drive the token-endpoint
+    rejection path.
+
+    `omit_iss`: when set, `callback_handler` returns no iss regardless of what the redirect
+    carried, so tests can drive the missing-iss paths (the `iss_override` sentinel cannot
+    express absence).
     """
 
-    def __init__(self, *, state_override: str | None = None, iss_override: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        state_override: str | None = None,
+        iss_override: str | None = None,
+        code_override: str | None = None,
+        omit_iss: bool = False,
+    ) -> None:
         self.authorize_url: str | None = None
         self.authorize_urls: list[str] = []
         self.error: str | None = None
+        self.iss: str | None = None
         self._state_override = state_override
         self._iss_override = iss_override
+        self._code_override = code_override
+        self._omit_iss = omit_iss
         self._http: httpx.AsyncClient | None = None
         self._code: str = ""
         self._state: str | None = None
-        self._iss: str | None = None
 
     def bind(self, http_client: httpx.AsyncClient) -> None:
         self._http = http_client
@@ -166,14 +185,15 @@ class HeadlessOAuth:
         params = parse_qs(urlsplit(response.headers["location"]).query)
         self._code = params.get("code", [""])[0]
         self._state = params.get("state", [None])[0]
-        self._iss = params.get("iss", [None])[0]
+        self.iss = params.get("iss", [None])[0]
         self.error = params.get("error", [None])[0]
 
     async def callback_handler(self) -> AuthorizationCodeResult:
+        iss = self._iss_override if self._iss_override is not None else self.iss
         return AuthorizationCodeResult(
-            code=self._code,
+            code=self._code_override if self._code_override is not None else self._code,
             state=self._state_override if self._state_override is not None else self._state,
-            iss=self._iss_override if self._iss_override is not None else self._iss,
+            iss=None if self._omit_iss else iss,
         )
 
 
@@ -308,7 +328,7 @@ def first_challenge_shim(www_authenticate: str, *, path: str = "/mcp") -> Callab
     return lambda app: _FirstChallenge(app, path, www_authenticate)
 
 
-def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -> AppShim:
+def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2, persist: bool = False) -> AppShim:
     """Build an `app_shim` that 403s the Nth authenticated POST to `/mcp` with the given challenge.
 
     Subsequent requests pass through. Used to drive the client's `insufficient_scope` step-up
@@ -320,6 +340,10 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
     first authenticated POST is the auth flow's retry of the original initialize request (yielded
     after the 401 branch, where the generator ends without inspecting the response), so a 403
     there would not reach the step-up handler.
+
+    `persist`: when set, every authenticated POST from the Nth onward receives the 403 challenge
+    instead of only the Nth, so tests can drive a further `insufficient_scope` challenge on the
+    request retried after a step-up.
     """
     seen = 0
     fired = False
@@ -328,7 +352,7 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
         async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
             nonlocal seen, fired
             if (
-                not fired
+                (persist or not fired)
                 and scope["type"] == "http"
                 and scope["path"] == "/mcp"
                 and scope["method"] == "POST"
