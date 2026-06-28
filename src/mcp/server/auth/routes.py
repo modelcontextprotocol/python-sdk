@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
@@ -169,7 +169,7 @@ def build_metadata(
 
     # Create metadata
     metadata = OAuthMetadata(
-        issuer=issuer_url,
+        issuer=cast(AnyHttpUrl, str(issuer_url).rstrip("/")),
         authorization_endpoint=authorization_url,
         token_endpoint=token_url,
         scopes_supported=client_registration_options.valid_scopes,
@@ -237,8 +237,11 @@ def create_protected_resource_routes(
         List of Starlette routes for protected resource metadata
     """
     metadata = ProtectedResourceMetadata(
-        resource=resource_url,
-        authorization_servers=authorization_servers,
+        resource=cast(AnyHttpUrl, str(resource_url).rstrip("/")),
+        authorization_servers=cast(
+            list[AnyHttpUrl],
+            [str(server).rstrip("/") for server in authorization_servers],
+        ),
         scopes_supported=scopes_supported,
         resource_name=resource_name,
         resource_documentation=resource_documentation,
