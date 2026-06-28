@@ -30,7 +30,7 @@ Run the app on its own (`uvicorn server:app`) and you never think about either.
 !!! tip
     `streamable_http_app()` takes the same keyword arguments as `mcp.run("streamable-http", ...)`,
     minus `port`: the port belongs to whatever serves the app. `host` is still accepted but binds
-    nothing here; the next section is what it actually controls. **Running your server** covers the
+    nothing here; the next section is what it actually controls. **[Running your server](index.md)** covers the
     options themselves.
 
 `mcp.sse_app()` does the same for the superseded SSE transport.
@@ -168,4 +168,4 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 * Browser clients need CORS: `allow_headers` for the `Mcp-*` request headers, `expose_headers=["Mcp-Session-Id"]` for the response.
 * `@mcp.custom_route()` adds plain, unauthenticated HTTP endpoints next to `/mcp`.
 
-Once the server is reachable at a real URL, **The Client** connects to it with that URL instead of a server object.
+Once the server is reachable at a real URL, **[The Client](../client/index.md)** connects to it with that URL instead of a server object.

@@ -39,7 +39,7 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **Logging**.
+That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../tutorial/logging.md)**.
 
 ### Try it
 
@@ -67,7 +67,7 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
-* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **ASGI** covers `transport_security`.
+* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[ASGI](asgi.md)** covers `transport_security`.
 
 !!! warning
     Transport options go to `run()`, **not** to `MCPServer(...)`. The constructor describes what
@@ -78,7 +78,7 @@ Each transport has its own keyword arguments, all on `run()`:
     TypeError: MCPServer.__init__() got an unexpected keyword argument 'port'
     ```
 
-`run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **ASGI**.
+`run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **[ASGI](asgi.md)**.
 
 ## Server settings
 
@@ -131,7 +131,7 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 
 !!! tip
     `mcp dev` and `mcp run` only understand `MCPServer`. If you build with the low-level `Server`,
-    you run it yourself. See **The low-level Server**.
+    you run it yourself. See **[The low-level Server](../advanced/low-level-server.md)**.
 
 ## Recap
 
@@ -143,4 +143,4 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 * `mcp dev` for the Inspector, `mcp run` to execute a file, `mcp install` for Claude Desktop, `mcp version` for the version.
 * The transport never changes what your server *is*: all three files on this page expose the identical tool.
 
-When `run()` itself is the limit (your server inside an app that already exists), the next step is **ASGI**.
+When `run()` itself is the limit (your server inside an app that already exists), the next step is **[ASGI](asgi.md)**.

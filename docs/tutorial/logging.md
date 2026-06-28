@@ -2,7 +2,7 @@
 
 Log from a tool the way you log from any other Python function: with the standard library.
 
-MCP has a protocol-level **logging capability**: a server could push its log messages to the client as notifications, through methods on the `Context` object. The 2026-07-28 revision of the spec **deprecates that capability and does not replace it**, so this tutorial doesn't teach it. The full list of what's deprecated and what to do instead is in **Deprecated features**.
+MCP has a protocol-level **logging capability**: a server could push its log messages to the client as notifications, through methods on the `Context` object. The 2026-07-28 revision of the spec **deprecates that capability and does not replace it**, so this tutorial doesn't teach it. The full list of what's deprecated and what to do instead is in **[Deprecated features](../advanced/deprecated.md)**.
 
 What you do instead is what you do in every other Python program: the standard library.
 
@@ -65,7 +65,7 @@ went to standard error: the terminal, not the wire.
 !!! info
     If what you actually want is *tracing* (every request, how long it took, whether it failed), you
     don't want log lines, you want spans. Your server already emits them: the SDK traces every
-    message with OpenTelemetry out of the box. See **OpenTelemetry**.
+    message with OpenTelemetry out of the box. See **[OpenTelemetry](../advanced/opentelemetry.md)**.
 
 ## Recap
 
@@ -75,4 +75,4 @@ went to standard error: the terminal, not the wire.
 * Standard error is yours; stdout belongs to the protocol. Never `print()` in a stdio server.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
-Next: the in-memory client that has been running every example on these pages, and how to point it at your own server, in **Testing**.
+Next: the in-memory client that has been running every example on these pages, and how to point it at your own server, in **[Testing](testing.md)**.

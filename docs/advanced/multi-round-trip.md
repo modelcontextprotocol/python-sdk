@@ -29,7 +29,7 @@ The high-level `@mcp.tool()` decorator has no sugar for this yet. Today you writ
 * On the first call `params.input_responses` is `None`, so the guard fires and the handler asks instead of answering.
 * On the retry, the `ElicitResult` the client sent is sitting under the **same key** (`"region"`) that the server used in `input_requests`.
 
-Everything else in that file (the explicit `input_schema`, the hand-built `CallToolResult`) is the ordinary low-level `Server`, covered in **The low-level Server**. This page only adds the second return type.
+Everything else in that file (the explicit `input_schema`, the hand-built `CallToolResult`) is the ordinary low-level `Server`, covered in **[The low-level Server](low-level-server.md)**. This page only adds the second return type.
 
 ## The client side
 
@@ -85,7 +85,7 @@ Drop to the underlying session, where `allow_input_required=True` hands you the 
     **URL-mode elicitation** rides this exact mechanism on a 2026 connection. The entry in
     `input_requests` is an `ElicitRequest` whose params are `ElicitRequestURLParams`; the user
     finishes the out-of-band flow and your client retries the call. Same loop, no new API. The
-    high-level server half is in **Elicitation**.
+    high-level server half is in **[Elicitation](../tutorial/elicitation.md)**.
 
 ## Recap
 
@@ -95,4 +95,4 @@ Drop to the underlying session, where `allow_input_required=True` hands you the 
 * To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
 * The server side is the **low-level** `Server` only; `@mcp.tool()` has no sugar for this yet.
 
-This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **Deprecated features**.
+This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](deprecated.md)**.

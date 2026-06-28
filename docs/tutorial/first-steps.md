@@ -70,7 +70,7 @@ Hello, World!
 
 **Prompts.** One entry: `summarize`, with a single required `text` argument. Get it with some text and you receive one message with `role: user` and your rendered string as the content. That's all a prompt is: a function that builds messages.
 
-The Inspector ran your server over **stdio**, one of the transports an MCP server can speak. You don't pick one yet; **Running your server** is the chapter for that.
+The Inspector ran your server over **stdio**, one of the transports an MCP server can speak. You don't pick one yet; **[Running your server](../run/index.md)** is the chapter for that.
 
 ## Capabilities
 
@@ -110,11 +110,11 @@ That dictionary is the server's half of the handshake:
 
 `MCPServer` serves all three primitives, so all three are always declared.
 
-Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **Completions** proves it.
+Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **[Completions](completions.md)** proves it.
 
 !!! info
     `Client(mcp)` is the same in-memory client every example in this tutorial is tested with, and
-    it's how you'll test yours. It gets a whole chapter: **Testing**.
+    it's how you'll test yours. It gets a whole chapter: **[Testing](testing.md)**.
 
 ## What you did not write
 
@@ -136,4 +136,4 @@ That ratio is the whole point of the SDK.
 * The server's **capabilities** are declared for you, and a client only asks for what a server declares.
 * `Client(mcp)` connects to the server object in memory: your test harness from day one.
 
-Each primitive now gets its own chapter, starting with the one the model drives: **Tools**.
+Each primitive now gets its own chapter, starting with the one the model drives: **[Tools](tools.md)**.

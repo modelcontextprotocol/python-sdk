@@ -4,7 +4,7 @@ Every `Client` talks to its server over a **transport**: the thing that actually
 
 You never configure one separately. `Client` takes a single positional argument and works the transport out from its type.
 
-The *server* side of each (what `mcp.run()` does and what you deploy) is **Running your server**.
+The *server* side of each (what `mcp.run()` does and what you deploy) is **[Running your server](../run/index.md)**.
 
 ## In memory
 
@@ -18,7 +18,7 @@ No subprocess, no port, no bytes on a wire. The client and the server are two ob
 
 That makes it two things at once:
 
-* **A test harness.** Every example in this documentation is exercised this way, and the **Testing** chapter builds the whole pattern around it.
+* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../tutorial/testing.md)** chapter builds the whole pattern around it.
 * **An embedding API.** An application that constructs the server doesn't need a network hop to call its tools.
 
 ## Streamable HTTP
@@ -68,7 +68,7 @@ Two things to notice:
 !!! info
     If you know `httpx`, you already know how to do auth, proxies, event hooks, retries and connection
     limits here. The SDK adds nothing on top and takes nothing away. It is also where OAuth plugs in:
-    `httpx.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **OAuth clients**.
+    `httpx.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](../advanced/oauth-clients.md)**.
 
 ## stdio
 
@@ -112,4 +112,4 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object or a URL straight to that protocol.
 * Constructing a `Client` picks the transport. `async with` opens it.
 
-Once the transport is open the two sides have to agree on a protocol version. You normally never think about it; when you do, **Protocol versions** is the page.
+Once the transport is open the two sides have to agree on a protocol version. You normally never think about it; when you do, **[Protocol versions](protocol-versions.md)** is the page.

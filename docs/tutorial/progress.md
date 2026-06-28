@@ -18,7 +18,7 @@ Three arguments, and you decide what they mean:
 * `total`: how much there is in total, if you know. Optional.
 * `message`: one human-readable line about *this* step. Optional.
 
-`ctx` is injected because of its type hint and the model never sees it: `import_catalog`'s input schema has a single property, `urls`. **The Context** chapter is all about that object; progress is one of the things it gives you.
+`ctx` is injected because of its type hint and the model never sees it: `import_catalog`'s input schema has a single property, `urls`. **[The Context](context.md)** chapter is all about that object; progress is one of the things it gives you.
 
 ## Listen for it from the client
 
@@ -51,7 +51,7 @@ anyio.run(main)
 The callback is an `async` function taking exactly what the server reported: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` connects straight to the server object, in memory, the same client the **Testing**
+    `Client(mcp)` connects straight to the server object, in memory, the same client the **[Testing](testing.md)**
     chapter is built on. `progress_callback` is the same parameter whatever transport the `Client`
     uses; the *timing* you are about to see is the in-memory connection's. It runs your callback
     inline, so every report lands before `call_tool` returns. Over a real transport the
@@ -114,4 +114,4 @@ The callback receives `total=None`. A client can still show *activity* ("3 impor
 * No callback on the call means `report_progress` does nothing. Report unconditionally.
 * Omit `total` when you don't know it; the callback gets `None`.
 
-Progress is what a running tool shows the *user*. The lines it logs for *you*, the person operating the server, are a different channel: **Logging** is next.
+Progress is what a running tool shows the *user*. The lines it logs for *you*, the person operating the server, are a different channel: **[Logging](logging.md)** is next.

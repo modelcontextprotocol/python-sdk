@@ -104,13 +104,13 @@ When it can't, raise `ResourceNotFoundError`. The SDK turns it into the protocol
 }
 ```
 
-Notice there is no `is_error=True` half-result here. A resource read either returns contents or fails: resources have only the protocol path. Templates and everything else about resources live in **Resources**.
+Notice there is no `is_error=True` half-result here. A resource read either returns contents or fails: resources have only the protocol path. Templates and everything else about resources live in **[Resources](resources.md)**.
 
 ## Errors you never raise
 
 A bad argument never reaches your function.
 
-Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, as the same kind of `is_error=True` tool error the model can read and correct. You saw this in **Tools** with `Field(le=50)`.
+Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, as the same kind of `is_error=True` tool error the model can read and correct. You saw this in **[Tools](tools.md)** with `Field(le=50)`.
 
 It means a whole class of `raise` statements you don't write: don't re-validate your own type hints.
 
@@ -118,7 +118,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
     Everything on this page is what a **client** sees, and the in-memory `Client` you'll write
     tests with sees exactly the same thing. Even `raise_exceptions=True` doesn't turn a tool error
     back into a traceback: by the time that flag could act, your exception is already the
-    `is_error=True` result. Assert on the result. **Testing** covers the pattern.
+    `is_error=True` result. Assert on the result. **[Testing](testing.md)** covers the pattern.
 
 ## Recap
 
@@ -129,4 +129,4 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
 * `from mcp import MCPError`; the error-code constants come from `mcp_types`.
 
-Errors handled. Next: the things your server sets up once, before the first call ever arrives, the **Lifespan**.
+Errors handled. Next: the things your server sets up once, before the first call ever arrives, the **[Lifespan](lifespan.md)**.

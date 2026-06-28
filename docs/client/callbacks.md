@@ -15,7 +15,7 @@ Here is a server whose tool can't finish on its own:
 * `ctx.elicit(...)` sends an `elicitation/create` request **to the client** and waits.
 * The tool doesn't return until somebody (a person in a form, or your code) supplies a `name`.
 
-That is the server half, and the **Elicitation** chapter owns it. This chapter is the other end of the wire.
+That is the server half, and the **[Elicitation](../tutorial/elicitation.md)** chapter owns it. This chapter is the other end of the wire.
 
 ## The elicitation callback
 
@@ -31,7 +31,7 @@ That is the server half, and the **Elicitation** chapter owns it. This chapter i
 !!! tip
     `params` is a union of the two elicitation modes. Here `params.mode` is `"form"`; a `"url"` request
     carries `params.url` instead of a schema. One callback handles both; branch on `params.mode`.
-    **Elicitation** shows the full pattern.
+    **[Elicitation](../tutorial/elicitation.md)** shows the full pattern.
 
 ### Try it
 
@@ -59,11 +59,11 @@ One `tools/call` from you, one `elicitation/create` back from the server, answer
     protocol path, and that path has no back-channel for server-to-client requests: `ctx.elicit`
     fails before your callback ever runs. The transport doesn't decide that; the negotiated
     protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
-    to answer one; every test behind this page does. **Protocol versions** has the whole story.
+    to answer one; every test behind this page does. **[Protocol versions](protocol-versions.md)** has the whole story.
 
     On a 2026-07-28 session the callback isn't dead, it's fed differently: when a tool returns an
     `InputRequiredResult` carrying an `ElicitRequest`, `Client` dispatches that entry to the same
-    `elicitation_callback` and retries the call for you. That flow is **Multi-round-trip requests**.
+    `elicitation_callback` and retries the call for you. That flow is **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
 
 ## A callback is a capability
 
@@ -113,7 +113,7 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
 
 `sampling_callback` answers `sampling/createMessage`: the server asking *your* model to complete something. `list_roots_callback` answers `roots/list`: the server asking which directories it may work in.
 
-Both work. Both follow the rule above. And both serve RPCs the **2026-07-28 spec removes**: a modern server doesn't call back into your client mid-request, it hands the request back to you as part of the tool result (**Multi-round-trip requests**). The callbacks themselves are not dead. When an `InputRequiredResult` carries a `CreateMessageRequest` or a `ListRootsRequest`, `Client`'s auto-loop dispatches it to the same `sampling_callback` or `list_roots_callback` you registered here. The whole list is in **Deprecated features**.
+Both work. Both follow the rule above. And both serve RPCs the **2026-07-28 spec removes**: a modern server doesn't call back into your client mid-request, it hands the request back to you as part of the tool result (**[Multi-round-trip requests](../advanced/multi-round-trip.md)**). The callbacks themselves are not dead. When an `InputRequiredResult` carries a `CreateMessageRequest` or a `ListRootsRequest`, `Client`'s auto-loop dispatches it to the same `sampling_callback` or `list_roots_callback` you registered here. The whole list is in **[Deprecated features](../advanced/deprecated.md)**.
 
 You still need the callbacks to talk to servers that haven't moved. The signatures:
 
@@ -131,7 +131,7 @@ Pass them to `Client(...)` exactly like `elicitation_callback`.
 
 Two more. Neither declares anything.
 
-`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**Logging** has what to do instead), so this callback exists for the servers that still emit it.
+`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../tutorial/logging.md)** has what to do instead), so this callback exists for the servers that still emit it.
 
 `message_handler` is the catch-all: every server notification reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 
@@ -144,4 +144,4 @@ Two more. Neither declares anything.
 * `sampling_callback` and `list_roots_callback` work the same way but serve deprecated features; modern servers use multi-round-trip requests instead.
 * `logging_callback` and `message_handler` receive notifications. They declare nothing.
 
-Next: the first argument you've been passing to `Client(...)` all along, **Client transports**.
+Next: the first argument you've been passing to `Client(...)` all along, **[Client transports](transports.md)**.

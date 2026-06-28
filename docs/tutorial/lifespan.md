@@ -41,7 +41,7 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 
 `genre` is the only argument the model can pass. The lifespan is your server's business.
 
-`@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too, written as a bare `Context` for a reason the next section gets to. Everything `ctx` carries is in **The Context**.
+`@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too, written as a bare `Context` for a reason the next section gets to. Everything `ctx` carries is in **[The Context](context.md)**.
 
 ### It really is typed
 
@@ -99,4 +99,4 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
 * `ctx: Context[AppContext]` makes that access fully typed in tools. Resources and prompts take the bare `Context`.
 * No `lifespan=` means an empty `dict`, never `None`.
 
-Next: tools that return more than text, **Media**.
+Next: tools that return more than text, **[Media](media.md)**.

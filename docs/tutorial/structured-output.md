@@ -1,6 +1,6 @@
 # Structured Output
 
-In **Tools** you returned a `str` and the result came back twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
+In **[Tools](tools.md)** you returned a `str` and the result came back twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
 
 This chapter is about that second channel: where it comes from, every shape it can take, and how the SDK keeps it honest.
 
@@ -14,7 +14,7 @@ The short version: **the return type annotation is the output schema**. You alre
 
 The line that matters is the signature: `-> int`.
 
-Because of it, the tool the SDK sends during `tools/list` carries an `output_schema` next to the input schema you met in **Tools**:
+Because of it, the tool the SDK sends during `tools/list` carries an `output_schema` next to the input schema you met in **[Tools](tools.md)**:
 
 ```json
 {
@@ -232,7 +232,7 @@ There is one way to end up unstructured without asking for it: return a class th
 
 !!! tip
     Need full control (building the `CallToolResult` yourself, or attaching `_meta` that the
-    application can see but the model can't)? That's **The low-level Server**.
+    application can see but the model can't)? That's **[The low-level Server](../advanced/low-level-server.md)**.
 
 ## Recap
 
@@ -242,4 +242,4 @@ There is one way to end up unstructured without asking for it: return a class th
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
 * `structured_output=False` opts a tool out. A class without type hints opts out silently; watch for it.
 
-You now own everything a tool can say back. Next, the second primitive: **Resources**.
+You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

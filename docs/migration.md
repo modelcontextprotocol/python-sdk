@@ -79,7 +79,7 @@ v1's internal client set `follow_redirects=True`; set it explicitly when supplyi
 
 ### OAuth `callback_handler` returns `AuthorizationCodeResult`
 
-The `callback_handler` passed to `OAuthClientProvider` now returns an `AuthorizationCodeResult` instead of a `tuple[str, str | None]` of `(code, state)`. The new object adds an `iss` field so the client can validate the RFC 9207 authorization-response issuer (SEP-2468): when the redirect carries an `iss` query parameter it must match the authorization server's issuer, and a missing `iss` is rejected when the server advertised `authorization_response_iss_parameter_supported`.
+The `callback_handler` passed to `OAuthClientProvider` now returns an `AuthorizationCodeResult` instead of a `tuple[str, str | None]` of `(code, state)`. The new object adds an `iss` field so the client can validate the [RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207) authorization-response issuer ([SEP-2468](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2468)): when the redirect carries an `iss` query parameter it must match the authorization server's issuer, and a missing `iss` is rejected when the server advertised `authorization_response_iss_parameter_supported`.
 
 **Before (v1):**
 
@@ -403,7 +403,7 @@ On the high-level `Client`, `call_tool`, `get_prompt`, and `read_resource` resol
 
 On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return the bare result and raise `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then drive the loop yourself with `input_responses=` / `request_state=`. `ClientSessionGroup.call_tool` accepts the same flag.
 
-### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers (SEP-2243)
+### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.
 
@@ -655,7 +655,7 @@ The underlying lookups now raise typed exceptions instead of `ValueError`. `Reso
 
 ### Resource templates: matching behavior changes
 
-Resource template matching has been rewritten with RFC 6570 support.
+Resource template matching has been rewritten with [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570) support.
 Several behaviors have changed:
 
 **Path-safety checks applied by default.** Extracted parameter values
@@ -768,7 +768,7 @@ On the high-level `Context` object (`mcp.server.mcpserver.Context`), `log()`, `.
 
 The lowlevel `ServerSession.send_log_message(data: Any)` already accepted arbitrary data and is unchanged.
 
-`Context.log()` also now accepts all eight RFC-5424 log levels (`debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`) via the `LoggingLevel` type, not just the four it previously allowed.
+`Context.log()` also now accepts all eight [RFC-5424](https://datatracker.ietf.org/doc/html/rfc5424) log levels (`debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`) via the `LoggingLevel` type, not just the four it previously allowed.
 
 ```python
 # Before
@@ -1443,7 +1443,7 @@ Behavior changes:
 
 ### Experimental Tasks support removed
 
-Tasks (SEP-1686) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions.
+Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions.
 
 Tasks are expected to return as a separate MCP extension in a future release.
 
@@ -1486,14 +1486,14 @@ On the server side, prefer the new dispatcher-agnostic `ServerSession.report_pro
 `url_preserve_empty_path=True` (Pydantic 2.12+). A path-less URL parsed from the wire keeps its
 empty path instead of acquiring a trailing slash, so e.g. an `issuer` of `https://as.example.com`
 round-trips as `https://as.example.com` rather than `https://as.example.com/`. This matters for
-RFC 9207 / RFC 8414 issuer comparisons, which require simple string comparison (RFC 3986 §6.2.1).
+[RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207) / [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) issuer comparisons, which require simple string comparison ([RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) §6.2.1).
 URLs constructed in Python from an already-built `AnyHttpUrl` object are unaffected (they were
 normalized at construction); only values parsed from strings/JSON change.
 
 This also changes the wire form of `OAuthClientMetadata.redirect_uris`: a path-less redirect URI
 passed as a string (e.g. `redirect_uris=['http://localhost:8080']`) now serializes as
 `http://localhost:8080` instead of `http://localhost:8080/`, and the client sends it verbatim in
-the `/authorize` and token-exchange requests. RFC 6749 §3.1.2.3 requires authorization servers to
+the `/authorize` and token-exchange requests. [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) §3.1.2.3 requires authorization servers to
 match redirect URIs by exact string comparison, so if you registered such a URI with a previous SDK
 release (with the trailing slash) and the registration is persisted in `TokenStorage`, re-register
 the client so the stored value matches what the SDK now transmits.
@@ -1542,15 +1542,15 @@ If you relied on extra fields round-tripping through MCP types, move that data i
 
 ## New Features
 
-### OAuth client credentials are bound to their authorization server (SEP-2352)
+### OAuth client credentials are bound to their authorization server ([SEP-2352](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2352))
 
 Persisted OAuth client credentials are now bound to the authorization server that issued them: `OAuthClientInformationFull` records an `issuer`, set by the SDK after registration. When a server's protected resource metadata later points at a different authorization server, the client discards the bound credentials (and the old tokens) and re-registers with the new server instead of presenting one server's `client_id` to another. URL-based client IDs (CIMD) are portable and unaffected; credentials with no recorded issuer (pre-registered, or stored before this change) are left as-is. No API change for existing `TokenStorage` implementations - the `issuer` round-trips through the unchanged `get_client_info`/`set_client_info`.
 
-### Step-up authorization unions previously requested scopes (SEP-2350)
+### Step-up authorization unions previously requested scopes ([SEP-2350](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350))
 
 When a `403 insufficient_scope` challenge triggers step-up re-authorization, the OAuth client now requests the union of the previously requested scopes and the newly challenged scopes, instead of replacing the scope with only the challenged ones. This keeps permissions granted for earlier operations from being dropped when a later operation escalates. No API change; the wider scope is sent automatically on the re-authorization request.
 
-### OAuth Dynamic Client Registration sends `application_type` (SEP-837)
+### OAuth Dynamic Client Registration sends `application_type` ([SEP-837](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/837))
 
 `OAuthClientMetadata` now carries an `application_type` field that is sent during Dynamic Client Registration. It defaults to `"native"`, which suits MCP clients that use loopback redirect URIs (CLI and desktop apps); browser-based clients served from a non-local host should set it to `"web"`:
 
@@ -1567,7 +1567,7 @@ Under OIDC, omitting `application_type` defaults to `"web"`, which an authorizat
 
 ### Identity Assertion Authorization Grant for enterprise IdP flows (SEP-990)
 
-The SDK now supports SEP-990's enterprise identity-provider policy controls. The client presents an Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise IdP - to the MCP authorization server using the RFC 7523 jwt-bearer grant (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, the ID-JAG as `assertion`), and receives an MCP access token. This matches the SEP-990 normative profile and interoperates with the other MCP SDKs. (Leg 1 - exchanging the user's IdP ID token for the ID-JAG against the IdP - is deployment-specific and out of scope for the SDK.) This is additive and opt-in on both sides; existing flows are unchanged.
+The SDK now supports [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)'s enterprise identity-provider policy controls. The client presents an Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise IdP - to the MCP authorization server using the [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) jwt-bearer grant (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, the ID-JAG as `assertion`), and receives an MCP access token. This matches the SEP-990 normative profile and interoperates with the other MCP SDKs. (Leg 1 - exchanging the user's IdP ID token for the ID-JAG against the IdP - is deployment-specific and out of scope for the SDK.) This is additive and opt-in on both sides; existing flows are unchanged.
 
 On the client, `IdentityAssertionOAuthProvider` (in `mcp.client.auth.extensions.identity_assertion`) is an `httpx.Auth` that posts the jwt-bearer request. The ID-JAG is supplied lazily through an async `assertion_provider(audience, resource)` callback - `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's identifier (the ID-JAG `resource` claim):
 
@@ -1590,9 +1590,9 @@ provider = IdentityAssertionOAuthProvider(
 )
 ```
 
-SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so `client_secret` is mandatory (`token_endpoint_auth_method` chooses `client_secret_post` (default) or `client_secret_basic`; the spec also permits `private_key_jwt`). The authorization server is configuration, not discovery: `issuer` is the AS the client is provisioned for, authorization-server metadata is fetched from that issuer's RFC 8414 well-known, and the resource server is never asked which AS to use - so a hostile resource server cannot redirect the ID-JAG or secret.
+SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so `client_secret` is mandatory (`token_endpoint_auth_method` chooses `client_secret_post` (default) or `client_secret_basic`; the spec also permits `private_key_jwt`). The authorization server is configuration, not discovery: `issuer` is the AS the client is provisioned for, authorization-server metadata is fetched from that issuer's [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) well-known, and the resource server is never asked which AS to use - so a hostile resource server cannot redirect the ID-JAG or secret.
 
-On the authorization server, set `AuthSettings(identity_assertion_enabled=True)` (or pass `identity_assertion_enabled=True` to `create_auth_routes`) and implement `exchange_identity_assertion` on your `OAuthAuthorizationServerProvider`. The method receives an `IdentityAssertionParams` (the ID-JAG `assertion`, requested scopes, and request `resource`) and returns a plain RFC 6749 `OAuthToken`. The flag gates both metadata advertisement and the token endpoint: when off, `/token` rejects the grant with `unsupported_grant_type` even if the provider implements the hook. When on, the metadata advertises the jwt-bearer grant and the `urn:ietf:params:oauth:grant-profile:id-jag` profile in `authorization_grant_profiles_supported` (the discovery mechanism per ext-auth §6).
+On the authorization server, set `AuthSettings(identity_assertion_enabled=True)` (or pass `identity_assertion_enabled=True` to `create_auth_routes`) and implement `exchange_identity_assertion` on your `OAuthAuthorizationServerProvider`. The method receives an `IdentityAssertionParams` (the ID-JAG `assertion`, requested scopes, and request `resource`) and returns a plain [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) `OAuthToken`. The flag gates both metadata advertisement and the token endpoint: when off, `/token` rejects the grant with `unsupported_grant_type` even if the provider implements the hook. When on, the metadata advertises the jwt-bearer grant and the `urn:ietf:params:oauth:grant-profile:id-jag` profile in `authorization_grant_profiles_supported` (the discovery mechanism per ext-auth §6).
 
 The implementation is responsible for validating the assertion per RFC 7523 §3 and SEP-990 §5.1 - verify the signature/`iss`/`exp`/`typ`, require `aud` to be this AS, require the ID-JAG's `client_id` claim to match the authenticated client, audience-restrict the issued token to the ID-JAG's `resource` claim (not the client-controlled request `resource`), and derive scopes from the ID-JAG rather than granting the request verbatim. See `examples/snippets/servers/identity_assertion_server.py`, which fails closed. Two hardening points are enforced by the SDK: the handler rejects clients without a stored secret before calling the hook (and `ClientAuthenticator` itself now refuses a secret-based auth method registered without a secret), and Dynamic Client Registration refuses the jwt-bearer grant so the ID-JAG flow requires a pre-registered confidential client.
 

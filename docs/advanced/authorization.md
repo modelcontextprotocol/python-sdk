@@ -32,11 +32,11 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 
 !!! tip
     `examples/servers/simple-auth/` in the SDK repository has an `IntrospectionTokenVerifier` that calls
-    a real authorization server's RFC 7662 endpoint. It's the shape most production verifiers take.
+    a real authorization server's [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) endpoint. It's the shape most production verifiers take.
 
 ## What you get over HTTP
 
-Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **Running your server** has the rest. The app now has two routes:
+Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](../run/index.md)** has the rest. The app now has two routes:
 
 ```text
 /mcp
@@ -47,7 +47,7 @@ You registered one tool. The second route is the SDK's.
 
 ### Discovery
 
-`GET` that well-known path and you get **RFC 9728 Protected Resource Metadata**, built straight from your `AuthSettings`:
+`GET` that well-known path and you get **[RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata**, built straight from your `AuthSettings`:
 
 ```json
 {
@@ -109,15 +109,15 @@ To watch all three parties move, run `examples/servers/simple-auth/` from the SD
     server inside your MCP server. It predates the AS/RS separation that the MCP authorization spec
     is built around. New servers should not reach for it.
 
-An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **Identity assertion**.
+An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **[Identity assertion](identity-assertion.md)**.
 
 ## Recap
 
 * Over Streamable HTTP your server is an OAuth 2.1 **resource server**: it verifies tokens, it never issues them.
 * `TokenVerifier` is the whole integration surface: one async method, token in, `AccessToken | None` out.
 * `token_verifier=` and `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` always travel together.
-* The SDK publishes RFC 9728 Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
+* The SDK publishes [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
 * `get_access_token()` in any handler is who's calling.
 * Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
 
-The other side of the handshake, a client that discovers your authorization server and fetches the token for you, is **OAuth clients**.
+The other side of the handshake, a client that discovers your authorization server and fetches the token for you, is **[OAuth clients](oauth-clients.md)**.

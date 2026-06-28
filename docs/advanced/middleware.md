@@ -10,7 +10,7 @@ You write it as `async (ctx, call_next)` and append it to `server.middleware`. T
     Do not make it the foundation your server stands on.
 
 This is a **low-level `Server`** feature. `MCPServer` does not expose a middleware list.
-If `Server(name, on_call_tool=...)` is new to you, read **The low-level Server** first.
+If `Server(name, on_call_tool=...)` is new to you, read **[The low-level Server](low-level-server.md)** first.
 
 ## A timing middleware
 
@@ -84,7 +84,7 @@ In increasing order of how much you should hesitate:
 The SDK ships exactly one middleware, and it is already on your server's list: the one that
 emits an OpenTelemetry span for every message. You don't append it, and most of the time you
 don't think about it. It is a no-op until you install an exporter, and it has its own page:
-**OpenTelemetry**.
+**[OpenTelemetry](opentelemetry.md)**.
 
 !!! info
     If you have written ASGI middleware, you already know this shape. Starlette's
@@ -101,8 +101,8 @@ don't think about it. It is a no-op until you install an exporter, and it has it
 * `ctx.request_id is None` is how you tell a notification from a request.
 * Raise instead of calling `call_next` to refuse one message; the connection survives.
 * The SDK's own OpenTelemetry tracing is a middleware too, already on the list. See
-  **OpenTelemetry**.
+  **[OpenTelemetry](opentelemetry.md)**.
 * The whole surface is provisional. Observe with it; don't build on it.
 
-That is everything that wraps a request. **Authorization** is what decides whether the request
+That is everything that wraps a request. **[Authorization](authorization.md)** is what decides whether the request
 gets to run at all.

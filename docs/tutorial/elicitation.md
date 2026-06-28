@@ -17,7 +17,7 @@ There are two modes:
 --8<-- "docs_src/elicitation/tutorial001.py"
 ```
 
-* The **`Context`** parameter is what gives you `ctx.elicit`; any tool can take one. That object has its own chapter: **The Context**.
+* The **`Context`** parameter is what gives you `ctx.elicit`; any tool can take one. That object has its own chapter: **[The Context](context.md)**.
 * `AlternativeDate` is the **schema** of the answer you want.
 * The tool is `async def`. It has to be: it stops in the middle and waits for a person.
 * On any other date the tool returns straight away. It only asks when it has to.
@@ -48,7 +48,7 @@ The client gets your message and, next to it, a JSON Schema generated from the m
 }
 ```
 
-That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery you already used for a tool's arguments in **Tools**.
+That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery you already used for a tool's arguments in **[Tools](tools.md)**.
 
 !!! warning
     An elicitation schema is not as expressive as a tool's input schema. Flat, primitive fields
@@ -122,17 +122,17 @@ Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(
 * One callback handles both modes. `params` is a union of `ElicitRequestFormParams` and `ElicitRequestURLParams`; `isinstance` is the branch.
 * For a URL, you show `params.url` to the user and return the action they chose. Never any `content`.
 * For a form, a real application renders `params.requested_schema` and returns the user's input as `content`. This one always says yes with a canned answer, which is exactly the callback you want in a test.
-* Passing the callback is also the **capability declaration**: it's how the server learns this client can be asked. The other things a client can answer for a server live in **Client callbacks**.
+* Passing the callback is also the **capability declaration**: it's how the server learns this client can be asked. The other things a client can answer for a server live in **[Client callbacks](../client/callbacks.md)**.
 
 !!! info
     Elicitation is a request from the *server* to the *client*, and those only exist on a
     classic-handshake session, which is why this client passes `mode="legacy"`.
     On a **2026-07-28** connection a tool asks by *returning* the question from the call
-    instead; that flow is **Multi-round-trip requests**.
+    instead; that flow is **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
 
 ### Try it
 
-Start the form-mode `server.py` (the first one on this page) on Streamable HTTP (**Running your server** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
+Start the form-mode `server.py` (the first one on this page) on Streamable HTTP (**[Running your server](../run/index.md)** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
 
 The callback prints the question it was sent:
 
@@ -167,6 +167,6 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
 * `result.action` is `"accept"`, `"decline"` or `"cancel"`; `result.data` exists only on accept.
 * `await ctx.elicit_url(message, url, elicitation_id)` is for everything that must not pass through the model; `ctx.session.send_elicit_complete(elicitation_id)` says the out-of-band part is done.
 * The client answers with one `elicitation_callback`, branching on the params type; registering it is what declares the capability.
-* On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **Multi-round-trip requests**.
+* On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
 
-A tool that can ask is good. A tool that says how far along it is (**Progress**) is next.
+A tool that can ask is good. A tool that says how far along it is (**[Progress](progress.md)**) is next.
