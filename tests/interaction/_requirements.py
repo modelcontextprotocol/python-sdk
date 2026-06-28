@@ -1127,6 +1127,116 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
+    "client:x-mcp-header:invalid-definition-rejected": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "A tool definition whose x-mcp-header value violates the schema-extension "
+            "constraints is rejected by the modern client: the tool is excluded from the "
+            "tools/list result while valid sibling tools survive."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:empty": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "A tool whose x-mcp-header annotation is the empty string is excluded from the "
+            "modern client's tools/list result."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:non-tchar": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "A tool whose x-mcp-header annotation is not an RFC 9110 field-name token is "
+            "excluded from the modern client's tools/list result."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:control-chars": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "A tool whose x-mcp-header annotation contains control characters (CR/LF) is "
+            "excluded from the modern client's tools/list result."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:duplicate": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "A tool whose inputSchema carries two x-mcp-header values equal under "
+            "case-insensitive comparison is excluded from the modern client's tools/list result."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:non-primitive": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "An x-mcp-header annotation on a non-primitive property (e.g. type number, which "
+            "the spec explicitly forbids) makes the tool definition invalid and the modern "
+            "client excludes it from tools/list."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-definition-rejected:not-statically-reachable": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
+        behavior=(
+            "An x-mcp-header annotation on a property not reachable from the schema root via a "
+            "pure properties chain (e.g. under items) invalidates the tool and the modern client "
+            "excludes it from tools/list; an annotation on a nested pure-properties chain stays valid."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The spec scopes the rejection MUST to clients using the Streamable HTTP transport "
+            "(other transports MAY ignore the annotations); the SDK gates on the negotiated modern "
+            "version instead, so the exclusion also runs on the in-memory 2026 connection -- a "
+            "deliberate superset, pinned on both cells."
+        ),
+    ),
+    "client:x-mcp-header:invalid-tool-excluded:logs-warning": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/tools#x-mcp-header",
+        behavior=(
+            "When the modern client rejects a tool definition over an invalid x-mcp-header, "
+            "it logs a warning naming the tool and the reason for rejection."
+        ),
+        added_in="2026-07-28",
+        note="A SHOULD; the same text also appears on the streamable-http transport page.",
+    ),
     "mcpserver:output-schema:missing-structured": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
         behavior="A tool with an output schema whose function returns no structured content produces a server error.",
@@ -2220,6 +2330,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "(sampling.tools, sampling.context) are equally ungated and covered by this divergence "
                 "without separate pins."
             ),
+            issue="L109",
         ),
         added_in="2026-07-28",
         supersedes=(
@@ -2571,6 +2682,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "callback always declares both modes, so a form-only client is unproducible through the "
                 "public API."
             ),
+            issue="L109",
         ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:not-supported", "elicitation:capability:server-respects-mode"),
@@ -2728,6 +2840,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "it lands, re-pin the request-scoped in-memory test to the local NoBackChannelError "
                 "and delete this divergence."
             ),
+            issue="L107",
         ),
         added_in="2026-07-28",
     ),
@@ -2836,6 +2949,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "and the violation surfaces as the client driver's refusal (INVALID_REQUEST, 'List "
                 "roots not supported') aborting the call."
             ),
+            issue="L109",
         ),
         added_in="2026-07-28",
         supersedes=("roots:list:not-supported",),
@@ -4107,8 +4221,313 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         supersedes=("hosting:http:disconnect-not-cancel",),
         note="Only observable over streamable HTTP: stream closure is the transport-level cancellation signal.",
+    ),
+    "hosting:http:modern:cacheable-stamping": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cacheable-results",
+        behavior=(
+            "A 2026-07-28 cacheable result (tools/list, resources/list, resources/read, ...) reaches "
+            "the wire as resultType complete plus the required ttlMs and cacheScope hints: "
+            "handler-authored values pass through unchanged, and a result whose handler set neither "
+            "is stamped with the defaults ttlMs 0 / cacheScope private."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: typed client models default-fill ttl_ms/cache_scope, "
+            "so absent-vs-stamped is a wire fact. The spec mandates the hints' presence and ttlMs >= 0; "
+            "the 0/private default fill is the SDK's choice (CacheableResult defaults). Python has no "
+            "operation-level cache-hint configuration (the TS createMcpHandler cacheHints precedence "
+            "ladder); hints are authored per-result by the handler."
+        ),
+    ),
+    "hosting:http:modern:json-response-mode": Requirement(
+        source="sdk",
+        behavior=(
+            "With JSON response mode enabled, a 2026-07-28 request is answered with a single "
+            "application/json body carrying only the terminal JSON-RPC response; request-scoped "
+            "notifications emitted mid-call are dropped, not buffered."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: response Content-Type and body framing are "
+            "HTTP-specific. 2025-era sibling: hosting:http:json-response-mode. TS twin "
+            "(typescript:hosting:entry:modern-response-mode) also has a forced-SSE response mode "
+            "python does not implement: there is no responseMode equivalent, the SDK knob is the "
+            "boolean json_response."
+        ),
+    ),
+    "hosting:http:modern:lazy-sse-upgrade": Requirement(
+        source="sdk",
+        behavior=(
+            "On the default response mode, a 2026-07-28 exchange is answered as a single "
+            "application/json body when the handler emits nothing before its result, and upgrades to "
+            "text/event-stream when the handler emits request-scoped notifications mid-call: the "
+            "frames carry the notifications in emission order with the terminal response as the last "
+            "frame."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the Content-Type commit is the assertion. The "
+            "deferral window before a silent handler commits SSE anyway (_SSE_PING_INTERVAL) is not "
+            "pinned: asserting it would need a real-time wait the suite refuses."
+        ),
+    ),
+    "hosting:http:modern:response-stream-request-scoped": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#receiving-messages",
+        behavior=(
+            "Notifications on a 2026-07-28 SSE response stream relate to the originating client "
+            "request: a notification emitted while serving request A travels only on A's response "
+            "stream and never appears on another in-flight request's response."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: which stream a message travels on is the assertion. "
+            "Request-scoping is by construction on the modern entry (per-request sink); the test pins "
+            "the observable consequence."
+        ),
+    ),
+    "hosting:http:sse-x-accel-buffering": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#receiving-messages",
+        behavior=(
+            "When a 2026-07-28 response commits to an SSE stream, the response carries "
+            "X-Accel-Buffering: no so reverse proxies deliver events unbuffered."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: a response header is the assertion. Scoped to the "
+            "modern entry (the SHOULD is new on the draft transport page); the legacy 2025-era "
+            "SSE/streamable-http transports carry no such header and are not bound by this entry. The "
+            "other 2026 SSE-initiation point, subscriptions/listen, is not constructible at this pin."
+        ),
+    ),
+    "hosting:http:modern:header-name-case-insensitive": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#case-sensitivity",
+        behavior=(
+            "Standard request header names are matched case-insensitively: a 2026-07-28 POST whose "
+            "MCP-Protocol-Version / Mcp-Method / Mcp-Name headers arrive under any casing is served, "
+            "not rejected as missing a required header."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP. The in-process ASGI bridge lowercases header names "
+            "into the scope (as every conformant ASGI server must), so the discriminating claim pinned "
+            "end-to-end is that the server's lookups key on the lowercase canonical names "
+            "(shared/inbound.py constants) rather than any cased spelling."
+        ),
+    ),
+    "hosting:http:modern:missing-standard-header-rejected": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-validation",
+        behavior=(
+            "A 2026-07-28 request missing a required standard header -- Mcp-Method, or Mcp-Name on a "
+            "name-bearing method -- is rejected with HTTP 400 and JSON-RPC error -32020 HeaderMismatch."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the HTTP status is half the assertion. Narrowed to "
+            "the Mcp-Method / Mcp-Name arms: the MCP-Protocol-Version-missing arm belongs to the "
+            "deferred hosting:http:modern:missing-protocol-version-header-rejected (a header-less "
+            "request routes to the legacy transport; the rejecting modern-only posture is not "
+            "implemented). The SDK reaches the rejection through its mismatch rung (absent header != "
+            "body value), so the error message says 'does not match' rather than 'missing'."
+        ),
+    ),
+    "hosting:http:modern:missing-protocol-version-header-rejected": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#protocol-version-header",
+        behavior=(
+            "A server that does not support clients predating the MCP-Protocol-Version header "
+            "(pre-2025-06-18) rejects a request that omits the header with HTTP 400 and JSON-RPC "
+            "error -32020 HeaderMismatch."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
         deferred=(
-            "Not yet covered here: planned transport-conformance test for the modern entry's disconnect handling."
+            "Not implemented in the SDK: there is no modern-only server posture -- "
+            "StreamableHTTPSessionManager.handle_request (src/mcp/server/streamable_http_manager.py) "
+            "unconditionally routes a request without an MCP-Protocol-Version header to the legacy "
+            "2025 transport (seeded with DEFAULT_NEGOTIATED_VERSION) instead of rejecting it, and the "
+            "manager exposes no option to declare pre-2025-06-18 clients unsupported, so the "
+            "rejecting arm is unconstructible."
+        ),
+        note=(
+            "Only observable over streamable HTTP: MCP-Protocol-Version is an HTTP header. The "
+            "implemented MAY arm (a header-less request is served as 2025-era traffic) is pinned by "
+            "hosting:http:protocol-version-default and hosting:http:modern:legacy-fallthrough."
+        ),
+    ),
+    "hosting:http:modern:protocol-version-meta-mismatch-400": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#protocol-version-header",
+        behavior=(
+            "A request whose MCP-Protocol-Version header and _meta protocolVersion envelope value are "
+            "both individually valid but disagree is rejected with HTTP 400 and JSON-RPC error -32020 "
+            "HeaderMismatch, before any supported-version check."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the SDK client derives header and envelope from one "
+            "value (_make_modern_stamp) and can never produce the mismatch, so only a raw POST drives it."
+        ),
+    ),
+    "hosting:http:modern:std-header-mismatch-400": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-validation",
+        behavior=(
+            "A 2026-07-28 request whose Mcp-Method or Mcp-Name header disagrees with the "
+            "corresponding request-body value is rejected with HTTP 400 and a HeaderMismatch "
+            "(-32020) JSON-RPC error."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "TS id: sep-2243:std-header:mismatch-rejected. Scope boundary: present-but-"
+            "disagreeing Mcp-Method/Mcp-Name only -- the MCP-Protocol-Version mismatch is "
+            "hosting:http:modern:protocol-version-meta-mismatch-400 and the missing-header "
+            "conditions are hosting:http:modern:missing-standard-header-rejected."
+        ),
+    ),
+    "hosting:http:modern:sentinel-decoded-before-validation": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#value-encoding",
+        behavior=(
+            "A base64-sentinel-encoded Mcp-Name header value is decoded before server validation "
+            "compares it to the request body value, so an encoded-but-decode-matching value is served "
+            "rather than rejected with HeaderMismatch."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: header encoding never surfaces through the client "
+            "API. Only the Mcp-Name member of the spec's 'Mcp-Name or Mcp-Param-{Name}' pair is "
+            "server-validated; the SDK performs no Mcp-Param-* header-to-body comparison at all (the "
+            "recorded gap on hosting:http:modern:mcp-param-mismatch-400), so the Mcp-Param decode leg "
+            "is vacuous until that validation lands."
+        ),
+    ),
+    "hosting:http:modern:mcp-param-null-absent-not-required": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-behavior-for-custom-headers",
+        behavior=(
+            "A 2026-07-28 tools/call whose annotated arguments are null or absent carries no "
+            "Mcp-Param-* header for them, and the server accepts the request without expecting one."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP. The acceptance arm currently holds by "
+            "construction (the server validates no Mcp-Param-* headers at all -- see "
+            "hosting:http:modern:mcp-param-mismatch-400); the pin is the regression bar for "
+            "when that validation lands."
+        ),
+    ),
+    "hosting:http:modern:mcp-param-mismatch-400": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-behavior-for-custom-headers",
+        behavior=(
+            "A 2026-07-28 tools/call whose decoded Mcp-Param-{Name} header value does not match "
+            "the corresponding body argument is rejected with HTTP 400 and JSON-RPC -32020 "
+            "(HeaderMismatch)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "The server performs no Mcp-Param-* header validation: the inbound ladder "
+                "compares only MCP-Protocol-Version, Mcp-Method and Mcp-Name, so a request "
+                "whose decoded Mcp-Param header disagrees with the body argument is accepted "
+                "and the handler runs on the body value; the same gap covers the spec's "
+                "'client omits header but value is in body' reject row. The SDK has no notion "
+                "of a 'recognized' param header (the inbound ladder never sees a tool schema); "
+                "the pinned accept uses a header that name-matches a body argument -- the "
+                "strongest candidate for any future validation -- and the unknown-header arm "
+                "(a header with no corresponding body argument) is deliberately not pinned: "
+                "its reject-vs-ignore consequence must be decided when validation lands."
+            ),
+            issue="L110",
+        ),
+        note="TS implements this (createMcpHandler) with no requirement id of its own.",
+    ),
+    "hosting:http:modern:invalid-header-chars-rejected": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-behavior-for-custom-headers",
+        behavior=(
+            "A 2026-07-28 request carrying a recognized Mcp-Param-{Name} header that contains "
+            "invalid characters is rejected with HTTP 400 and JSON-RPC error -32020 HeaderMismatch."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: the server never validates Mcp-Param-{Name} headers -- "
+            "classify_inbound_request (src/mcp/shared/inbound.py) checks only "
+            "MCP-Protocol-Version/Mcp-Method/Mcp-Name, and MCP_PARAM_HEADER_PREFIX / the "
+            "x-mcp-header schema map have client-emit-only consumers (src/mcp/client/session.py), "
+            "so there is no server-side notion of a 'recognized' param header, no "
+            "invalid-character check, and no rejection to assert."
+        ),
+        note=(
+            "Only observable over streamable HTTP: Mcp-Param-* are HTTP request headers. Sibling of "
+            "the gap recorded on hosting:http:modern:mcp-param-mismatch-400 (issue L110): both await "
+            "the same server-side Mcp-Param validation."
+        ),
+    ),
+    "hosting:http:modern:numeric-header-comparison": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-validation",
+        behavior=(
+            "When validating integer parameter values against Mcp-Param-{Name} headers, the server "
+            "compares the header value and the body value numerically rather than as strings "
+            "(42.0 and 42 are considered equal)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: the server performs no Mcp-Param-{Name} header-vs-body "
+            "validation (classify_inbound_request in src/mcp/shared/inbound.py checks only "
+            "MCP-Protocol-Version/Mcp-Method/Mcp-Name; MCP_PARAM_HEADER_PREFIX has no server-side "
+            "consumer), so there is no integer comparison -- numeric or string -- to observe; a "
+            "42.0-vs-42 request is accepted only because nothing is checked."
+        ),
+        note=(
+            "Only observable over streamable HTTP: the comparison's input is an HTTP request header. "
+            "The SHOULD is the lenient arm of the Mcp-Param header-vs-body comparison whose absence "
+            "is recorded on hosting:http:modern:mcp-param-mismatch-400 (issue L110)."
+        ),
+    ),
+    "hosting:http:request-headers-in-handler": Requirement(
+        source="sdk",
+        behavior=(
+            "A custom HTTP header sent by the client reaches the request handler through the "
+            "per-request HTTP request context (ctx.request), on both the legacy session path and the "
+            "2026-07-28 single-exchange path."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: stdio has no HTTP request context. No added_in: the "
+            "behaviour exists on both eras. Carries phase-4 FINDING F3: the un-minted twin proposal "
+            "hosting:context:web-request-headers describes the same observable; this python-neutral id "
+            "is the recommended survivor of that merge."
+        ),
+    ),
+    "hosting:http:modern-only:initialize-rejection-names-versions": Requirement(
+        source="sdk",
+        behavior=(
+            "A server configured to serve only modern protocol revisions rejects a 2025-shaped "
+            "initialize with the unsupported-protocol-version error naming its supported modern "
+            "revisions in error.data.supported, instead of silently serving the 2025 era."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: there is no strict/modern-only hosting posture -- "
+            "StreamableHTTPSessionManager.handle_request unconditionally routes "
+            "initialize-handshake-era traffic (and any request without an MCP-Protocol-Version "
+            "header) to the legacy transport, and the manager exposes no option to refuse it, so the "
+            "strict rejection is unconstructible."
+        ),
+        note=(
+            "TS twin: typescript:hosting:entry:strict-rejects-legacy (createMcpHandler legacy: "
+            "'reject'). The adjacent implemented behaviour -- an envelope whose protocolVersion is "
+            "unsupported gets UNSUPPORTED_PROTOCOL_VERSION with data.supported -- is the classifier's "
+            "rung 3 and is owned by the discover-versioning family, not this entry."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -4283,6 +4702,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
     ),
+    "client-transport:http:mcp-name-base64-sentinel": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#standard-request-headers",
+        behavior=(
+            "A tools/call for a tool whose name is not header-safe carries the Mcp-Name header "
+            "in the =?base64?...?= sentinel form while the body keeps the literal name, and the "
+            "round trip completes."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the header is derived at the transport seam.",
+    ),
     "client-transport:http:custom-param-headers": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#custom-headers-from-tool-parameters",
         behavior=(
@@ -4295,6 +4725,36 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
+    ),
+    "client-transport:http:custom-param-headers:sentinel-collision-escaped": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#value-encoding",
+        behavior=(
+            "A plain-ASCII argument value that itself matches the =?base64?...?= sentinel "
+            "pattern is base64-wrapped when mirrored into its Mcp-Param-* header, while the "
+            "body keeps the literal value."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
+    ),
+    "client-transport:http:custom-param-headers:refresh-and-retry-on-reject": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#client-behavior",
+        behavior=(
+            "When a server rejects a tools/call because required custom Mcp-Param-* headers "
+            "are missing, the client refetches tools/list to obtain the current inputSchema "
+            "and retries the original request with the appropriate headers."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: the client has no recovery path for a header-rejection "
+            "error -- call_tool issues a single request and raises the JSON-RPC error to the "
+            "caller; no handler refetches tools/list and retries with the appropriate headers."
+        ),
+        note=(
+            "Only observable over streamable HTTP: the trigger is an HTTP-layer HeaderMismatch "
+            "rejection and the retried request's Mcp-Param-* headers are wire artifacts."
+        ),
     ),
     "client-transport:http:vendor-name-param-header": Requirement(
         source="sdk",
