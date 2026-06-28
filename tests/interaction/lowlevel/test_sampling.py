@@ -3,6 +3,9 @@
 Each test nests a sampling/createMessage request inside a tool call: the tool handler calls
 ctx.session.create_message(), the client's sampling callback answers it, and the handler
 round-trips what it received back to the test through its tool result.
+
+The 2026-07-28 MRTR successors embed the request in an input_required result instead of calling
+ctx.session.create_message(): the client fulfils it and retries the tool call.
 """
 
 import mcp_types as types
@@ -12,11 +15,14 @@ from inline_snapshot import snapshot
 from mcp_types import (
     AudioContent,
     CallToolResult,
+    CreateMessageRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
     ErrorData,
     ImageContent,
+    InputRequiredResult,
+    InputResponses,
     ModelHint,
     ModelPreferences,
     SamplingCapability,
@@ -686,3 +692,116 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ValidationError")]))
+
+
+@requirement("sampling:mrtr:create:basic")
+async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the_retried_handler(
+    connect: Connect,
+) -> None:
+    """An embedded sampling/createMessage request in an input_required result is fulfilled by the
+    client's sampling callback, and the callback's result (role, content, model, stop reason)
+    reaches the retried tool handler in inputResponses. Spec-mandated (client/sampling, Creating
+    Messages -- the 2026 MRTR successor of the retired push round trip).
+    """
+    SENT = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+        max_tokens=100,
+    )
+    RESULT = CreateMessageResult(
+        role="assistant",
+        content=TextContent(text="Hello to you too."),
+        model="mock-llm-1",
+        stop_reason="endTurn",
+    )
+    callback_received: list[CreateMessageRequestParams] = []
+    handler_received: list[InputResponses] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "ask_model"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"ask": CreateMessageRequest(params=SENT)})
+        handler_received.append(params.input_responses)
+        answer = params.input_responses["ask"]
+        assert isinstance(answer, CreateMessageResult)
+        assert isinstance(answer.content, TextContent)
+        return CallToolResult(content=[TextContent(text=f"{answer.model}/{answer.stop_reason}: {answer.content.text}")])
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return RESULT
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")]))
+    assert callback_received == [SENT]
+    assert handler_received == [{"ask": RESULT}]
+
+
+@requirement("sampling:mrtr:create:include-context")
+@requirement("sampling:mrtr:create:model-preferences")
+@requirement("sampling:mrtr:create:system-prompt")
+async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect) -> None:
+    """Model preferences (hints and the cost/speed/intelligence priorities), the system prompt,
+    and the includeContext value supplied in an embedded sampling/createMessage request all reach
+    the client sampling callback unchanged. Spec-mandated (client/sampling #model-preferences,
+    #system-prompt, #context-inclusion).
+    """
+    SENT = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
+        model_preferences=ModelPreferences(
+            hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
+            cost_priority=0.2,
+            speed_priority=0.3,
+            intelligence_priority=0.9,
+        ),
+        system_prompt="You are terse.",
+        # "none", not the 2025 sibling's "thisServer": the other values are deprecated at
+        # 2026-07-28 (SEP-2596) and gated behind the sampling.context capability.
+        include_context="none",
+        temperature=0.7,
+        max_tokens=50,
+        stop_sequences=["\n\n", "END"],
+    )
+    callback_received: list[CreateMessageRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "ask_model"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"ask": CreateMessageRequest(params=SENT)})
+        answer = params.input_responses["ask"]
+        assert isinstance(answer, CreateMessageResult)
+        assert isinstance(answer.content, TextContent)
+        return CallToolResult(content=[TextContent(text=answer.content.text)])
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return CreateMessageResult(role="assistant", content=TextContent(text="ok"), model="mock-llm-1")
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert callback_received == [SENT]
+    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))

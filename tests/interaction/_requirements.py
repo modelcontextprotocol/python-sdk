@@ -1361,6 +1361,18 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
         behavior="resources/list supports cursor pagination.",
     ),
+    "resources:mrtr:read:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#supported-requests",
+        behavior=(
+            "A resources/read may be answered with an input_required result; the client fulfils the "
+            "embedded request and the retried resources/read completes with the resource contents."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Low-level Server only: MCPServer returns InputRequiredResult from tools alone, so the "
+            "resources/read MRTR leg has no mcpserver mirror."
+        ),
+    ),
     "resources:read:blob": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#reading-resources",
         behavior="resources/read returns binary contents base64-encoded in blob.",
@@ -1685,6 +1697,18 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:list:pagination": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
         behavior="prompts/list supports cursor pagination.",
+    ),
+    "prompts:mrtr:get:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#supported-requests",
+        behavior=(
+            "A prompts/get may be answered with an input_required result; the client fulfils the "
+            "embedded request and the retried prompts/get completes with the prompt messages."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Low-level Server only: MCPServer returns InputRequiredResult from tools alone, so the "
+            "prompts/get MRTR leg has no mcpserver mirror."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Prompts: SDK guarantees
@@ -2176,10 +2200,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("sampling:create:basic", "tools:call:sampling-roundtrip"),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "sampling:mrtr:create:include-context": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/sampling#context-inclusion",
@@ -2189,10 +2209,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("sampling:create:include-context",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "sampling:mrtr:create:model-preferences": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/sampling#model-preferences",
@@ -2202,10 +2218,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("sampling:create:model-preferences",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "sampling:mrtr:create:system-prompt": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/sampling#system-prompt",
@@ -2215,10 +2227,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("sampling:create:system-prompt",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "sampling:mrtr:create:audio-content": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/sampling#audio-content",
@@ -2565,10 +2573,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "elicitation:form:action:accept",
             "transport:streamable-http:server-to-client",
         ),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "elicitation:mrtr:form:action:cancel": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
@@ -2578,10 +2582,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:action:cancel",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "elicitation:mrtr:form:action:decline": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
@@ -2591,10 +2591,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:action:decline",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "elicitation:mrtr:form:schema:primitives": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#requested-schema",
@@ -2604,10 +2600,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:schema:primitives",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "elicitation:mrtr:form:schema:enum-variants": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#requested-schema",
@@ -2642,13 +2634,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "inputRequests for a client whose declared capabilities do not support it (including "
             "mode-level support: form vs url)."
         ),
+        divergence=Divergence(
+            note=(
+                "The server does not gate input_required input requests against the client's declared "
+                "capabilities: an elicitation/create is embedded and sent as-is to a client whose request "
+                "envelope declared no elicitation capability. The mode-level half of the same MUST NOT "
+                "(form vs url) is equally ungated and additionally unpinned -- a configured elicitation "
+                "callback always declares both modes, so a form-only client is unproducible through the "
+                "public API."
+            ),
+        ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:not-supported", "elicitation:capability:server-respects-mode"),
-        deferred=(
-            "Not implemented in the SDK: the server does not gate input_required input requests against the "
-            "client's declared capabilities -- a handler can embed an elicitation/create request for a "
-            "client that never declared the matching capability or mode and it is sent as-is."
-        ),
     ),
     "elicitation:mrtr:url:action-no-content": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
@@ -2713,10 +2710,34 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("tools:call:elicitation-roundtrip", "mcpserver:context:elicit-from-handler"),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
+    ),
+    "mrtr:request-state-only:retry": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#client-requirements-basic-workflow",
+        behavior=(
+            "An InputRequiredResult carrying only requestState (no inputRequests) is retried by the "
+            "client driver with no inputResponses and the requestState echoed verbatim."
         ),
+        added_in="2026-07-28",
+        note=(
+            "The spec's 'MAY retry the original request immediately' is permission; the SDK paces "
+            "state-only retries with an internal 50 ms exponential backoff as its chosen pacing."
+        ),
+    ),
+    "mrtr:request-state:omitted-when-absent": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#client-requirements-basic-workflow",
+        behavior=(
+            "When an InputRequiredResult carries no requestState field, the client does not include "
+            "a requestState key in the serialized retry."
+        ),
+        added_in="2026-07-28",
+    ),
+    "mrtr:request-state:scoped-to-originating-request": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#client-requirements-basic-workflow",
+        behavior=(
+            "inputRequests and requestState affect only the client's retry of the originating "
+            "request; they never appear on any other request the client sends in parallel."
+        ),
+        added_in="2026-07-28",
     ),
     "mrtr:multi-round:complete": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
@@ -2813,10 +2834,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("roots:list:basic",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "roots:mrtr:list:empty": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/roots#listing-roots",
@@ -2826,10 +2843,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("roots:list:empty",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
-        ),
     ),
     "roots:mrtr:capability:not-declared": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
