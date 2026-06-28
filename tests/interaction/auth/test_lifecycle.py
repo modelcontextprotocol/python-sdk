@@ -21,7 +21,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -317,6 +317,117 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
     assert storage.client_info is not None
     assert storage.client_info.client_id != "stale-as-client"
     assert storage.client_info.issuer == f"{BASE_URL}/"
+
+
+@requirement("client-auth:as-binding:no-token-reuse")
+async def test_tokens_from_the_previous_authorization_server_are_never_replayed_after_migration() -> None:
+    """Tokens from the previous authorization server are discarded with its credentials, never replayed.
+
+    Choreography twin of the as-binding discard test above, pinning the token half of the same
+    SEP-2352 branch: storage carries both an old-issuer client registration and that server's
+    tokens. The stale access token is presented once to the resource server (reload treats it
+    as live), the 401 triggers the binding check, and the discard drops tokens together with
+    the credentials -- so the stale refresh token reaches no endpoint of the new authorization
+    server and the only token exchange is the fresh authorization-code grant. The requirement's
+    note carries the refresh-ordering hazard this test is the regression net for.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    # Built directly rather than via `seeded_client`: the previous authorization server no
+    # longer exists, so its client must NOT be registered with the current provider.
+    stale = OAuthClientInformationFull.model_validate(
+        {
+            "client_id": "stale-as-client",
+            "token_endpoint_auth_method": "none",
+            "redirect_uris": [AnyUrl(REDIRECT_URI)],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "scope": "mcp",
+            "issuer": "https://old-as.example.com",
+        }
+    )
+    storage = InMemoryTokenStorage(client_info=stale)
+    storage.tokens = OAuthToken(
+        access_token="stale-access-token",
+        token_type="Bearer",
+        expires_in=3600,
+        scope="mcp",
+        refresh_token="stale-refresh-token",
+    )
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    # The only token exchange is the fresh code grant: no refresh grant ever fired.
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code"])
+
+    # The MUST NOT, swept exhaustively: the stale refresh token reached no endpoint at all.
+    for r in recorded:
+        assert "stale-refresh-token" not in r.content.decode()
+        assert "stale-refresh-token" not in r.url.query.decode()
+
+    # Scenario non-vacuity: the stale access token WAS presented and refused -- to the resource
+    # server only, never to an authorization-server endpoint.
+    stale_bearer_paths = [r.path for r in recorded if r.headers.get("authorization") == "Bearer stale-access-token"]
+    assert stale_bearer_paths == ["/mcp"]
+
+    # The migration branch actually engaged: the discard forced one re-registration.
+    assert path_counts(recorded)[("POST", "/register")] == 1
+
+    # Fresh credentials and tokens are in place, and the flow completed on them.
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
+    assert storage.tokens.refresh_token != "stale-refresh-token"
+
+
+@requirement("client-auth:as-binding:cimd-portable")
+async def test_a_cimd_client_id_survives_an_authorization_server_change_without_reregistration() -> None:
+    """A CIMD client_id keeps working across an authorization-server change with no re-registration.
+
+    The spec's portability sentence: client IDs based on Client ID Metadata Documents are
+    self-hosted HTTPS URLs resolved by the authorization server on demand, so "no
+    re-registration is needed when the authorization server changes". Storage carries CIMD
+    credentials stamped with the OLD issuer -- the migration precondition -- and the provider is
+    pre-seeded with the URL client_id, the harness stand-in for on-demand resolution (the SDK
+    server has no CIMD-aware client lookup of its own). No AS-metadata shim: the
+    `client_id_metadata_document_supported` flag gates only the registration-path selection,
+    which pre-seeded credentials never reach.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    info = seeded_client(provider, client_id=CIMD_URL, issuer="https://old-as.example.com")
+    storage = InMemoryTokenStorage(client_info=info)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            client_metadata_url=CIMD_URL,
+            on_request=on_request,
+        ) as (client, headless):
+            result = await client.list_tools()
+
+    # "No re-registration is needed when the authorization server changes" -- the sentence itself.
+    assert find(recorded, "POST", "/register") == []
+
+    # The SAME metadata-document URL is presented as client_id at the new authorization server.
+    assert headless.authorize_url is not None
+    assert authorize_params(headless.authorize_url)["client_id"] == CIMD_URL
+
+    # Portability is end to end, not a stalled flow: one fresh code exchange completed it.
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(["authorization_code"])
+
+    # The credentials survived untouched. The stale issuer stamp is informational on CIMD
+    # credentials and deliberately not re-stamped (see the requirement's note); a future
+    # re-stamp fails here consciously.
+    assert storage.client_info is not None
+    assert storage.client_info.client_id == CIMD_URL
+    assert storage.client_info.issuer == "https://old-as.example.com"
 
 
 @requirement("client-auth:as-binding:prereg-mismatch-error")

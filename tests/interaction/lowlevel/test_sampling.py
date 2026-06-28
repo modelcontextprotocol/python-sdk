@@ -750,13 +750,15 @@ async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the
 
 
 @requirement("sampling:mrtr:create:include-context")
+@requirement("sampling:mrtr:create:max-tokens")
 @requirement("sampling:mrtr:create:model-preferences")
 @requirement("sampling:mrtr:create:system-prompt")
 async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect) -> None:
     """Model preferences (hints and the cost/speed/intelligence priorities), the system prompt,
-    and the includeContext value supplied in an embedded sampling/createMessage request all reach
-    the client sampling callback unchanged. Spec-mandated (client/sampling #model-preferences,
-    #system-prompt, #context-inclusion).
+    the includeContext value, and the maxTokens cap supplied in an embedded
+    sampling/createMessage request all reach the client sampling callback unchanged.
+    Spec-mandated (client/sampling #model-preferences, #system-prompt, #context-inclusion,
+    #sampling-parameters).
     """
     SENT = CreateMessageRequestParams(
         messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
@@ -805,3 +807,135 @@ async def test_embedded_sampling_params_reach_the_callback_intact(connect: Conne
 
     assert callback_received == [SENT]
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+
+
+@requirement("sampling:create:messages-not-retained")
+@requirement("sampling:mrtr:create:basic")
+async def test_each_embedded_sampling_round_delivers_only_its_own_messages(connect: Connect) -> None:
+    """Each embedded sampling round delivers exactly its own messages list to the client callback.
+
+    The 2026-07-28 sampling page says the messages list SHOULD NOT be retained between separate
+    requests; this is the MRTR face of that rule (the 2025-11-25 push face has its own test
+    below). Two productive rounds embed different single-message requests: a retaining or merging
+    client would show round one's message inside round two's list. The second decorator records
+    the incidental re-proof of the embed round trip (the callback's result reaches the retried
+    handler) and selects the 2026 cells.
+    """
+    SENT1 = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="round one"))],
+        max_tokens=50,
+    )
+    SENT2 = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="round two"))],
+        max_tokens=60,
+    )
+    callback_received: list[CreateMessageRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "ask_model"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"first": CreateMessageRequest(params=SENT1)})
+        if "first" in params.input_responses:
+            first = params.input_responses["first"]
+            assert isinstance(first, CreateMessageResult)
+            assert first.role == "assistant"
+            assert isinstance(first.content, TextContent)
+            assert first.content.text == "reply 1"
+            return InputRequiredResult(
+                input_requests={"second": CreateMessageRequest(params=SENT2)}, request_state="round-2"
+            )
+        assert set(params.input_responses) == {"second"}
+        assert params.request_state == "round-2"
+        second = params.input_responses["second"]
+        assert isinstance(second, CreateMessageResult)
+        assert isinstance(second.content, TextContent)
+        return CallToolResult(content=[TextContent(text=f"{second.model}/{second.stop_reason}: {second.content.text}")])
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return CreateMessageResult(
+            role="assistant",
+            content=TextContent(text=f"reply {len(callback_received)}"),
+            model="mock-llm-1",
+            stop_reason="endTurn",
+        )
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 2")]))
+    # Identity per round (pass-through rule): round two delivered exactly its own params.
+    assert callback_received == [SENT1, SENT2]
+
+
+@requirement("sampling:create:messages-not-retained")
+@requirement("sampling:create:basic")
+async def test_each_push_sampling_request_delivers_only_its_own_messages(connect: Connect) -> None:
+    """Each push sampling request delivers exactly its own messages list to the client callback.
+
+    The 2025-11-25 push face of the messages-not-retained rule (the 2026-07-28 MRTR face has its
+    own test above; the stacked era-bound entry selects the legacy cells). The handler makes two
+    back-to-back sampling/createMessage requests in one session with different single messages: a
+    retaining client would show the first request's message inside the second's list. The
+    deprecated create_message call uses the file's pyright-ignore idiom (the SEP-2577 runtime
+    warning is globally ignored in pyproject filterwarnings).
+    """
+    first_messages = [SamplingMessage(role="user", content=TextContent(text="round one"))]
+    second_messages = [SamplingMessage(role="user", content=TextContent(text="round two"))]
+    callback_received: list[CreateMessageRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_twice", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "ask_twice"
+        first = await ctx.session.create_message(messages=first_messages, max_tokens=50)  # pyright: ignore[reportDeprecated]
+        second = await ctx.session.create_message(messages=second_messages, max_tokens=60)  # pyright: ignore[reportDeprecated]
+        assert first.role == "assistant"
+        assert second.role == "assistant"
+        assert isinstance(first.content, TextContent)
+        assert isinstance(second.content, TextContent)
+        return CallToolResult(
+            content=[
+                TextContent(
+                    text=f"{first.model}/{first.stop_reason}: {first.content.text} | "
+                    f"{second.model}/{second.stop_reason}: {second.content.text}"
+                )
+            ]
+        )
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return CreateMessageResult(
+            role="assistant",
+            content=TextContent(text=f"reply {len(callback_received)}"),
+            model="mock-llm-1",
+            stop_reason="endTurn",
+        )
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_twice", {})
+
+    # Both replies embedded in one result: role/content/model/stopReason reached the handler.
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 1 | mock-llm-1/endTurn: reply 2")])
+    )
+    # Identity per request: the second request carried only its own message.
+    assert [p.messages for p in callback_received] == [first_messages, second_messages]
