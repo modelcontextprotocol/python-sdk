@@ -174,6 +174,7 @@ async def test_modern_response_carries_no_session_id_header() -> None:
 
 
 @requirement("hosting:http:modern:initialize-removed")
+@requirement("lifecycle:version:dual-era-precedence")
 async def test_modern_initialize_is_method_not_found() -> None:
     """A 2026-07-28 initialize request that carries a valid envelope is answered METHOD_NOT_FOUND at HTTP 404.
 
@@ -182,7 +183,9 @@ async def test_modern_initialize_is_method_not_found() -> None:
     ``_meta`` envelope so the classifier ladder admits it as far as kernel dispatch -- without the
     envelope the request is INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND. Asserted at the wire
     because the SDK client at 2026-07-28 never sends initialize, so only a raw POST can drive the
-    negative.
+    negative. Also pins ``lifecycle:version:dual-era-precedence``: this frame is simultaneously a
+    valid modern envelope and the legacy handshake opener, and the rejection proves the modern
+    classification won -- a legacy classification would have answered the handshake.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -243,12 +246,15 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 
 
 @requirement("hosting:http:modern:discover-response-shape")
+@requirement("caching:hints:server-discover")
 async def test_modern_server_discover_returns_capabilities_and_supported_versions() -> None:
     """A 2026-07-28 server/discover POST returns capabilities, serverInfo, and supportedVersions.
 
     Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
     the initialize-response payload, and ``supportedVersions`` is the field a client picks its
-    per-request envelope version from. Asserted at the wire because the SDK client never exposes
+    per-request envelope version from. Also pins the SEP-2549 caching hints the entry stamps on
+    the discover result -- the SDK defaults ``ttlMs 0`` / ``cacheScope private`` -- under
+    ``caching:hints:server-discover``. Asserted at the wire because the SDK client never exposes
     the raw result body.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
@@ -260,6 +266,9 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
     assert result["supportedVersions"] == snapshot(["2026-07-28"])
     assert result["serverInfo"]["name"] == "modern"
     assert "capabilities" in result
+    assert result["resultType"] == "complete"
+    assert result["ttlMs"] == 0
+    assert result["cacheScope"] == "private"
 
 
 @requirement("hosting:http:modern:removed-method-status-404")
@@ -852,8 +861,8 @@ async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled
     (resources/list), and a partly-authored result fills only the missing hint (resources/read).
     Asserted at the wire because the typed client models default-fill ``ttl_ms``/``cache_scope``,
     so absent-vs-stamped is invisible above it. Three of the six MUST-listed operations pin the
-    mechanism: ``prompts/list`` / ``resources/templates/list`` are the caching family's own
-    proposed entries, and ``server/discover`` is already snapshot-pinned under its own entry.
+    mechanism: ``prompts/list`` / ``resources/templates/list`` are pinned under the caching
+    family's own entries, and ``server/discover``'s hints under ``caching:hints:server-discover``.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

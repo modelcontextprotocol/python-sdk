@@ -225,6 +225,37 @@ async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> N
     assert result == snapshot(EmptyResult())
 
 
+@requirement("lifecycle:version:era-method-gate")
+async def test_resources_subscribe_on_a_2026_connection_is_method_not_found_despite_a_registered_handler(
+    connect: Connect,
+) -> None:
+    """On a 2026-07-28 connection, `resources/subscribe` is METHOD_NOT_FOUND even with a handler registered.
+
+    Requirement `lifecycle:version:era-method-gate`: the method exists at 2025-11-25 but is removed
+    from the 2026-07-28 method surface, so the per-version registry rejects the request before any
+    handler lookup. The registered handler is the load-bearing discriminator -- without it the
+    byte-identical error would come from the no-handler branch, which the 2025-only sibling
+    `test_subscribe_without_a_subscribe_handler_is_method_not_found` already pins. The adjacent
+    `test_subscribe_resource_delivers_uri_to_handler` is the 2025 control: the same server shape
+    and the same call succeed on every 2025 cell. SDK-authored error, snapshot-pinned, identical
+    on both 2026 cells.
+    """
+
+    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
+        """Registered so the rejection provably comes from the era gate, not a missing handler."""
+        raise NotImplementedError
+
+    server = Server("library", on_subscribe_resource=subscribe_resource)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.subscribe_resource("file:///watched.txt")
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
+    )
+
+
 @requirement("resources:subscribe:capability-required")
 async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect: Connect) -> None:
     """Subscribing to a server that registered no subscribe handler is rejected with METHOD_NOT_FOUND.

@@ -421,7 +421,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/server/discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
-            "carrying supportedVersions, capabilities, serverInfo and the cache hint fields."
+            "carrying supportedVersions, capabilities and serverInfo."
         ),
         added_in="2026-07-28",
         supersedes=("lifecycle:initialize:server-info",),
@@ -443,10 +443,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("lifecycle:initialize:instructions",),
-        deferred=(
-            "Not yet covered here: lifecycle:discover:basic exercises the discover round trip but no test "
-            "asserts the instructions field."
-        ),
     ),
     "lifecycle:discover:capabilities:from-handlers": Requirement(
         source=f"{SPEC_2026_BASE_URL}/server/discover#response",
@@ -465,9 +461,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "logging:capability:declared",
             "mcpserver:completion:capability-auto",
         ),
-        deferred=(
-            "Not yet covered here: lifecycle:discover:basic pins the result shape but no test asserts the "
-            "per-area handler-to-capability derivation."
+    ),
+    "lifecycle:discover:era-cached": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning#backward-compatibility-with-initialization-based-versions",
+        behavior=(
+            "An auto-negotiating client probes server/discover exactly once per connection and "
+            "reuses the adopted result for every subsequent request; an explicit discover() "
+            "returns the cached result with no new wire traffic."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "A SHOULD: cache the era verdict for the lifetime of the server process (stdio) or "
+            "origin (HTTP). The SDK's cache is the session's adopted DiscoverResult, so the "
+            "pinned lifetime is the connection. The MAY-persist-across-restarts clause is "
+            "carried by lifecycle:mode:prior-discover-zero-rtt; the re-probe-on-stale follow-on "
+            "is lifecycle:mode:prior-discover-stale-reprobe (deferred)."
         ),
     ),
     "lifecycle:version:unsupported-32022": Requirement(
@@ -478,9 +486,57 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("lifecycle:version:server-fallback-latest",),
-        deferred=(
-            "Not yet covered here: the server-side -32022 production is exercised only indirectly through "
-            "the client retry path."
+        note=(
+            "Only the unknown-version half of the MUST is constructible: the server's "
+            "supported-version set has no public knob (the modern entry always passes the "
+            "MODERN_PROTOCOL_VERSIONS default, a singleton at this pin), so a server that "
+            "declines a known version cannot be built."
+        ),
+    ),
+    "lifecycle:version:era-method-gate": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "A request whose method exists at an earlier protocol revision but is removed at "
+            "the negotiated 2026-07-28 era (e.g. resources/subscribe) is answered "
+            "METHOD_NOT_FOUND even when a handler for it is registered."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "No single spec sentence: the gate is the method-registry consequence of the 2026 "
+            "removals (key absence in the per-version surface map is the gate). Transport-"
+            "independent, pinned on both 2026 cells. Instances pinned elsewhere: "
+            "hosting:http:modern:initialize-removed (initialize) and "
+            "hosting:http:modern:removed-method-status-404 (ping + the HTTP status half). The "
+            "same call's 2025 success arm is resources:subscribe (removed_in 2026-07-28). The "
+            "NC's other two legs are not entries: capability stripping is not implemented in "
+            "python -- the era-agnostic derivation can advertise capabilities for "
+            "era-removed methods on a 2026 discover result (probed: logging, "
+            "resources.subscribe), ruled era-agnostic and conformant (schema.ts keeps "
+            "logging deprecated-but-valid and subscribe era-unqualified) and deliberately "
+            "unpinned as capability-API-redesign territory (the runtime advertises "
+            "resources.subscribe while the listen runtime does not exist) -- and a client-side "
+            "typed local era error is a TS surface python does not have."
+        ),
+    ),
+    "lifecycle:version:dual-era-precedence": Requirement(
+        source="sdk",
+        behavior=(
+            "A request that is simultaneously a valid modern envelope-bearing frame and a "
+            "legacy handshake method -- initialize carrying a full _meta envelope and modern "
+            "headers -- is classified modern and answered METHOD_NOT_FOUND, never served as a "
+            "handshake."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: python's only dual-era serving entry is the "
+            "session manager, which keys classification on the MCP-Protocol-Version header and "
+            "the envelope ladder behind it. source='sdk' because the spec's dual-era-server "
+            "bullets (basic/versioning, Compatibility Matrix) define each signal separately and "
+            "never say which wins on a frame carrying both; TS implements the identical "
+            "precedence (NC-dual-era-precedence -- the spec-prose ambiguity is an upstream "
+            "issue candidate). The headerless half of the precedence is "
+            "hosting:http:modern:legacy-fallthrough."
         ),
     ),
     "lifecycle:discover:fallback-method-not-found": Requirement(
@@ -496,7 +552,30 @@ REQUIREMENTS: dict[str, Requirement] = {
         note=(
             "The SDK keys its no-fallback carve-out to -32022 alone, while the spec's carve-out is any "
             "recognized modern JSON-RPC error (an open set); no test drives a modern-error probe "
-            "rejection other than -32022."
+            "rejection other than -32022. A handshake-bearing -32022 supported list is a second "
+            "unpinned reading: the SDK initializes when the intersection is empty but supported names "
+            "a handshake-era version, which the stdio no-initialize-fallback-on--32022 bullet reads "
+            "as forbidding, while the spec's own -32022 example lists 2025-11-25 in supported -- left "
+            "unpinned until the spec text settles which bullet wins."
+        ),
+    ),
+    "lifecycle:discover:timeout-falls-back": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "When server/discover does not respond within a reasonable timeout, the "
+            "auto-negotiating client treats the server as legacy and falls back to the "
+            "initialize handshake."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not yet covered here: the server/discover probe timeout is the module-level "
+            "constant DISCOVER_TIMEOUT_SECONDS = 10.0 (src/mcp/client/session.py) with no "
+            "public override -- send_discover ignores read_timeout_seconds -- so observing the "
+            "silent-server timeout trigger end-to-end is real-time-bound and is deliberately "
+            "excluded from this suite; the fallback arm it feeds (any non--32022 MCPError from "
+            "the probe leads to initialize) is covered by "
+            "lifecycle:discover:fallback-method-not-found in "
+            "tests/interaction/lowlevel/test_client_connect.py and by tests/client/test_probe.py."
         ),
     ),
     "lifecycle:discover:network-error-raises": Requirement(
@@ -509,6 +588,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http", "streamable-http-stateless"),
         added_in="2026-07-28",
         note="HTTP-only: distinguishes transport-level failures from server-side rejection.",
+    ),
+    "lifecycle:mode:auto-probes-first": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
+        behavior=(
+            "A dual-era (mode='auto') client sends server/discover before any other request, "
+            "carrying its preferred modern version in the probe's _meta protocolVersion."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "A SHOULD. The spec sentence lives on the stdio page but binds the client's "
+            "connect-time ordering, which is transport-independent code; asserted at the "
+            "in-process HTTP seam like the sibling stdio#backward-compatibility entries."
+        ),
     ),
     "lifecycle:mode:legacy-never-probes": Requirement(
         source="sdk",
@@ -526,6 +618,32 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "lifecycle:mode:modern-only-legacy-peer": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "A modern-only client (a version-pinned Client) probes server/discover first on "
+            "stdio so a legacy peer fails deterministically, and surfaces an actionable era "
+            "error to the user."
+        ),
+        added_in="2026-07-28",
+        divergence=Divergence(
+            note=(
+                "The pinned client's contract is the opposite by design: it adopts a local "
+                "DiscoverResult with zero connect-time wire traffic (pinned by "
+                "lifecycle:mode:pin-never-handshakes), so the probe-first SHOULD cannot be "
+                "satisfied and a legacy peer fails non-deterministically."
+            ),
+        ),
+        deferred=(
+            "Not implemented in the SDK: the modern-only client (Client mode='<modern version "
+            "pin>') never sends server/discover -- Client.__aenter__ "
+            "(src/mcp/client/client.py) adopts prior_discover or a locally synthesized "
+            "DiscoverResult with zero connect-time wire traffic, and no public option makes a "
+            "pinned client probe first, so the probe-first deterministic-failure behaviour "
+            "against a legacy peer cannot be driven; the no-probe half is already pinned by "
+            "lifecycle:mode:pin-never-handshakes."
+        ),
+    ),
     "lifecycle:mode:prior-discover-zero-rtt": Requirement(
         source="sdk",
         behavior=(
@@ -533,6 +651,23 @@ REQUIREMENTS: dict[str, Requirement] = {
             "server_info and capabilities are populated from the prior result."
         ),
         added_in="2026-07-28",
+    ),
+    "lifecycle:mode:prior-discover-stale-reprobe": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning#backward-compatibility-with-initialization-based-versions",
+        behavior=(
+            "A client that persisted a prior DiscoverResult re-probes when the cached version "
+            "assumption later fails, instead of surfacing the stale -32022 failure to the caller."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no re-probe path when a cached prior "
+            "version assumption later fails. Client.__aenter__ with a version-pin mode adopts "
+            "prior_discover (or a synthesized DiscoverResult) with zero wire traffic "
+            "(src/mcp/client/client.py), and -32022 UNSUPPORTED_PROTOCOL_VERSION is handled "
+            "only at connect-time probe (src/mcp/client/_probe.py; "
+            "src/mcp/client/session.py) -- there is no handling on the regular send_request "
+            "path, so a stale prior surfaces as MCPError(-32022) to the caller with no re-probe."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives: cancellation, timeout, progress, errors, _meta
@@ -2724,6 +2859,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "server-side construction bug, but the spec mandates no code for this failure."
         ),
     ),
+    "mrtr:input-required-result:result-type-serialized": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/index#result-responses",
+        behavior=(
+            "The serialized interim frame carries resultType input_required explicitly; the "
+            "discriminator is never elided on the wire."
+        ),
+        added_in="2026-07-28",
+    ),
     "mrtr:input-responses:invalid-rejected": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#error-handling",
         behavior=(
@@ -3053,6 +3196,271 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "The client treats cursors as opaque tokens — it does not parse, modify, or persist them — "
             "and does not assume a fixed page size."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Caching (SEP-2549, 2026-07-28)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "caching:hints:prompts-list": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cacheable-results",
+        behavior=(
+            "prompts/list results at 2026-07-28 carry the caching hints -- ttlMs >= 0 and "
+            "cacheScope -- alongside resultType complete; handler-authored hint values reach the "
+            "client unmodified."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Completes the spec's six-operation MUST together with "
+            "hosting:http:modern:cacheable-stamping (tools/list, resources/list, resources/read) "
+            "and caching:hints:server-discover (server/discover). The server-side "
+            "'ttlMs >= 0' MUST is by construction: CacheableResult.ttl_ms is Field(ge=0), so a "
+            "violating result is unconstructible through the typed API."
+        ),
+    ),
+    "caching:hints:resources-templates-list": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cacheable-results",
+        behavior=(
+            "resources/templates/list results at 2026-07-28 carry the caching hints -- "
+            "ttlMs >= 0 and cacheScope -- alongside resultType complete; handler-authored hint "
+            "values reach the client unmodified."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The sixth operation of the spec's cacheable-results MUST; see "
+            "caching:hints:prompts-list for the family map."
+        ),
+    ),
+    "caching:hints:server-discover": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cacheable-results",
+        behavior=(
+            "server/discover results at 2026-07-28 carry the caching hints -- ttlMs >= 0 and "
+            "cacheScope -- alongside resultType complete."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: server/discover is served only by the modern "
+            "HTTP entry (the in-memory 2026 connection synthesizes its DiscoverResult client-side "
+            "and never sends the request). The pinned 0/private values are the SDK's "
+            "CacheableResult defaults -- no handler authors discover hints -- so the test pins "
+            "the stamping mechanism, not authored pass-through. Completes the six-operation map "
+            "with caching:hints:prompts-list (family index) and hosting:http:modern:cacheable-stamping."
+        ),
+    ),
+    "caching:pagination:same-scope-all-pages": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#interaction-with-pagination",
+        behavior=(
+            "Every page of one paginated list request carries the same cacheScope: the scope of "
+            "the first page applies to all subsequent pages of that request."
+        ),
+        added_in="2026-07-28",
+        divergence=Divergence(
+            note=(
+                "The SDK applies no cross-page cacheScope consistency: each page's scope is "
+                "whatever that handler invocation returned, and a handler authoring mismatched "
+                "scopes across one cursor walk is forwarded unmodified with no error. The "
+                "stateless 2026 entry cannot correlate pages of 'a given list request' without "
+                "encoding state in the (server-minted, opaque) cursor, so enforcement is a real "
+                "SDK design question; today the spec MUST is delegated entirely to the handler "
+                "author. The SDK's own defaults are trivially cross-page consistent."
+            ),
+            issue="L111",
+        ),
+    ),
+    "caching:ttl:absent-defaults-zero": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#time-to-live-ttl-field",
+        behavior=(
+            "When a result arrives with no ttlMs (a pre-2026 server), the client surfaces the "
+            "default 0 -- immediately stale -- rather than failing or inventing freshness."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound for constructibility, matching the spec's own scoping ('this should only "
+            "occur in older server versions'): the 2026-07-28 wire surface makes ttlMs/cacheScope "
+            "required, so absence at 2026 is a validation error, not a defaulting case. The "
+            "companion cacheScope private default the test also pins is the SDK's chosen safe "
+            "default -- the spec sentence covers only ttlMs."
+        ),
+    ),
+    "caching:ttl:zero-immediately-stale": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#time-to-live-ttl-field",
+        behavior=(
+            "A result stamped ttlMs 0 is immediately stale: the client re-fetches on every "
+            "access instead of serving the previous response."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Satisfied by construction at this pin -- the client has no response cache, so every "
+            "call re-fetches regardless of ttlMs (the positive-ttl fresh window is the deferred "
+            "sibling caching:ttl:positive-fresh-window). The pin is the regression bar for a "
+            "future cache: one that wrongly served a ttlMs 0 entry would fail it."
+        ),
+    ),
+    "caching:input-required:no-hints": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cacheable-results",
+        behavior=(
+            "An interim resultType input_required result carries no caching hints on the wire, "
+            "while the terminal complete result of the very same exchange carries both ttlMs and "
+            "cacheScope."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The no-hints half is by construction (InputRequiredResult does not extend "
+            "CacheableResult and rejects extras); the wire pin proves the serialized frame, where "
+            "typed models hide absent-vs-default. The sentence's 'are not cacheable' consumer "
+            "half is unobservable: the client has no response cache (see the caching:key:* and "
+            "caching:freshness:* deferrals)."
+        ),
+    ),
+    "caching:ttl:negative-treated-as-zero": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#time-to-live-ttl-field",
+        behavior="A negative ttlMs on an inbound result is ignored and treated as 0.",
+        added_in="2026-07-28",
+        divergence=Divergence(
+            note=(
+                "The client rejects a negative ttlMs with a pydantic ValidationError out of the "
+                "request call instead of ignoring it and treating it as 0: Field(ge=0) on the "
+                "2026-07-28 wire surface (and on the monolith CacheableResult) raises before any "
+                "coerce-to-zero leniency could run, and there is no response cache for 'treat as "
+                "0' to act on. The gap is asymmetric: ge=0 on server-authored EMISSION is correct "
+                "by-construction strictness (a conformant server can never author a negative "
+                "ttlMs through the typed API); the gap is ONLY the client's inbound parse, which "
+                "validates before any clamp-to-0 could apply. The remedy is receive-side leniency "
+                "-- clamp a negative inbound ttlMs to 0 before validation -- NOT loosening the "
+                "shared type, which would silently bless negative emission server-side."
+            ),
+            issue="L112",
+        ),
+    ),
+    "caching:ttl:positive-fresh-window": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#time-to-live-ttl-field",
+        behavior=(
+            "A positive ttlMs opens a fresh window: a caching client considers the result fresh "
+            "for that many milliseconds after receipt and need not re-fetch on access within it."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache -- nothing in "
+            "src/mcp/client/ consults ttl_ms after deserialization, and every list call "
+            "unconditionally re-issues the request -- so a positive ttlMs never produces a fresh "
+            "window in which a re-fetch is suppressed."
+        ),
+    ),
+    "caching:freshness:stale-refetch-on-access": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#freshness-calculation",
+        behavior=("Once a cached response's TTL expires it is stale, and the client re-fetches on the next access."),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache, so the "
+            "fresh-serve half of the staleness transition does not exist -- every access is "
+            "already a fetch -- and the transition is unconstructible."
+        ),
+    ),
+    "caching:freshness:no-background-polling": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#freshness-calculation",
+        behavior=(
+            "The client does not treat TTL as a polling interval: expiry alone triggers no "
+            "automatic background re-fetch; freshness is checked on access."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache and never "
+            "reads a result's ttl_ms, so there is no TTL machinery whose non-polling could be "
+            "observed -- the test would assert that absent code did not run."
+        ),
+    ),
+    "caching:key:no-cross-key-serve": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cache-key",
+        behavior=(
+            "A cached response is keyed by method plus result-affecting parameters; it is never "
+            "served for a request whose method or parameters differ."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client never serves a cached response at all (no "
+            "SEP-2549 response cache exists under src/mcp/client/), so cache-key discipline has "
+            "no positive half to exercise and a two-requests-both-reach-the-server test would "
+            "pass vacuously."
+        ),
+    ),
+    "caching:key:mrtr-retry-not-cached": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cache-key",
+        behavior=(
+            "Results produced by an MRTR retry -- a request carrying inputResponses or "
+            "requestState -- are never cached: they depend on inputs outside the cache key."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache, so there is "
+            "no cacher whose refusal to store an MRTR-retry result could be driven or observed; "
+            "the negative is indistinguishable from 'the client never caches anything'."
+        ),
+    ),
+    "caching:notification:invalidates-fresh-cache": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#interaction-with-notifications",
+        behavior=(
+            "A relevant notification received while a cached response is still fresh invalidates "
+            "it: the entry becomes immediately stale regardless of remaining TTL."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: there is no SEP-2549 response cache with a freshness "
+            "clock for a notification to invalidate, and the client has no server-to-client "
+            "list_changed pipeline that could feed one (the only list_changed code in "
+            "src/mcp/client/ is the outbound roots/list_changed sender)."
+        ),
+    ),
+    "caching:pagination:per-page-independent": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#interaction-with-pagination",
+        behavior=(
+            "Each page of a paginated list is an independently cacheable response: each carries "
+            "its own ttlMs, and each page's freshness clock starts at its own receipt time."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the per-receipt freshness clock and independent expiry "
+            "need a client response cache that records per-page receipt times; none exists. The "
+            "carriage half (each page carries its own ttlMs, set per handler invocation) is "
+            "expressible today and can be split out if wanted."
+        ),
+    ),
+    "caching:pagination:expired-page-refetch-by-cursor": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#interaction-with-pagination",
+        behavior=(
+            "When one cached page expires, the client re-fetches that page by its cursor; fresh "
+            "sibling pages are not re-fetched."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache, no per-page "
+            "ttlMs bookkeeping, and no autonomous re-fetch loop -- the list methods are one-shot "
+            "and caller-cursored -- so there is no expired cached page to selectively re-fetch."
+        ),
+    ),
+    "caching:pagination:invalid-cursor-discards-all": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#interaction-with-pagination",
+        behavior=(
+            "When a previously valid cursor starts erroring, the client discards all cached "
+            "pages and re-fetches the list from the beginning."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client retains no list pages (no SEP-2549 response "
+            "cache), so there are no cached pages to discard and no re-fetch-from-the-beginning "
+            "reaction to observe; the -32602 surfacing itself is pinned by pagination:invalid-cursor."
+        ),
+    ),
+    "caching:scope:private-not-shared-across-auth-contexts": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#cache-scope-field",
+        behavior=(
+            "A private-scoped cache is never shared across authorization contexts: a different "
+            "access token requires a different cache."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no SEP-2549 response cache and therefore "
+            "no per-authorization-context cache keying -- there is no stored entry that could be "
+            "served across an access-token change, on either side of the connection."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -5180,6 +5588,28 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="Server stderr is available to the client and is not consumed by the transport.",
         transports=("stdio",),
         note="Only observable over stdio: stderr is a child-process stream.",
+    ),
+    "transport:stdio:dual-era-serving": Requirement(
+        source="sdk",
+        behavior=(
+            "A stdio server serves a plain legacy client via initialize and an "
+            "auto-negotiating client at 2026-07-28 via server/discover, each on its own "
+            "connection against the same factory, over a real child-process pipe."
+        ),
+        added_in="2026-07-28",
+        transports=("stdio",),
+        deferred=(
+            "Not implemented in the SDK: the stdio stream-loop server cannot serve 2026-era "
+            "requests -- the legacy loop's init gate (src/mcp/server/runner.py) rejects "
+            "envelope-bearing requests with INVALID_PARAMS because a pinned-2026 client never "
+            "sends initialize, and nothing on the stdio path wires Connection.from_envelope, "
+            "so a dual-era stdio factory is unconstructible."
+        ),
+        note=(
+            "stdio-only by definition: the dual-era HTTP analogue is the session manager's "
+            "header routing, pinned by hosting:http:modern:legacy-fallthrough and "
+            "lifecycle:version:dual-era-precedence."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Composite end-to-end flows
