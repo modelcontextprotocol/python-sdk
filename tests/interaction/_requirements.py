@@ -3419,7 +3419,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         deferred=(
             "Not implemented in the SDK: the per-receipt freshness clock and independent expiry "
-            "need a client response cache that records per-page receipt times; none exists. The "
+            "need a SEP-2549 response cache that records per-page receipt times; none exists. The "
             "carriage half (each page carries its own ttlMs, set per handler invocation) is "
             "expressible today and can be split out if wanted."
         ),
@@ -5375,12 +5375,31 @@ REQUIREMENTS: dict[str, Requirement] = {
             "registration body carries it, pinned incidentally by the "
             "client-auth:dcr:grant-types-default body snapshot. Only the derive-from-redirect-"
             "URIs strategy for the 'web' SHOULD is unimplemented; a web-app consumer sets "
-            "application_type='web' explicitly and it is transmitted verbatim."
+            "application_type='web' explicitly and it is transmitted verbatim; the consumer-set "
+            "half is pinned by client-auth:dcr:app-type-override."
         ),
         deferred=(
             "Not implemented in the SDK: application_type is a static model default ('native') "
             "on OAuthClientMetadata (src/mcp/shared/auth.py); no code path inspects the "
             "redirect URIs to choose between 'native' and 'web'."
+        ),
+    ),
+    "client-auth:dcr:app-type-override": Requirement(
+        source=(
+            f"{SPEC_2026_BASE_URL}"
+            "/basic/authorization/client-registration#application-type-and-redirect-uri-constraints"
+        ),
+        behavior=(
+            "A consumer-set application_type is sent verbatim in the dynamic-registration "
+            "request; the SDK never rewrites it (SEP-837)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. At this pin nothing could rewrite it -- python has no "
+            "redirect-URI derivation strategy (client-auth:dcr:app-type-heuristic, deferred) "
+            "-- so this entry pins the pass-through: a future heuristic may only fill the "
+            "omitted case, never overwrite an explicit choice."
         ),
     ),
     "client-auth:dcr:grant-types-default": Requirement(
@@ -5421,6 +5440,34 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
+    ),
+    "client-auth:as-binding:prereg-mismatch-error": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization/client-registration#authorization-server-binding",
+        behavior=(
+            "Pre-registered credentials are specific to one authorization server: when the "
+            "authorization server indicated by protected resource metadata no longer matches "
+            "the issuer recorded with the credentials, the client surfaces an error rather "
+            "than silently attempting to use them (SEP-2352)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The divergence covers only credentials stored with an issuer. "
+            "A pre-registered credential stored without one carries no binding to compare: "
+            "credentials_match_issuer (src/mcp/client/auth/utils.py) leaves it as-is and the "
+            "flow silently presents it to whatever authorization server discovery finds -- a "
+            "documented limitation rather than a divergence, because the SHOULD's trigger "
+            "('no longer matches the one the credentials were registered with') presupposes a "
+            "recorded binding."
+        ),
+        divergence=Divergence(
+            note=(
+                "The SDK has no pre-registered marker: an issuer-stamped credential whose "
+                "issuer mismatches the discovered authorization server takes the same path as "
+                "a DCR-persisted one -- silently discarded and re-registered, the path the "
+                "spec blesses only for DCR-persisted credentials -- and no error is surfaced."
+            ),
+        ),
     ),
     "client-auth:invalid-client-clears-all": Requirement(
         source="sdk",

@@ -283,6 +283,39 @@ async def test_dcr_sends_consumer_set_grant_types_verbatim() -> None:
     assert json.loads(register.content)["grant_types"] == ["authorization_code"]
 
 
+@requirement("client-auth:dcr:app-type-override")
+async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
+    """A consumer-set `application_type` is sent on the registration request verbatim, never rewritten.
+
+    The application-type section (SEP-837) says web applications SHOULD register
+    `application_type: 'web'`; the SDK transmits a consumer-set value verbatim. The metadata
+    sets `'web'` against the suite's loopback redirect URI -- deliberately the value
+    redirect-URI derivation would NOT produce, so verbatim pass-through stays distinguishable
+    from any future derivation strategy (which may only fill the omitted case, pinned as
+    deferred on `client-auth:dcr:app-type-heuristic`).
+    """
+    requests: list[httpx.Request] = []
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    client_metadata = OAuthClientMetadata(
+        client_name="interaction-suite",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        application_type="web",
+    )
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, client_metadata=client_metadata, on_request=requests.append
+        ) as (client, _):
+            result = await client.list_tools()
+
+    # The flow completed: the real AS accepted a registration carrying `application_type: "web"`.
+    assert result.tools[0].name == "whoami"
+
+    register = next(r for r in requests if r.url.path == "/register")
+    assert json.loads(register.content)["application_type"] == "web"
+
+
 async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_wrapped_app() -> None:
     """Harness self-test: `shimmed_app` serves canned bodies, 404s, and forwards everything else.
 

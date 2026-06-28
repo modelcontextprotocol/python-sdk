@@ -147,8 +147,8 @@ class HeadlessOAuth:
     rejection path.
 
     `omit_iss`: when set, `callback_handler` returns no iss regardless of what the redirect
-    carried, so tests can drive the missing-iss paths (the `iss_override` sentinel cannot
-    express absence).
+    carried or what `iss_override` supplies (omission wins when both are set), so tests can
+    drive the missing-iss paths (the `iss_override` sentinel cannot express absence).
     """
 
     def __init__(
