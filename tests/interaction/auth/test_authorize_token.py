@@ -192,8 +192,10 @@ async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
     """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
 
     `iss_override` makes the headless callback return an issuer the AS never advertised; the SDK
-    compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange.
+    compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange --
+    the recorded traffic shows no /token POST, so the tainted authorization code is never exchanged.
     """
+    recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     headless = HeadlessOAuth(iss_override="https://attacker.example.com")
@@ -202,7 +204,11 @@ async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
         with pytest.RaisesGroup(
             pytest.RaisesExc(OAuthFlowError, match="^Authorization response iss mismatch:"), flatten_subgroups=True
         ):
-            await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
+            await connect_with_oauth(server, provider=provider, headless=headless, on_request=on_request).__aenter__()
+
+    # The recorded unauthenticated trigger POST guards the negative below against an unwired hook.
+    assert find(recorded, "POST", "/mcp") != []
+    assert find(recorded, "POST", "/token") == []
 
 
 @requirement("client-auth:resource-parameter")
