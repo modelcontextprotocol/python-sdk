@@ -8,24 +8,46 @@ from mcp_types import (
     INVALID_PARAMS,
     AudioContent,
     CallToolResult,
+    DiscoverResult,
     EmbeddedResource,
     ErrorData,
     Icon,
     ImageContent,
+    Implementation,
+    JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsResult,
     ResourceLink,
+    ServerCapabilities,
     TextContent,
     TextResourceContents,
     Tool,
     ToolAnnotations,
 )
+from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import MCPError
+from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
+
+# Shared by the client:jsonschema:* tests at the end of the file. prefixItems is enforced by the
+# JSON Schema 2020-12 dialect but is an unknown (ignored) keyword under draft-07, so one
+# schema/value pair can reveal which engine validated it; each constant is declared once and used
+# by both the handler and the assertions so every equality is identity against the authored value.
+_PREFIX_ITEMS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"point": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}]}},
+    "required": ["point"],
+}
+_CONFORMING_POINT = {"point": [1.5, 2.5]}
+_VIOLATING_POINT = {"point": [1, "x"]}  # index 1 violates the second prefixItems schema
+_INTS_SCHEMA: dict[str, object] = {"type": "array", "items": {"type": "integer"}}
 
 
 @requirement("tools:call:content:text")
@@ -114,6 +136,36 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
             await client.call_tool("explode", {})
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="boom"))
+
+
+@requirement("errors:wire:legacy-code-opaque")
+async def test_a_legacy_range_error_code_reaches_the_caller_verbatim_without_interpretation(
+    connect: Connect,
+) -> None:
+    """An error code from the legacy -32000..-32019 sub-range passes through with no meaning assigned.
+
+    The 2026-07-28 revision partitions the JSON-RPC implementation-defined range and says
+    receivers MUST NOT assume any specific meaning for legacy-range codes (apart from -32002).
+    Code, message, and data reach the caller verbatim, and the raise type being plain MCPError is
+    itself the no-interpretation observable: no typed special-casing keyed on the code.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "vendor"
+        # -32011 is the test datum, not a missing constant: a deliberate in-band unknown from the
+        # legacy sub-range with no defined meaning anywhere (and deliberately not -32002, the
+        # carved-out exception).
+        raise MCPError(code=-32011, message="vendor-specific failure", data={"hint": "opaque"})
+
+    server = Server("errors", on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("vendor", {})
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32011, message="vendor-specific failure", data={"hint": "opaque"})
+    )
 
 
 @requirement("tools:list:basic")
@@ -511,3 +563,265 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
     assert list_calls == ["called"]
     assert first == snapshot(CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21}))
     assert second == first
+
+
+@requirement("client:jsonschema:2020-12:prefixItems")
+async def test_prefix_items_in_the_output_schema_are_enforced_per_index_on_structured_content(
+    connect: Connect,
+) -> None:
+    """The client validates structuredContent against the tool's declared outputSchema with full JSON
+    Schema 2020-12 vocabulary: a tuple violating a prefixItems per-index schema is rejected, a
+    conforming tuple is returned. Spec-mandated (2025-11-25 onward: clients MUST support 2020-12 and
+    SHOULD validate structured results); a draft-07 engine would silently ignore prefixItems and
+    accept both. The schema declares $schema 2020-12 explicitly -- the no-$schema default is the
+    dialect sibling test.
+    """
+    schema = {**_PREFIX_ITEMS_SCHEMA, "$schema": "https://json-schema.org/draft/2020-12/schema"}
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(name="coords_ok", input_schema={"type": "object"}, output_schema=schema),
+                Tool(name="coords_bad", input_schema={"type": "object"}, output_schema=schema),
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name in ("coords_ok", "coords_bad")
+        point = _CONFORMING_POINT if params.name == "coords_ok" else _VIOLATING_POINT
+        return CallToolResult(content=[TextContent(text="point")], structured_content=point)
+
+    server = Server("coords", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        ok = await client.call_tool("coords_ok", {})
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("coords_bad", {})
+
+    assert ok.structured_content == _CONFORMING_POINT
+    # The message embeds the jsonschema validation error, so only the SDK-authored prefix is pinned.
+    assert str(exc_info.value).startswith("Invalid structured content returned by tool coords_bad")
+
+
+@requirement("client:jsonschema:dialect:default-is-2020-12")
+async def test_schema_dialect_defaults_to_2020_12_and_a_declared_draft_07_dialect_is_honored(
+    connect: Connect,
+) -> None:
+    """An outputSchema with no $schema is validated with the 2020-12 engine -- prefixItems, a
+    2020-12-only keyword, is enforced -- while the same schema/value pair declaring draft-07 is
+    validated per the declared dialect, under which prefixItems is an unknown (ignored) keyword and
+    the call resolves; a draft-07-enforced keyword (type) still rejects, proving validation ran under
+    the declared dialect rather than being skipped. Spec-mandated ('validate schemas according to
+    their declared or default dialect', 2025-11-25 basic). The outcome flips on the $schema field
+    alone, proving the no-$schema enforcement is genuinely a default.
+    """
+    schema_d7 = {**_PREFIX_ITEMS_SCHEMA, "$schema": "http://json-schema.org/draft-07/schema#"}
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(name="untagged", input_schema={"type": "object"}, output_schema=_PREFIX_ITEMS_SCHEMA),
+                Tool(name="tagged_draft7", input_schema={"type": "object"}, output_schema=schema_d7),
+                Tool(name="d7_type_bad", input_schema={"type": "object"}, output_schema=schema_d7),
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name in ("untagged", "tagged_draft7", "d7_type_bad")
+        if params.name == "d7_type_bad":
+            # Violates "type": "array" on the point property -- a keyword draft-07 DOES enforce -- so a
+            # rejection proves validation ran under the declared dialect rather than being skipped.
+            return CallToolResult(content=[TextContent(text="point")], structured_content={"point": "xx"})
+        # Same value, same keywords for the other two tools -- only the declared dialect differs.
+        return CallToolResult(content=[TextContent(text="point")], structured_content=_VIOLATING_POINT)
+
+    server = Server("dialects", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        with pytest.raises(RuntimeError) as untagged_exc:
+            await client.call_tool("untagged", {})
+        tagged = await client.call_tool("tagged_draft7", {})
+        with pytest.raises(RuntimeError) as d7_exc:
+            await client.call_tool("d7_type_bad", {})
+
+    # The messages embed jsonschema validation errors, so only the SDK-authored prefixes are pinned.
+    assert str(untagged_exc.value).startswith("Invalid structured content returned by tool untagged")
+    assert tagged.structured_content == _VIOLATING_POINT
+    assert str(d7_exc.value).startswith("Invalid structured content returned by tool d7_type_bad")
+
+
+@requirement("client:jsonschema:falsy-structured-content-validated")
+async def test_falsy_structured_content_is_validated_not_mistaken_for_missing(connect: Connect) -> None:
+    """Falsy structuredContent values are present values: 0 and '' validate against their schemas and
+    come back to the caller, and a falsy value that VIOLATES its schema (false against
+    {type: integer} -- JSON Schema excludes booleans from integer) is rejected with the validation
+    error, not the missing-structured-content error. The error identity is the discriminator: a falsy
+    presence check would route all three to 'did not return structured content' (the test on
+    client:output-schema:missing-structured pins that message). 2026-only: earlier revisions restrict
+    structuredContent to objects.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(name="zero", input_schema={"type": "object"}, output_schema={"type": "integer"}),
+                Tool(name="empty", input_schema={"type": "object"}, output_schema={"type": "string"}),
+                Tool(name="flag", input_schema={"type": "object"}, output_schema={"type": "integer"}),
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name in ("zero", "empty", "flag")
+        # flag deliberately mismatches its integer schema: JSON Schema excludes booleans from integer.
+        values: dict[str, object] = {"zero": 0, "empty": "", "flag": False}
+        return CallToolResult(content=[TextContent(text=params.name)], structured_content=values[params.name])
+
+    server = Server("falsy", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        zero = await client.call_tool("zero", {})
+        empty = await client.call_tool("empty", {})
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("flag", {})
+
+    assert zero.structured_content == 0
+    # bool is an int subclass and False == 0, so the type pin keeps a False-returning regression from
+    # masquerading as the correct 0.
+    assert type(zero.structured_content) is int
+    assert empty.structured_content == ""
+    # The validation message, not the missing-structured one: the falsy value reached the validator.
+    assert str(exc_info.value).startswith("Invalid structured content returned by tool flag")
+
+
+@requirement("client:jsonschema:non-object-output")
+async def test_a_non_object_output_schema_root_is_validated_and_its_structured_content_returned(
+    connect: Connect,
+) -> None:
+    """A tool advertising an array-rooted outputSchema round-trips on a 2026-07-28 connection:
+    conforming array structuredContent validates and is returned as-is, and a violating member is
+    rejected by the same client-side validation. 2026-only: through 2025-11-25 both the schema root
+    and structuredContent are restricted to objects (the 2025 wire surface refuses to even list an
+    array-rooted schema).
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(name="ints", input_schema={"type": "object"}, output_schema=_INTS_SCHEMA),
+                Tool(name="ints_bad", input_schema={"type": "object"}, output_schema=_INTS_SCHEMA),
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name in ("ints", "ints_bad")
+        values: dict[str, object] = {"ints": [1, 2, 3], "ints_bad": [1, "x"]}
+        return CallToolResult(content=[TextContent(text=params.name)], structured_content=values[params.name])
+
+    server = Server("arrays", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        await client.list_tools()
+        result = await client.call_tool("ints", {})
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("ints_bad", {})
+
+    assert result.structured_content == [1, 2, 3]
+    # The non-vacuity arm: without it the accept arm cannot distinguish 'validated and passed' from
+    # 'validation silently skipped for non-objects'.
+    assert str(exc_info.value).startswith("Invalid structured content returned by tool ints_bad")
+
+
+# --- scripted peer: a wire null structuredContent the typed Server cannot author ---
+
+
+@requirement("client:jsonschema:null-structured-content")
+async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_client() -> None:
+    """A tools/call answer carrying structuredContent null for a tool whose outputSchema is
+    {type: 'null'} raises the missing-structured-content RuntimeError instead of validating the
+    conforming null (known gap recorded on the requirement: the model parses null to None --
+    indistinguishable from absent, no sentinel -- and the presence check fires before the validator).
+    The test plays the server by hand over memory streams because the typed Server cannot author a
+    wire null (structured_content None means absent and is stripped at serialization), and uses the
+    bare pinned-2026 ClientSession because Client has no public connect path over raw scripted
+    streams. When the SDK gains an absent-vs-null distinction, this test fails: re-pin to the
+    resolved null result and delete the Divergence.
+    """
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def scripted_server() -> None:
+            with anyio.fail_after(5):
+                listing = await server_read.receive()
+            assert isinstance(listing, SessionMessage)
+            assert isinstance(listing.message, JSONRPCRequest)
+            assert listing.message.method == "tools/list"
+            await server_write.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=listing.message.id,
+                        # ttlMs/cacheScope/resultType are scaffolding the v2026 result model requires;
+                        # the caching:* family owns their semantics.
+                        result={
+                            "tools": [
+                                {"name": "nil", "inputSchema": {"type": "object"}, "outputSchema": {"type": "null"}}
+                            ],
+                            "resultType": "complete",
+                            "ttlMs": 0,
+                            "cacheScope": "private",
+                        },
+                    )
+                )
+            )
+            with anyio.fail_after(5):
+                call = await server_read.receive()
+            assert isinstance(call, SessionMessage)
+            assert isinstance(call.message, JSONRPCRequest)
+            assert call.message.method == "tools/call"
+            assert call.message.params is not None
+            assert call.message.params["name"] == "nil"
+            await server_write.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=call.message.id,
+                        # None here IS the JSON null under test -- these raw dicts are the wire.
+                        result={
+                            "content": [{"type": "text", "text": "null"}],
+                            "resultType": "complete",
+                            "structuredContent": None,
+                        },
+                    )
+                )
+            )
+            # Returns naturally: the task group needs no cancel after the session context exits.
+
+        # One combined async-with: a separately nested `async with` line mis-traces its exit
+        # arcs under branch coverage on 3.11+.
+        async with (
+            anyio.create_task_group() as task_group,
+            ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
+        ):
+            task_group.start_soon(scripted_server)
+            session.adopt(
+                DiscoverResult(
+                    supported_versions=[LATEST_MODERN_VERSION],
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="srv", version="0"),
+                )
+            )
+            with anyio.fail_after(5):
+                listed = await session.list_tools()
+            # The client accepted and cached the null-rooted schema -- the conformant half of the
+            # story, and the precondition for the presence check the call is about to hit.
+            assert [(tool.name, tool.output_schema) for tool in listed.tools] == [("nil", {"type": "null"})]
+            with pytest.raises(RuntimeError) as exc_info:
+                with anyio.fail_after(5):
+                    await session.call_tool("nil", {})
+            assert str(exc_info.value) == snapshot(
+                "Tool nil has an output schema but did not return structured content"
+            )

@@ -87,6 +87,75 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
     assert errors == snapshot([ErrorData(code=0, message="Request cancelled")])
 
 
+@requirement("protocol:cancel:no-further-notifications")
+async def test_no_notifications_for_a_request_arrive_after_its_cancellation(connect: Connect) -> None:
+    """After a request is cancelled, no further notifications for it reach the wire (spec-mandated).
+
+    The 2026-07-28 stdio page says the receiver of a cancellation MUST NOT send any further
+    messages for the cancelled request. The response half of "any further messages" is the
+    divergence pinned on protocol:cancel:in-flight (both seats answer with a code-0 error); this
+    test pins the notifications half. The handler attempts a progress send during its cancellation
+    unwind so the negative is proved enforced, not merely unexercised: the attempt itself is
+    cancelled before transmitting, and the caller's progress callback saw only the
+    pre-cancellation notification.
+    """
+    started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    request_ids: list[types.RequestId] = []
+    attempted: list[str] = []
+    progress_updates: list[tuple[float, float | None, str | None]] = []
+
+    async def collect(progress: float, total: float | None, message: str | None) -> None:
+        progress_updates.append((progress, total, message))
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        assert ctx.request_id is not None
+        request_ids.append(ctx.request_id)
+        # Proves the progress channel is live before the cancellation arrives.
+        await ctx.session.report_progress(1.0, total=2.0, message="started")
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            try:
+                # The MUST NOT under test: a send attempted during the cancellation unwind.
+                await ctx.session.report_progress(2.0, total=2.0, message="too late")
+            except anyio.get_cancelled_exc_class():
+                attempted.append("send-cancelled")
+                raise
+            raise NotImplementedError  # unreachable: the unwind cancels the send before it transmits
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    server = Server("blocker", on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:
+
+                async def call_and_swallow_cancellation_error() -> None:
+                    # The error shape (code 0, "Request cancelled") is protocol:cancel:in-flight's
+                    # pinned divergence and is deliberately not re-asserted here.
+                    with pytest.raises(MCPError):
+                        await client.call_tool("block", {}, progress_callback=collect)
+
+                task_group.start_soon(call_and_swallow_cancellation_error)
+                await started.wait()
+                await client.session.send_notification(
+                    types.CancelledNotification(
+                        params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
+                    )
+                )
+
+            await handler_cancelled.wait()
+
+    # Request-scoped progress rides the same ordered stream as the error response that unblocked
+    # the call, so a transmitted "too late" notification would already have been delivered.
+    assert progress_updates == [(1.0, 2.0, "started")]
+    assert attempted == ["send-cancelled"]
+
+
 @requirement("protocol:cancel:server-survives")
 async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
     """A request cancelled mid-flight does not poison the session: the next request succeeds."""

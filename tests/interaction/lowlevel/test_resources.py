@@ -146,6 +146,42 @@ async def test_read_resource_binary(connect: Connect) -> None:
     )
 
 
+@requirement("resources:read:multiple-contents")
+async def test_read_resource_returns_multiple_contents_in_order(connect: Connect) -> None:
+    """A resources/read result carrying several contents entries reaches the client intact and in order.
+
+    Spec-mandated: servers MAY return multiple resource contents for a single read (e.g. a
+    directory read returning multiple files); the SDK surfaces the list verbatim. The mixed
+    text/blob list proves heterogeneous contents coexist; the full-result snapshot pins order,
+    URIs, MIME types, and payloads ("aW1n" is b"img").
+    """
+
+    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        assert params.uri == "file:///project/"
+        return ReadResourceResult(
+            contents=[
+                TextResourceContents(uri="file:///project/a.txt", mime_type="text/plain", text="alpha"),
+                TextResourceContents(uri="file:///project/b.txt", mime_type="text/plain", text="beta"),
+                BlobResourceContents(uri="file:///project/logo.png", mime_type="image/png", blob="aW1n"),
+            ]
+        )
+
+    server = Server("library", on_read_resource=read_resource)
+
+    async with connect(server) as client:
+        result = await client.read_resource("file:///project/")
+
+    assert result == snapshot(
+        ReadResourceResult(
+            contents=[
+                TextResourceContents(uri="file:///project/a.txt", mime_type="text/plain", text="alpha"),
+                TextResourceContents(uri="file:///project/b.txt", mime_type="text/plain", text="beta"),
+                BlobResourceContents(uri="file:///project/logo.png", mime_type="image/png", blob="aW1n"),
+            ]
+        )
+    )
+
+
 @requirement("protocol:error:handler-error-passthrough")
 async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.

@@ -20,6 +20,7 @@ from mcp_types import (
     Prompt,
     PromptArgument,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -192,6 +193,53 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
                         resource=TextResourceContents(uri="resource://notes/1", mime_type="text/plain", text="attached")
                     ),
                 ),
+            ]
+        )
+    )
+
+
+@requirement("prompts:get:content:resource-link")
+async def test_get_prompt_resource_link_content_round_trips(connect: Connect) -> None:
+    """A prompt message can carry resource_link content; the URI and descriptive fields reach the client intact.
+
+    Spec-mandated: prompt messages MAY include links to resources -- a URI the client can fetch,
+    without embedding the contents. The full-result snapshot pins the discriminator, the URI, and
+    every descriptive field. Fetching the linked URI is client-application behaviour, not the SDK's.
+    """
+
+    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
+        assert params.name == "entry_point"
+        return GetPromptResult(
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=ResourceLink(
+                        uri="file:///project/src/main.rs",
+                        name="main.rs",
+                        description="Primary application entry point",
+                        mime_type="text/x-rust",
+                    ),
+                )
+            ]
+        )
+
+    server = Server("prompter", on_get_prompt=get_prompt)
+
+    async with connect(server) as client:
+        result = await client.get_prompt("entry_point")
+
+    assert result == snapshot(
+        GetPromptResult(
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=ResourceLink(
+                        name="main.rs",
+                        uri="file:///project/src/main.rs",
+                        description="Primary application entry point",
+                        mime_type="text/x-rust",
+                    ),
+                )
             ]
         )
     )

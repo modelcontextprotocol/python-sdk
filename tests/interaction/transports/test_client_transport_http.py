@@ -14,7 +14,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp import MCPError
 from mcp.client.client import Client
@@ -245,3 +245,51 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
                     await client.list_tools()
 
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))
+
+
+@requirement("client-transport:http:sse-comment-line-ignored")
+async def test_sse_comment_lines_in_the_response_stream_are_ignored_by_the_client() -> None:
+    """SSE comment lines interleaved into response streams do not disturb the requests on them.
+
+    The streamable-http page tells servers to emit ':'-prefixed keep-alive comment lines on
+    long-lived streams, and clients to ignore them -- normative by incorporation of the WHATWG SSE
+    specification. The shim prepends a comment line to every SSE body chunk, so the whole session
+    (initialize, tools/list, tools/call) runs over comment-bearing streams. The surface pinned is
+    the SDK's observable client behaviour (today the httpx-sse parser): a transport rewrite must
+    preserve the tolerance.
+    """
+    server = _tooled_server()
+    real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
+    injected: list[bytes] = []
+
+    async def inject_sse_comments(scope: Scope, receive: Receive, send: Send) -> None:
+        # The bridge only delivers http scopes, so no scope-type guard is needed.
+        sse_response = False
+
+        async def send_with_comments(message: Message) -> None:
+            nonlocal sse_response
+            if message["type"] == "http.response.start":
+                headers = {key.lower(): value for key, value in message.get("headers", [])}
+                sse_response = headers.get(b"content-type", b"").startswith(b"text/event-stream")
+            elif message["type"] == "http.response.body" and sse_response and message.get("body"):
+                message = {**message, "body": b": keep-alive\r\n\r\n" + message["body"]}
+                injected.append(message["body"])
+            await send(message)
+
+        await real_app(scope, receive, send_with_comments)
+
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(transport=StreamingASGITransport(inject_sse_comments), base_url=BASE_URL) as http_client,
+    ):
+        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
+        with anyio.fail_after(5):  # pragma: no branch
+            async with Client(transport, mode="legacy") as client:  # pragma: no branch
+                tools = await client.list_tools()
+                result = await client.call_tool("echo", {"text": "hi"})
+
+    assert [tool.name for tool in tools.tools] == ["echo"]
+    assert result == snapshot(CallToolResult(content=[TextContent(text="hi")]))
+    # Non-vacuity anchor: at least the initialize, tools/list, and tools/call SSE responses each
+    # had a comment line prepended (exactly 3 observed; ">=" because chunking is bridge-internal).
+    assert len(injected) >= 3

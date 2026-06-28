@@ -182,3 +182,90 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(co
     assert result == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
     )
+
+
+@requirement("resources:list:connection-invariant")
+async def test_resource_list_is_identical_across_connections_and_unchanged_by_other_requests(
+    connect: Connect,
+) -> None:
+    """Concurrent connections to one server see the same resource list, before and after one of them reads.
+
+    Spec-mandated (2026-07-28): the set MUST NOT vary per-connection or as a side effect of other
+    requests on the connection. MCPServer's registry is server-level state shared by construction;
+    the pin is that the serving path adds no per-connection variation and that serving a
+    resources/read mutates the registry on neither connection.
+    """
+    mcp = MCPServer("library")
+
+    @mcp.resource("config://app")
+    def app_config() -> str:
+        """The application configuration."""
+        return "theme = dark"
+
+    @mcp.resource("memo://notes")
+    def notes() -> str:
+        """Listed on both connections; never read."""
+        raise NotImplementedError
+
+    async with connect(mcp) as first_client, connect(mcp) as second_client:
+        first_list = await first_client.list_resources()
+        second_list = await second_client.list_resources()
+        assert second_list == first_list
+        # An unrelated request on the first connection: proves it ran AND changed nothing.
+        result = await first_client.read_resource("config://app")
+        assert await first_client.list_resources() == first_list
+        assert await second_client.list_resources() == first_list
+
+    assert result == snapshot(
+        ReadResourceResult(
+            contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
+        )
+    )
+    assert [resource.name for resource in first_list.resources] == snapshot(["app_config", "notes"])
+
+
+@requirement("resources:read:path-traversal-rejected")
+async def test_read_with_a_traversal_path_is_rejected_without_invoking_the_resource_function(
+    connect: Connect,
+) -> None:
+    """A read whose extracted path parameter carries traversal is rejected; the resource function never runs.
+
+    Spec-mandated security MUST (2026-07-28): servers sanitize file paths when serving file://
+    resources. MCPServer's default ResourceSecurity policy rejects the value at template match
+    time and deliberately surfaces the rejection as the same -32602 "Unknown resource" error as a
+    non-match, so the wire gives no probing oracle. The {+path} template (RFC 6570 reserved
+    expansion) admits /-bearing values, so the traversal URI does match the template and the
+    rejection provably comes from the security policy, not a failed single-segment match.
+    """
+    mcp = MCPServer("files")
+    invoked: list[str] = []
+
+    @mcp.resource("file:///files/{+path}")
+    def serve_file(path: str) -> str:
+        """Serves any safe path under the template; a traversal value must never reach it."""
+        invoked.append(path)
+        return f"contents of {path}"
+
+    async with connect(mcp) as client:
+        # Control read first: the template is live and the function runs for safe paths.
+        control = await client.read_resource("file:///files/notes.txt")
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("file:///files/../../etc/passwd")
+
+    assert control == snapshot(
+        ReadResourceResult(
+            contents=[
+                TextResourceContents(
+                    uri="file:///files/notes.txt", mime_type="text/plain", text="contents of notes.txt"
+                )
+            ]
+        )
+    )
+    assert exc_info.value.error == snapshot(
+        ErrorData(
+            code=-32602,
+            message="Unknown resource: file:///files/../../etc/passwd",
+            data={"uri": "file:///files/../../etc/passwd"},
+        )
+    )
+    assert invoked == ["notes.txt"]
