@@ -45,7 +45,7 @@ from mcp.shared.inbound import (
     x_mcp_header_map,
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, RequestSettled, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 
@@ -215,8 +215,8 @@ class ClientSession:
 
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception] | None = None,
-        write_stream: WriteStream[SessionMessage] | None = None,
+        read_stream: ReadStream[SessionMessage | Exception | RequestSettled] | None = None,
+        write_stream: WriteStream[SessionMessage | RequestSettled] | None = None,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,

@@ -645,12 +645,16 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.client_info = None
                         self.context.clear_tokens()
 
-                    # Step 3: Apply scope selection strategy
+                    # Step 3: Apply scope selection strategy. The configured client-metadata
+                    # scope is the lowest-priority fallback, and the selection is written back
+                    # so registration (Step 4) and authorization (Step 5) read it — a later
+                    # re-auth therefore falls back to this selection, not the constructor value.
                     self.context.client_metadata.scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                         self.context.client_metadata.grant_types,
+                        self.context.client_metadata.scope,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)

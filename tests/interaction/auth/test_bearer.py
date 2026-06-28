@@ -57,6 +57,20 @@ TOKENS = {
         expires_at=_FUTURE,
         resource="http://127.0.0.1:8000/",
     ),
+    "tok-overflow-port-aud": AccessToken(
+        token="tok-overflow-port-aud",
+        client_id="c",
+        scopes=[REQUIRED_SCOPE],
+        expires_at=_FUTURE,
+        resource="http://127.0.0.1:99999/mcp",
+    ),
+    "tok-nonnumeric-port-aud": AccessToken(
+        token="tok-nonnumeric-port-aud",
+        client_id="c",
+        scopes=[REQUIRED_SCOPE],
+        expires_at=_FUTURE,
+        resource="http://127.0.0.1:abc/mcp",
+    ),
     "tok-no-aud": AccessToken(token="tok-no-aud", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
 }
 
@@ -201,6 +215,29 @@ async def test_a_token_for_a_parent_path_on_the_same_origin_is_answered_401_inva
     regression to prefix semantics.
     """
     response = await post_mcp(protected, bearer="tok-parent-aud")
+
+    assert response.status_code == 401
+    assert parse_www_authenticate(response.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "The access token was issued for a different resource",
+        "scope": REQUIRED_SCOPE,
+        "resource_metadata": RESOURCE_METADATA_URL,
+    }
+
+
+@requirement("hosting:auth:aud-validation")
+@pytest.mark.parametrize("bearer", ["tok-overflow-port-aud", "tok-nonnumeric-port-aud"])
+async def test_a_token_whose_audience_has_an_unparseable_port_is_answered_401_invalid_token(
+    protected: httpx.AsyncClient, bearer: str
+) -> None:
+    """A token audience with an out-of-range or non-numeric port is a mismatch, not a server error.
+
+    RFC 3986's grammar puts no upper bound on port digits, so an authorization server can
+    legitimately issue a token for `http://h:99999/mcp`; urllib refuses to parse such ports.
+    The gate must answer the same 401 `invalid_token` as any other audience mismatch — the
+    ValueError must never escape the middleware as a 500.
+    """
+    response = await post_mcp(protected, bearer=bearer)
 
     assert response.status_code == 401
     assert parse_www_authenticate(response.headers["www-authenticate"]) == {

@@ -42,9 +42,11 @@ def _create_non_sdk_server_app() -> Starlette:
         if data.get("method") == "initialize":
             return _init_json_response(data)
 
-        # For notifications, return 204 No Content (non-SDK behavior)
+        # For notifications, return a bare 200 (non-SDK behavior; 204 now has a defined
+        # meaning on this transport — "request settled with no reply" — so the unexpected
+        # status exercised here is one with no assigned semantics).
         if "id" not in data:
-            return Response(status_code=204, headers={"Content-Type": "application/json"})
+            return Response(status_code=200, headers={"Content-Type": "application/json"})
 
         return JSONResponse(  # pragma: no cover
             {"jsonrpc": "2.0", "id": data.get("id"), "error": {"code": -32601, "message": "Method not found"}}
@@ -77,8 +79,8 @@ async def test_non_compliant_notification_response() -> None:
 
     The spec states notifications should get either 202 + no response body, or 4xx + optional error body
     (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server),
-    but some servers wrongly return other 2xx codes (e.g. 204). For now we simply ignore unexpected responses
-    (aligning behaviour w/ the TS SDK).
+    but some servers wrongly return other 2xx codes (e.g. a bare 200). For now we simply ignore
+    unexpected responses (aligning behaviour w/ the TS SDK).
     """
     returned_exception = None
 
@@ -94,7 +96,7 @@ async def test_non_compliant_notification_response() -> None:
             async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
                 await session.initialize()
 
-                # The test server returns a 204 instead of the expected 202
+                # The test server returns a bare 200 instead of the expected 202
                 await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
     if returned_exception:  # pragma: no cover

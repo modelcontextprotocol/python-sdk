@@ -13,7 +13,7 @@ import pytest
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
 DispatcherTriple = tuple[Dispatcher[TransportContext], Dispatcher[TransportContext], Callable[[], None]]
@@ -32,8 +32,8 @@ def direct_pair(*, can_send_request: bool = True) -> DispatcherTriple:
 
 def jsonrpc_pair(*, can_send_request: bool = True) -> DispatcherTriple:
     """Two `JSONRPCDispatcher`s wired over crossed in-memory streams."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
 
     def builder(_meta: object) -> TransportContext:
         return TransportContext(kind="jsonrpc", can_send_request=can_send_request)

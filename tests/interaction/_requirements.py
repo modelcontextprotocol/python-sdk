@@ -2819,6 +2819,51 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over HTTP: POST-body framing is HTTP-specific.",
     ),
+    "hosting:http:cancel-ends-post-sse-stream": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "After notifications/cancelled stops a request's handler, the original POST's SSE stream "
+            "terminates without ever carrying a response for the cancelled id."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over HTTP: SSE stream lifecycle is HTTP-specific. The no-response half is "
+            "spec-mandated (receivers SHOULD NOT respond to a cancelled request); terminating the "
+            "now-permanently-silent stream is SDK-defined — the spec has no spelling for a request that "
+            "settles without a response."
+        ),
+    ),
+    "hosting:http:cancel-json-mode-204": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
+        behavior=(
+            "In JSON response mode, a POST whose request was cancelled mid-handler completes with "
+            "204 No Content and an empty body instead of holding the connection open forever."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: 204 is an HTTP status code.",
+        divergence=Divergence(
+            note=(
+                "The transports section's MUST offers only text/event-stream or a single JSON object as "
+                "the response to a request POST; the spec has no spelling for 'request settled with no "
+                "response' in JSON mode, so the SDK answers 204 with no body. Tracked for upstreaming."
+            ),
+        ),
+    ),
+    "hosting:http:cancel-receipt-keeps-stream-open": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "Receiving notifications/cancelled does not by itself end the request's exchange: a handler "
+            "that ignores the cancellation (the spec's MAY arm) still streams related notifications on "
+            "the open POST stream and has its response delivered; the exchange ends only after that "
+            "response."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over HTTP: exchange lifecycle is HTTP-specific. Shielding the handler body "
+            "(anyio.CancelScope(shield=True)) is the SDK-defined way for a handler to take the spec's "
+            "MAY-ignore-and-respond arm."
+        ),
+    ),
     "hosting:http:content-type-415": Requirement(
         source="sdk",
         behavior="A POST with a Content-Type other than application/json returns 415.",
@@ -3085,6 +3130,16 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════
+    "client-transport:http:204-settled-exchange": Requirement(
+        source="sdk",
+        behavior=(
+            "A 204 No Content response to a request POST is consumed as 'request settled with no reply': "
+            "the transport's request task completes without synthesizing a response or an error, and the "
+            "session continues to serve requests."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: 204 is an HTTP status code.",
+    ),
     "client-transport:http:404-surfaces": Requirement(
         source="sdk",
         behavior="A 404 (session expired) on a request surfaces as an error to the caller.",

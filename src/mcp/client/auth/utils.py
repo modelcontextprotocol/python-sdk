@@ -105,18 +105,25 @@ def get_client_metadata_scopes(
     protected_resource_metadata: ProtectedResourceMetadata | None,
     authorization_server_metadata: OAuthMetadata | None = None,
     client_grant_types: list[str] | None = None,
+    client_metadata_scope: str | None = None,
 ) -> str | None:
-    """Select effective scopes and augment for refresh token support."""
-    selected_scope: str | None = None
+    """Select effective scopes and augment for refresh token support.
 
-    # MCP spec scope selection priority:
+    Follows the MCP spec's scope-selection strategy (challenge scope, then PRM
+    `scopes_supported`), with the caller's pre-configured `OAuthClientMetadata.scope` as a
+    final SDK-defined fallback (TypeScript-SDK parity) before omitting the parameter.
+    """
+    # Scope selection priority (1-2 are the spec's chain; 3 is the SDK fallback):
     #   1. WWW-Authenticate header scope
     #   2. PRM scopes_supported
-    #   3. Omit scope parameter
+    #   3. Caller-supplied client metadata scope
+    #   4. Omit scope parameter
     if www_authenticate_scope is not None:
         selected_scope = www_authenticate_scope
     elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
         selected_scope = " ".join(protected_resource_metadata.scopes_supported)
+    else:
+        selected_scope = client_metadata_scope
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (

@@ -23,20 +23,21 @@ from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, O
 class RegistrationRequest(OAuthClientMetadata):
     """The registration endpoint's inbound client metadata, with server-side redirect-URI policy.
 
-    The MCP authorization spec requires every redirect URI to use HTTPS or target a loopback
-    host, and OAuth 2.1 section 2.3 forbids a fragment component, so a request carrying a URI
-    that violates either fails validation and never reaches the provider. The base
-    `OAuthClientMetadata` stays permissive: the client also serializes it when registering
-    against third-party authorization servers whose redirect-URI policies the SDK does not own.
+    The MCP authorization spec and OAuth 2.1 require every redirect URI to use HTTPS, with plain
+    HTTP on a loopback host as the sole carve-out, and OAuth 2.1 section 2.3 forbids a fragment
+    component, so a request carrying a URI that violates either fails validation and never reaches
+    the provider. The base `OAuthClientMetadata` stays permissive: the client also serializes it
+    when registering against third-party authorization servers whose redirect-URI policies the SDK
+    does not own.
     """
 
     @field_validator("redirect_uris", mode="after")
     @classmethod
-    def _https_or_loopback_without_fragment(cls, v: list[AnyUrl] | None) -> list[AnyUrl] | None:
+    def _https_or_loopback_http_without_fragment(cls, v: list[AnyUrl] | None) -> list[AnyUrl] | None:
         # None and an empty list both mean there is nothing to check.
         for uri in v or []:
-            if uri.scheme != "https" and uri.host not in LOOPBACK_HOSTS:
-                raise ValueError(f"redirect_uri must use https or target a loopback host: {uri}")
+            if not (uri.scheme == "https" or (uri.scheme == "http" and uri.host in LOOPBACK_HOSTS)):
+                raise ValueError(f"redirect_uri must use https or be a loopback http URI: {uri}")
             # `is not None`, not truthiness: a bare `https://x/cb#` parses with fragment == "".
             if uri.fragment is not None:
                 raise ValueError(f"redirect_uri must not include a fragment: {uri}")

@@ -20,7 +20,7 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 
 @pytest.mark.anyio
@@ -107,7 +107,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
     server = Server("test", on_call_tool=handle_call_tool)
 
     to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
-    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage | RequestSettled](10)
 
     async def run_server():
         await server.run(server_read, server_write, server.create_initialization_options())
@@ -181,7 +181,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
     server = Server("test", on_call_tool=handle_call_tool)
 
     to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
-    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage | RequestSettled](10)
 
     async def run_server():
         await server.run(server_read, server_write, server.create_initialization_options())

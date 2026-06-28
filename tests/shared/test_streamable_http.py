@@ -64,7 +64,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
-from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, RequestSettled, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
 
@@ -2284,3 +2284,93 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_settled_marker_closes_only_the_request_streams_send_side() -> None:
+    """A `RequestSettled` on the write stream ends its per-request stream after buffered events
+    drain (send-side close only — a receive-side close would lose them), and a marker whose id has
+    no registered stream is a no-op: the router keeps routing (SDK-defined).
+
+    Drives `connect()` with raw streams because the miss arm needs a marker for an id no POST
+    ever registered, which no full exchange can produce.
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    async with transport.connect() as (_read_stream, write_stream):
+        send, receive = anyio.create_memory_object_stream[EventMessage](16)
+        transport._request_streams["7"] = (send, receive)
+        buffered = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/message")
+        send.send_nowait(EventMessage(buffered))
+        with anyio.fail_after(5):
+            # Unknown id first: the lookup misses and must not break the router.
+            await write_stream.send(RequestSettled(request_id=9))
+            await write_stream.send(RequestSettled(request_id=7))
+            # The buffered event survives the close and arrives before end-of-stream.
+            event = await receive.receive()
+            assert event.message is buffered
+            with pytest.raises(anyio.EndOfStream):
+                await receive.receive()
+        receive.close()
+
+
+@pytest.mark.anyio
+async def test_cancelled_request_in_json_mode_releases_its_per_request_stream() -> None:
+    """After a peer cancellation settles a JSON-mode POST as 204, the per-request stream the wait
+    loop parked on is deregistered (SDK-defined). Reaches into `_request_streams` because the
+    pre-fix leak — the cancelled request's stream stayed registered forever — is invisible on any
+    public surface; the wire-level 204 contract is pinned in
+    `tests/interaction/transports/test_hosting_http.py`.
+    """
+    started = anyio.Event()
+    cancelled = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until the cancellation interrupts it
+        except anyio.get_cancelled_exc_class():
+            cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    session_manager = StreamableHTTPSessionManager(
+        app=Server("blocker", on_call_tool=call_tool),
+        json_response=True,
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    async with session_manager.run(), make_client(app) as http:
+        init_response = await http.post("/mcp", json=INIT_REQUEST, headers=headers)
+        assert init_response.status_code == 200
+        headers[MCP_SESSION_ID_HEADER] = init_response.headers[MCP_SESSION_ID_HEADER]
+        headers[MCP_PROTOCOL_VERSION_HEADER] = init_response.json()["result"]["protocolVersion"]
+        call_body: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "block", "arguments": {}},
+        }
+        cancel_body: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": 2},
+        }
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def post_blocked_request() -> None:
+                    response = await http.post("/mcp", json=call_body, headers=headers)
+                    assert response.status_code == 204
+
+                tg.start_soon(post_blocked_request)
+                await started.wait()
+                cancel = await http.post("/mcp", json=cancel_body, headers=headers)
+                assert cancel.status_code == 202
+                await cancelled.wait()
+            # Quiesce so the settled exchange's stream cleanup (which runs after the 204
+            # body is sent) finishes before the leak assertion below.
+            await anyio.wait_all_tasks_blocked()
+        (transport,) = session_manager._server_instances.values()
+        assert transport._request_streams == {}

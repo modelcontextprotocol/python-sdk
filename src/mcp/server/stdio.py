@@ -26,7 +26,7 @@ import anyio.lowlevel
 import mcp_types as types
 
 from mcp.shared._context_streams import create_context_streams
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage, wire_messages
 
 
 @asynccontextmanager
@@ -44,7 +44,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-    write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+    write_stream, write_stream_reader = create_context_streams[SessionMessage | RequestSettled](0)
 
     async def stdin_reader():
         try:
@@ -64,7 +64,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     async def stdout_writer():
         try:
             async with write_stream_reader:
-                async for session_message in write_stream_reader:
+                async for session_message in wire_messages(write_stream_reader):
                     json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()

@@ -19,7 +19,7 @@ from mcp_types import (
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 
 @pytest.mark.anyio
@@ -72,8 +72,8 @@ async def test_notification_validation_error(tmp_path: Path):
     server = Server(name="test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async def server_handler(
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | RequestSettled],
+        write_stream: MemoryObjectSendStream[SessionMessage | RequestSettled],
         task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
     ):
         with anyio.CancelScope() as scope:
@@ -86,8 +86,8 @@ async def test_notification_validation_error(tmp_path: Path):
             )
 
     async def client(
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | RequestSettled],
+        write_stream: MemoryObjectSendStream[SessionMessage | RequestSettled],
         scope: anyio.CancelScope,
     ):
         # No session-level timeout to avoid race conditions with fast operations
@@ -115,8 +115,8 @@ async def test_notification_validation_error(tmp_path: Path):
         scope.cancel()  # pragma: lax no cover
 
     # Run server and client in separate task groups to avoid cancellation
-    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage](1)
-    client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage](1)
+    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | RequestSettled](1)
+    client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage | RequestSettled](1)
 
     async with anyio.create_task_group() as tg:
         scope = await tg.start(server_handler, server_reader, client_writer)

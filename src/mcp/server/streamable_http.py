@@ -44,7 +44,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import RequestSettled, ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +149,8 @@ class StreamableHTTPServerTransport:
     # Server notification streams for POST requests as well as standalone SSE stream
     _read_stream_writer: ContextSendStream[SessionMessage | Exception] | None = None
     _read_stream: ContextReceiveStream[SessionMessage | Exception] | None = None
-    _write_stream: ContextSendStream[SessionMessage] | None = None
-    _write_stream_reader: ContextReceiveStream[SessionMessage] | None = None
+    _write_stream: ContextSendStream[SessionMessage | RequestSettled] | None = None
+    _write_stream_reader: ContextReceiveStream[SessionMessage | RequestSettled] | None = None
     _security: TransportSecurityMiddleware
 
     def __init__(
@@ -564,6 +564,9 @@ class StreamableHTTPServerTransport:
                     response_message = None
 
                     # Use similar approach to SSE writer for consistency
+                    # (no branch: the natural-exit arc IS taken — a settled request closes the
+                    # stream and the loop ends without a response — but coverage.py loses the
+                    # async-for exhaustion arc on Python 3.14.)
                     async for event_message in request_stream_reader:  # pragma: no branch
                         # If it's a response, this is what we're waiting for
                         if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
@@ -573,19 +576,15 @@ class StreamableHTTPServerTransport:
                         else:  # pragma: no cover
                             logger.debug(f"received: {event_message.message.method}")
 
-                    # At this point we should have a response
                     if response_message:
                         # Create JSON response
                         response = self._create_json_response(response_message)
-                        await response(scope, receive, send)
-                    else:  # pragma: no cover
-                        # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
+                    else:
+                        # The request ended with no JSON-RPC frame to carry (peer-cancelled
+                        # and the handler wrote nothing, or the session tore down
+                        # mid-request): end the exchange with 204 No Content.
+                        response = self._create_json_response(None, HTTPStatus.NO_CONTENT)
+                    await response(scope, receive, send)
                 except Exception:  # pragma: no cover
                     logger.exception("Error processing JSON response")
                     response = self._create_error_response(
@@ -952,7 +951,7 @@ class StreamableHTTPServerTransport:
     ) -> AsyncGenerator[
         tuple[
             ReadStream[SessionMessage | Exception],
-            WriteStream[SessionMessage],
+            WriteStream[SessionMessage | RequestSettled],
         ],
         None,
     ]:
@@ -965,7 +964,7 @@ class StreamableHTTPServerTransport:
         # Create the memory streams for this connection
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage | RequestSettled](0)
 
         # Store the streams
         self._read_stream_writer = read_stream_writer
@@ -979,6 +978,15 @@ class StreamableHTTPServerTransport:
             async def message_router():
                 try:
                     async for session_message in write_stream_reader:  # pragma: no branch
+                        if isinstance(session_message, RequestSettled):
+                            # The dispatcher ended this request with no reply (peer-cancelled).
+                            # Close the per-POST stream's send side: the SSE writer / JSON wait
+                            # loop finish their iteration and clean up in their own finally.
+                            # Nothing is stored or sent on the wire. Keyed by str(id), matching
+                            # the registration at POST time.
+                            if (streams := self._request_streams.get(str(session_message.request_id))) is not None:
+                                streams[0].close()
+                            continue
                         # Determine which request stream(s) should receive this message
                         message = session_message.message
                         target_request_id = None

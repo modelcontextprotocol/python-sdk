@@ -18,6 +18,7 @@ from mcp_types import (
     INVALID_PARAMS,
     INVALID_REQUEST,
     REQUEST_TIMEOUT,
+    ElicitRequestURLParams,
     ErrorData,
     Tool,
 )
@@ -25,7 +26,7 @@ from mcp_types import (
 from mcp.shared._compat import resync_tracer
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.exceptions import MCPError, NoBackChannelError, UrlElicitationRequiredError
 from mcp.shared.transport_context import TransportContext
 
 from .conftest import PairFactory, direct_pair
@@ -95,7 +96,11 @@ async def test_send_raw_request_returns_result_from_peer_on_request(pair_factory
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_factory: PairFactory):
+async def test_send_raw_request_surfaces_handler_mcperror_code_and_message(pair_factory: PairFactory):
+    """A handler-raised `MCPError`'s code and message surface to the caller on every
+    dispatcher (SDK-defined). The caller gets an equal-valued re-raise, not the
+    handler's exception object — see the subclass-flattening test below."""
+
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -106,6 +111,39 @@ async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_fa
             await client.send_raw_request("tools/list", {})
     assert exc.value.error.code == INVALID_PARAMS
     assert exc.value.error.message == "bad cursor"
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_flattens_handler_mcperror_subclass_to_plain_mcperror(pair_factory: PairFactory):
+    """A handler-raised `MCPError` subclass surfaces to the caller as plain `MCPError`
+    with equal `ErrorData` on every dispatcher (SDK-defined): subclass identity cannot
+    cross the JSON-RPC wire, and `DirectDispatcher` matches so in-process callers see
+    the same error surface. Callers needing the subclass rehydrate it from the error
+    data (e.g. `UrlElicitationRequiredError.from_error`)."""
+    raised: list[UrlElicitationRequiredError] = []
+
+    async def on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        error = UrlElicitationRequiredError(
+            [
+                ElicitRequestURLParams(
+                    message="Authorization required",
+                    url="https://example.com/authorize",
+                    elicitation_id="auth-001",
+                )
+            ]
+        )
+        raised.append(error)
+        raise error
+
+    async with running_pair(pair_factory, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {})
+    # Flattened: exactly MCPError, the subclass type does not survive dispatch.
+    assert type(exc.value) is MCPError
+    # ...but the full ErrorData (code/message/data) of the raised subclass does.
+    assert exc.value.error == raised[0].error
 
 
 @pytest.mark.anyio

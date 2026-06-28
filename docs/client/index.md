@@ -145,7 +145,7 @@ The resource verbs come in pairs: two ways to list, one way to read.
 
 `read_resource` returns `contents`, a list of `TextResourceContents` or `BlobResourceContents`. Same idea as tool content: narrow with `isinstance`, then read `.text` (or `.blob`).
 
-A client can also **subscribe** to a resource and be told when it changes: `subscribe_resource(uri)` and `unsubscribe_resource(uri)`, same shape as everything else here. `MCPServer` doesn't implement that half. It says so up front (`server_capabilities.resources.subscribe` is `False`) and answers the request with an `MCPError`: `-32601`, *Method not found*. With `strict_capabilities=True` you get the same `-32601` without the round trip: the client sees `server_capabilities.resources.subscribe` is falsy and never sends the request. A server that does support subscriptions is built on the low-level `Server` (**The low-level Server**).
+A client can also **subscribe** to a resource and be told when it changes: `subscribe_resource(uri)` and `unsubscribe_resource(uri)`, same shape as everything else here. `MCPServer` doesn't implement that half. It says so up front (`server_capabilities.resources.subscribe` is `False`) and answers the request with an `MCPError`: `-32601`, *Method not found*. With `strict_capabilities=True` you get the same `-32601` for `subscribe_resource` without the round trip: the client sees `server_capabilities.resources.subscribe` is falsy and never sends the request. `unsubscribe_resource` is still sent — only the base `resources` capability gates it, matching the TypeScript SDK — so its `-32601` comes from the server. A server that does support subscriptions is built on the low-level `Server` (**The low-level Server**).
 
 ## Prompts
 

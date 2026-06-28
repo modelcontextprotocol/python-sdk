@@ -4,7 +4,7 @@ This module defines a wrapper type that combines JSONRPCMessage with metadata
 to support transport-specific features like resumability.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,3 +52,28 @@ class SessionMessage:
 
     message: JSONRPCMessage
     metadata: MessageMetadata = None
+
+
+@dataclass(slots=True, frozen=True)
+class RequestSettled:
+    """An inbound request finished without any JSON-RPC reply being written.
+
+    Emitted by the dispatcher (only) when a peer cancellation interrupted the
+    handler — the spec says receivers SHOULD NOT respond to a cancelled
+    request. Transport-internal: transports with per-request resources (the
+    legacy streamable-HTTP per-POST stream) consume it to end the exchange;
+    serializing transports strip it via `wire_messages`. It is never put on
+    any wire.
+    """
+
+    request_id: RequestId
+
+
+async def wire_messages(
+    stream: AsyncIterable[SessionMessage | RequestSettled],
+) -> AsyncIterator[SessionMessage]:
+    """Yield only serializable frames, stripping dispatcher lifecycle markers."""
+    async for item in stream:
+        if isinstance(item, RequestSettled):
+            continue
+        yield item

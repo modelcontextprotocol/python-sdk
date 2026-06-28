@@ -28,7 +28,12 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthFlowError
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    ProtectedResourceMetadata,
+)
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -404,6 +409,109 @@ async def test_scope_is_omitted_when_neither_the_challenge_nor_prm_supply_scopes
 
     [register] = find(recorded, "POST", "/register")
     assert "scope" not in json.loads(register.content)
+
+
+@requirement("client-auth:scope-selection:priority")
+async def test_an_explicit_client_metadata_scope_is_requested_when_challenge_and_prm_supply_none() -> None:
+    """When the challenge and the PRM are both scope-silent, the configured `OAuthClientMetadata.scope`
+    is requested instead of omitting the parameter.
+
+    SDK-defined fallback (TypeScript-SDK parity), ranked one step below the spec's two-step
+    chain. The served AS metadata advertises a different `scopes_supported` so a regression to
+    the removed AS-metadata fallback fails the assertions; `valid_scopes` includes the explicit
+    scope so the SDK's registration handler accepts it, and token verification is off so the
+    granted scope need not satisfy the bearer gate.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(valid_scopes=["mcp", "custom:explicit"])
+    client_metadata = OAuthClientMetadata(
+        client_name="interaction-suite",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        grant_types=["authorization_code", "refresh_token"],
+        scope="custom:explicit",
+    )
+    challenge = f'Bearer resource_metadata="{BASE_URL}{PRM_PATH}"'
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(BASE_URL)]
+    )
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
+        token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
+        registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
+        scopes_supported=["mcp", "as-advertised"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        code_challenge_methods_supported=["S256"],
+    )
+    serve = {
+        PRM_PATH: prm.model_dump_json(exclude_none=True).encode(),
+        ASM_PATH: asm.model_dump_json(exclude_none=True).encode(),
+    }
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            settings=settings,
+            client_metadata=client_metadata,
+            verify_tokens=False,
+            app_shim=lambda app: first_challenge_shim(challenge)(shimmed_app(app, serve=serve)),
+            on_request=on_request,
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert headless.authorize_url is not None
+    assert authorize_params(headless.authorize_url)["scope"] == "custom:explicit"
+
+    [register] = find(recorded, "POST", "/register")
+    assert json.loads(register.content)["scope"] == "custom:explicit"
+
+
+@requirement("client-auth:scope-selection:priority")
+async def test_prm_scopes_win_over_an_explicit_client_metadata_scope() -> None:
+    """`scopes_supported` from the PRM outranks the configured `OAuthClientMetadata.scope`.
+
+    The spec's chain is consulted first; the explicit scope is only the final fallback. The
+    challenge is scope-less (hand-supplied via `first_challenge_shim` because the real bearer
+    middleware always emits `scope=`), making the PRM the highest non-silent source.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(valid_scopes=["mcp", "from-prm"])
+    client_metadata = OAuthClientMetadata(
+        client_name="interaction-suite",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        grant_types=["authorization_code", "refresh_token"],
+        scope="custom:explicit",
+    )
+    challenge = f'Bearer resource_metadata="{BASE_URL}{PRM_PATH}"'
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(f"{BASE_URL}/mcp"),
+        authorization_servers=[AnyHttpUrl(BASE_URL)],
+        scopes_supported=["from-prm"],
+    )
+    serve = {PRM_PATH: prm.model_dump_json(exclude_none=True).encode()}
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            settings=settings,
+            client_metadata=client_metadata,
+            verify_tokens=False,
+            app_shim=lambda app: first_challenge_shim(challenge)(shimmed_app(app, serve=serve)),
+            on_request=on_request,
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert headless.authorize_url is not None
+    assert authorize_params(headless.authorize_url)["scope"] == "from-prm"
+
+    [register] = find(recorded, "POST", "/register")
+    assert json.loads(register.content)["scope"] == "from-prm"
 
 
 @requirement("client-auth:pkce:refuse-if-unsupported")

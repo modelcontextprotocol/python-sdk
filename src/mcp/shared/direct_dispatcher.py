@@ -107,6 +107,11 @@ class DirectDispatcher:
     inbound requests fail the peer's call the same way instead of invoking the
     handler. Notifications are fire-and-forget in both directions: after close
     they are silently dropped.
+
+    Handler-raised `MCPError` subclasses flatten to plain `MCPError` with equal
+    `ErrorData` on every dispatch path, matching the wire, where subclass
+    identity cannot survive; callers needing the subclass rehydrate it from
+    `MCPError.error` (e.g. `UrlElicitationRequiredError.from_error`).
     """
 
     def __init__(self, transport_ctx: TransportContext, *, raise_handler_exceptions: bool = True):

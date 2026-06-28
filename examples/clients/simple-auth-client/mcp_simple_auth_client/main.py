@@ -24,7 +24,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 
 class InMemoryTokenStorage(TokenStorage):
@@ -248,8 +248,8 @@ class SimpleAuthClient:
 
     async def _run_session(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception | RequestSettled],
+        write_stream: WriteStream[SessionMessage | RequestSettled],
     ):
         """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")

@@ -20,6 +20,11 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 
     Returns:
         Canonical resource URL string
+
+    Raises:
+        ValueError: If the URL's port is non-numeric or out of range. RFC 3986's
+            grammar puts no upper bound on port digits, so such URLs can arrive
+            from outside; callers passing untrusted input must handle this.
     """
     # Convert to string if needed
     url_str = str(url)
@@ -80,9 +85,20 @@ def check_token_audience(token_resource: str, server_resource: str | HttpUrl | A
     origin is NOT for this server. Contrast check_resource_allowed, which is the
     client-side hierarchical question and intentionally more permissive.
     """
-    return resource_url_from_server_url(token_resource).rstrip("/") == resource_url_from_server_url(
-        server_resource
-    ).rstrip("/")
+    try:
+        token_canonical = resource_url_from_server_url(token_resource)
+    except ValueError:
+        # An audience we cannot canonicalize does not identify this server. The
+        # server side stays unwrapped: it is AnyHttpUrl-validated at config time,
+        # and a garbage own-config URL should fail loudly, not silently 401.
+        return False
+    # The rstrip is deliberate trailing-slash tolerance, not 3986 equivalence:
+    # authorization.mdx's canonical-URI note expects both spellings of one resource
+    # to circulate (recommending the slashless form for interop), and pydantic's
+    # AnyHttpUrl forces a root slash (str(AnyHttpUrl("https://h")) == "https://h/")
+    # while the spec's own example token request sends resource=https://h — without
+    # this, every root-path deployment would 401 spec-conformant clients.
+    return token_canonical.rstrip("/") == resource_url_from_server_url(server_resource).rstrip("/")
 
 
 def calculate_token_expiry(expires_in: int | str | None) -> float | None:

@@ -41,13 +41,19 @@ An unhandled exception in a request handler now produces JSON-RPC error `-32603`
 code `0` with `str(exc)` as the message, leaking handler internals to the peer; the
 exception is still logged server-side via `logger.exception`. To send a specific
 code and message, raise `MCPError` (unchanged); a pydantic `ValidationError` is
-still mapped to `INVALID_PARAMS`.
+still mapped to `INVALID_PARAMS`. An `MCPError` *subclass* raised by a handler
+(e.g. `UrlElicitationRequiredError`) reaches the caller as plain `MCPError` with
+the same `code`, `message`, and `data` on every dispatch path — including the
+in-process `Client(server)` — so catch `MCPError` and match on `error.code`
+rather than on the subclass type.
 
 A request cancelled via `notifications/cancelled` now receives no response at all,
 per the spec's SHOULD. v1 answered the cancelled request with an error
 (`code=0, message="Request cancelled"`). The sender's awaiting call already fails
 with anyio cancellation when its scope is cancelled, so no reply is needed to
-unblock it.
+unblock it. On legacy streamable HTTP this means the cancelled request's POST SSE
+stream now terminates without a response frame, and in JSON-response mode the POST
+completes with `204 No Content`.
 
 ### A second `initialize` on an already-initialized session is rejected
 
@@ -148,7 +154,7 @@ When no authorization-server metadata document could be discovered at all, the f
 
 The specification's scope-selection chain is two steps: the `scope` parameter from the `WWW-Authenticate` challenge, then `scopes_supported` from the Protected Resource Metadata document, *otherwise the `scope` parameter is omitted*. The SDK inserted an extra fallback between those two steps — the **authorization-server** metadata's `scopes_supported` — which over-requests (an authorization server may serve many resource servers, so its list is a superset of any one resource's) and caused real `access_denied` failures ([#1307](https://github.com/modelcontextprotocol/python-sdk/issues/1307)). That fallback is removed: when neither the challenge nor the PRM names scopes, the client now omits the `scope` parameter and lets the authorization server apply its defaults.
 
-This also affects the SEP-2207 `offline_access` augmentation, which only fires once a base scope was selected: if the authorization server's `scopes_supported` was your only scope source, the client now sends no `scope` at all (not even `offline_access`) and the authorization server's defaults decide whether a refresh token is issued. In either case, if you relied on the removed fallback, pass an explicit `scope` on the `OAuthClientMetadata` you give to `OAuthClientProvider`.
+This also affects the SEP-2207 `offline_access` augmentation, which only fires once a base scope was selected: if the authorization server's `scopes_supported` was your only scope source, the client now sends no `scope` at all (not even `offline_access`) and the authorization server's defaults decide whether a refresh token is issued. In either case, if you relied on the removed fallback, pass an explicit `scope` on the `OAuthClientMetadata` you give to `OAuthClientProvider`. That explicit scope ranks *below* the spec's two sources (matching the TypeScript SDK): a `scope` on the `WWW-Authenticate` challenge or a PRM `scopes_supported` still wins, so the explicit value only takes effect when both are silent.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -1582,6 +1588,12 @@ To migrate, do exactly one of:
 Leaving `resource_server_url=None` continues to disable the check entirely (there is no audience to compare against), but a protected server should configure it: it is also the value published as RFC 9728 Protected Resource Metadata. If your authorization server does not support RFC 8707 resource indicators, your tokens will not carry an audience — audit that before opting out, because accepting audience-unbound tokens is what the MCP specification's audience-validation MUST exists to prevent.
 
 `RefreshToken` gains an optional `resource` field so an `OAuthAuthorizationServerProvider` can propagate the original grant's audience binding through `exchange_refresh_token`; without it a refreshed access token would carry no audience and be rejected. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings.enforced_audience`; `None` (the default, and what the SDK passes when `verifier_validates_audience` is set) means no audience is enforced.
+
+The error responses the bearer gate sends changed shape in the same release, following RFC 6750 §3:
+
+- A request presenting **no credentials at all** (no `Authorization: Bearer` header) is now answered with a bare challenge — `WWW-Authenticate: Bearer scope="…", resource_metadata="…"` and an empty JSON body `{}` — instead of `error="invalid_token", error_description="Authentication required"` in both the header and the body. RFC 6750 §3.1 says the `error` attribute should only appear when the request actually carried a token, so "no token" and "rejected token" are now distinguishable; anything matching on the literal `Authentication required` string or expecting a non-empty 401 body must be updated.
+- Every challenge — the `401`s and the `403` — now advertises the configured `required_scopes` in an RFC 6750 `scope="…"` parameter, which spec-conformant clients (including this SDK's OAuth client) read as the first step of scope selection and step-up authorization.
+- The `error_description` strings changed. A rejected token now states the failure: `The access token is malformed or unknown`, `The access token has expired`, `The access token carries no audience claim`, or `The access token was issued for a different resource` (previously all of these — where they were rejected at all — said `Authentication required`). The `403 insufficient_scope` description is now the fixed string `The access token lacks a required scope` instead of `Required scope: {scope}`; the required scope moved to the machine-readable `scope=` challenge parameter. Treat `error_description` as human-readable prose, not a contract.
 
 ### Bundled authorization server: RFC-correct redirect-URI handling
 

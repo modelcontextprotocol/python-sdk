@@ -7,6 +7,7 @@ travels on -- that the SDK client never exposes. Transport-agnostic behaviour is
 """
 
 import anyio
+import httpx
 import pytest
 from anyio.lowlevel import checkpoint
 from httpx_sse import ServerSentEvent, aconnect_sse
@@ -20,6 +21,7 @@ from mcp_types import (
     UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
+    CancelledNotificationParams,
     EmptyResult,
     JSONRPCError,
     JSONRPCNotification,
@@ -27,6 +29,8 @@ from mcp_types import (
     JSONRPCResponse,
     ListResourcesResult,
     ListToolsResult,
+    LoggingMessageNotification,
+    LoggingMessageNotificationParams,
     PaginatedRequestParams,
     SetLevelRequestParams,
     SubscribeRequestParams,
@@ -379,3 +383,228 @@ async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> No
             assert [event async for event in unguarded.aiter_sse()]
 
     assert status == 200
+
+
+def _tool_call_body(request_id: int, name: str) -> dict[str, object]:
+    """A wire-level tools/call JSON-RPC request body."""
+    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {"name": name, "arguments": {}}}
+
+
+def _cancel_body(request_id: int) -> dict[str, object]:
+    """A wire-level notifications/cancelled body, exactly as an SDK client would send it."""
+    return {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": request_id}}
+
+
+def _blocking_server() -> tuple[Server, anyio.Event, anyio.Event]:
+    """A server with one tool that blocks until cancelled, plus its started/cancelled events."""
+    started = anyio.Event()
+    cancelled = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until the cancellation interrupts it
+        except anyio.get_cancelled_exc_class():
+            cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    return Server("blocker", on_call_tool=call_tool), started, cancelled
+
+
+async def _initialize_via_http_json(http: httpx.AsyncClient) -> str:
+    """`initialize_via_http` for a json_response=True server: the answers are JSON bodies, not SSE."""
+    response = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+    assert response.status_code == 200
+    assert JSONRPCResponse.model_validate(response.json()).id == 1
+    session_id = response.headers["mcp-session-id"]
+    initialized = await http.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        headers=base_headers(session_id=session_id),
+    )
+    assert initialized.status_code == 202
+    return session_id
+
+
+@requirement("hosting:http:cancel-ends-post-sse-stream")
+async def test_cancelling_an_in_flight_request_ends_its_post_sse_stream() -> None:
+    """After notifications/cancelled stops the handler, the original POST's SSE stream terminates
+    without carrying any frame: no response for the cancelled id is ever sent (spec-mandated) and
+    the exchange ends instead of holding the connection open forever (SDK-defined). Raw httpx
+    because the SDK client retires its waiter at cancel time and never observes the POST stream's
+    fate."""
+    server, started, cancelled = _blocking_server()
+    events: list[ServerSentEvent] = []
+    async with mounted_app(server) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def hold_post_open() -> None:
+                    async with aconnect_sse(
+                        http,
+                        "POST",
+                        "/mcp",
+                        json=_tool_call_body(2, "block"),
+                        headers=base_headers(session_id=session_id),
+                    ) as source:
+                        assert source.response.status_code == 200
+                        events.extend([event async for event in source.aiter_sse()])
+
+                tg.start_soon(hold_post_open)
+                await started.wait()
+                cancel = await http.post("/mcp", json=_cancel_body(2), headers=base_headers(session_id=session_id))
+                assert cancel.status_code == 202
+                await cancelled.wait()
+                # The task-group join is the regression assertion: the POST stream must
+                # terminate once the request settles; before the settled marker existed it
+                # stayed open forever and the enclosing fail_after fired.
+            assert parse_sse_messages(events) == []
+
+
+@requirement("hosting:http:cancel-json-mode-204")
+async def test_cancelling_an_in_flight_request_in_json_mode_completes_the_post_with_204() -> None:
+    """In JSON response mode the cancelled request's POST completes with 204 No Content and an
+    empty body (SDK-defined; see the requirement's divergence note for the spec gap), and the
+    session keeps answering subsequent requests. (The release of the per-request stream the
+    wait loop parked on is pinned in `tests/shared/test_streamable_http.py`.)"""
+    server, started, cancelled = _blocking_server()
+    responses: list[httpx.Response] = []
+    async with mounted_app(server, json_response=True) as (http, _):
+        session_id = await _initialize_via_http_json(http)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def post_blocked_request() -> None:
+                    responses.append(
+                        await http.post(
+                            "/mcp", json=_tool_call_body(2, "block"), headers=base_headers(session_id=session_id)
+                        )
+                    )
+
+                tg.start_soon(post_blocked_request)
+                await started.wait()
+                cancel = await http.post("/mcp", json=_cancel_body(2), headers=base_headers(session_id=session_id))
+                assert cancel.status_code == 202
+                await cancelled.wait()
+                # tg join: at HEAD the POST never completed and the fail_after fired here.
+            (response,) = responses
+            assert (response.status_code, response.content) == (204, b"")
+            # The settled exchange is final, not fatal: the same session still answers.
+            ping = await http.post(
+                "/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "ping"}, headers=base_headers(session_id=session_id)
+            )
+        assert ping.status_code == 200
+        assert JSONRPCResponse.model_validate(ping.json()).id == 3
+
+
+@requirement("hosting:http:cancel-receipt-keeps-stream-open")
+async def test_cancel_receipt_does_not_end_the_exchange_for_a_handler_that_ignores_it() -> None:
+    """Steps:
+
+    1. The tool handler shields its body, taking the spec's MAY-ignore-the-cancellation arm; it
+       wakes only after the cancel has landed on its request scope.
+    2. The cancel POST returns 202, then the related log notification arrives on the still-open
+       POST SSE stream — receipt of notifications/cancelled did not close the exchange.
+    3. The handler's response is delivered after it (the pending cancel cannot eat the result
+       write), and the stream terminates only then — wire proof the settled marker did not fire.
+    """
+    started = anyio.Event()
+    cancel_delivered = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "stubborn"
+        with anyio.CancelScope(shield=True):
+            started.set()
+            await cancel_delivered.wait()
+            await ctx.session.send_notification(
+                LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="still working")),
+                related_request_id=ctx.request_id,
+            )
+        return CallToolResult(content=[TextContent(text="finished anyway")])
+
+    async def on_cancelled(ctx: ServerRequestContext, params: CancelledNotificationParams) -> None:
+        # Runs after the dispatcher already applied the cancel to the request's scope,
+        # so the shielded handler provably survives a landed cancellation, not a race.
+        cancel_delivered.set()
+
+    server = Server("stubborn", on_call_tool=call_tool)
+    server.add_notification_handler("notifications/cancelled", CancelledNotificationParams, on_cancelled)
+
+    events: list[ServerSentEvent] = []
+    async with mounted_app(server) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def hold_post_open() -> None:
+                    async with aconnect_sse(
+                        http,
+                        "POST",
+                        "/mcp",
+                        json=_tool_call_body(2, "stubborn"),
+                        headers=base_headers(session_id=session_id),
+                    ) as source:
+                        assert source.response.status_code == 200
+                        events.extend([event async for event in source.aiter_sse()])
+
+                tg.start_soon(hold_post_open)
+                await started.wait()
+                cancel = await http.post("/mcp", json=_cancel_body(2), headers=base_headers(session_id=session_id))
+                assert cancel.status_code == 202
+                # tg join: the stream ends, but only after the response below arrived.
+            messages = parse_sse_messages(events)
+    assert [type(m).__name__ for m in messages] == snapshot(["JSONRPCNotification", "JSONRPCResponse"])
+    notification, response = messages
+    assert isinstance(notification, JSONRPCNotification)
+    assert notification.method == "notifications/message"
+    assert (notification.params or {})["data"] == "still working"
+    assert isinstance(response, JSONRPCResponse)
+    assert response.id == 2
+    assert response.result["content"][0]["text"] == "finished anyway"
+
+
+@requirement("hosting:http:cancel-receipt-keeps-stream-open")
+async def test_handler_that_ignores_the_cancel_in_json_mode_still_gets_its_response_delivered() -> None:
+    """The MAY-ignore arm in JSON response mode: the POST completes with the handler's real 200
+    JSON response, not the settled exchange's 204."""
+    started = anyio.Event()
+    cancel_delivered = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.name == "stubborn"
+        with anyio.CancelScope(shield=True):
+            started.set()
+            await cancel_delivered.wait()
+        return CallToolResult(content=[TextContent(text="finished anyway")])
+
+    async def on_cancelled(ctx: ServerRequestContext, params: CancelledNotificationParams) -> None:
+        # Runs after the dispatcher already applied the cancel to the request's scope.
+        cancel_delivered.set()
+
+    server = Server("stubborn", on_call_tool=call_tool)
+    server.add_notification_handler("notifications/cancelled", CancelledNotificationParams, on_cancelled)
+    responses: list[httpx.Response] = []
+    async with mounted_app(server, json_response=True) as (http, _):
+        session_id = await _initialize_via_http_json(http)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def post_stubborn_request() -> None:
+                    responses.append(
+                        await http.post(
+                            "/mcp", json=_tool_call_body(2, "stubborn"), headers=base_headers(session_id=session_id)
+                        )
+                    )
+
+                tg.start_soon(post_stubborn_request)
+                await started.wait()
+                cancel = await http.post("/mcp", json=_cancel_body(2), headers=base_headers(session_id=session_id))
+                assert cancel.status_code == 202
+            (response,) = responses
+    assert response.status_code == 200
+    body = JSONRPCResponse.model_validate(response.json())
+    assert body.id == 2
+    assert body.result["content"][0]["text"] == "finished anyway"

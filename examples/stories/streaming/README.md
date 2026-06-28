@@ -56,10 +56,10 @@ uv run python -m stories.streaming.client --http --server server_lowlevel
   OpenTelemetry instead of `notifications/message`. It is shown here because
   servers still need to support 2025-era clients during that window. Progress
   and cancellation are **not** deprecated. TODO(maxisbey): revisit before beta.
-- When a request is cancelled the server currently replies with
-  `ErrorData(code=0, message="Request cancelled")`; the spec says it should not
-  reply at all. The client never observes it (its awaiting task is already
-  cancelled), so this story does not assert on the reply.
+- When a request is cancelled the server sends no reply at all, per the spec's
+  SHOULD. The client's awaiting task is already cancelled, so there is nothing
+  to observe on that call; this story asserts only that the in-flight call was
+  cancelled and that the session survives for a follow-up call.
 
 ## Spec
 

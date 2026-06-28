@@ -49,7 +49,7 @@ from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import RequestSettled, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -395,8 +395,8 @@ async def serve_connection(
 
 async def serve_loop(
     server: Server[LifespanT],
-    read_stream: ReadStream[SessionMessage | Exception],
-    write_stream: WriteStream[SessionMessage],
+    read_stream: ReadStream[SessionMessage | Exception | RequestSettled],
+    write_stream: WriteStream[SessionMessage | RequestSettled],
     *,
     lifespan_state: LifespanT,
     session_id: str | None = None,

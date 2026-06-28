@@ -42,7 +42,7 @@ from mcp.os.posix import utilities as posix_utilities
 from mcp.os.posix.utilities import terminate_posix_process_tree
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 # ---------------------------------------------------------------------------
 # In-process fake of the spawned server process
@@ -219,7 +219,7 @@ def _line(message: JSONRPCMessage) -> bytes:
     return (message.model_dump_json(by_alias=True, exclude_unset=True) + "\n").encode()
 
 
-async def _next_message(read_stream: ReadStream[SessionMessage | Exception]) -> JSONRPCMessage:
+async def _next_message(read_stream: ReadStream[SessionMessage | Exception | RequestSettled]) -> JSONRPCMessage:
     received = await read_stream.receive()
     assert isinstance(received, SessionMessage)
     return received.message

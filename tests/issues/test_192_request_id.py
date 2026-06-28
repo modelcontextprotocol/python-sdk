@@ -14,7 +14,7 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 
 @pytest.mark.anyio
@@ -25,7 +25,7 @@ async def test_request_id_match() -> None:
 
     # Create memory streams for communication
     client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
 
     # Server task to process the request
     async def run_server():

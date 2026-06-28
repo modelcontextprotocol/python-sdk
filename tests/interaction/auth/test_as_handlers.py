@@ -279,24 +279,45 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 
 @requirement("hosting:auth:as:redirect-uri-scheme")
 @pytest.mark.parametrize(
-    "redirect_uri",
+    ("redirect_uri", "rejection"),
     [
-        "http://evil.example/callback",
-        "http://localhost.evil.example/callback",
-        "javascript:alert(1)",
-        "com.example.app:/oauth/cb",
+        (
+            "http://evil.example/callback",
+            snapshot("redirect_uri must use https or be a loopback http URI: http://evil.example/callback"),
+        ),
+        (
+            "http://localhost.evil.example/callback",
+            snapshot("redirect_uri must use https or be a loopback http URI: http://localhost.evil.example/callback"),
+        ),
+        ("javascript:alert(1)", snapshot("redirect_uri must use https or be a loopback http URI: javascript:alert(1)")),
+        (
+            "com.example.app:/oauth/cb",
+            snapshot("redirect_uri must use https or be a loopback http URI: com.example.app:/oauth/cb"),
+        ),
+        ("ftp://127.0.0.1/cb", snapshot("redirect_uri must use https or be a loopback http URI: ftp://127.0.0.1/cb")),
+        ("ws://localhost/cb", snapshot("redirect_uri must use https or be a loopback http URI: ws://localhost/cb")),
+        (
+            "javascript://localhost/%0aalert(1)",
+            snapshot("redirect_uri must use https or be a loopback http URI: javascript://localhost/%0aalert(1)"),
+        ),
+        (
+            "custom-scheme://localhost/cb",
+            snapshot("redirect_uri must use https or be a loopback http URI: custom-scheme://localhost/cb"),
+        ),
+        ("ftp://[::1]/cb", snapshot("redirect_uri must use https or be a loopback http URI: ftp://[::1]/cb")),
     ],
 )
-async def test_a_redirect_uri_that_is_neither_https_nor_loopback_is_rejected_at_registration(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str
+async def test_a_redirect_uri_that_is_neither_https_nor_loopback_http_is_rejected_at_registration(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str, rejection: str
 ) -> None:
-    """A registration whose redirect URI is neither HTTPS nor a loopback host is rejected with 400.
+    """A registration whose redirect URI is neither HTTPS nor loopback HTTP is rejected with 400.
 
-    The spec requires every redirect URI to be either HTTPS or a loopback host; the
-    registration request model enforces this at parse time so the provider never sees the
-    client. Loopback is matched on the whole host (`localhost.evil.example` is not loopback),
-    and a scheme with no authority — `javascript:`, or an RFC 8252 private-use scheme such as
-    `com.example.app:` — fails the same check.
+    OAuth 2.1's only carve-out from HTTPS redirect URIs is plain HTTP on a loopback host; the
+    registration request model enforces scheme and host together at parse time so the provider
+    never sees the client. Loopback is matched on the whole host (`localhost.evil.example` is
+    not loopback), a loopback host does not launder a non-HTTP scheme (`ftp://127.0.0.1`,
+    `javascript://localhost`), and a scheme with no authority — `javascript:`, or an RFC 8252
+    private-use scheme such as `com.example.app:` — fails the same check.
     """
     http, provider = as_app
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
@@ -307,9 +328,9 @@ async def test_a_redirect_uri_that_is_neither_https_nor_loopback_is_rejected_at_
     assert response.status_code == 400
     error = response.json()
     assert error["error"] == "invalid_client_metadata"
-    # Pydantic frames the validator's message as `redirect_uris: Value error, <msg>` (third-party
-    # text), so assert only the SDK-authored sentence to pin which validation fired.
-    assert "redirect_uri must use https or target a loopback host" in error["error_description"]
+    # Substring: pydantic wraps the SDK validator's sentence in its own framing
+    # (`redirect_uris: Value error, …`), which is deliberately not pinned.
+    assert rejection in error["error_description"]
     assert provider.clients == {}
 
 
@@ -323,10 +344,10 @@ async def test_a_redirect_uri_that_is_neither_https_nor_loopback_is_rejected_at_
         "http://[::1]:8000/callback",
     ],
 )
-async def test_an_https_or_loopback_redirect_uri_is_accepted_at_registration(
+async def test_an_https_or_loopback_http_redirect_uri_is_accepted_at_registration(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str
 ) -> None:
-    """A registration whose redirect URI uses HTTPS or targets a loopback host is accepted and stored.
+    """A registration whose redirect URI uses HTTPS or plain HTTP on a loopback host is accepted and stored.
 
     Loopback covers exactly the three forms OAuth 2.1 names: the hostname `localhost` and the
     loopback IP literals `127.0.0.1` and `[::1]`, on any port, over plain HTTP.

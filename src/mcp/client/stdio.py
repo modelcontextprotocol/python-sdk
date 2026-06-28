@@ -32,7 +32,7 @@ from mcp.os.win32.utilities import (
     get_windows_executable_command,
     terminate_windows_process_tree,
 )
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage, wire_messages
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ async def stdio_client(
     # The spawn succeeded; no awaits until the task group is entered, or a
     # cancellation delivered in the gap would leak the live process.
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage | RequestSettled](0)
 
     shutting_down = False
     writer_done = anyio.Event()
@@ -170,7 +170,7 @@ async def stdio_client(
 
         try:
             async with write_stream_reader:
-                async for session_message in write_stream_reader:
+                async for session_message in wire_messages(write_stream_reader):
                     json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     data = (json + "\n").encode(encoding=server.encoding, errors=server.encoding_error_handler)
                     await process.stdin.send(data)
