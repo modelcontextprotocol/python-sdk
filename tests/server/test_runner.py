@@ -36,6 +36,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, OLDEST_SUPPORTED_VERSION
 
 import mcp.server.runner
+from mcp.server.caching import CacheHint
 from mcp.server.connection import Connection
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
@@ -855,6 +856,26 @@ async def test_runner_outbound_sieve_drops_2026_only_result_keys_at_a_pre_2026_v
         return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})], ttl_ms=5, cache_scope="public")
 
     server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with connected_runner(server) as (client, runner):
+        assert runner.connection.protocol_version == "2025-11-25"
+        result = await client.send_raw_request("tools/list", None)
+    assert result == {"tools": [{"name": "t", "inputSchema": {"type": "object"}}]}
+
+
+@pytest.mark.anyio
+async def test_runner_outbound_sieve_drops_configured_cache_hints_at_a_pre_2026_version():
+    """A `cache_hints` map fills the typed result before serialization, so the
+    same sieve that strips handler-set fields strips configured ones too - a
+    2025 client never sees `ttlMs`/`cacheScope`."""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
+
+    server: SrvT = Server(
+        "test-server",
+        on_list_tools=list_tools,
+        cache_hints={"tools/list": CacheHint(ttl_ms=60_000, scope="public")},
+    )
     async with connected_runner(server) as (client, runner):
         assert runner.connection.protocol_version == "2025-11-25"
         result = await client.send_raw_request("tools/list", None)
