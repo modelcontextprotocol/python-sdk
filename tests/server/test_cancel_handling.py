@@ -267,7 +267,7 @@ async def test_server_reraises_handler_cancellation_when_server_is_cancelled():
         id=1,
         method="initialize",
         params=InitializeRequestParams(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ClientCapabilities(),
             client_info=Implementation(name="test", version="1.0"),
         ).model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -322,7 +322,7 @@ async def test_server_drops_response_when_write_stream_closes_mid_request():
         id=1,
         method="initialize",
         params=InitializeRequestParams(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ClientCapabilities(),
             client_info=Implementation(name="test", version="1.0"),
         ).model_dump(by_alias=True, mode="json", exclude_none=True),
