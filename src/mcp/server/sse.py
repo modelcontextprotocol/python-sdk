@@ -56,7 +56,7 @@ from mcp.server.transport_security import (
     TransportSecuritySettings,
 )
 from mcp.shared._context_streams import ContextSendStream, create_context_streams
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import RequestSettled, ServerMessageMetadata, SessionMessage, wire_messages
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class SseServerTransport:
         logger.debug("Setting up SSE connection")
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage | RequestSettled](0)
 
         session_id = uuid4()
         user = scope.get("user")
@@ -168,7 +168,7 @@ class SseServerTransport:
                 await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
                 logger.debug(f"Sent endpoint event: {client_post_uri_data}")
 
-                async for session_message in write_stream_reader:
+                async for session_message in wire_messages(write_stream_reader):
                     logger.debug(f"Sending message via SSE: {session_message}")
                     await sse_stream_writer.send(
                         {

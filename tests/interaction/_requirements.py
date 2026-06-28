@@ -178,13 +178,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The client does not check its own declared capabilities before sending notifications or "
-                "serving callbacks; nothing prevents a caller from violating the spec's MUST."
+                "The handler half is correct by construction -- the client derives its declared "
+                "capabilities from the callbacks registered at construction, so it cannot serve a "
+                "capability it did not declare. Only the deprecated send_roots_list_changed notification "
+                "is ungated: a caller can send it without having registered a roots callback."
             ),
         ),
         deferred=(
-            "Not implemented in the SDK: the client does not check its own declared capabilities before "
-            "sending notifications or serving callbacks."
+            "Not implemented in the SDK: the deprecated send_roots_list_changed notification is not "
+            "gated on a declared roots capability."
         ),
     ),
     "lifecycle:capability:server-not-advertised": Requirement(
@@ -194,13 +196,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The client sends any request regardless of the server's advertised capabilities and "
-                "surfaces whatever the server answers; the spec's MUST is not enforced."
+                "Not the default: by default the client sends any request regardless of the "
+                "server's advertised capabilities and surfaces whatever the server answers. The "
+                "client-side pre-check is opt-in via Client(strict_capabilities=True), which "
+                "rejects with METHOD_NOT_FOUND before any wire traffic -- the same shape as the "
+                "TypeScript SDK's enforceStrictCapabilities (also default-off). The 2026-07-28 "
+                "revision removes the lifecycle page that carries this MUST; there the server's "
+                "-32601 is the authoritative signal and the SDK's server already returns it."
             ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: the client sends any request regardless of the server's "
-            "advertised capabilities and surfaces whatever the server answers."
         ),
     ),
     "lifecycle:initialize:basic": Requirement(
@@ -300,6 +303,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Before initialization completes, the client sends no requests other than pings, and the "
             "server sends no requests other than pings and logging."
         ),
+        removed_in="2026-07-28",
+        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
         divergence=Divergence(
             note=(
                 "The server's send methods (create_message / elicit_form / list_roots) do not check "
@@ -507,14 +512,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
             "receiver does not send a response for the cancelled request."
         ),
-        divergence=Divergence(
-            note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
-            ),
-        ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
             ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
@@ -577,23 +574,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "An unhandled exception in a request handler is returned to the caller as JSON-RPC error "
             "-32603 Internal error."
-        ),
-        divergence=Divergence(
-            note=(
-                "The low-level Server returns code 0 (not a defined JSON-RPC code) instead of -32603 and "
-                "leaks str(exc) as the error message."
-            ),
-        ),
-        arm_exclusions=(
-            ArmExclusion(
-                reason="modern-error-surface",
-                spec_version="2026-07-28",
-                note=(
-                    "The modern entry maps Exception->INTERNAL_ERROR (-32603) with an opaque message, so the "
-                    "2026 arm SATISFIES this requirement; the test pins the legacy code-0 divergence and "
-                    "needs an era-aware assertion before re-admission."
-                ),
-            ),
         ),
     ),
     "protocol:error:invalid-params": Requirement(
@@ -675,8 +655,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "The spec MUST is not enforced: progress values are not validated on either side, so a "
-                "handler that emits non-increasing values has them forwarded to the callback unchanged."
+                "Intentional, not a gap to close: no MCP SDK (typescript, go, csharp) validates "
+                "sender-side progress monotonicity, and this one does not either. The spec MUST is "
+                "a contract on the handler author, not on the transport; non-increasing values are "
+                "forwarded to the callback unchanged so the receiving application sees what the "
+                "sender sent, and the test pins that pass-through. docs/tutorial/progress.md "
+                "states the author's obligation."
             ),
         ),
     ),
@@ -685,13 +669,28 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="Progress notifications for a token stop once the associated request completes.",
         divergence=Divergence(
             note=(
-                "send_progress_notification does not check whether the token's request has already "
-                "completed; the late notification is sent and reaches the client."
+                "Holds on the supported path: report_progress is scoped to the inbound request's "
+                "dispatch context, which closes when the request completes, so a late report is a "
+                "no-op (proven by test_report_progress_after_the_request_completes_sends_nothing). "
+                "The deprecated explicit-token ServerSession.send_progress_notification has no "
+                "such gate and still delivers post-completion progress to the client (proven by "
+                "the test that pins the client-side late-drop). The gap closes when that method "
+                "is removed."
             ),
         ),
         arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+            ArmExclusion(
+                reason="requires-session",
+                spec_version="2026-07-28",
+                note=(
+                    "The wire proof observes notifications/progress via the message handler; "
+                    "neither 2026-07-28 cell can produce one. The in-memory DirectDispatcher "
+                    "delivers progress as an in-process callback and never constructs the "
+                    "notification; the modern streamable-http dispatch context no-ops notify(). "
+                    "The DirectDispatcher half of the property is covered by "
+                    "tests/shared/test_dispatcher.py instead."
+                ),
+            ),
         ),
     ),
     "protocol:progress:late-dropped-by-client": Requirement(
@@ -1071,12 +1070,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:annotations": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#annotations",
         behavior="Resource annotations supplied by the server round-trip to the client in the list result.",
-        divergence=Divergence(
-            note=(
-                "The SDK Annotations model is missing the schema's lastModified field; MCPModel uses the "
-                "pydantic default extra='ignore', so the value is silently dropped on parse."
-            ),
-        ),
     ),
     "resources:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#capabilities",
@@ -1261,10 +1254,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
-                "which the low-level server converts to error code 0 with the exception text as the message."
+                "which the dispatcher converts to an opaque -32603 Internal error rather than -32602."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1307,7 +1299,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -1336,10 +1327,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
-                "ValueError, which the low-level server converts to error code 0."
+                "ValueError, which the dispatcher converts to an opaque -32603 Internal error."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
@@ -1754,9 +1744,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "An elicitation request to a client that did not declare the elicitation capability is "
             "answered with -32602 Invalid params."
         ),
-        divergence=Divergence(
-            note="The client's default callback answers with -32600 Invalid request instead of -32602.",
-        ),
         arm_exclusions=(
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
@@ -1789,17 +1776,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
-                "validation at the low-level session layer (the high-level Context.elicit / "
-                "elicit_with_validation helper enforces primitive-only fields before generating the schema). "
-                "ClientSession likewise does not enforce it: the inbound surface gate is relaxed for "
-                "requestedSchema.properties so older servers that emit anyOf for Optional fields still reach "
-                "the elicitation callback."
+                "Enforced on the send side only: ServerSession.elicit_form / ClientPeer.elicit_form "
+                "take a typed ElicitRequestedSchema, so a non-primitive or nested property is "
+                "unconstructible on send. Inbound is deliberately lenient: "
+                "ElicitRequestFormParams.requested_schema stays a plain dict and the inbound surface "
+                "gate is relaxed for requestedSchema.properties, so older servers that emit anyOf "
+                "for Optional fields (and any other non-conforming schema) still reach the "
+                "elicitation callback. Interop beats purity on receive. The outbound closure is "
+                "scoped to property shapes, matching this requirement's behavior text: top-level "
+                "JSON Schema composition keys (allOf, $defs) are not rejected, because the top "
+                "level must stay open for the SDK's own renderer's non-spec title key."
             ),
-        ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
     "elicitation:form:response-validation": Requirement(
@@ -1963,9 +1950,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A roots/list request to a client that did not declare the roots capability is answered with "
             "-32601 Method not found."
-        ),
-        divergence=Divergence(
-            note="The client's default callback answers with -32600 Invalid request instead of -32601.",
         ),
         arm_exclusions=(
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
@@ -2563,12 +2547,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="A second initialize on an already-initialized session transport is rejected.",
         transports=("streamable-http",),
-        divergence=Divergence(
-            note=(
-                "The transport forwards a second initialize carrying the existing session ID to the running "
-                "server, which answers it as a fresh handshake; nothing rejects re-initialization."
-            ),
-        ),
         removed_in="2026-07-28",
         note=(
             "removed in 2026-07-28 (SEP-2567); per-session initialize guard retired with Mcp-Session-Id, no "
@@ -2624,12 +2602,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer.",
-        divergence=Divergence(
-            note=(
-                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
-                "resource is accepted. Spec MUST."
-            ),
-        ),
     ),
     "hosting:auth:authinfo-propagates": Requirement(
         source="sdk",
@@ -2642,18 +2614,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="An expired token returns 401 invalid_token.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
-        ),
     ),
     "hosting:auth:invalid-401": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#token-handling",
         behavior="A malformed bearer token or token-verification failure returns 401 with WWW-Authenticate.",
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
-        ),
     ),
     "hosting:auth:metadata-endpoints": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -2673,15 +2639,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
-        divergence=Divergence(
-            note=(
-                "The SDK never emits a `scope` parameter in any WWW-Authenticate challenge — neither the "
-                "discovery-time 401 (#protected-resource-metadata-discovery-requirements SHOULD) nor the "
-                "runtime 403 (#runtime-insufficient-scope-errors SHOULD); and for the no-credentials case "
-                'it emits error="invalid_token", which RFC 6750 Section 3.1 says SHOULD NOT appear when no '
-                "authentication information was presented."
-            ),
-        ),
     ),
     "hosting:auth:prm:authorization-servers-field": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-location",
@@ -2708,13 +2665,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; 403 is an HTTP status code.",
-        divergence=Divergence(
-            note=(
-                'The SDK emits error="insufficient_scope" and error_description but never the `scope` '
-                "parameter the spec SHOULD include; the SDK client reads `scope` from this header to drive "
-                "step-up (utils.py extract_scope_from_www_auth) — a resource-server/client asymmetry."
-            ),
-        ),
     ),
     "hosting:auth:as:authorize-requires-pkce": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
@@ -2753,28 +2703,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
-        divergence=Divergence(
-            note=(
-                "RFC 6749 §5.2 assigns redirect_uri mismatch at the token endpoint to invalid_grant; "
-                "the SDK's TokenHandler returns invalid_request (src/mcp/server/auth/handlers/token.py:157). "
-                "The rejection itself is the security-relevant property and is correct."
-            ),
-        ),
     ),
     "hosting:auth:as:redirect-uri-scheme": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#communication-security",
         behavior=(
-            "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host."
+            "The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback "
+            "host (`localhost`, `127.0.0.1`, `[::1]`), and that carry no fragment component."
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
-        divergence=Divergence(
-            note=(
-                "Not enforced: the registration handler models redirect_uris as AnyUrl with no scheme or "
-                "host check, so http://evil.example/callback is accepted and registered. The spec's "
-                "localhost-or-HTTPS rule is left to the provider implementation."
-            ),
-        ),
     ),
     "hosting:auth:as:token-cache-headers": Requirement(
         source="sdk",
@@ -2881,6 +2818,51 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Only observable over HTTP: POST-body framing is HTTP-specific.",
+    ),
+    "hosting:http:cancel-ends-post-sse-stream": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "After notifications/cancelled stops a request's handler, the original POST's SSE stream "
+            "terminates without ever carrying a response for the cancelled id."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over HTTP: SSE stream lifecycle is HTTP-specific. The no-response half is "
+            "spec-mandated (receivers SHOULD NOT respond to a cancelled request); terminating the "
+            "now-permanently-silent stream is SDK-defined — the spec has no spelling for a request that "
+            "settles without a response."
+        ),
+    ),
+    "hosting:http:cancel-json-mode-204": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
+        behavior=(
+            "In JSON response mode, a POST whose request was cancelled mid-handler completes with "
+            "204 No Content and an empty body instead of holding the connection open forever."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: 204 is an HTTP status code.",
+        divergence=Divergence(
+            note=(
+                "The transports section's MUST offers only text/event-stream or a single JSON object as "
+                "the response to a request POST; the spec has no spelling for 'request settled with no "
+                "response' in JSON mode, so the SDK answers 204 with no body. Tracked for upstreaming."
+            ),
+        ),
+    ),
+    "hosting:http:cancel-receipt-keeps-stream-open": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "Receiving notifications/cancelled does not by itself end the request's exchange: a handler "
+            "that ignores the cancellation (the spec's MAY arm) still streams related notifications on "
+            "the open POST stream and has its response delivered; the exchange ends only after that "
+            "response."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over HTTP: exchange lifecycle is HTTP-specific. Shielding the handler body "
+            "(anyio.CancelScope(shield=True)) is the SDK-defined way for a handler to take the spec's "
+            "MAY-ignore-and-respond arm."
+        ),
     ),
     "hosting:http:content-type-415": Requirement(
         source="sdk",
@@ -3148,6 +3130,16 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
     # ═══════════════════════════════════════════════════════════════════════════
+    "client-transport:http:204-settled-exchange": Requirement(
+        source="sdk",
+        behavior=(
+            "A 204 No Content response to a request POST is consumed as 'request settled with no reply': "
+            "the transport's request task completes without synthesizing a response or an error, and the "
+            "session continues to serve requests."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: 204 is an HTTP status code.",
+    ),
     "client-transport:http:404-surfaces": Requirement(
         source="sdk",
         behavior="A 404 (session expired) on a request surfaces as an error to the caller.",
@@ -3163,8 +3155,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         divergence=Divergence(
             note=(
-                "The client surfaces the 404 as an error to the caller instead of re-initializing a new "
-                "session; the spec's MUST is not satisfied."
+                "The 404 is intentionally surfaced to the caller; this matches the TypeScript, C#, and "
+                "Go SDKs. The 2025-11-25 MUST was removed in the 2026 spec (SEP-2567), and the transport "
+                "layer cannot safely re-initialize without replaying the caller's request."
             ),
         ),
         deferred=(
@@ -3510,15 +3503,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
         behavior=(
             "The client refuses to proceed when the authorization server's metadata does not include "
-            "code_challenge_methods_supported, since PKCE support cannot be verified."
+            "code_challenge_methods_supported, or includes it without S256 (the only method the client "
+            "sends), since a compliant PKCE flow cannot be completed."
         ),
         transports=("streamable-http",),
-        note="OAuth is HTTP-only.",
-        divergence=Divergence(
-            note=(
-                "The client never inspects code_challenge_methods_supported and proceeds with PKCE S256 "
-                "regardless; the spec MUST is not enforced."
-            ),
+        note=(
+            "OAuth is HTTP-only. The check fires only when an authorization-server metadata document was "
+            "discovered; the legacy no-metadata fallback (client-auth:prm-discovery:no-prm-fallback) "
+            "deliberately proceeds, since the absence of a document is not evidence of non-support."
         ),
     ),
     "client-auth:pkce:s256": Requirement(
@@ -3599,13 +3591,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
-        divergence=Divergence(
-            note=(
-                "The SDK inserts an extra fallback step between PRM and omit: if the authorization "
-                "server metadata advertises scopes_supported, that list is used (client/auth/utils.py). "
-                "This is beyond the spec's two-step chain."
-            ),
-        ),
     ),
     "client-auth:state:verify": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#open-redirection",
@@ -3722,9 +3707,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "Intentional, not a gap to close: the SDK's own writes are pure, but sys.stdout is not "
+                "redirected, so handler code that calls print() writes into the protocol stream and "
+                "corrupts the framing. This matches every other MCP SDK -- none redirects stdout. A "
+                "redirect would only catch print(): os.write(1, ...) and C extensions that write to file "
+                "descriptor 1 bypass sys.stdout entirely, so it would be a partial guard rather than a "
+                "structural fix. docs/tutorial/logging.md tells server authors to log to stderr and "
+                "never print() in a stdio server."
             ),
         ),
     ),

@@ -501,7 +501,7 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 400
         error_response = response.json()
-        assert error_response["error"] == "invalid_request"
+        assert error_response["error"] == "invalid_grant"
         assert "redirect_uri did not match" in error_response["error_description"]
 
     @pytest.mark.anyio

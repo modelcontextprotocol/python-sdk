@@ -33,7 +33,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, RequestSettled, SessionMessage, wire_messages
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 # TODO(Marcelo): Put the TransportStreams in a module under shared, so we can import here.
 SessionMessageOrError = SessionMessage | Exception
 StreamWriter = ContextSendStream[SessionMessageOrError]
-StreamReader = ContextReceiveStream[SessionMessage]
+StreamReader = ContextReceiveStream[SessionMessage | RequestSettled]
 
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
@@ -265,8 +265,11 @@ class StreamableHTTPTransport:
             json=message.model_dump(by_alias=True, mode="json", exclude_unset=True),
             headers=headers,
         ) as response:
-            if response.status_code == 202:
-                logger.debug("Received 202 Accepted")
+            if response.status_code in (202, 204):
+                # 202: notification/response accepted. 204: the server settled the
+                # request with no reply (peer-cancelled); nothing to deliver — the
+                # waiter was retired at cancel time.
+                logger.debug(f"Received {response.status_code}")
                 return
 
             if response.status_code >= 400:
@@ -377,8 +380,10 @@ class StreamableHTTPTransport:
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
-        # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        # Stream ended without response - reconnect if we received an event with ID.
+        # No priming event (no event store) means no id: the server settled the
+        # request without a reply and ended the stream, so the task just returns.
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
 
@@ -445,7 +450,7 @@ class StreamableHTTPTransport:
         client: httpx.AsyncClient,
         write_stream_reader: StreamReader,
         read_stream_writer: StreamWriter,
-        write_stream: ContextSendStream[SessionMessage],
+        write_stream: ContextSendStream[SessionMessage | RequestSettled],
         start_get_stream: Callable[[], None],
         tg: TaskGroup,
     ) -> None:
@@ -490,7 +495,7 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-                async for session_message in write_stream_reader:
+                async for session_message in wire_messages(write_stream_reader):
                     sender_ctx = write_stream_reader.last_context
                     if sender_ctx is not None:
                         async with anyio.create_task_group() as tg_local:
@@ -568,7 +573,7 @@ async def streamable_http_client(
             await stack.enter_async_context(client)
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage | RequestSettled](0)
 
         async with (
             read_stream_writer,

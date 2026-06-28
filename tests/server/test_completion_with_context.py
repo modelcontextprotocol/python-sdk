@@ -2,6 +2,7 @@
 
 import pytest
 from mcp_types import (
+    INTERNAL_ERROR,
     CompleteRequestParams,
     CompleteResult,
     Completion,
@@ -9,7 +10,7 @@ from mcp_types import (
     ResourceTemplateReference,
 )
 
-from mcp import Client
+from mcp import Client, MCPError
 from mcp.server import Server, ServerRequestContext
 
 
@@ -139,14 +140,14 @@ async def test_completion_error_on_missing_context():
 
     async with Client(server, mode="legacy") as client:
         # Try to complete table without database context - should raise error
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(MCPError) as exc_info:
             await client.complete(
                 ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
                 argument={"name": "table", "value": ""},
             )
 
-        # Verify error message
-        assert "Please select a database first" in str(exc_info.value)
+        # The handler's bare ValueError surfaces as an opaque INTERNAL_ERROR.
+        assert exc_info.value.error.code == INTERNAL_ERROR
 
         # Now complete with proper context - should work normally
         result_with_context = await client.complete(

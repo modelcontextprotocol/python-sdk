@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
+    CODE_CHALLENGE_METHOD,
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_client_info_from_metadata_url,
@@ -40,6 +41,7 @@ from mcp.client.auth.utils import (
     union_scopes,
     validate_authorization_response_iss,
     validate_metadata_issuer,
+    validate_pkce_support,
 )
 from mcp.shared.auth import (
     AuthorizationCodeResult,
@@ -323,6 +325,12 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.callback_handler:
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
+        # Authorization Code Protection: a discovered metadata document that does not advertise
+        # S256 PKCE support must stop the flow before any authorize redirect is built. When no
+        # document was discovered at all there is nothing to verify against, so the flow proceeds.
+        if self.context.oauth_metadata is not None:
+            validate_pkce_support(self.context.oauth_metadata)
+
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
             auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
@@ -342,7 +350,7 @@ class OAuthClientProvider(httpx.Auth):
             "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
             "state": state,
             "code_challenge": pkce_params.code_challenge,
-            "code_challenge_method": "S256",
+            "code_challenge_method": CODE_CHALLENGE_METHOD,
         }
 
         # Only include resource param if conditions are met
@@ -637,12 +645,16 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.client_info = None
                         self.context.clear_tokens()
 
-                    # Step 3: Apply scope selection strategy
+                    # Step 3: Apply scope selection strategy. The configured client-metadata
+                    # scope is the lowest-priority fallback, and the selection is written back
+                    # so registration (Step 4) and authorization (Step 5) read it — a later
+                    # re-auth therefore falls back to this selection, not the constructor value.
                     self.context.client_metadata.scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                         self.context.client_metadata.grant_types,
+                        self.context.client_metadata.scope,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)

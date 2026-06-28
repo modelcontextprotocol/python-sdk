@@ -6,11 +6,14 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 __all__ = ["ReadStream", "WriteStream", "Transport", "TransportStreams"]
 
-TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
+TransportStreams = tuple[
+    ReadStream[SessionMessage | Exception | RequestSettled],
+    WriteStream[SessionMessage | RequestSettled],
+]
 
 
 class Transport(AbstractAsyncContextManager[TransportStreams], Protocol):

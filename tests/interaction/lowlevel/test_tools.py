@@ -5,6 +5,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     AudioContent,
     CallToolResult,
@@ -96,11 +97,11 @@ async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> Non
 
 
 @requirement("protocol:error:internal-error")
-async def test_call_tool_uncaught_exception_becomes_error_response(connect: Connect) -> None:
+async def test_call_tool_uncaught_exception_becomes_internal_error_with_opaque_message(connect: Connect) -> None:
     """An uncaught exception in the tool handler surfaces to the client as a JSON-RPC error.
 
-    The low-level server reports it with code 0 and the exception text as the message; see the
-    divergence note on the requirement.
+    Spec-mandated for the code (-32603 Internal error). SDK-defined for the message: the exception
+    text is logged server-side and never reaches the wire.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -113,7 +114,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("explode", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="boom"))
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Internal server error"))
 
 
 @requirement("tools:list:basic")

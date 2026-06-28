@@ -2,7 +2,7 @@ import anyio
 import pytest
 
 from mcp.server.lowlevel.server import Server
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 
 @pytest.mark.anyio
@@ -30,7 +30,7 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
     # `async with read_stream, write_stream:` block and closes the stream, at
     # which point the blocked send raises ClosedResourceError. This
     # deterministically reproduces the race without sleeps.
-    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](0)
+    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage | RequestSettled](0)
 
     # What the streamable HTTP transport does: push the exception, then close.
     read_send.send_nowait(RuntimeError("simulated transport error"))

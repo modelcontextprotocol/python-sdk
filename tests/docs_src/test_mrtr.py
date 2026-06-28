@@ -4,7 +4,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     INTERNAL_ERROR,
-    INVALID_REQUEST,
+    INVALID_PARAMS,
     CallToolResult,
     CreateMessageRequest,
     CreateMessageRequestParams,
@@ -62,7 +62,7 @@ async def test_the_auto_loop_without_a_callback_raises_mcp_error() -> None:
     async with Client(tutorial001.server) as client:
         with pytest.raises(MCPError) as exc:
             await client.call_tool("provision", {"name": "orders"})
-    assert exc.value.error.code == INVALID_REQUEST
+    assert exc.value.error.code == INVALID_PARAMS
     assert exc.value.error.message == "Elicitation not supported"
 
 

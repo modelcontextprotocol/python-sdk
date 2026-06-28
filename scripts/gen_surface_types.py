@@ -44,7 +44,7 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
         # Older python-sdk releases emit `anyOf` for Optional fields; the callback's
         # own schema validation is the real gate, so accept any property shape inbound.
         # PrimitiveSchemaDefinition becomes an orphan $def after this patch but
-        # datamodel-codegen still emits it; elicitation.py imports it as the gate type.
+        # datamodel-codegen still emits it; the monolith carries the user-facing family.
         (
             "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},

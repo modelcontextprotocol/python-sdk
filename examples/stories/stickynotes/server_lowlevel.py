@@ -22,11 +22,10 @@ class Board:
         return nid
 
 
-CONFIRM_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {"confirm": {"type": "boolean", "title": "Yes, permanently delete every sticky note"}},
-    "required": ["confirm"],
-}
+CONFIRM_SCHEMA = types.ElicitRequestedSchema(
+    properties={"confirm": types.BooleanSchema(type="boolean", title="Yes, permanently delete every sticky note")},
+    required=["confirm"],
+)
 
 TOOLS = [
     types.Tool(

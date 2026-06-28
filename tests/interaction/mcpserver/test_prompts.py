@@ -3,6 +3,7 @@
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INTERNAL_ERROR,
     ErrorData,
     GetPromptResult,
     ListPromptsResult,
@@ -77,8 +78,8 @@ async def test_get_prompt_renders_function_return(connect: Connect) -> None:
 async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
     """Getting a prompt name that was never registered fails with a JSON-RPC error.
 
-    The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
-    the requirement).
+    The spec reserves -32602 for this case; the SDK reports an opaque -32603 (see the divergence
+    note on the requirement).
     """
     mcp = MCPServer("prompter")
 
@@ -91,7 +92,7 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("nope")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown prompt: nope"))
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Internal server error"))
 
 
 @requirement("prompts:get:missing-required-args")
@@ -99,8 +100,7 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
     """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
 
     The missing argument is detected before the prompt function is called, but the spec's -32602
-    Invalid params is reported as error code 0 with the bare exception text (see the divergence
-    note on the requirement).
+    Invalid params is reported as an opaque -32603 (see the divergence note on the requirement).
     """
     mcp = MCPServer("prompter")
 
@@ -113,7 +113,7 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("greet")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Missing required arguments: {'name'}"))
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Internal server error"))
 
 
 @requirement("mcpserver:prompt:args-validation")
@@ -121,23 +121,25 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
     """An argument that fails the function signature's type validation is rejected before the function runs.
 
     The decorated function is wrapped in pydantic's validate_call, so a value that cannot be
-    coerced to the parameter's annotation fails before the body executes. The function body
-    raises NotImplementedError to prove it never ran. The error is wrapped in the SDK's stable
-    rendering-error prefix; the body of the message is raw pydantic output and is not asserted.
+    coerced to the parameter's annotation fails before the body executes. The error response is
+    opaque, so a closure-captured list (not the error message) proves the body never ran.
     """
+    called: list[object] = []
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
     def repeat(phrase: str, count: int) -> str:
         """A registered prompt; type validation rejects the call before the function runs."""
-        raise NotImplementedError
+        # Never runs: validate_call rejects the bad count first; `called == []` below is the
+        # proof. The append rides on the coverage-excluded `raise NotImplementedError` line.
+        raise NotImplementedError(called.append((phrase, count)))
 
     async with connect(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("repeat", {"phrase": "hi", "count": "many"})
 
-    assert exc_info.value.error.code == 0
-    assert exc_info.value.error.message.startswith("Error rendering prompt repeat: 1 validation error")
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Internal server error"))
+    assert called == []
 
 
 @requirement("mcpserver:prompt:optional-args")

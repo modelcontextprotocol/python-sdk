@@ -13,7 +13,7 @@ from httpx_sse import SSEError, aconnect_sse
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage, wire_messages
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ async def sse_client(
             logger.debug("SSE connection established")
 
             read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-            write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+            write_stream, write_stream_reader = create_context_streams[SessionMessage | RequestSettled](0)
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                 try:
@@ -132,7 +132,7 @@ async def sse_client(
                             response.raise_for_status()
                             logger.debug(f"Client message sent successfully: {response.status_code}")
 
-                        async for session_message in write_stream_reader:
+                        async for session_message in wire_messages(write_stream_reader):
                             sender_ctx = write_stream_reader.last_context
                             if sender_ctx is not None:
                                 async with anyio.create_task_group() as tg:

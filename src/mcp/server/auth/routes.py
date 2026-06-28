@@ -15,7 +15,7 @@ from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider
+from mcp.server.auth.provider import LOOPBACK_HOSTS, OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
@@ -32,7 +32,7 @@ def validate_issuer_url(url: AnyHttpUrl):
     """
 
     # RFC 8414 requires HTTPS, but we allow loopback/localhost HTTP for testing
-    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
+    if url.scheme != "https" and url.host not in LOOPBACK_HOSTS:
         raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed

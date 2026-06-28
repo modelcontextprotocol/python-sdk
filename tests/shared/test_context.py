@@ -16,7 +16,7 @@ from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.peer import ClientPeer
 from mcp.shared.transport_context import TransportContext
 
-from .conftest import direct_pair, jsonrpc_pair
+from .conftest import PairFactory, direct_pair
 from .test_dispatcher import Recorder, echo_handlers, running_pair
 
 DCtx = DispatchContext[TransportContext]
@@ -25,10 +25,14 @@ DCtx = DispatchContext[TransportContext]
 @pytest.mark.anyio
 async def test_base_context_forwards_transport_and_cancel_requested():
     captured: list[BaseContext[TransportContext]] = []
+    open_while_handling: list[bool] = []
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         bctx = BaseContext(ctx)
         captured.append(bctx)
+        # `can_send_request` is sampled in-handler: once the request returns the
+        # dispatch context closes and it becomes False (covered by the sibling below).
+        open_while_handling.append(bctx.can_send_request)
         return {}
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
@@ -37,21 +41,25 @@ async def test_base_context_forwards_transport_and_cancel_requested():
         bctx = captured[0]
         assert bctx.transport.kind == "direct"
         assert isinstance(bctx.cancel_requested, anyio.Event)
-        assert bctx.can_send_request is True
+        assert open_while_handling == [True]
         assert bctx.meta is None
 
 
 @pytest.mark.anyio
-async def test_base_context_can_send_request_reflects_dispatch_context_closed_state():
+async def test_base_context_can_send_request_reflects_dispatch_context_closed_state(pair_factory: PairFactory):
     """`can_send_request` must track the dctx, not the static transport flag,
-    so it agrees with whether `send_raw_request` would raise."""
+    so it agrees with whether `send_raw_request` would raise.
+
+    Parametrized over both dispatchers: the `DispatchContext` Protocol promises this for
+    every implementation, so the two must not be allowed to drift apart on it.
+    """
     captured: list[BaseContext[TransportContext]] = []
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         captured.append(BaseContext(ctx))
         return {}
 
-    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
         bctx = captured[0]

@@ -12,7 +12,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Generic, Literal, cast
+from typing import Any, Generic, Literal, NamedTuple, cast
 
 import anyio
 import anyio.abc
@@ -44,6 +44,7 @@ from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import (
     ClientMessageMetadata,
     MessageMetadata,
+    RequestSettled,
     ServerMessageMetadata,
     SessionMessage,
 )
@@ -67,21 +68,37 @@ PeerCancelMode = Literal["interrupt", "signal"]
 the handler's scope; `"signal"` only sets `ctx.cancel_requested`."""
 
 
-def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
-    """Map a handler-raised exception to its wire `ErrorData`.
+class MappedError(NamedTuple):
+    error: ErrorData
+    unexpected: bool
+    """True iff ``exc`` hit the opaque fallthrough (no recognized rung). Callers
+    gate `logger.exception` / `_raise_handler_exceptions` on this — never on
+    ``error.code``, since handlers may deliberately raise
+    ``MCPError(code=INTERNAL_ERROR)``."""
 
-    The two rungs every dispatcher shares: an `MCPError` carries its own
-    `ErrorData`; a pydantic `ValidationError` is the spec's INVALID_PARAMS
-    with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
-    any other exception so each caller applies its own catch-all -
-    `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
-    the modern HTTP entry uses `INTERNAL_ERROR`.
+
+def handler_exception_to_error_data(exc: Exception) -> MappedError:
+    """Map a handler-raised exception to its wire `ErrorData` plus an
+    ``unexpected`` flag.
+
+    `MCPError` carries its own `ErrorData`; pydantic `ValidationError` is the
+    spec's INVALID_PARAMS with empty ``data`` (no pydantic text on the wire);
+    everything else is INTERNAL_ERROR with an opaque message so handler
+    internals never reach the peer. The single source of truth for both the
+    wire shape and the "was this unexpected?" classification — callers do not
+    re-derive the rung set.
     """
     if isinstance(exc, MCPError):
-        return exc.error
+        return MappedError(exc.error, unexpected=False)
     if isinstance(exc, ValidationError):
-        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-    return None
+        return MappedError(
+            ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+            unexpected=False,
+        )
+    return MappedError(
+        ErrorData(code=INTERNAL_ERROR, message="Internal server error"),
+        unexpected=True,
+    )
 
 
 def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToken | None:
@@ -243,8 +260,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception | RequestSettled],
+        write_stream: WriteStream[SessionMessage | RequestSettled],
         *,
         transport_builder: Callable[[MessageMetadata], TransportT] | None = None,
         peer_cancel_mode: PeerCancelMode = "interrupt",
@@ -485,7 +502,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
     async def _dispatch(
         self,
-        item: SessionMessage | Exception,
+        item: SessionMessage | Exception | RequestSettled,
         on_request: OnRequest,
         on_notify: OnNotify,
         sender_ctx: contextvars.Context | None,
@@ -495,6 +512,14 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         Only `inline_methods` requests and the `on_stream_exception` observer
         are awaited; any other `await` would head-of-line block the read loop.
         """
+        if isinstance(item, RequestSettled):
+            # Peer dispatcher ended a request without a reply. Reaches us only over
+            # the direct in-memory pair (wire transports strip it); nothing to do —
+            # the side that cancelled retired its waiter at cancel time, and a
+            # hand-built cancel that didn't gets the same silence as every wire
+            # transport.
+            logger.debug("peer settled request %r without a response", item.request_id)
+            return
         if isinstance(item, Exception):
             if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
@@ -671,6 +696,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         The single exception-to-wire boundary: handler exceptions become `JSONRPCError` here.
         """
         answer_write_started = False
+        # Tuple-bound so the absorbed-cancel path, which continues past the
+        # `with scope:` with `result` unbound, has a sound "did the handler
+        # return?" signal.
+        produced: tuple[dict[str, Any]] | None = None
         try:
             with scope:
                 try:
@@ -683,21 +712,22 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     key = _coerce_id(req.id)
                     if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
                         del self._in_flight[key]
-                # A write interrupted by cancellation may still have delivered
-                # (a memory-stream send can hand its item to the receiver and
-                # still raise), so a started answer write counts as sent below:
-                # peers drop late responses, while a second answer for one id
-                # would break JSON-RPC.
+                produced = (result,)
+            # Past the scope: a still-pending peer cancel was revoked with the
+            # scope (anyio drops an undelivered cancellation at scope exit), so a
+            # handler that survived the cancel and returned gets its response
+            # delivered — the spec's MAY-ignore-and-respond arm. This is the one
+            # place a peer-cancelled request can still produce a reply; everywhere
+            # else the cancel interrupted the handler and nothing is written for
+            # the id.
+            if produced is not None:
+                # A teardown cancel can interrupt the write and may still have
+                # delivered (a memory-stream send can hand its item to the
+                # receiver and still raise), so a started answer write counts as
+                # sent below: peers drop late responses, while a second answer
+                # for one id would break JSON-RPC.
                 answer_write_started = True
-                await self._write_result(req.id, result)
-            if scope.cancelled_caught:
-                # anyio absorbs the scope's own cancel at __exit__, and
-                # `cancelled_caught` (unlike `cancel_called`) guarantees the
-                # result write above did not happen - no double response.
-                # TODO(L38): spec says SHOULD NOT respond after cancel;
-                # the existing server always has, so match that for now.
-                answer_write_started = True
-                await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
+                await self._write_result(req.id, produced[0])
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the transport;
@@ -712,16 +742,29 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 )
             raise
         except Exception as e:
-            error = handler_exception_to_error_data(e)
-            if error is not None:
-                await self._write_error(req.id, error)
-            else:
+            error, unexpected = handler_exception_to_error_data(e)
+            if unexpected:
                 logger.exception("handler for %r raised", req.method)
-                # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
-                # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                await self._write_error(req.id, ErrorData(code=0, message=str(e)))
-                if self._raise_handler_exceptions:
-                    raise
+            await self._write_error(req.id, error)
+            if unexpected and self._raise_handler_exceptions:
+                raise
+        if scope.cancelled_caught:
+            # The peer cancel interrupted the handler. With the result write
+            # outside the scope and no checkpoint between handler return and scope
+            # exit, `cancelled_caught` structurally means nothing was produced or
+            # written for this id. Spec: receivers SHOULD NOT respond to a
+            # cancelled request; the sender retired its own waiter when it
+            # cancelled (`send_raw_request` finally), so no reply is needed to
+            # unblock it. The settled marker (never serialized) lets transports
+            # release per-request resources — without it the legacy
+            # streamable-HTTP POST waits forever for a reply that never comes.
+            # Sits outside the try: the send parks on a 0-buffer stream, and a
+            # teardown cancel landing mid-send must propagate instead of being
+            # misread by the cancelled arm as an unanswered request.
+            try:
+                await self._write_stream.send(RequestSettled(request_id=req.id))
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                logger.debug("dropped settled marker for %r: write stream closed", req.id)
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:

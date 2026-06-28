@@ -1,4 +1,5 @@
 import re
+from typing import Final
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
@@ -14,6 +15,10 @@ from mcp.shared.auth import (
     ProtectedResourceMetadata,
 )
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+
+# The only PKCE code challenge method this client sends (OAuth 2.1 section 4.1.1 mandates S256).
+# `validate_pkce_support` checks the authorization server's metadata against the same name.
+CODE_CHALLENGE_METHOD: Final = "S256"
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
@@ -100,21 +105,25 @@ def get_client_metadata_scopes(
     protected_resource_metadata: ProtectedResourceMetadata | None,
     authorization_server_metadata: OAuthMetadata | None = None,
     client_grant_types: list[str] | None = None,
+    client_metadata_scope: str | None = None,
 ) -> str | None:
-    """Select effective scopes and augment for refresh token support."""
-    selected_scope: str | None = None
+    """Select effective scopes and augment for refresh token support.
 
-    # MCP spec scope selection priority:
+    Follows the MCP spec's scope-selection strategy (challenge scope, then PRM
+    `scopes_supported`), with the caller's pre-configured `OAuthClientMetadata.scope` as a
+    final SDK-defined fallback (TypeScript-SDK parity) before omitting the parameter.
+    """
+    # Scope selection priority (1-2 are the spec's chain; 3 is the SDK fallback):
     #   1. WWW-Authenticate header scope
     #   2. PRM scopes_supported
-    #   3. AS scopes_supported (SDK fallback)
+    #   3. Caller-supplied client metadata scope
     #   4. Omit scope parameter
     if www_authenticate_scope is not None:
         selected_scope = www_authenticate_scope
     elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
         selected_scope = " ".join(protected_resource_metadata.scopes_supported)
-    elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
-        selected_scope = " ".join(authorization_server_metadata.scopes_supported)
+    else:
+        selected_scope = client_metadata_scope
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (
@@ -269,6 +278,30 @@ def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str
     if str(oauth_metadata.issuer) != expected_issuer:
         raise OAuthFlowError(
             f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
+        )
+
+
+def validate_pkce_support(oauth_metadata: OAuthMetadata) -> None:
+    """Verify that authorization-server metadata advertises support for S256 PKCE.
+
+    Per the MCP authorization specification's Authorization Code Protection requirements, a
+    client must verify PKCE support from the authorization server's metadata before proceeding
+    with authorization: an absent `code_challenge_methods_supported` means the server does not
+    support PKCE. The SDK only ever sends the mandatory `S256` method, so a method list that
+    omits `S256` is equally unusable.
+
+    Raises:
+        OAuthFlowError: If `code_challenge_methods_supported` is absent or does not list `S256`.
+    """
+    methods = oauth_metadata.code_challenge_methods_supported
+    if methods is None:
+        raise OAuthFlowError(
+            "Authorization server metadata does not include code_challenge_methods_supported; "
+            "PKCE support cannot be verified"
+        )
+    if CODE_CHALLENGE_METHOD not in methods:
+        raise OAuthFlowError(
+            f"Authorization server does not support the {CODE_CHALLENGE_METHOD} PKCE code challenge method: {methods}"
         )
 
 

@@ -6,7 +6,10 @@ are internal validators and not for direct import.
 Surface maps key `(method, version)` to per-version wire types (key absence is
 the version gate; shape validation is per schema era, i.e. 2025-11-25 for every
 pre-2026 version and 2026-07-28 for 2026). Monolith maps key `method` to the
-version-free `mcp_types` models user code receives."""
+version-free `mcp_types` models user code receives.
+`SERVER_CAPABILITY_REQUIREMENTS` keys `method` to the `ServerCapabilities`
+attribute path it requires (version-invariant); `missing_server_capability`
+evaluates it."""
 
 from __future__ import annotations
 
@@ -29,11 +32,13 @@ __all__ = [
     "MONOLITH_NOTIFICATIONS",
     "MONOLITH_REQUESTS",
     "MONOLITH_RESULTS",
+    "SERVER_CAPABILITY_REQUIREMENTS",
     "SERVER_NOTIFICATIONS",
     "SERVER_REQUESTS",
     "SERVER_RESULTS",
     "SPEC_CLIENT_METHODS",
     "SPEC_CLIENT_NOTIFICATION_METHODS",
+    "missing_server_capability",
     "parse_client_notification",
     "parse_client_request",
     "parse_client_result",
@@ -402,6 +407,55 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
     }
 )
 """Monolith result model (or two-arm union) per request method."""
+
+
+# --- Server capability requirements ---
+
+SERVER_CAPABILITY_REQUIREMENTS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "completion/complete": ("completions",),
+        "logging/setLevel": ("logging",),
+        "prompts/get": ("prompts",),
+        "prompts/list": ("prompts",),
+        "resources/list": ("resources",),
+        "resources/read": ("resources",),
+        "resources/subscribe": ("resources", "subscribe"),
+        "resources/templates/list": ("resources",),
+        "resources/unsubscribe": ("resources",),
+        "tools/call": ("tools",),
+        "tools/list": ("tools",),
+    }
+)
+"""The server capability each client request method requires, as an attribute path into
+`ServerCapabilities`. Methods with no entry (`ping`, `initialize`, `server/discover`,
+`subscriptions/listen`) require no server capability. `subscriptions/listen` stays ungated on
+purpose: at 2026-07-28 the `resources.subscribe` capability licenses that request's
+`resourceSubscriptions` FIELD, a params-level fact a method-keyed table cannot express, and
+no spec MUST ties the method itself to a capability -- gating it here would wrongly reject a
+listen that asks only for `toolsListChanged`. The relationship is the same at every protocol
+version, so the map is keyed by method alone."""
+
+
+def missing_server_capability(method: str, capabilities: types.ServerCapabilities | None) -> str | None:
+    """The server capability `method` requires but `capabilities` does not advertise.
+
+    Returns the dotted name of the first unadvertised step on the required capability path --
+    `resources` when no resources capability is advertised at all, `resources.subscribe` when
+    `resources` is advertised but `subscribe` is not -- or None when `method` requires no
+    server capability or the required one is advertised. Naming the first missing step rather
+    than the whole path matches the TypeScript SDK's assertCapabilityForMethod and is the
+    actionable thing to tell the caller. `capabilities=None` (nothing negotiated yet)
+    advertises nothing.
+    """
+    path = SERVER_CAPABILITY_REQUIREMENTS.get(method)
+    if path is None:
+        return None
+    node: Any = capabilities
+    for index, attr in enumerate(path):
+        node = node and getattr(node, attr)
+        if not node:
+            return ".".join(path[: index + 1])
+    return None
 
 
 # --- Parse functions ---

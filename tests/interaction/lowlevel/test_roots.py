@@ -4,7 +4,7 @@ import anyio
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
+from mcp_types import INTERNAL_ERROR, METHOD_NOT_FOUND, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
 from mcp import MCPError
@@ -80,11 +80,12 @@ async def test_list_roots_empty(connect: Connect) -> None:
 
 
 @requirement("roots:list:not-supported")
-async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
-    """A roots/list request to a client with no roots callback fails with an error the handler can observe.
+async def test_list_roots_without_callback_fails_with_method_not_found(connect: Connect) -> None:
+    """A roots/list request to a client with no roots callback fails with `METHOD_NOT_FOUND`.
 
-    The client's default callback answers with INVALID_REQUEST rather than leaving the server
-    hanging; the spec names -32601 for this case (see the divergence note on the requirement).
+    Spec-recommended (SHOULD): a client that does not support roots answers roots/list with
+    -32601 Method not found. The error reaches the requesting server handler as an `MCPError`
+    rather than leaving it hanging.
     """
 
     async def list_tools(
@@ -92,12 +93,15 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     ) -> types.ListToolsResult:
         return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
 
+    errors: list[ErrorData] = []
+
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         try:
             await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         except MCPError as exc:
-            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+            errors.append(exc.error)
+            return CallToolResult(content=[TextContent(text=exc.error.message)])
         raise NotImplementedError  # list_roots cannot succeed without a client callback
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -105,7 +109,9 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("show_roots", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: List roots not supported")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(text="List roots not supported")]))
+    (error,) = errors
+    assert error.code == METHOD_NOT_FOUND
 
 
 @requirement("roots:list:client-error")

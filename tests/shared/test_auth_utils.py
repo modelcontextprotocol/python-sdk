@@ -1,8 +1,9 @@
 """Tests for OAuth 2.0 Resource Indicators utilities."""
 
+import pytest
 from pydantic import HttpUrl
 
-from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+from mcp.shared.auth_utils import check_resource_allowed, check_token_audience, resource_url_from_server_url
 
 # Tests for resource_url_from_server_url function
 
@@ -34,6 +35,53 @@ def test_resource_url_from_server_url_preserves_port():
     assert resource_url_from_server_url("http://example.com:8080/") == "http://example.com:8080/"
 
 
+def test_resource_url_from_server_url_strips_default_port():
+    """An explicit default port is equivalent to omitting it (RFC 3986 §6.2.3)."""
+    assert resource_url_from_server_url("https://example.com:443/mcp") == "https://example.com/mcp"
+    assert resource_url_from_server_url("http://example.com:80/mcp") == "http://example.com/mcp"
+    # Only the scheme's own default is stripped — :80 on https is significant.
+    assert resource_url_from_server_url("https://example.com:80/mcp") == "https://example.com:80/mcp"
+    # IPv6 brackets survive the rewrite.
+    assert resource_url_from_server_url("https://[::1]:443/mcp") == "https://[::1]/mcp"
+
+
+def test_check_token_audience_ignores_default_port():
+    """A token issued for `https://h:443/mcp` is for the server at `https://h/mcp`."""
+    assert check_token_audience("https://h:443/mcp", "https://h/mcp") is True
+    assert check_token_audience("https://h/mcp", "https://h:443/mcp") is True
+    assert check_token_audience("https://h:8443/mcp", "https://h/mcp") is False
+
+
+def test_check_token_audience_treats_an_unparseable_audience_as_a_mismatch():
+    """A token audience whose port cannot be parsed does not identify this server.
+
+    SDK-defined: RFC 3986's grammar puts no upper bound on port digits, so an AS can
+    legitimately issue a token for `https://h:99999/mcp`; urllib refuses to parse such
+    ports, and that canonicalization failure must read as a mismatch, not an error.
+    """
+    assert check_token_audience("https://h:99999/mcp", "https://h/mcp") is False
+    assert check_token_audience("https://h:abc/mcp", "https://h/mcp") is False
+
+
+def test_check_token_audience_treats_trailing_slash_variants_as_one_resource():
+    """`https://h/api/` and `https://h/api` are the same audience, in either direction.
+
+    SDK-defined interop tolerance per authorization.mdx's canonical-URI note (both
+    spellings of one resource circulate; the slashless form is merely recommended), and
+    required at root because pydantic's `AnyHttpUrl` renders `https://h` as `https://h/`
+    while the spec's example token request sends the slashless form.
+    """
+    assert check_token_audience("https://h/api/", "https://h/api") is True
+    assert check_token_audience("https://h/api", "https://h/api/") is True
+    assert check_token_audience("https://h", "https://h/") is True
+
+
+def test_check_token_audience_rejects_sibling_and_child_paths():
+    """Trailing-slash tolerance does not loosen path equality: siblings and children mismatch."""
+    assert check_token_audience("https://h/api123", "https://h/api") is False
+    assert check_token_audience("https://h/api/sub", "https://h/api") is False
+
+
 def test_resource_url_from_server_url_lowercase_scheme_and_host():
     """Scheme and host should be lowercase for canonical form."""
     assert resource_url_from_server_url("HTTPS://EXAMPLE.COM/path") == "https://example.com/path"
@@ -44,6 +92,19 @@ def test_resource_url_from_server_url_handles_pydantic_urls():
     """Should handle Pydantic URL types."""
     url = HttpUrl("https://example.com/path")
     assert resource_url_from_server_url(url) == "https://example.com/path"
+
+
+def test_resource_url_from_server_url_raises_on_unparseable_port():
+    """An out-of-range or non-numeric port raises ValueError, as documented.
+
+    SDK-defined: the canonicalizer stays strict for its trusted own-config callers;
+    `check_token_audience` wraps the untrusted token side. The message is urllib's,
+    so only the exception type is pinned.
+    """
+    with pytest.raises(ValueError):
+        resource_url_from_server_url("https://example.com:99999/mcp")
+    with pytest.raises(ValueError):
+        resource_url_from_server_url("https://example.com:abc/mcp")
 
 
 # Tests for check_resource_allowed function

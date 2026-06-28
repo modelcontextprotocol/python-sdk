@@ -24,12 +24,12 @@ from typing import Any
 
 import anyio
 import anyio.abc
-from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST_TIMEOUT, RequestId
-from pydantic import ValidationError
+from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, REQUEST_TIMEOUT, RequestId
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
@@ -61,12 +61,16 @@ class _DirectDispatchContext:
     """Always `None`: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
+    _closed: bool = False
 
     @property
     def can_send_request(self) -> bool:
-        return self.transport.can_send_request
+        return self.transport.can_send_request and not self._closed
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        if self._closed:
+            logger.debug("dropped %s: dispatch context closed", method)
+            return
         await self._back_notify(method, params)
 
     async def send_raw_request(
@@ -80,8 +84,14 @@ class _DirectDispatchContext:
         return await self._back_request(method, params, opts)
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        if self._on_progress is not None:
-            await self._on_progress(progress, total, message)
+        # Gated here, not via notify(): in-process progress never routes through
+        # notify() - it awaits the caller's callback inline (a pinned behaviour).
+        if self._closed or self._on_progress is None:
+            return
+        await self._on_progress(progress, total, message)
+
+    def close(self) -> None:
+        self._closed = True
 
 
 class DirectDispatcher:
@@ -97,6 +107,11 @@ class DirectDispatcher:
     inbound requests fail the peer's call the same way instead of invoking the
     handler. Notifications are fire-and-forget in both directions: after close
     they are silently dropped.
+
+    Handler-raised `MCPError` subclasses flatten to plain `MCPError` with equal
+    `ErrorData` on every dispatch path, matching the wire, where subclass
+    identity cannot survive; callers needing the subclass rehydrate it from
+    `MCPError.error` (e.g. `UrlElicitationRequiredError.from_error`).
     """
 
     def __init__(self, transport_ctx: TransportContext, *, raise_handler_exceptions: bool = True):
@@ -232,21 +247,21 @@ class DirectDispatcher:
                 dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
                 try:
                     return await self._on_request(dctx, method, params)
-                except MCPError:
-                    raise
-                except ValidationError as e:
-                    # Same shape JSONRPCDispatcher writes, so runner-over-direct
-                    # tests see what runner-over-JSONRPC would.
-                    raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="") from e
                 except Exception as e:
-                    # Single owner of the in-proc exception-to-error policy (mirrors
-                    # JSONRPCDispatcher / `_streamable_http_modern._to_jsonrpc_response`
-                    # for the wire paths). True chains the original for in-process
-                    # debugging; False sanitizes to match the wire path's leak guard.
-                    if self._raise_handler_exceptions:
+                    error, unexpected = handler_exception_to_error_data(e)
+                    if unexpected and self._raise_handler_exceptions:
+                        # In-process debugging: chain the real exception so the
+                        # traceback survives. Never reaches the wire.
                         raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
-                    logger.exception("request handler raised")
-                    raise MCPError(code=INTERNAL_ERROR, message="Internal server error") from None
+                    if unexpected:
+                        logger.exception("request handler raised")
+                    raise MCPError(code=error.code, message=error.message, data=error.data) from None
+                finally:
+                    # Close the back-channel: after the handler returns, a captured
+                    # context's `progress`/`notify` deliver nothing and its
+                    # `send_raw_request` raises `NoBackChannelError`, matching
+                    # JSONRPCDispatcher's handler-finally.
+                    dctx.close()
         except TimeoutError:
             raise MCPError(
                 code=REQUEST_TIMEOUT,

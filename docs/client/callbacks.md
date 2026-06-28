@@ -105,7 +105,7 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
     MCPError: Elicitation not supported
     ```
 
-    That is a protocol error (`-32600`, *invalid request*), not a tool error: there is nothing for
+    That is a protocol error (`-32602`, *invalid params*), not a tool error: there is nothing for
     the model to read and retry. It's why `client_features` is worth having: a well-behaved server
     checks before it asks.
 

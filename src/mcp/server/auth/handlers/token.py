@@ -177,7 +177,7 @@ class TokenHandler:
                 if token_redirect_str != auth_redirect_str:
                     return self.response(
                         TokenErrorResponse(
-                            error="invalid_request",
+                            error="invalid_grant",
                             error_description=("redirect_uri did not match the one used when creating auth code"),
                         )
                     )

@@ -13,7 +13,7 @@ from mcp_types import ClientResult, ServerNotification, ServerRequest
 from typing_extensions import Self
 
 from mcp.client._transport import ReadStream, Transport, TransportStreams, WriteStream
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 from mcp.shared.session import RequestResponder
 
 # TODO: this union is the parameter type of every client message handler (MessageHandlerFnT),
@@ -28,12 +28,19 @@ IncomingMessage = RequestResponder[ServerRequest, ClientResult] | ServerNotifica
 class _RecordingReadStream:
     """Delegates to a read stream, appending every received message to a log."""
 
-    def __init__(self, inner: ReadStream[SessionMessage | Exception], log: list[SessionMessage | Exception]) -> None:
+    def __init__(
+        self,
+        inner: ReadStream[SessionMessage | Exception | RequestSettled],
+        log: list[SessionMessage | Exception],
+    ) -> None:
         self._inner = inner
         self._log = log
 
-    async def receive(self) -> SessionMessage | Exception:
+    async def receive(self) -> SessionMessage | Exception | RequestSettled:
         item = await self._inner.receive()
+        # None of the recorded suites cancel, so no `RequestSettled` ever crosses this seam;
+        # if one does, the recording (which exists to pin wire payloads) needs a story for it.
+        assert not isinstance(item, RequestSettled)
         self._log.append(item)
         return item
 
@@ -43,7 +50,7 @@ class _RecordingReadStream:
     def __aiter__(self) -> Self:
         return self
 
-    async def __anext__(self) -> SessionMessage | Exception:
+    async def __anext__(self) -> SessionMessage | Exception | RequestSettled:
         try:
             return await self.receive()
         except anyio.EndOfStream:
@@ -62,13 +69,16 @@ class _RecordingReadStream:
 class _RecordingWriteStream:
     """Delegates to a write stream, appending every sent message to a log."""
 
-    def __init__(self, inner: WriteStream[SessionMessage], log: list[SessionMessage]) -> None:
+    def __init__(self, inner: WriteStream[SessionMessage | RequestSettled], log: list[SessionMessage]) -> None:
         self._inner = inner
         self._log = log
 
-    async def send(self, item: SessionMessage, /) -> None:
+    async def send(self, item: SessionMessage | RequestSettled, /) -> None:
         # Record only after the inner send returns: a failed or cancelled send never reached the transport.
         await self._inner.send(item)
+        # None of the recorded suites cancel, so no `RequestSettled` ever crosses this seam
+        # (see `_RecordingReadStream.receive`).
+        assert isinstance(item, SessionMessage)
         self._log.append(item)
 
     async def aclose(self) -> None:

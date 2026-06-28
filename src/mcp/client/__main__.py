@@ -12,7 +12,7 @@ from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 from mcp.shared.session import RequestResponder
 
 if not sys.warnoptions:
@@ -33,8 +33,8 @@ async def message_handler(
 
 
 async def run_session(
-    read_stream: ReadStream[SessionMessage | Exception],
-    write_stream: WriteStream[SessionMessage],
+    read_stream: ReadStream[SessionMessage | Exception | RequestSettled],
+    write_stream: WriteStream[SessionMessage | RequestSettled],
     client_info: types.Implementation | None = None,
 ):
     async with ClientSession(

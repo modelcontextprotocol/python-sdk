@@ -43,7 +43,13 @@ from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsag
     _Pending,
     _plan_outbound,
 )
-from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import (
+    ClientMessageMetadata,
+    MessageMetadata,
+    RequestSettled,
+    ServerMessageMetadata,
+    SessionMessage,
+)
 from mcp.shared.transport_context import TransportContext
 
 from .conftest import jsonrpc_pair
@@ -56,9 +62,9 @@ class RecordingWriteStream:
     """Records sends without a checkpoint, so a pending cancellation cannot interrupt the write or mask it."""
 
     def __init__(self) -> None:
-        self.sent: list[SessionMessage] = []
+        self.sent: list[SessionMessage | RequestSettled] = []
 
-    async def send(self, item: SessionMessage) -> None:
+    async def send(self, item: SessionMessage | RequestSettled) -> None:
         self.sent.append(item)
 
     async def aclose(self) -> None:
@@ -104,8 +110,8 @@ async def test_concurrent_send_raw_requests_correlate_by_id_when_responses_arriv
 
 
 @pytest.mark.anyio
-async def test_handler_raising_exception_sends_code_zero_with_str_message():
-    """Matches the existing server's `_handle_request`: code=0, message=str(e)."""
+async def test_handler_raising_exception_sends_internal_error_with_opaque_message():
+    """Spec-mandated: an unrecognised handler exception becomes -32603 with an opaque message."""
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         raise RuntimeError("kaboom")
@@ -113,19 +119,30 @@ async def test_handler_raising_exception_sends_code_zero_with_str_message():
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
-    assert exc.value.error.code == 0
-    assert exc.value.error.message == "kaboom"
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Internal server error"
     assert exc.value.__cause__ is None  # cause does not survive the wire
 
 
 @pytest.mark.anyio
-async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
-    """Matches the existing server: a peer-cancelled request is answered with code=0."""
+async def test_peer_cancel_interrupt_mode_writes_no_response_and_emits_settled_marker():
+    """A peer-cancelled request is interrupted, writes no JSON-RPC response (spec-mandated), and
+    emits a `RequestSettled` marker so transports can release per-request resources (SDK-defined).
+
+    Scripted at the wire: the handler-exit event proves the cancel reached the running handler;
+    the marker being the only thing emitted before a follow-up probe's response proves nothing
+    was written for the cancelled id.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
     handler_exited = anyio.Event()
     seen_ctx: list[DCtx] = []
 
-    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "probe":
+            return {"ok": True}
         seen_ctx.append(ctx)
         handler_started.set()
         try:
@@ -134,30 +151,47 @@ async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
             handler_exited.set()
         raise NotImplementedError
 
-    seen_error: list[ErrorData] = []
-    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass  # the cancelled notification is teed here; nothing to observe
 
-                async def call_then_record() -> None:
-                    with pytest.raises(MCPError) as exc:
-                        await client.send_raw_request("slow", None)
-                    seen_error.append(exc.value.error)
-
-                tg.start_soon(call_then_record)
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
                 await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1}
+                        )
+                    )
+                )
                 await handler_exited.wait()
-    assert seen_ctx[0].cancel_requested.is_set()
-    assert seen_error == [ErrorData(code=0, message="Request cancelled")]
+                assert seen_ctx[0].cancel_requested.is_set()
+                # Receive the marker before sending the probe: it must arrive with no
+                # subsequent traffic required, and nothing may precede it.
+                first = await s2c_recv.receive()
+                assert first == RequestSettled(request_id=1)
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="probe")))
+                second = await s2c_recv.receive()
+            assert isinstance(second, SessionMessage)
+            assert isinstance(second.message, JSONRPCResponse)
+            assert second.message.id == 2
+            assert second.message.result == {"ok": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
 
 
 @pytest.mark.anyio
 async def test_peer_cancel_landing_after_handlers_last_checkpoint_writes_only_the_result():
-    """A peer cancel that fails to interrupt the handler writes only the result: one answer per
-    id goes on the wire (SDK-defined). The recording stream is needed because a memory stream's
-    `send` checkpoints, letting the deferred cancellation land mid-write and hide a double answer."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    """A peer cancel that fails to interrupt the handler writes only the result — one answer per
+    id, and no settled marker (SDK-defined). The result write runs outside the request scope, so
+    the deferred cancellation is revoked at scope exit and cannot eat the write at its leading
+    checkpoint; the recording stream is now just an ordered recorder."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     recording = RecordingWriteStream()
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
     handler_started = anyio.Event()
@@ -190,9 +224,142 @@ async def test_peer_cancel_landing_after_handlers_last_checkpoint_writes_only_th
     finally:
         c2s_send.close()
         c2s_recv.close()
-    assert [m.message for m in recording.sent] == [
-        JSONRPCResponse(jsonrpc="2.0", id=1, result={"completed": "after-cancel"})
+    assert recording.sent == [
+        SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={"completed": "after-cancel"}))
     ]
+
+
+@pytest.mark.anyio
+async def test_settled_marker_follows_the_handlers_related_notifications():
+    """The settled marker rides the same FIFO as the handler's own traffic: a notification sent
+    before the cancel landed precedes the `RequestSettled`, so a transport consuming the marker
+    cannot release the request's resources ahead of buffered related messages (SDK-defined)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    recording = RecordingWriteStream()
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
+    notified = anyio.Event()
+    handler_exited = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        await ctx.notify("notifications/progress", {"progressToken": "t", "progress": 1})
+        notified.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass  # the cancelled notification is teed here; nothing to observe
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
+                await notified.wait()
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1}
+                        )
+                    )
+                )
+                # The recording stream never checkpoints, so by the time the handler-exit
+                # wakeup reaches this task the marker emission has already completed.
+                await handler_exited.wait()
+            tg.cancel_scope.cancel()
+    finally:
+        c2s_send.close()
+        c2s_recv.close()
+    assert recording.sent == [
+        SessionMessage(
+            JSONRPCNotification(
+                jsonrpc="2.0", method="notifications/progress", params={"progressToken": "t", "progress": 1}
+            ),
+            metadata=ServerMessageMetadata(related_request_id=1),
+        ),
+        RequestSettled(request_id=1),
+    ]
+
+
+@pytest.mark.anyio
+async def test_inbound_settled_marker_is_dropped_and_the_loop_keeps_serving():
+    """A `RequestSettled` arriving on the read stream (the in-memory pair delivers the peer's
+    markers straight to the other dispatcher) is dropped without dispatch; the next request
+    still round-trips (SDK-defined)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(RequestSettled(request_id=9))
+                # The read loop is serial, so this request reaching its handler proves
+                # the marker was consumed without crashing or answering it.
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+                reply = await s2c_recv.receive()
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message, JSONRPCResponse)
+            assert reply.message.id == 1
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_settled_marker_write_after_peer_drop_is_swallowed(caplog: pytest.LogCaptureFixture):
+    """The settled-marker write hitting a torn-down transport is dropped with a debug log and the
+    loop keeps serving — same policy as the result and error writes."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+    handler_exited = anyio.Event()
+    probe_handled = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "probe":
+            probe_handled.set()
+            return {"ok": True}
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass  # the cancelled notification is teed here; nothing to observe
+
+    try:
+        with caplog.at_level(logging.DEBUG, logger="mcp.shared.jsonrpc_dispatcher"):
+            async with anyio.create_task_group() as tg:
+                await tg.start(server.run, on_request, on_notify)
+                with anyio.fail_after(5):
+                    await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
+                    await handler_started.wait()
+                    # Peer drops: the marker write below hits BrokenResourceError.
+                    s2c_recv.close()
+                    await c2s_send.send(
+                        SessionMessage(
+                            message=JSONRPCNotification(
+                                jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1}
+                            )
+                        )
+                    )
+                    await handler_exited.wait()
+                    # The loop surviving the dropped marker is the behaviour under test.
+                    await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="probe")))
+                    await probe_handled.wait()
+                tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert "dropped settled marker for 1: write stream closed" in caplog.text
 
 
 @pytest.mark.anyio
@@ -230,8 +397,8 @@ async def test_peer_cancel_signal_mode_sets_event_but_handler_runs_to_completion
 @pytest.mark.anyio
 async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_mid_await():
     """A blocked send_raw_request is woken with CONNECTION_CLOSED when run() exits."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -255,8 +422,8 @@ async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_m
 @pytest.mark.anyio
 async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
     """Iterating a closed receive end is EOF, not a crash (stateless SHTTP closes it during teardown)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     on_request, on_notify = echo_handlers(Recorder())
     # Close the receive end itself (not the send end): __anext__ then raises ClosedResourceError.
@@ -271,8 +438,8 @@ async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
 async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
     """run() cancels still-running handlers at read-stream EOF; otherwise its join waits forever
     (over SSE, leaking the handler and the GET request hosting the session)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
@@ -308,8 +475,8 @@ async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
 @pytest.mark.anyio
 async def test_run_closes_write_stream_on_exit():
     """run() owns both streams; the write end is released once the EOF teardown completes."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     on_request, on_notify = echo_handlers(Recorder())
     async with anyio.create_task_group() as tg:
@@ -343,8 +510,8 @@ async def test_late_response_after_timeout_is_dropped_without_crashing():
 
 @pytest.mark.anyio
 async def test_raise_handler_exceptions_true_propagates_out_of_run():
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
 
     def builder(_meta: object) -> TransportContext:
         return TransportContext(kind="jsonrpc", can_send_request=True)
@@ -371,7 +538,7 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
         sent = s2c_recv.receive_nowait()
         assert isinstance(sent, SessionMessage)
         assert isinstance(sent.message, JSONRPCError)
-        assert sent.message.error.code == 0
+        assert sent.message.error.code == INTERNAL_ERROR
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
@@ -380,8 +547,8 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
 @pytest.mark.anyio
 async def test_ctx_send_raw_request_tags_outbound_with_server_message_metadata():
     """Server-to-client requests carry related_request_id for SHTTP routing."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -418,8 +585,8 @@ async def test_ctx_send_raw_request_tags_outbound_with_server_message_metadata()
 async def test_courtesy_cancel_on_timeout_tags_outbound_with_server_message_metadata():
     """The timeout-path `notifications/cancelled` carries the originating request id: SHTTP's
     `message_router` keys on `related_request_id`; without it the cancel would be dropped."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -464,8 +631,8 @@ async def test_courtesy_cancel_on_timeout_tags_outbound_with_server_message_meta
 async def test_dispatch_context_request_with_dropped_resumption_hints_still_sends_courtesy_cancel():
     """Resumption hints that never reach the transport must not suppress the abandon cancel:
     `related_request_id` takes metadata precedence and drops the hints, so the request is not resumable."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -508,8 +675,8 @@ async def test_dispatch_context_request_with_dropped_resumption_hints_still_send
 @pytest.mark.anyio
 async def test_caller_cancel_sends_courtesy_cancellation_on_the_wire():
     """Cancelling the scope around send_raw_request emits notifications/cancelled by default."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -559,10 +726,11 @@ async def test_caller_cancel_during_blocked_request_write_still_sends_courtesy_c
             self.sent: list[SessionMessage] = []
             self.first_write_started = anyio.Event()
 
-        async def send(self, item: SessionMessage) -> None:
+        async def send(self, item: SessionMessage | RequestSettled) -> None:
             if not self.first_write_started.is_set():
                 self.first_write_started.set()
                 await anyio.sleep_forever()  # the request write wedges until the caller is cancelled
+            assert isinstance(item, SessionMessage)  # this client handles no inbound request, so no marker
             self.sent.append(item)
 
         async def aclose(self) -> None:
@@ -579,7 +747,7 @@ async def test_caller_cancel_during_blocked_request_write_still_sends_courtesy_c
         ) -> bool | None:
             return None
 
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     wedged = FirstWriteWedgedStream()
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, wedged)
     on_request, on_notify = echo_handlers(Recorder())
@@ -624,8 +792,8 @@ async def test_caller_cancel_during_delivered_request_write_sends_courtesy_cance
     """A cancelled request write may still deliver: on a buffer-0 stream the transport can pop the
     parked request in the same tick the cancel lands, so send() raises CancelledError after handing
     the message over. The peer saw the id, so the courtesy cancel must still go out."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -679,8 +847,8 @@ async def test_caller_cancel_during_delivered_request_write_sends_courtesy_cance
 async def test_caller_cancelled_before_request_write_starts_sends_no_courtesy_cancellation():
     """A caller whose scope is already cancelled never gets the request onto the wire, so no
     courtesy cancel goes out either: there is provably no id for the peer to stop."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -718,8 +886,8 @@ async def test_caller_cancelled_before_request_write_starts_sends_no_courtesy_ca
 @pytest.mark.anyio
 async def test_caller_cancel_with_resumption_hints_suppresses_the_courtesy_cancellation():
     """A request sent with resumption hints is meant to be resumed; abandoning it must not stop the peer's work."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -763,8 +931,8 @@ async def test_caller_cancel_with_resumption_hints_suppresses_the_courtesy_cance
 @pytest.mark.anyio
 async def test_timeout_with_resumption_hints_suppresses_the_courtesy_cancellation():
     """A timed-out request that carries resumption hints stays resumable: no cancellation is sent."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -794,8 +962,8 @@ async def test_timeout_with_resumption_hints_suppresses_the_courtesy_cancellatio
 @pytest.mark.anyio
 async def test_cancel_on_abandon_false_suppresses_the_courtesy_cancellation_on_timeout():
     """Callers opt out per call for requests the protocol forbids cancelling (initialize)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -829,7 +997,7 @@ class TimingOutWriteStream:
         self.attempts = 0
         self.error = TimeoutError("transport send timed out")
 
-    async def send(self, item: SessionMessage) -> None:
+    async def send(self, item: SessionMessage | RequestSettled) -> None:
         self.attempts += 1
         raise self.error
 
@@ -855,7 +1023,7 @@ async def test_transport_write_timeout_propagates_raw_when_no_request_timeout_is
     fired — and must propagate raw instead of being mislabelled REQUEST_TIMEOUT. (Genuine expiry
     after a completed write is pinned by the timeout tests above and
     `test_timeout_courtesy_cancel_write_is_bounded_when_the_transport_is_wedged`.)"""
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     transport = TimingOutWriteStream()
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, transport)
     on_request, on_notify = echo_handlers(Recorder())
@@ -887,8 +1055,8 @@ async def test_caller_cancel_courtesy_write_is_bounded_when_the_transport_is_wed
     """A wedged transport write cannot turn caller cancellation into an unbounded shielded hang:
     `_ABANDON_WRITE_TIMEOUT` abandons the courtesy-cancel write (SDK-defined bound). On regression
     the test hangs rather than failing fast - fail_after cannot cancel through the shield."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -934,8 +1102,8 @@ async def test_timeout_courtesy_cancel_write_is_bounded_when_the_transport_is_we
 ):
     """A wedged transport write cannot delay the REQUEST_TIMEOUT error indefinitely (SDK-defined
     bound): `_ABANDON_WRITE_TIMEOUT` abandons the courtesy cancel so the error still surfaces."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -979,8 +1147,8 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
     """Cancelling the task group hosting run() completes even when the shutdown error write wedges:
     only `_SHUTDOWN_WRITE_TIMEOUT` releases the join (SDK-defined). A 0-buffer stream nobody reads
     expresses the wedge: run() closes its write stream only after the join, so the send stays parked."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
 
@@ -1013,8 +1181,8 @@ async def test_shutdown_error_response_write_is_bounded_when_the_transport_is_we
 async def test_shutdown_answers_in_flight_request_with_connection_closed():
     """Read-stream EOF answers a still-running request with CONNECTION_CLOSED (SDK-defined):
     run() keeps the write stream open until the task-group join, so the shielded teardown write lands."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     handler_started = anyio.Event()
 
@@ -1050,8 +1218,8 @@ async def test_shutdown_cancel_during_delivered_result_write_writes_no_second_an
     the transport pops the parked send in the same tick the shutdown cancel lands. The shutdown arm
     must not stack a CONNECTION_CLOSED answer on top - one request id, at most one answer (peers
     drop a missing answer via their own close fan-out, but a duplicate id breaks JSON-RPC)."""
-    read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](0)
+    read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage | RequestSettled](0)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(read_recv, write_send)
     on_request, on_notify = echo_handlers(Recorder())
     outer = anyio.CancelScope()
@@ -1060,7 +1228,7 @@ async def test_shutdown_cancel_during_delivered_result_write_writes_no_second_an
         with outer:
             await server.run(on_request, on_notify)
 
-    received: list[SessionMessage] = []
+    received: list[SessionMessage | RequestSettled] = []
     try:
         async with anyio.create_task_group() as tg:
             tg.start_soon(run_server)
@@ -1081,7 +1249,7 @@ async def test_shutdown_cancel_during_delivered_result_write_writes_no_second_an
         for s in (read_send, read_recv, write_send, write_recv):
             s.close()
     assert outer.cancelled_caught
-    assert [m.message for m in received] == [JSONRPCResponse(jsonrpc="2.0", id=7, result={"echoed": "t", "params": {}})]
+    assert received == [SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=7, result={"echoed": "t", "params": {}}))]
 
 
 @pytest.mark.anyio
@@ -1090,7 +1258,7 @@ async def test_request_write_failure_propagates_and_leaves_no_pending_entry():
     boom = RuntimeError("write failed")
 
     class RaisingWriteStream:
-        async def send(self, item: SessionMessage) -> None:
+        async def send(self, item: SessionMessage | RequestSettled) -> None:
             raise boom
 
         async def aclose(self) -> None:
@@ -1107,7 +1275,7 @@ async def test_request_write_failure_propagates_and_leaves_no_pending_entry():
         ) -> bool | None:
             return None
 
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, RaisingWriteStream())
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1126,8 +1294,8 @@ async def test_request_write_failure_propagates_and_leaves_no_pending_entry():
 @pytest.mark.anyio
 async def test_request_write_on_torn_down_transport_raises_connection_closed():
     """A write onto a torn-down transport surfaces as MCPError(CONNECTION_CLOSED), not a raw `BrokenResourceError`."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1148,8 +1316,8 @@ async def test_request_write_on_torn_down_transport_raises_connection_closed():
 async def test_notify_after_connection_close_is_dropped_with_debug_log(caplog: pytest.LogCaptureFixture):
     """notify() after run() saw EOF is fire-and-forget: dropped with a debug log,
     matching the response-write policy, while the sibling send_raw_request raises."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1170,8 +1338,8 @@ async def test_notify_after_connection_close_is_dropped_with_debug_log(caplog: p
 @pytest.mark.anyio
 async def test_notify_on_torn_down_transport_is_dropped_with_debug_log(caplog: pytest.LogCaptureFixture):
     """A notify racing transport teardown (run() hasn't seen EOF yet) is dropped, not a raw `BrokenResourceError`."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1233,8 +1401,8 @@ async def test_spawned_notification_handlers_run_concurrently():
 @pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_request_metadata():
     """Transport-attached metadata (HTTP request, SSE close hooks) is readable off the dispatch context."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     metadata = ServerMessageMetadata(request_context="request-scoped-data")
     seen: list[MessageMetadata] = []
@@ -1268,8 +1436,8 @@ async def test_ctx_message_metadata_carries_inbound_request_metadata():
 @pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_notification_metadata():
     """Notifications get the same metadata pass-through as requests."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     metadata = ServerMessageMetadata(request_context="request-scoped-data")
     seen: list[MessageMetadata] = []
@@ -1368,8 +1536,8 @@ async def test_progress_callback_exception_is_swallowed_and_logged(caplog: pytes
 @pytest.mark.anyio
 async def test_inline_methods_are_handled_before_next_message_is_dequeued():
     """An `inline_methods` method runs to completion before the next message is dispatched."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         c2s_recv, s2c_send, inline_methods=frozenset({"first"})
     )
@@ -1438,8 +1606,8 @@ async def test_handler_raising_validation_error_sends_invalid_params():
 
 @pytest.mark.anyio
 async def test_send_raw_request_before_run_raises_runtimeerror():
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     try:
         with pytest.raises(RuntimeError, match="before run"):
@@ -1453,8 +1621,8 @@ async def test_send_raw_request_before_run_raises_runtimeerror():
 async def test_send_raw_request_after_connection_close_raises_connection_closed():
     """Sending after run() saw EOF raises MCPError(CONNECTION_CLOSED) — the same contract
     in-flight waiters get — not RuntimeError (SDK-defined)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1471,8 +1639,8 @@ async def test_send_raw_request_after_connection_close_raises_connection_closed(
 
 @pytest.mark.anyio
 async def test_transport_exception_in_read_stream_is_logged_and_dropped():
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1494,8 +1662,8 @@ async def test_transport_exception_in_read_stream_is_logged_and_dropped():
 @pytest.mark.anyio
 async def test_on_stream_exception_observes_transport_exceptions():
     """With an observer set, Exception items reach it instead of being dropped; the loop stays healthy."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
 
     seen: list[Exception] = []
 
@@ -1524,8 +1692,8 @@ async def test_on_stream_exception_observes_transport_exceptions():
 @pytest.mark.anyio
 async def test_on_stream_exception_observer_raising_is_contained(caplog: pytest.LogCaptureFixture):
     """A raising observer costs the item, not the connection: it runs in the read loop itself."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
 
     async def observe(exc: Exception) -> None:
         raise RuntimeError("observer boom")
@@ -1585,17 +1753,22 @@ async def test_cancelled_notification_for_in_flight_request_is_teed_to_on_notify
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    async def call() -> None:
+                        # cancel_on_abandon=False so retiring the await doesn't add a second
+                        # courtesy cancel to `srec.notifications`.
+                        await client.send_raw_request("slow", None, {"cancel_on_abandon": False})
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await handler_exited.wait()
-                await srec.notified.wait()
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    await client.notify("notifications/cancelled", {"requestId": 1})
+                    await handler_exited.wait()
+                    await srec.notified.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
     assert srec.notifications == [("notifications/cancelled", {"requestId": 1})]
 
 
@@ -1609,7 +1782,7 @@ async def test_handler_inherits_sender_contextvars(inline: frozenset[str]):
     raw_send, raw_recv = anyio.create_memory_object_stream[tuple[contextvars.Context, SessionMessage | Exception]](4)
     read_stream = ContextReceiveStream[SessionMessage | Exception](raw_recv)
     write_send = ContextSendStream[SessionMessage | Exception](raw_send)
-    out_send, out_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    out_send, out_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(read_stream, out_send, inline_methods=inline)
 
     seen: list[str] = []
@@ -1645,8 +1818,8 @@ async def test_handler_inherits_sender_contextvars(inline: frozenset[str]):
 @pytest.mark.anyio
 async def test_response_write_after_peer_drop_is_swallowed():
     """Handler completes after the write stream is closed; the dropped write doesn't crash run()."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     proceed = anyio.Event()
     handlers_done = anyio.Event()
@@ -1684,8 +1857,8 @@ async def test_response_write_after_peer_drop_is_swallowed():
 @pytest.mark.anyio
 async def test_cancel_outbound_after_write_stream_closed_is_swallowed():
     """Courtesy-cancel write hits a closed stream; the error is swallowed and cancellation propagates."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     caller_done = anyio.Event()
@@ -1718,8 +1891,8 @@ async def test_cancel_outbound_after_write_stream_closed_is_swallowed():
 
 def test_resolve_pending_drops_outcome_when_waiter_stream_already_closed():
     """White-box: a response for an id still in _pending but whose waiter has gone."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
     d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
@@ -1731,8 +1904,8 @@ def test_resolve_pending_drops_outcome_when_waiter_stream_already_closed():
 
 def test_fan_out_closed_drops_signal_when_waiter_already_has_outcome():
     """White-box: the buffer=1 invariant - WouldBlock means waiter already has an outcome."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
     d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
@@ -1759,8 +1932,8 @@ def test_plan_outbound_with_resumption_token_returns_client_metadata_and_suppres
 async def test_send_raw_request_projects_opts_headers_onto_message_metadata():
     """`opts["headers"]` alone yields `ClientMessageMetadata(headers=...)` on the outbound `SessionMessage`
     (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
 
@@ -1791,8 +1964,8 @@ async def test_send_raw_request_projects_opts_headers_onto_message_metadata():
 @pytest.mark.anyio
 async def test_response_with_string_id_correlates_to_int_keyed_pending_request():
     """A peer that echoes the request ID as a JSON string still resolves the waiter."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1822,8 +1995,8 @@ async def test_response_with_string_id_correlates_to_int_keyed_pending_request()
 @pytest.mark.anyio
 async def test_error_response_with_string_id_correlates_to_int_keyed_pending_request():
     """A JSONRPCError echoing the request ID as a JSON string still resolves the waiter (same `_coerce_id` path)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1858,8 +2031,8 @@ async def test_error_response_with_string_id_correlates_to_int_keyed_pending_req
 
 @pytest.mark.anyio
 async def test_progress_with_string_token_reaches_callback_for_int_keyed_request():
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     seen: list[float] = []
@@ -1909,8 +2082,8 @@ def test_coerce_id_passes_through_non_numeric_string_and_int():
 @pytest.mark.anyio
 async def test_jsonrpc_error_response_with_null_id_is_dropped():
     """Parse-error responses (id=null) have no waiter; they're dropped and the read loop stays healthy."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     try:
@@ -1940,8 +2113,8 @@ async def test_jsonrpc_error_response_with_null_id_is_dropped():
 @pytest.mark.anyio
 async def test_notify_without_params_omits_params_key_on_the_wire():
     """JSON-RPC 2.0 forbids `params: null`: `notify` leaves `params` unset (transports use `exclude_unset=True`)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](4)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     try:
         await d.notify("notifications/tools/list_changed", None)
@@ -1962,8 +2135,8 @@ async def test_notify_without_params_omits_params_key_on_the_wire():
 @pytest.mark.anyio
 async def test_transport_builder_exception_on_request_is_answered_with_internal_error():
     """A raising builder costs only the one request, not the connection."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     calls = 0
 
     def builder(_meta: MessageMetadata) -> TransportContext:
@@ -2001,8 +2174,8 @@ async def test_transport_builder_exception_on_request_is_answered_with_internal_
 @pytest.mark.anyio
 async def test_transport_builder_exception_on_notification_drops_only_that_notification():
     """A raising builder drops the one notification; the read loop survives."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     calls = 0
 
     def builder(_meta: MessageMetadata) -> TransportContext:
@@ -2050,28 +2223,31 @@ async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    async def call() -> None:
+                        await client.send_raw_request("slow", None, {"cancel_on_abandon": False})
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": True})
-                # Once the teed notification is observed, the correlation arm has already run.
-                await srec.notified.wait()
-                assert not handler_exited.is_set()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await handler_exited.wait()
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    await client.notify("notifications/cancelled", {"requestId": True})
+                    # Once the teed notification is observed, the correlation arm has already run.
+                    await srec.notified.wait()
+                    assert not handler_exited.is_set()
+                    await client.notify("notifications/cancelled", {"requestId": 1})
+                    await handler_exited.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
 
 
 @pytest.mark.anyio
 async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback():
     """Bool `progressToken`/`progress` values are malformed; the callback must
     not fire for the unrelated request keyed by id 1 (`True == 1`)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
     seen: list[float] = []
@@ -2117,8 +2293,8 @@ async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback(
 @pytest.mark.anyio
 async def test_request_with_bool_meta_progress_token_is_not_adopted():
     """A bool `_meta.progressToken` is malformed: `ctx.progress()` must be a no-op, not emit `progressToken: true`."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -2155,12 +2331,16 @@ async def test_request_with_bool_meta_progress_token_is_not_adopted():
 )
 async def test_cancelled_correlates_across_string_and_int_request_id_forms(request_id: RequestId, cancel_id: object):
     """A peer that stringifies the id between request and cancel still cancels (same `_coerce_id` path)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_exited = anyio.Event()
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        await anyio.sleep_forever()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
         raise NotImplementedError
 
     async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
@@ -2180,11 +2360,9 @@ async def test_cancelled_correlates_across_string_and_int_request_id_forms(reque
                 )
             )
             with anyio.fail_after(5):
-                resp = await s2c_recv.receive()
-            assert isinstance(resp, SessionMessage)
-            assert isinstance(resp.message, JSONRPCError)
-            assert resp.message.id == request_id  # response echoes the peer's id form verbatim
-            assert resp.message.error == ErrorData(code=0, message="Request cancelled")
+                # The handler exiting proves the cross-form id correlated to the in-flight entry;
+                # no response is read because a cancelled request gets none.
+                await handler_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2195,9 +2373,9 @@ async def test_cancelled_correlates_across_string_and_int_request_id_forms(reque
 async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight():
     """A second request reusing an id while the first handler is parked in its response write
     keeps its own `_in_flight` entry (a post-write pop would evict it and break peer-cancellation)."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     # buffer=0: the first handler's response write parks until the test receives.
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](0)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     calls = 0
     second_started = anyio.Event()
@@ -2233,7 +2411,8 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
                 # Let the first handler task run to completion past the write.
                 await anyio.wait_all_tasks_blocked()
                 assert 7 in server._in_flight  # pyright: ignore[reportPrivateUsage]
-                # The surviving entry must still be cancellable.
+                # The surviving entry must still be cancellable: the second handler exiting
+                # proves the cancel reached it (no response is read; a cancelled request gets none).
                 await c2s_send.send(
                     SessionMessage(
                         message=JSONRPCNotification(
@@ -2241,11 +2420,7 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2256,8 +2431,8 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
 async def test_duplicate_request_id_completion_of_first_handler_keeps_second_cancellable():
     """A duplicate inbound id overwrites `_in_flight` (parity with v1/TS); the identity-guarded pop
     keeps the first handler's completion from evicting the second's entry and breaking its cancellation."""
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception | RequestSettled](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
     first_started = anyio.Event()
     release_first = anyio.Event()
@@ -2296,7 +2471,8 @@ async def test_duplicate_request_id_completion_of_first_handler_keeps_second_can
                 # Let the first handler task run past its pop entirely.
                 await anyio.wait_all_tasks_blocked()
                 assert 7 in server._in_flight  # pyright: ignore[reportPrivateUsage]
-                # The surviving entry must still be cancellable by the peer.
+                # The surviving entry must still be cancellable by the peer: the second handler
+                # exiting proves the cancel reached it (no response is read; a cancelled request gets none).
                 await c2s_send.send(
                     SessionMessage(
                         message=JSONRPCNotification(
@@ -2304,11 +2480,7 @@ async def test_duplicate_request_id_completion_of_first_handler_keeps_second_can
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2359,25 +2531,29 @@ async def test_server_middleware_observes_cancelled_notification():
 
     async with Client(server, mode="legacy") as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
+            with anyio.CancelScope() as call_scope:
+                async with anyio.create_task_group() as tg:
 
-                async def call() -> None:
-                    with pytest.raises(MCPError):
+                    async def call() -> None:
                         await client.session.send_request(
                             CallToolRequest(params=CallToolRequestParams(name="t", arguments={})),
                             CallToolResult,
                         )
+                        raise NotImplementedError  # unreachable: the scope is cancelled
 
-                tg.start_soon(call)
-                await handler_started.wait()
-                assert request_id is not None
-                await client.session.send_notification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id, reason="user clicked stop")
+                    tg.start_soon(call)
+                    await handler_started.wait()
+                    assert request_id is not None
+                    await client.session.send_notification(
+                        CancelledNotification(
+                            params=CancelledNotificationParams(request_id=request_id, reason="user clicked stop")
+                        )
                     )
-                )
-                await cancel_observed.wait()
-    assert len(observed) == 1
+                    await cancel_observed.wait()
+                    call_scope.cancel()
+            assert call_scope.cancelled_caught
+    # The hand-sent cancel is observed first; abandoning the await may emit a second courtesy
+    # cancel for the same id, so only the first entry is asserted.
     assert observed[0][0] == "notifications/cancelled"
     assert observed[0][1]["requestId"] == request_id
     assert observed[0][1]["reason"] == "user clicked stop"

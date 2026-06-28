@@ -6,10 +6,15 @@ from typing import Any, cast
 import pytest
 from starlette.authentication import AuthCredentials
 from starlette.datastructures import Headers
-from starlette.requests import Request
+from starlette.requests import Request, empty_receive
 from starlette.types import Message, Receive, Scope, Send
 
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.middleware.bearer_auth import (
+    AuthenticatedUser,
+    BearerAuthBackend,
+    InvalidTokenUser,
+    RequireAuthMiddleware,
+)
 from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, ProviderTokenVerifier
 
 
@@ -126,7 +131,9 @@ class TestBearerAuthBackend:
         assert result is None
 
     async def test_invalid_token(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
-        """Test authentication with invalid token."""
+        """A Bearer token the verifier rejects yields an InvalidTokenUser carrying the
+        reason, so RequireAuthMiddleware can send error="invalid_token" rather than a
+        bare challenge (RFC 6750 §3.1 distinguishes no-credentials from bad-credentials)."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request(
             {
@@ -135,14 +142,24 @@ class TestBearerAuthBackend:
             }
         )
         result = await backend.authenticate(request)
-        assert result is None
+        assert result is not None
+        credentials, user = result
+        assert isinstance(credentials, AuthCredentials)
+        assert credentials.scopes == []
+        assert isinstance(user, InvalidTokenUser)
+        assert user.reason == "The access token is malformed or unknown"
+        # BaseUser interface obligations — Starlette may render these
+        assert user.is_authenticated is False
+        assert user.display_name == ""
+        assert user.identity == ""
 
     async def test_expired_token(
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         expired_access_token: AccessToken,
     ):
-        """Test authentication with expired token."""
+        """An expired token yields an InvalidTokenUser whose reason names expiry, so the
+        WWW-Authenticate error_description tells the client why (RFC 6750 §3.1)."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "expired_token", expired_access_token)
         request = Request(
@@ -152,7 +169,10 @@ class TestBearerAuthBackend:
             }
         )
         result = await backend.authenticate(request)
-        assert result is None
+        assert result is not None
+        _, user = result
+        assert isinstance(user, InvalidTokenUser)
+        assert user.reason == "The access token has expired"
 
     async def test_valid_token(
         self,
@@ -344,17 +364,18 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
-    async def test_no_auth_credentials(self, valid_access_token: AccessToken):
-        """Test middleware with no auth credentials in scope."""
+    async def test_invalid_token_user_gets_401_with_error_description(self):
+        """When the backend marked the request with InvalidTokenUser, the middleware
+        sends 401 with error="invalid_token" and the carried reason as error_description
+        (RFC 6750 §3.1) — distinct from the bare challenge sent when no token was presented."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read"])
+        scope: Scope = {
+            "type": "http",
+            "user": InvalidTokenUser("The access token has expired"),
+            "auth": AuthCredentials(),
+        }
 
-        # Create a user with read/write scopes
-        user = AuthenticatedUser(valid_access_token)
-
-        scope: Scope = {"type": "http", "user": user}  # No auth credentials
-
-        # Create dummy async functions for receive and send
         async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
@@ -365,11 +386,12 @@ class TestRequireAuthMiddleware:
 
         await middleware(scope, receive, send)
 
-        # Check that a 403 response was sent
         assert len(sent_messages) == 2
         assert sent_messages[0]["type"] == "http.response.start"
-        assert sent_messages[0]["status"] == 403
-        assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
+        assert sent_messages[0]["status"] == 401
+        www_authenticate = dict(sent_messages[0]["headers"])[b"www-authenticate"]
+        assert b'error="invalid_token"' in www_authenticate
+        assert b'error_description="The access token has expired"' in www_authenticate
         assert not app.called
 
     async def test_has_required_scopes(self, valid_access_token: AccessToken):
@@ -446,3 +468,24 @@ class TestRequireAuthMiddleware:
         assert app.scope == scope
         assert app.receive == receive
         assert app.send == send
+
+
+@pytest.mark.anyio
+async def test_unauthenticated_request_with_no_required_scopes_gets_bare_bearer_challenge():
+    """RFC 6750 §3: when no credentials were presented and the server has nothing to
+    advertise (no required scopes, no resource_metadata), the WWW-Authenticate header
+    is the bare scheme name with no parameters."""
+    app = MockApp()
+    middleware = RequireAuthMiddleware(app, required_scopes=[])
+    scope: Scope = {"type": "http"}
+
+    sent_messages: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent_messages.append(message)
+
+    await middleware(scope, empty_receive, send)
+
+    assert sent_messages[0]["status"] == 401
+    assert dict(sent_messages[0]["headers"])[b"www-authenticate"] == b"Bearer"
+    assert not app.called

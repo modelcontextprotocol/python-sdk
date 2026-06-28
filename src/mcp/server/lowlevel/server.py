@@ -67,7 +67,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -633,8 +633,8 @@ class Server(Generic[LifespanResultT]):
 
     async def run(
         self,
-        read_stream: ReadStream[SessionMessage | Exception],
-        write_stream: WriteStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception | RequestSettled],
+        write_stream: WriteStream[SessionMessage | RequestSettled],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
@@ -710,7 +710,7 @@ class Server(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier),
+                        backend=BearerAuthBackend(token_verifier, resource_server_url=auth.enforced_audience),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]
@@ -732,7 +732,7 @@ class Server(Generic[LifespanResultT]):
         if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
-            if auth and auth.resource_server_url:  # pragma: no branch
+            if auth and auth.resource_server_url:
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 

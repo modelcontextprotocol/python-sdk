@@ -168,3 +168,62 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
         CallToolResult(content=[TextContent(text="confirmed=True")], structured_content={"result": "confirmed=True"})
     )
     assert [params.message for params in asked] == snapshot(["Proceed?"])
+
+
+@requirement("client-transport:http:204-settled-exchange")
+async def test_cancelled_call_in_json_mode_settles_cleanly_and_the_session_keeps_serving(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Scope-cancelling an in-flight call over JSON response mode ends with the server settling
+    the request as 204 No Content: the transport's parked POST task consumes it as 'settled,
+    nothing to deliver' (no response is synthesized from the empty body), proved by a follow-up
+    call on the same session succeeding after the 204 has been consumed."""
+    mcp = MCPServer("cancellable")
+    started = anyio.Event()
+    handler_cancelled = anyio.Event()
+
+    @mcp.tool()
+    async def block() -> str:
+        """Block until the cancellation interrupts the handler."""
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    @mcp.tool()
+    def echo(text: str) -> str:
+        """Echo the text back."""
+        return text
+
+    async with connect_over_streamable_http(mcp, json_response=True) as client:
+        with anyio.fail_after(5):
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as task_group:
+
+                    async def call() -> None:
+                        await client.call_tool("block", {})
+                        raise NotImplementedError  # unreachable: the scope is cancelled
+
+                    task_group.start_soon(call)
+                    await started.wait()
+                    scope.cancel()
+            assert scope.cancelled_caught
+            await handler_cancelled.wait()
+            # Quiesce so the parked POST task has consumed the server's settle (the 204) before
+            # the follow-up call and the caplog check below — otherwise the test could finish
+            # before the would-be parse even happened.
+            await anyio.wait_all_tasks_blocked()
+            result = await client.call_tool("echo", {"text": "still here"})
+
+    # The follow-up's success on the same session is the proof the settled exchange left the
+    # transport serviceable.
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="still here")], structured_content={"result": "still here"})
+    )
+    # Secondary, meaningful only after the quiesce above: the consumed 204 was not fed to the
+    # JSON body parser (which would log this error and synthesize a PARSE_ERROR reply for the
+    # already-retired request id).
+    assert "Error parsing JSON response" not in caplog.text

@@ -3,7 +3,7 @@
 import anyio
 import mcp_types as types
 import pytest
-from mcp_types import ElicitRequestParams, ElicitResult, TextContent
+from mcp_types import ElicitRequestedSchema, ElicitRequestParams, ElicitResult, TextContent
 from pydantic import BaseModel, Field
 
 from mcp import Client
@@ -296,7 +296,7 @@ async def test_deprecated_elicit_method():
         # Use the deprecated elicit() method which should call elicit_form()
         result = await ctx.session.elicit(
             message="Enter your email",
-            requested_schema=EmailSchema.model_json_schema(),
+            requested_schema=ElicitRequestedSchema.model_validate(EmailSchema.model_json_schema()),
         )
 
         if result.action == "accept" and result.content:

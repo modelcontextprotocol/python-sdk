@@ -35,9 +35,10 @@ uv run python -m stories.error_handling.client --http --server server_lowlevel
 ## Caveats
 
 - The "any other exception → `is_error` result" contract on `MCPServer` and the
-  "uncaught exception → `code=0`" behaviour on `lowlevel.Server` are **not
-  shown** — the contract is under design and the legacy code is a known spec
-  divergence. This story will grow those cases once the contract lands.
+  "uncaught exception → `-32603` `Internal server error`" behaviour on
+  `lowlevel.Server` are **not shown** here. The lowlevel reply is deliberately
+  opaque — handler internals never reach the peer; the exception is logged
+  server-side.
 - `MCPServer` prefixes the execution-error message with
   `"Error executing tool {name}: "`; build a `CallToolResult` directly from a
   lowlevel handler if you need verbatim control.

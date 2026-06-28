@@ -100,7 +100,7 @@ async def test_create_message_raises_no_back_channel_without_related_id(no_chann
 async def test_elicit_form_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
     """SDK-defined: `elicit_form` without a related id rides the standalone channel and raises."""
     with pytest.raises(NoBackChannelError) as exc:
-        await no_channel_session.elicit_form(message="m", requested_schema={"type": "object", "properties": {}})
+        await no_channel_session.elicit_form(message="m", requested_schema=types.ElicitRequestedSchema(properties={}))
     assert exc.value.method == "elicitation/create"
 
 
@@ -116,7 +116,7 @@ async def test_elicit_url_raises_no_back_channel_without_related_id(no_channel_s
 async def test_elicit_deprecated_raises_no_back_channel_without_related_id(no_channel_session: ServerSession):
     """SDK-defined: the deprecated `elicit` alias routes the same as `elicit_form` and raises."""
     with pytest.raises(NoBackChannelError) as exc:
-        await no_channel_session.elicit(message="m", requested_schema={"type": "object", "properties": {}})
+        await no_channel_session.elicit(message="m", requested_schema=types.ElicitRequestedSchema(properties={}))
     assert exc.value.method == "elicitation/create"
 
 
@@ -134,7 +134,7 @@ async def test_elicit_form_with_related_id_rides_the_request_channel():
     channel, so the no-channel standalone is never touched and the call succeeds."""
     session, request_ch = _no_channel_session(StubOutbound(result={"action": "cancel"}))
     result = await session.elicit_form(
-        message="m", requested_schema={"type": "object", "properties": {}}, related_request_id=3
+        message="m", requested_schema=types.ElicitRequestedSchema(properties={}), related_request_id=3
     )
     assert isinstance(result, types.ElicitResult)
     assert request_ch.requests[0][0] == "elicitation/create"

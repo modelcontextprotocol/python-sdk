@@ -6,7 +6,9 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 
 KNOWN_TOKENS = {
-    "alice-token": AccessToken(token="alice-token", client_id="alice", scopes=["notes:read"]),
+    "alice-token": AccessToken(
+        token="alice-token", client_id="alice", scopes=["notes:read"], resource="http://127.0.0.1:8000/mcp"
+    ),
 }
 
 

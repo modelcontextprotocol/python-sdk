@@ -16,13 +16,16 @@ from mcp_types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitCompleteNotification,
+    ElicitRequestedSchema,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     EmptyResult,
     ListToolsResult,
+    NumberSchema,
     ReadResourceResult,
     ResourceLink,
+    StringSchema,
     TextContent,
     TextResourceContents,
     Tool,
@@ -101,12 +104,12 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "onboard"
         first = await ctx.session.elicit_form(
-            "Step 1: choose a username.", {"type": "object", "properties": {"name": {"type": "string"}}}
+            "Step 1: choose a username.", ElicitRequestedSchema(properties={"name": StringSchema(type="string")})
         )
         assert first.action == "accept" and first.content is not None
         second = await ctx.session.elicit_form(
             f"Step 2: confirm age for {first.content['name']}.",
-            {"type": "object", "properties": {"age": {"type": "integer"}}},
+            ElicitRequestedSchema(properties={"age": NumberSchema(type="integer")}),
         )
         assert second.action == "accept" and second.content is not None
         return CallToolResult(content=[TextContent(text=f"{first.content['name']} is {second.content['age']}")])

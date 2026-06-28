@@ -42,12 +42,12 @@ from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import RequestSettled, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 
 _SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
-_RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage]
+_RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage | RequestSettled]
 
 
 @asynccontextmanager
@@ -60,7 +60,7 @@ async def raw_client_session(
     transport-level exceptions. No initialize handshake is performed.
     """
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](32)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | RequestSettled](32)
     async with ClientSession(s2c_recv, c2s_send, **kwargs) as session:
         try:
             with anyio.fail_after(5):
@@ -72,8 +72,12 @@ async def raw_client_session(
 
 @pytest.mark.anyio
 async def test_client_session_initialize():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     initialized_notification = None
     result = None
@@ -82,6 +86,7 @@ async def test_client_session_initialize():
         nonlocal initialized_notification
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -113,6 +118,7 @@ async def test_client_session_initialize():
                 )
             )
             session_notification = await client_to_server_receive.receive()
+            assert isinstance(session_notification, SessionMessage)
             jsonrpc_notification = session_notification.message
             assert isinstance(jsonrpc_notification, JSONRPCNotification)
             initialized_notification = client_notification_adapter.validate_python(
@@ -155,8 +161,12 @@ async def test_client_session_initialize():
 
 @pytest.mark.anyio
 async def test_client_session_custom_client_info():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     custom_client_info = Implementation(name="test-client", version="1.2.3")
     received_client_info = None
@@ -165,6 +175,7 @@ async def test_client_session_custom_client_info():
         nonlocal received_client_info
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -213,8 +224,12 @@ async def test_client_session_custom_client_info():
 
 @pytest.mark.anyio
 async def test_client_session_default_client_info():
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     received_client_info = None
 
@@ -222,6 +237,7 @@ async def test_client_session_default_client_info():
         nonlocal received_client_info
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -267,12 +283,17 @@ async def test_client_session_default_client_info():
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_success():
     """Test successful version negotiation with supported version"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
     result = None
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -323,11 +344,16 @@ async def test_client_session_version_negotiation_success():
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_failure():
     """Test version negotiation failure with unsupported version"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -371,8 +397,12 @@ async def test_client_session_version_negotiation_failure():
 @pytest.mark.anyio
 async def test_client_capabilities_default():
     """Test that client capabilities are properly set with default callbacks"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     received_capabilities = None
 
@@ -380,6 +410,7 @@ async def test_client_capabilities_default():
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -427,8 +458,12 @@ async def test_client_capabilities_default():
 @pytest.mark.anyio
 async def test_client_capabilities_with_custom_callbacks():
     """Test that client capabilities are properly set with custom callbacks"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     received_capabilities = None
 
@@ -451,6 +486,7 @@ async def test_client_capabilities_with_custom_callbacks():
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -511,8 +547,12 @@ async def test_client_capabilities_with_custom_callbacks():
 @pytest.mark.anyio
 async def test_client_capabilities_with_sampling_tools():
     """Test that sampling capabilities with tools are properly advertised"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     received_capabilities = None
 
@@ -530,6 +570,7 @@ async def test_client_capabilities_with_sampling_tools():
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -585,8 +626,12 @@ async def test_client_capabilities_with_sampling_tools():
 @pytest.mark.anyio
 async def test_initialize_result():
     """Test that initialize_result is None before init and contains the full result after."""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     expected_capabilities = ServerCapabilities(
         logging=types.LoggingCapability(),
@@ -599,6 +644,7 @@ async def test_initialize_result():
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -658,14 +704,19 @@ async def test_initialize_result():
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[
+        SessionMessage | RequestSettled
+    ](1)
 
     mocked_tool = types.Tool(name="sample_tool", input_schema={"type": "object"})
 
     async def mock_server():
         # Receive initialization request from client
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
         request = client_request_adapter.validate_python(
@@ -695,6 +746,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
 
         # Wait for the client to send a 'tools/call' request
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
 
@@ -721,6 +773,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         # Wait for the tools/list request from the client
         # The client requires this step to validate the tool output schema
         session_message = await client_to_server_receive.receive()
+        assert isinstance(session_message, SessionMessage)
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
 
@@ -763,6 +816,7 @@ async def test_receive_loop_answers_malformed_inbound_request_with_invalid_param
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=7, method="sampling/createMessage", params={"broken": 1}))
         )
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCError)
     assert out.message.id == 7
     assert out.message.error.code == INVALID_PARAMS
@@ -774,6 +828,7 @@ async def test_receive_loop_answers_unknown_request_method_with_method_not_found
     async with raw_client_session() as (_session, to_client, from_client):
         await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=7, method="x/unknown")))
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCError)
     assert out.message.id == 7
     assert out.message.error == types.ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="x/unknown")
@@ -787,6 +842,7 @@ async def test_receive_loop_drops_unknown_notification_method_without_response()
         # The answered follow-up ping proves no response was emitted and the loop survived.
         await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.id == 1
 
@@ -812,6 +868,7 @@ async def test_on_request_rejects_a_server_request_absent_at_the_negotiated_vers
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="elicitation/create", params={"message": "hi"}))
         )
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCError)
     assert out.message.error.code == METHOD_NOT_FOUND
     assert out.message.error.data == "elicitation/create"
@@ -835,6 +892,7 @@ async def test_on_request_validates_the_callback_result_against_the_surface_sche
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="sampling/createMessage", params=request_params))
         )
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.result == {"role": "assistant", "content": {"type": "text", "text": "hi"}, "model": "m"}
 
@@ -853,6 +911,7 @@ async def test_on_request_callback_returning_a_surface_invalid_result_is_interna
     async with raw_client_session(list_roots_callback=list_roots) as (_session, to_client, from_client):
         await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=3, method="roots/list")))
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCError)
     assert out.message.error.code == INTERNAL_ERROR
     assert out.message.error.message == "Client callback returned an invalid result"
@@ -913,6 +972,7 @@ async def test_on_request_elicitation_with_loose_property_schema_reaches_the_cal
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=4, method="elicitation/create", params=request_params))
         )
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.result == {"action": "accept", "content": {"x": 1}}
     assert len(seen) == 1
@@ -931,6 +991,7 @@ async def test_send_request_validates_the_server_result_against_the_surface_sche
 
             tg.start_soon(call)
             request = await from_client.receive()
+            assert isinstance(request, SessionMessage)
             assert isinstance(request.message, JSONRPCRequest)
             await to_client.send(
                 SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={"tools": "nope"}))
@@ -951,14 +1012,16 @@ async def test_send_request_skips_the_surface_gate_when_method_absent_at_version
 
             tg.start_soon(call)
             request = await from_client.receive()
+            assert isinstance(request, SessionMessage)
             assert isinstance(request.message, JSONRPCRequest)
             await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={})))
 
 
 @pytest.mark.anyio
-async def test_raising_sampling_callback_answers_with_code_zero():
-    """A raising sampling callback is answered with code 0 and `str(exc)` (SDK-defined).
-    Raw streams because the assertion is the outbound `JSONRPCError` envelope itself."""
+async def test_raising_sampling_callback_answers_with_internal_error():
+    """A raising sampling callback is answered with INTERNAL_ERROR and an opaque message (spec-mandated
+    code; SDK-defined redaction). Raw streams because the assertion is the outbound `JSONRPCError`
+    envelope itself."""
 
     async def boom(ctx: object, params: object) -> types.CreateMessageResult:
         raise RuntimeError("sampling boom")
@@ -972,8 +1035,9 @@ async def test_raising_sampling_callback_answers_with_code_zero():
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=8, method="sampling/createMessage", params=params))
         )
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert isinstance(out.message, JSONRPCError)
-    assert out.message.error == types.ErrorData(code=0, message="sampling boom")
+    assert out.message.error == types.ErrorData(code=INTERNAL_ERROR, message="Internal server error")
 
 
 @pytest.mark.anyio
@@ -1022,6 +1086,7 @@ async def test_raising_message_handler_on_transport_exception_costs_the_delivery
         await delivered.wait()
         await to_client.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=9, method="ping")))
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
     assert seen == [exc]
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.id == 9
@@ -1045,6 +1110,7 @@ async def test_message_handler_awaiting_session_traffic_on_transport_exception_c
         await to_client.send(ValueError("bad bytes"))
         # Serve the handler's ping like a transport would; inline delivery would deadlock here.
         out = await from_client.receive()
+        assert isinstance(out, SessionMessage)
         assert isinstance(out.message, JSONRPCRequest)
         assert out.message.method == "ping"
         await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
@@ -1125,6 +1191,7 @@ async def test_progress_notification_reaches_request_callback_and_message_handle
 
             tg.start_soon(call)
             request = await from_client.receive()
+            assert isinstance(request, SessionMessage)
             assert isinstance(request.message, JSONRPCRequest)
             request_id = request.message.id
             # The request id doubles as the progress token.
@@ -1435,7 +1502,7 @@ async def test_send_notification_after_close_is_dropped_silently():
     """Post-close `send_notification` is fire-and-forget: the notification is dropped,
     not surfaced as a raw transport error (v1 leaked `anyio.ClosedResourceError`)."""
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
-    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](4)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | RequestSettled](4)
     try:
         async with ClientSession(s2c_recv, c2s_send) as session:
             pass

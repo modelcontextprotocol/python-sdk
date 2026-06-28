@@ -8,14 +8,13 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args
 
-REGISTRATION_SCHEMA: types.ElicitRequestedSchema = {
-    "type": "object",
-    "properties": {
-        "username": {"type": "string"},
-        "plan": {"type": "string", "enum": ["free", "pro", "team"]},
+REGISTRATION_SCHEMA = types.ElicitRequestedSchema(
+    properties={
+        "username": types.StringSchema(type="string"),
+        "plan": types.UntitledSingleSelectEnumSchema(type="string", enum=["free", "pro", "team"]),
     },
-    "required": ["username"],
-}
+    required=["username"],
+)
 LINK_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {"provider": {"type": "string"}},

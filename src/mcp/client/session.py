@@ -45,7 +45,7 @@ from mcp.shared.inbound import (
     x_mcp_header_map,
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, RequestSettled, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.transport_context import TransportContext
 
@@ -149,6 +149,8 @@ async def _default_sampling_callback(
     context: ClientRequestContext,
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
+    # Unlike elicitation (INVALID_PARAMS) and roots (METHOD_NOT_FOUND) below, the spec assigns no
+    # error code to a client that does not support sampling; INVALID_REQUEST is the SDK's choice.
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
@@ -160,7 +162,7 @@ async def _default_elicitation_callback(
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(
-        code=types.INVALID_REQUEST,
+        code=types.INVALID_PARAMS,
         message="Elicitation not supported",
     )
 
@@ -169,7 +171,7 @@ async def _default_list_roots_callback(
     context: ClientRequestContext,
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
-        code=types.INVALID_REQUEST,
+        code=types.METHOD_NOT_FOUND,
         message="List roots not supported",
     )
 
@@ -213,8 +215,8 @@ class ClientSession:
 
     def __init__(
         self,
-        read_stream: ReadStream[SessionMessage | Exception] | None = None,
-        write_stream: WriteStream[SessionMessage] | None = None,
+        read_stream: ReadStream[SessionMessage | Exception | RequestSettled] | None = None,
+        write_stream: WriteStream[SessionMessage | RequestSettled] | None = None,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -224,6 +226,7 @@ class ClientSession:
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
+        strict_capabilities: bool = False,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
@@ -234,6 +237,7 @@ class ClientSession:
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._strict_capabilities = strict_capabilities
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
@@ -307,11 +311,22 @@ class ClientSession:
             metadata: Streamable HTTP resumption hints.
 
         Raises:
-            MCPError: Error response, read timeout, or connection closed.
+            MCPError: Error response, read timeout, or connection closed. Also raised
+                before any send when `strict_capabilities` is set and the server did not
+                advertise the capability `request.method` requires (code
+                `METHOD_NOT_FOUND`).
             RuntimeError: Called before entering the context manager.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
+        if self._strict_capabilities and (
+            missing := _methods.missing_server_capability(method, self.server_capabilities)
+        ):
+            raise MCPError(
+                code=METHOD_NOT_FOUND,
+                message=f"Server does not advertise the {missing} capability (required for {method})",
+                data=method,
+            )
         opts: CallOptions = {}
         self._stamp(data, opts)
         timeout = (

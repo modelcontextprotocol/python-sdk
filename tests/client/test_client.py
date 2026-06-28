@@ -517,6 +517,14 @@ def test_client_rejects_handshake_era_mode_at_construction() -> None:
         Client(server, mode="not-a-version")
 
 
+def test_client_rejects_strict_capabilities_on_a_bare_version_pin_at_construction() -> None:
+    """`strict_capabilities=True` with a version pin and no `prior_discover=` is rejected by
+    `__post_init__`: a bare pin never asks the server what it supports, so every
+    capability-gated method would be rejected before doing anything useful."""
+    with pytest.raises(ValueError, match=r"prior_discover= or use mode='auto'"):
+        Client(MCPServer("test"), mode="2026-07-28", strict_capabilities=True)
+
+
 # ── SEP-2322 multi-round-trip auto-loop ────────────────────────────────────────
 
 
@@ -681,7 +689,7 @@ async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_thr
 
 async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered() -> None:
     """SDK-defined: with no `elicitation_callback`, the default returns
-    `ErrorData(INVALID_REQUEST, ...)` and the driver raises it as `MCPError`
+    `ErrorData(INVALID_PARAMS, ...)` and the driver raises it as `MCPError`
     rather than retrying."""
     server = MCPServer("test")
 
@@ -694,7 +702,7 @@ async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered(
     async with Client(server) as client:
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.call_tool("needs_input")
-    assert exc.value.error.code == types.INVALID_REQUEST
+    assert exc.value.error.code == types.INVALID_PARAMS
 
 
 async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> None:

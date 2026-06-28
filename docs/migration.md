@@ -34,6 +34,44 @@ elicitation required, invalid parameters). For tool *execution* failures the
 calling LLM should see and react to, raise any other exception or return
 `CallToolResult(is_error=True, ...)` directly; that path is unchanged.
 
+### Unhandled handler exceptions return `INTERNAL_ERROR`; cancelled requests get no reply
+
+An unhandled exception in a request handler now produces JSON-RPC error `-32603`
+(`INTERNAL_ERROR`) with the opaque message `"Internal server error"`. v1 returned
+code `0` with `str(exc)` as the message, leaking handler internals to the peer; the
+exception is still logged server-side via `logger.exception`. To send a specific
+code and message, raise `MCPError` (unchanged); a pydantic `ValidationError` is
+still mapped to `INVALID_PARAMS`. An `MCPError` *subclass* raised by a handler
+(e.g. `UrlElicitationRequiredError`) reaches the caller as plain `MCPError` with
+the same `code`, `message`, and `data` on every dispatch path — including the
+in-process `Client(server)` — so catch `MCPError` and match on `error.code`
+rather than on the subclass type.
+
+A request cancelled via `notifications/cancelled` now receives no response at all,
+per the spec's SHOULD. v1 answered the cancelled request with an error
+(`code=0, message="Request cancelled"`). The sender's awaiting call already fails
+with anyio cancellation when its scope is cancelled, so no reply is needed to
+unblock it. On legacy streamable HTTP this means the cancelled request's POST SSE
+stream now terminates without a response frame, and in JSON-response mode the POST
+completes with `204 No Content`.
+
+### A second `initialize` on an already-initialized session is rejected
+
+A server that has already completed the `initialize` handshake on a connection now answers a
+repeated `initialize` request on that same connection with JSON-RPC error `-32600`
+(`INVALID_REQUEST`, message `"Session already initialized"`) instead of re-running the handshake.
+Previously the repeat was answered as a fresh handshake and silently overwrote the session's
+recorded `client_params` and negotiated protocol version, so a `check_capability` call made after
+that point answered against the second client's declared capabilities
+([#2605](https://github.com/modelcontextprotocol/python-sdk/issues/2605)).
+
+No compliant client is affected: the spec makes initialization the first interaction of a session,
+and the SDK's own `ClientSession.initialize()` is idempotent (a repeat call returns the first
+result without sending anything). A peer that needs a fresh handshake should open a new
+connection — on streamable HTTP, a `POST` without an `Mcp-Session-Id` header. This applies only to
+the legacy (2025-11-25 and earlier) handshake; the 2026-07-28 protocol removes `initialize`
+entirely.
+
 ### `streamablehttp_client` removed
 
 The deprecated `streamablehttp_client` function has been removed. Use `streamable_http_client` instead.
@@ -105,6 +143,18 @@ async def callback_handler() -> AuthorizationCodeResult:
 ```
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
+### OAuth client refuses to authorize when AS metadata does not advertise S256 PKCE
+
+The OAuth client now verifies PKCE support before starting the authorization-code grant, as the MCP authorization specification's Authorization Code Protection section requires. When an authorization-server metadata document was discovered and its `code_challenge_methods_supported` is absent (which the spec defines as "the authorization server does not support PKCE") or does not list `S256` (the only method the SDK sends), the flow raises `OAuthFlowError` instead of redirecting to the authorization endpoint. The symptom is `OAuthFlowError: Authorization server metadata does not include code_challenge_methods_supported; PKCE support cannot be verified`. Previously the SDK never inspected the field and proceeded with an S256 challenge regardless.
+
+When no authorization-server metadata document could be discovered at all, the flow proceeds as before — absence of a document is not evidence of non-support. Grants that never issue an authorization code (`ClientCredentialsOAuthProvider`, `PrivateKeyJWTOAuthProvider`) are unaffected. There is no SDK-side opt-out: an authorization server that supports S256 but omits the field from its published metadata needs that metadata fixed (RFC 8414 §2 defines `code_challenge_methods_supported`).
+
+### OAuth client no longer reads `scopes_supported` from AS metadata to choose a scope
+
+The specification's scope-selection chain is two steps: the `scope` parameter from the `WWW-Authenticate` challenge, then `scopes_supported` from the Protected Resource Metadata document, *otherwise the `scope` parameter is omitted*. The SDK inserted an extra fallback between those two steps — the **authorization-server** metadata's `scopes_supported` — which over-requests (an authorization server may serve many resource servers, so its list is a superset of any one resource's) and caused real `access_denied` failures ([#1307](https://github.com/modelcontextprotocol/python-sdk/issues/1307)). That fallback is removed: when neither the challenge nor the PRM names scopes, the client now omits the `scope` parameter and lets the authorization server apply its defaults.
+
+This also affects the SEP-2207 `offline_access` augmentation, which only fires once a base scope was selected: if the authorization server's `scopes_supported` was your only scope source, the client now sends no `scope` at all (not even `offline_access`) and the authorization server's defaults decide whether a refresh token is issued. In either case, if you relied on the removed fallback, pass an explicit `scope` on the `OAuthClientMetadata` you give to `OAuthClientProvider`. That explicit scope ranks *below* the spec's two sources (matching the TypeScript SDK): a `scope` on the `WWW-Authenticate` challenge or a PRM `scopes_supported` still wins, so the explicit value only takes effect when both are silent.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -394,6 +444,32 @@ In v1, connecting to a server always performed the `initialize` handshake. In v2
 For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` instance), `mode='auto'` dispatches calls directly through `DirectDispatcher` with no JSON-RPC framing. Pass `mode='legacy'` if you need the in-memory JSON-RPC transport that v1 used.
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
+
+### `Client` gains an opt-in `strict_capabilities` flag
+
+`Client(..., strict_capabilities=True)` makes the client reject, before any request reaches
+the transport, a call to a method whose required server capability the connected server did
+not advertise -- for example `list_resources()` against a server that only advertised
+`tools`, or `subscribe_resource()` against a server whose `resources` capability does not set
+`subscribe`. The rejection is an `MCPError` with code `-32601` (`METHOD_NOT_FOUND`), the same
+code a compliant server returns for an unadvertised capability, so existing error handling is
+unaffected.
+
+The default is `False` and is unchanged from v1: every request is sent and the server's
+answer is surfaced. This mirrors the TypeScript SDK's `enforceStrictCapabilities` option, and
+the same keyword-only parameter exists directly on `ClientSession(..., strict_capabilities=)`
+for low-level users -- `Client` just forwards it. The check reads
+`client.server_capabilities`, so a bare version pin (`mode="2026-07-28"` with no
+`prior_discover=`) -- where the client never asks the server what it supports and so every
+capability-gated method would be rejected -- is refused at construction with a `ValueError`
+that names the fix: supply `prior_discover=` or use `mode="auto"`. Which method needs which
+capability is exported as `mcp_types.methods.SERVER_CAPABILITY_REQUIREMENTS`.
+
+### Unhandled `elicitation/create` returns `-32602`; unhandled `roots/list` returns `-32601`
+
+When a server sends `elicitation/create` to a client that registered no `elicitation_callback`, or `roots/list` to a client that registered no `list_roots_callback`, the SDK still answers on the client's behalf with a JSON-RPC error. In v1 both answers used code `-32600` (`INVALID_REQUEST`). They now use the code the spec assigns to each case: `elicitation/create` is answered with `-32602` (`INVALID_PARAMS`), per the [elicitation error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#error-handling) (a client with no callback declared no elicitation modes, and a request for an undeclared mode MUST be answered with `-32602`), and `roots/list` is answered with `-32601` (`METHOD_NOT_FOUND`), per the [roots error-handling section](https://modelcontextprotocol.io/specification/2025-11-25/client/roots#error-handling). The error messages (`Elicitation not supported`, `List roots not supported`) are unchanged, and `sampling/createMessage` without a `sampling_callback` still answers `-32600` — the spec assigns no code to that case.
+
+Server-side code that branched on `error.code == INVALID_REQUEST` to detect a client without elicitation or roots support should switch to `INVALID_PARAMS` and `METHOD_NOT_FOUND` respectively — or, better, check the client's declared capabilities before sending, which is the condition these codes describe.
 
 ### `InputRequiredResult` handling differs between `Client` and `ClientSession`
 
@@ -742,6 +818,42 @@ Positional calls (`await ctx.info("hello")`) are unaffected.
 
 `Context.elicit()` (and `elicit_with_validation()`) now render the schema first and validate each property against the spec's `PrimitiveSchemaDefinition`, raising `TypeError` at the call site for anything outside it. `Optional[T]` fields render as `{"type": ...}` with the field omitted from `required` (previously the non-spec `anyOf` shape). A bare `list[str]` field is rejected because it renders without the required enum items; use `list[Literal[...]]` or `list[str]` with `json_schema_extra` supplying the items. Unions of multiple primitives (e.g. `int | str`) and nested models are rejected.
 
+### `ServerSession.elicit_form()` takes a typed `ElicitRequestedSchema`
+
+`ServerSession.elicit_form()` (and the deprecated `elicit()` alias, and `ClientPeer.elicit_form()`)
+now take an `mcp_types.ElicitRequestedSchema` -- a Pydantic model of the spec's restricted
+requested-schema subset -- instead of an arbitrary `dict[str, Any]`. `ElicitRequestedSchema` was
+previously a `TypeAlias` for `dict[str, Any]`; it is now that model. A schema with a nested-object
+property, an array-of-objects property, or an `anyOf` union is rejected at construction.
+
+**Why:** the spec restricts form-mode requested schemas to flat objects with primitive-typed
+properties only ("complex nested structures, arrays of objects ... are intentionally not
+supported"). Typing the send side makes a non-conforming schema impossible to construct rather
+than silently forwarded.
+
+**How to migrate:** build the model in place of the dict, or validate an existing JSON Schema dict:
+
+```python
+from mcp_types import BooleanSchema, ElicitRequestedSchema, StringSchema
+
+await ctx.session.elicit_form(
+    "Choose a username.",
+    ElicitRequestedSchema(
+        properties={"username": StringSchema(type="string"), "newsletter": BooleanSchema(type="boolean")},
+        required=["username"],
+    ),
+)
+
+# Or, if you already have a JSON Schema dict:
+await ctx.session.elicit_form("Choose a username.", ElicitRequestedSchema.model_validate(my_schema))
+```
+
+The high-level `Context.elicit()` / `elicit_with_validation()` path, which generates the schema
+from a Pydantic model class, is unchanged. The wire type `ElicitRequestFormParams.requested_schema`
+is still a plain `dict[str, Any]`: the client's inbound parsing deliberately tolerates
+non-conforming schemas so older servers (which emit `anyOf` for `Optional` form fields) still
+reach the elicitation callback.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:
@@ -835,7 +947,7 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
 # After (v2)
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     if ctx.meta and "progress_token" in ctx.meta:
-        await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+        await ctx.session.report_progress(0.5, 100)
     ...
 
 server = Server("my-server", on_call_tool=handle_call_tool)
@@ -897,7 +1009,7 @@ async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 
 ### `ProgressContext` and `progress()` context manager removed
 
-The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
+The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` directly.
 
 **Before (v1):**
 
@@ -917,21 +1029,11 @@ async def my_tool(x: int, ctx: Context) -> str:
     return "done"
 ```
 
-**After — use `session.send_progress_notification()` (low-level):**
-
-```python
-await session.send_progress_notification(
-    progress_token=progress_token,
-    progress=25,
-    total=100,
-)
-```
-
 ### Handler progress reporting: prefer `ctx.report_progress()` over manual `progress_token`
 
 Reading `ctx.meta["progress_token"]` and calling `session.send_progress_notification(token, ...)` is specific to the JSON-RPC transport path. On the in-process modern path (`DirectDispatcher` / `Client(server)`), there is no wire token in `_meta`, so handlers that gate progress on the token's presence go silent.
 
-`ctx.report_progress(progress, total, message)` works on every dispatcher: it sends a progress notification when a token is present and routes the update through the dispatcher's progress channel otherwise, no-opping only when the caller did not request progress at all. `session.send_progress_notification(progress_token, ...)` is unchanged and still works on JSON-RPC transports for code that already holds a token.
+`ctx.report_progress(progress, total, message)` works on every dispatcher: it sends a progress notification when a token is present and routes the update through the dispatcher's progress channel otherwise, no-opping only when the caller did not request progress at all. `ServerSession.send_progress_notification(progress_token, ...)` is now deprecated; see **Progress API deprecations** below.
 
 ### `create_connected_server_and_client_session` removed
 
@@ -1388,9 +1490,9 @@ In practice, replace direct `ServerSession` use with `Server.run(read_stream, wr
 
 Behavior changes:
 
-- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the request is then answered with an error). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
+- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the callback is interrupted; no response is sent for the cancelled request). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
 - **Timeouts**: a timed-out or abandoned request is now followed by `notifications/cancelled`, so the server stops the handler instead of leaving it running.
-- **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
+- **A raising request callback** is answered with `INTERNAL_ERROR` (`-32603`) and a generic message — the exception text is logged client-side, not sent; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
 - **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the private `mcp.shared._context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession]` become `ClientRequestContext`.
@@ -1428,11 +1530,23 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 No migration is required during the deprecation window. New code should avoid building on these features, since they may be removed in a future spec version.
 
-### Client-to-server progress deprecated (2026-07-28)
+### Progress API deprecations (2026-07-28)
 
 The 2026-07-28 spec restricts `notifications/progress` to the server-to-client direction only — `ProgressNotification` is no longer in `ClientNotification`. `Client.send_progress_notification()` and `ClientSession.send_progress_notification()` now carry `typing_extensions.deprecated` and emit `mcp.MCPDeprecationWarning` at runtime. They continue to work against servers negotiating 2025-11-25 or earlier.
 
-On the server side, prefer the new dispatcher-agnostic `ServerSession.report_progress(progress, total, message)` (and `Context.report_progress()` on `MCPServer`) over the raw `ServerSession.send_progress_notification(progress_token, …)`. `report_progress` encapsulates the "no-op when the caller did not request progress" rule and works on every dispatcher; the raw token-taking form remains for handlers that read `_meta.progressToken` directly.
+On the server side, `ServerSession.send_progress_notification(progress_token, ...)` is also deprecated. It takes an explicit progress token decoupled from any request's lifetime, so it can emit progress for a request that has already completed -- which the spec forbids ("Progress notifications MUST stop after completion"). Use `Context.report_progress(progress, total, message)` (or `ServerSession.report_progress(...)` from a low-level handler): it reports against the inbound request's own progress token, works on every dispatcher, no-ops when the caller did not request progress, and is closed with the request, so a late call after the handler has returned sends nothing.
+
+```python
+# Before
+token = ctx.meta.get("progress_token")
+if token is not None:
+    await ctx.session.send_progress_notification(token, 0.5, total=1.0)
+
+# After
+await ctx.report_progress(0.5, total=1.0)
+```
+
+The deprecated method still works during the advisory window and emits `mcp.MCPDeprecationWarning`.
 
 ## Bug Fixes
 
@@ -1461,6 +1575,33 @@ metadata. Previously the trailing slash was added before the model saw the value
 issuer inconsistent with what clients compare against under RFC 8414 / RFC 9207. Passing an
 already-built `AnyHttpUrl` object still normalizes at construction; pass a string to get the
 preserved form.
+
+### Bearer tokens are rejected unless their audience names this server
+
+`BearerAuthBackend` now compares `AccessToken.resource` against `AuthSettings.resource_server_url` and answers any token whose RFC 8707 resource indicator does not name this server — **including a token that carries no resource indicator at all** — with `401 invalid_token`. The comparison is canonical-URI equality, so a token issued for `https://host/` is not accepted by a server at `https://host/mcp`.
+
+To migrate, do exactly one of:
+
+- **Populate `AccessToken.resource`** from the token's `aud` claim (an introspection response's `aud`, or the decoded JWT's `aud`) in your `TokenVerifier`. This is the recommended path and what the SDK's examples now show.
+- **Set `AuthSettings(verifier_validates_audience=True)`** if your verifier already validates the audience itself and cannot surface it — for example a JWT library configured with `audience=` that fails decoding on a mismatch. This tells the bearer gate not to repeat a check your verifier already performed. Do not set it just to make the `401` go away: with it set, the SDK performs no audience validation of its own at all.
+
+Leaving `resource_server_url=None` continues to disable the check entirely (there is no audience to compare against), but a protected server should configure it: it is also the value published as RFC 9728 Protected Resource Metadata. If your authorization server does not support RFC 8707 resource indicators, your tokens will not carry an audience — audit that before opting out, because accepting audience-unbound tokens is what the MCP specification's audience-validation MUST exists to prevent.
+
+`RefreshToken` gains an optional `resource` field so an `OAuthAuthorizationServerProvider` can propagate the original grant's audience binding through `exchange_refresh_token`; without it a refreshed access token would carry no audience and be rejected. `BearerAuthBackend.__init__` gains a keyword-only `resource_server_url: AnyHttpUrl | None = None`, wired automatically from `AuthSettings.enforced_audience`; `None` (the default, and what the SDK passes when `verifier_validates_audience` is set) means no audience is enforced.
+
+The error responses the bearer gate sends changed shape in the same release, following RFC 6750 §3:
+
+- A request presenting **no credentials at all** (no `Authorization: Bearer` header) is now answered with a bare challenge — `WWW-Authenticate: Bearer scope="…", resource_metadata="…"` and an empty JSON body `{}` — instead of `error="invalid_token", error_description="Authentication required"` in both the header and the body. RFC 6750 §3.1 says the `error` attribute should only appear when the request actually carried a token, so "no token" and "rejected token" are now distinguishable; anything matching on the literal `Authentication required` string or expecting a non-empty 401 body must be updated.
+- Every challenge — the `401`s and the `403` — now advertises the configured `required_scopes` in an RFC 6750 `scope="…"` parameter, which spec-conformant clients (including this SDK's OAuth client) read as the first step of scope selection and step-up authorization.
+- The `error_description` strings changed. A rejected token now states the failure: `The access token is malformed or unknown`, `The access token has expired`, `The access token carries no audience claim`, or `The access token was issued for a different resource` (previously all of these — where they were rejected at all — said `Authentication required`). The `403 insufficient_scope` description is now the fixed string `The access token lacks a required scope` instead of `Required scope: {scope}`; the required scope moved to the machine-readable `scope=` challenge parameter. Treat `error_description` as human-readable prose, not a contract.
+
+### Bundled authorization server: RFC-correct redirect-URI handling
+
+Two fixes to the optional bundled OAuth authorization server (the `auth_server_provider=` path).
+
+The token endpoint now answers an authorization-code exchange whose `redirect_uri` does not match the one used at `/authorize` with `error=invalid_grant` instead of `error=invalid_request`. RFC 6749 §5.2 assigns this case to `invalid_grant` ("does not match the redirection URI used in the authorization request"). The exchange was already rejected with HTTP 400; only the `error` field changes.
+
+The registration endpoint now rejects a `redirect_uris` entry that is neither HTTPS nor a loopback host (`localhost`, `127.0.0.1`, or `[::1]`) with `400 invalid_client_metadata`. Previously any well-formed URL — including cleartext `http://` on a non-loopback host, `javascript:`, and `data:` — was accepted and stored. The MCP authorization specification's Communication Security section requires every redirect URI to be either `localhost` or HTTPS; the SDK accepts the three loopback forms OAuth 2.1 §8.4.2 names. Local development against `http://localhost:*`, `http://127.0.0.1:*`, or `http://[::1]:*` is unaffected. Note that this also rejects RFC 8252 private-use URI schemes (such as `com.example.app:/callback`): MCP restricts redirect URIs to HTTPS or loopback, which is stricter than vanilla OAuth allows for native apps. A redirect URI carrying a fragment component is also rejected (OAuth 2.1 §2.3). Query strings remain permitted.
 
 ### Lowlevel `Server`: `subscribe` capability now correctly reported
 

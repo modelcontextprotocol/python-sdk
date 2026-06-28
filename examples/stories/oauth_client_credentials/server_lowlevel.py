@@ -18,7 +18,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.shared.auth import OAuthMetadata, OAuthToken
 from stories._hosting import NO_DNS_REBIND, run_app_from_args
-from stories._shared.auth import BASE_URL, auth_settings
+from stories._shared.auth import BASE_URL, MCP_URL, auth_settings
 
 from .server import DEMO_CLIENT_ID, DEMO_CLIENT_SECRET, DEMO_SCOPE
 
@@ -62,8 +62,17 @@ def build_app() -> Starlette:
         creds = base64.b64decode(request.headers.get("authorization", "").removeprefix("Basic ")).decode()
         if creds != f"{DEMO_CLIENT_ID}:{DEMO_CLIENT_SECRET}":
             return JSONResponse({"error": "invalid_client"}, status_code=401)
+        # RFC 8707 §2.2: this AS protects exactly one resource. Anything else (or a missing
+        # indicator) is answered with `invalid_target`, and the issued token is audience-bound
+        # to that one resource so the bearer gate accepts it. Never mint whatever audience the
+        # client names: a multi-resource AS that does so hands out tokens for resources the
+        # client was never granted.
+        if form.get("resource") != MCP_URL:
+            return JSONResponse({"error": "invalid_target"}, status_code=400)
         access = f"access_{secrets.token_hex(16)}"
-        issued[access] = AccessToken(token=access, client_id=DEMO_CLIENT_ID, scopes=[DEMO_SCOPE], expires_at=None)
+        issued[access] = AccessToken(
+            token=access, client_id=DEMO_CLIENT_ID, scopes=[DEMO_SCOPE], expires_at=None, resource=MCP_URL
+        )
         body = OAuthToken(access_token=access, token_type="Bearer", expires_in=3600, scope=DEMO_SCOPE)
         return JSONResponse(body.model_dump(exclude_none=True), headers={"cache-control": "no-store"})
 

@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Generic, Literal, TypeVar
 
-from mcp_types import RequestId
-
-# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp_types.v2025_11_25 import PrimitiveSchemaDefinition
-from pydantic import BaseModel, ValidationError
+from mcp_types import ElicitRequestedSchema, PrimitiveSchemaDefinition, RequestId
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 
@@ -66,20 +63,27 @@ class _ElicitationJsonSchema(GenerateJsonSchema):
         return result
 
 
-def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
-    """Reject any `properties` entry the spec's `PrimitiveSchemaDefinition` won't accept.
+# `PrimitiveSchemaDefinition` is a flat union alias; validate one rendered property at a time through an adapter.
+_PRIMITIVE_SCHEMA_ADAPTER = TypeAdapter[PrimitiveSchemaDefinition](PrimitiveSchemaDefinition)
 
-    Catches whatever the renderer let through that isn't spec-valid: bare
-    `list[str]` (no enum), multi-primitive unions, nested models.
+
+def _rendered_requested_schema(json_schema: dict[str, Any]) -> ElicitRequestedSchema:
+    """Convert a rendered JSON Schema dict into the typed `ElicitRequestedSchema`.
+
+    The per-property loop rejects whatever the renderer let through that isn't
+    spec-valid: bare `list[str]` (no enum), multi-primitive unions, nested models.
     """
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
-            PrimitiveSchemaDefinition.model_validate(prop)
+            _PRIMITIVE_SCHEMA_ADAPTER.validate_python(prop)
         except ValidationError:
             raise TypeError(
                 f"Elicitation schema field {field_name!r} rendered as {prop!r}, "
                 f"which is not a valid PrimitiveSchemaDefinition"
             ) from None
+    # The loop exists only to name the offending field; the renderer always produces a
+    # top-level object schema, so once every property passed this validate succeeds.
+    return ElicitRequestedSchema.model_validate(json_schema)
 
 
 async def elicit_with_validation(
@@ -99,11 +103,9 @@ async def elicit_with_validation(
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
     """
     json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
-    _validate_rendered_properties(json_schema)
-
     result = await session.elicit_form(
         message=message,
-        requested_schema=json_schema,
+        requested_schema=_rendered_requested_schema(json_schema),
         related_request_id=related_request_id,
     )
 

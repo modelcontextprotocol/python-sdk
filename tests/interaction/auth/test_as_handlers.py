@@ -170,16 +170,15 @@ async def test_reusing_an_authorization_code_is_rejected_with_invalid_grant(
 
 
 @requirement("hosting:auth:as:redirect-uri-binding")
-async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_endpoint(
+async def test_a_token_exchange_with_a_mismatched_redirect_uri_is_rejected_with_invalid_grant(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """A token exchange whose `redirect_uri` differs from the one used at authorize is rejected.
+    """A token exchange whose `redirect_uri` differs from the one used at authorize is rejected with `invalid_grant`.
 
     This is the security-critical half of redirect-URI binding: a code intercepted via redirect
     substitution cannot be redeemed because the attacker cannot reproduce the original authorize
-    redirect URI at the token endpoint. RFC 6749 §5.2 specifies `invalid_grant` for this case;
-    the SDK returns `invalid_request` (see the divergence on the requirement). The rejection
-    itself is the security property and is correct.
+    redirect URI at the token endpoint. RFC 6749 §5.2 assigns the mismatch to `invalid_grant`,
+    matching the handler's other authorization-code failures.
     """
     http, _ = as_app
     client_info, code, verifier = await _mint_code(http)
@@ -192,7 +191,7 @@ async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_
     assert response.status_code == 400
     assert response.json() == snapshot(
         {
-            "error": "invalid_request",
+            "error": "invalid_grant",
             "error_description": "redirect_uri did not match the one used when creating auth code",
         }
     )
@@ -279,22 +278,114 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 
 
 @requirement("hosting:auth:as:redirect-uri-scheme")
-async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+@pytest.mark.parametrize(
+    ("redirect_uri", "rejection"),
+    [
+        (
+            "http://evil.example/callback",
+            snapshot("redirect_uri must use https or be a loopback http URI: http://evil.example/callback"),
+        ),
+        (
+            "http://localhost.evil.example/callback",
+            snapshot("redirect_uri must use https or be a loopback http URI: http://localhost.evil.example/callback"),
+        ),
+        ("javascript:alert(1)", snapshot("redirect_uri must use https or be a loopback http URI: javascript:alert(1)")),
+        (
+            "com.example.app:/oauth/cb",
+            snapshot("redirect_uri must use https or be a loopback http URI: com.example.app:/oauth/cb"),
+        ),
+        ("ftp://127.0.0.1/cb", snapshot("redirect_uri must use https or be a loopback http URI: ftp://127.0.0.1/cb")),
+        ("ws://localhost/cb", snapshot("redirect_uri must use https or be a loopback http URI: ws://localhost/cb")),
+        (
+            "javascript://localhost/%0aalert(1)",
+            snapshot("redirect_uri must use https or be a loopback http URI: javascript://localhost/%0aalert(1)"),
+        ),
+        (
+            "custom-scheme://localhost/cb",
+            snapshot("redirect_uri must use https or be a loopback http URI: custom-scheme://localhost/cb"),
+        ),
+        ("ftp://[::1]/cb", snapshot("redirect_uri must use https or be a loopback http URI: ftp://[::1]/cb")),
+    ],
+)
+async def test_a_redirect_uri_that_is_neither_https_nor_loopback_http_is_rejected_at_registration(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str, rejection: str
 ) -> None:
-    """A registration carrying a non-HTTPS, non-loopback redirect URI is accepted.
+    """A registration whose redirect URI is neither HTTPS nor loopback HTTP is rejected with 400.
 
-    The spec requires every redirect URI to be either HTTPS or a loopback host; the bundled
-    registration handler does not enforce this and registers `http://evil.example/callback`
-    successfully. See the divergence on the requirement.
+    OAuth 2.1's only carve-out from HTTPS redirect URIs is plain HTTP on a loopback host; the
+    registration request model enforces scheme and host together at parse time so the provider
+    never sees the client. Loopback is matched on the whole host (`localhost.evil.example` is
+    not loopback), a loopback host does not launder a non-HTTP scheme (`ftp://127.0.0.1`,
+    `javascript://localhost`), and a scheme with no authority — `javascript:`, or an RFC 8252
+    private-use scheme such as `com.example.app:` — fails the same check.
     """
     http, provider = as_app
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
-    body["redirect_uris"] = ["http://evil.example/callback"]
+    body["redirect_uris"] = [redirect_uri]
+
+    response = await http.post("/register", json=body)
+
+    assert response.status_code == 400
+    error = response.json()
+    assert error["error"] == "invalid_client_metadata"
+    # Substring: pydantic wraps the SDK validator's sentence in its own framing
+    # (`redirect_uris: Value error, …`), which is deliberately not pinned.
+    assert rejection in error["error_description"]
+    assert provider.clients == {}
+
+
+@requirement("hosting:auth:as:redirect-uri-scheme")
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://app.example.com/callback",
+        "http://localhost:3030/callback",
+        "http://127.0.0.1:8000/callback",
+        "http://[::1]:8000/callback",
+    ],
+)
+async def test_an_https_or_loopback_http_redirect_uri_is_accepted_at_registration(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str
+) -> None:
+    """A registration whose redirect URI uses HTTPS or plain HTTP on a loopback host is accepted and stored.
+
+    Loopback covers exactly the three forms OAuth 2.1 names: the hostname `localhost` and the
+    loopback IP literals `127.0.0.1` and `[::1]`, on any port, over plain HTTP.
+    """
+    http, provider = as_app
+    body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
+    body["redirect_uris"] = [redirect_uri]
 
     response = await http.post("/register", json=body)
 
     assert response.status_code == 201
     info = OAuthClientInformationFull.model_validate_json(response.content)
-    assert [str(u) for u in (info.redirect_uris or [])] == ["http://evil.example/callback"]
+    assert [str(u) for u in (info.redirect_uris or [])] == [redirect_uri]
     assert info.client_id in provider.clients
+
+
+@requirement("hosting:auth:as:redirect-uri-scheme")
+@pytest.mark.parametrize(
+    "redirect_uri", ["https://app.example.com/callback#", "https://app.example.com/callback#nonce"]
+)
+async def test_a_redirect_uri_carrying_a_fragment_is_rejected_at_registration(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider], redirect_uri: str
+) -> None:
+    """A registration whose redirect URI carries a fragment component is rejected with 400.
+
+    OAuth 2.1 section 2.3: a redirect URI MUST NOT include a fragment component. The bare
+    trailing `#` parses to an empty-string fragment and is rejected the same as a named one.
+    """
+    http, provider = as_app
+    body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
+    body["redirect_uris"] = [redirect_uri]
+
+    response = await http.post("/register", json=body)
+
+    assert response.status_code == 400
+    error = response.json()
+    assert error["error"] == "invalid_client_metadata"
+    # Pydantic frames the validator's message as `redirect_uris: Value error, <msg>` (third-party
+    # text), so assert only the SDK-authored sentence to pin which validation fired.
+    assert "redirect_uri must not include a fragment" in error["error_description"]
+    assert provider.clients == {}

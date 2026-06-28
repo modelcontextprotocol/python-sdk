@@ -17,7 +17,6 @@ from mcp import Client, MCPDeprecationWarning, MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
-from mcp.shared.exceptions import NoBackChannelError
 
 pytestmark = pytest.mark.anyio
 
@@ -54,7 +53,7 @@ async def test_create_message_warns_and_then_raises_on_a_modern_connection() -> 
                 MCPDeprecationWarning,
                 match=r"^The sampling capability is deprecated as of 2026-07-28 \(SEP-2577\)\.$",
             ),
-            pytest.raises(NoBackChannelError) as exc,
+            pytest.raises(MCPError) as exc,
         ):
             await client.call_tool("ask_model", {"prompt": "hi"})
         assert str(exc.value) == (

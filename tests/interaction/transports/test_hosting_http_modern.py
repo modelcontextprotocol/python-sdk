@@ -184,9 +184,8 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
     """A handler exception on the 2026-07-28 path returns -32603 with a generic message.
 
     Spec-mandated for the code: -32603 is the JSON-RPC Internal error code. SDK-defined for the
-    message: the 2026-07-28 entry deliberately does not echo ``str(exc)`` (the legacy dispatcher's
-    code-0 leak is the recorded divergence on ``protocol:error:internal-error``). Asserted at the
-    wire because the SDK client surfaces only the error object, not the HTTP status it travelled on.
+    message: the entry deliberately does not echo ``str(exc)``. Asserted at the wire because the
+    SDK client surfaces only the error object, not the HTTP status it travelled on.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:

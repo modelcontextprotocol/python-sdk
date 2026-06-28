@@ -176,7 +176,7 @@ class ClientPeer:
             NoBackChannelError: No back-channel for server-initiated requests.
             pydantic.ValidationError: The peer's result does not match the expected result type.
         """
-        params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
+        params = ElicitRequestFormParams(message=message, requested_schema=requested_schema.to_wire())
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result, by_name=False)
 
