@@ -383,10 +383,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic#_meta",
         behavior=(
             "Every client→server request on a modern-negotiated session carries "
-            "_meta.{protocolVersion,clientInfo,clientCapabilities}; notifications do not."
+            "_meta.{protocolVersion,clientInfo,clientCapabilities}."
         ),
         added_in="2026-07-28",
         supersedes=("lifecycle:initialize:client-info", "lifecycle:initialize:client-capabilities"),
+        note=(
+            "The spec MUST covers requests only. The session's modern stamp is message-agnostic, so "
+            "session-sent notifications carry the envelope too, while dispatcher-built frames (the "
+            "courtesy cancel) do not; neither notification arm is asserted here."
+        ),
     ),
     "lifecycle:envelope:header-matches-meta": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#protocol-version-header",
@@ -399,7 +404,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/server/discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
-            "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
+            "carrying supportedVersions, capabilities, serverInfo and the cache hint fields."
         ),
         added_in="2026-07-28",
     ),
@@ -414,18 +419,25 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:discover:fallback-method-not-found": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
         behavior=(
-            "When server/discover returns any JSON-RPC error or a bare HTTP 4xx, an auto-negotiating "
-            "client falls back to the legacy initialize handshake and the connection succeeds at a "
-            "handshake-era version (legacy servers reject the probe with various codes)."
+            "When server/discover returns a JSON-RPC error that is not a recognized modern negotiation "
+            "error (-32022 retries or raises instead; see lifecycle:discover:retry-on-32022), or a bare "
+            "HTTP 4xx, an auto-negotiating client falls back to the legacy initialize handshake and the "
+            "connection succeeds at a handshake-era version; the fallback is not keyed to specific codes "
+            "(legacy servers reject the probe with various codes)."
         ),
         added_in="2026-07-28",
+        note=(
+            "The SDK keys its no-fallback carve-out to -32022 alone, while the spec's carve-out is any "
+            "recognized modern JSON-RPC error (an open set); no test drives a modern-error probe "
+            "rejection other than -32022."
+        ),
     ),
     "lifecycle:discover:network-error-raises": Requirement(
         source="sdk",
         behavior=(
             "A network/connection error during server/discover propagates to the caller without "
-            "falling back to initialize; any rpc-error or 4xx falls back (legacy servers reject the "
-            "probe with various codes). An outage is never an era verdict."
+            "falling back to initialize; fallback is reserved for server rejections (see "
+            "lifecycle:discover:fallback-method-not-found). An outage is never an era verdict."
         ),
         transports=("streamable-http", "streamable-http-stateless"),
         added_in="2026-07-28",
@@ -613,14 +625,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
                 "non-nullable, so a null-id error response failed transport validation and the resulting "
-                "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
-                "restoring visibility is planned before v2 stable."
+                "ValidationError was surfaced to message_handler as an exception. The v2 fault channel "
+                "exists (message_handler receives stream exceptions), but response routing drops the "
+                "null-id error before anything reaches it."
             ),
         ),
         deferred=(
             "Not yet covered here: the current drop is pinned at the dispatcher level by "
-            "tests/shared/test_jsonrpc_dispatcher.py; an interaction-level test waits on the planned "
-            "fault channel."
+            "tests/shared/test_jsonrpc_dispatcher.py; an interaction-level test waits on the dispatcher "
+            "routing null-id errors into the existing fault channel."
         ),
     ),
     "protocol:meta:related-task": Requirement(
@@ -851,6 +864,13 @@ REQUIREMENTS: dict[str, Requirement] = {
     "tools:call:structured-content:text-mirror": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#structured-content",
         behavior="A tool returning structured content also returns the serialized JSON as a text content block.",
+        divergence=Divergence(
+            note=(
+                "Holds for object returns (the bound test pins the serialized-JSON mirror); a "
+                "list-returning tool yields one text block per element rather than the serialized JSON "
+                "of its structured value (pinned by the test on mcpserver:tool:output-schema:wrapped)."
+            ),
+        ),
     ),
     "tools:call:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
@@ -1051,6 +1071,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
             "corresponding severity."
+        ),
+        divergence=Divergence(
+            note=(
+                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
+                "io.modelcontextprotocol/logLevel opt-in; the Context helpers never read that key and emit "
+                "unconditionally, so a bound test pins the un-gated delivery on the live 2026-07-28 cells."
+            ),
         ),
     ),
     "mcpserver:context:progress": Requirement(
@@ -1340,7 +1367,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="prompts/get for a name that was never registered returns JSON-RPC error -32602 (Invalid params).",
         divergence=Divergence(
             note=(
-                "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
+                "The spec SHOULD-lists -32602 Invalid params for an invalid prompt name; MCPServer raises "
                 "ValueError, which the low-level server converts to error code 0."
             ),
         ),
@@ -2027,9 +2054,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:register:post-connect": Requirement(
         source="sdk",
         behavior=(
-            "A tool, resource, or prompt registered or removed after the client connected appears in (or "
-            "disappears from) the corresponding list results, and the change is announced with a "
-            "list_changed notification."
+            "A tool registered or removed after the client connected appears in (or disappears from) "
+            "tools/list results, and the change is announced with a list_changed notification."
         ),
         divergence=Divergence(
             note=(
@@ -2481,8 +2507,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     "transport:streamable-http:notifications": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
-            "Notifications emitted during a request are delivered on that request's SSE stream and reach "
-            "the client's callbacks, in order, before the response."
+            "Notifications emitted during a request reach the client's callbacks over the streamable HTTP framing."
         ),
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: per-request SSE streams are HTTP-specific.",
@@ -3095,8 +3120,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "hosting:http:protocol-version-rejection-literal": Requirement(
         source="sdk",
         behavior=(
-            "The legacy streamable-HTTP transport's version-rejection body contains the literal substring "
-            "'Unsupported protocol version', which other-SDK clients substring-match during negotiation."
+            "The streamable-HTTP version-rejection body contains the literal substring 'Unsupported "
+            "protocol version', which other-SDK clients substring-match during negotiation; the modern "
+            "request classifier is its only emission site."
         ),
         transports=("streamable-http",),
         note=(
@@ -3138,7 +3164,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "hosting:http:modern:initialize-removed": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/index",
-        behavior="A 2026-07-28 initialize request is answered with METHOD_NOT_FOUND.",
+        behavior="A 2026-07-28 initialize request is answered with METHOD_NOT_FOUND at HTTP 404.",
         added_in="2026-07-28",
         transports=("streamable-http",),
         note=("Only observable over streamable HTTP: the modern entry's method registry omits initialize."),
@@ -3146,9 +3172,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "hosting:http:modern:legacy-fallthrough": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/versioning",
         behavior=(
-            "Non-2026-07-28 traffic on the same /mcp endpoint reaches the legacy transport "
-            "byte-unchanged: a 2025-era initialize handshake still completes, and an unrecognised "
-            "MCP-Protocol-Version header still produces the legacy 400 'Unsupported protocol version' literal."
+            "Initialize-handshake-era traffic on the same /mcp endpoint reaches the legacy transport "
+            "byte-unchanged: a 2025-era initialize handshake still completes. Any other "
+            "MCP-Protocol-Version header routes to the modern entry, whose validation ladder rejects "
+            "the envelope-less request with 400 INVALID_PARAMS."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
@@ -3267,10 +3294,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "client-transport:http:custom-client": Requirement(
         source="sdk",
-        behavior=(
-            "A caller-supplied HTTP client (and its event hooks and headers) is used for all MCP traffic, "
-            "including auth flows."
-        ),
+        behavior="A caller-supplied HTTP client (and its event hooks and headers) is used for all MCP traffic.",
         transports=("streamable-http",),
         note="Only observable over HTTP: the httpx client is HTTP-specific.",
     ),
@@ -3442,9 +3466,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "client-auth:403-scope-upgrade": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
-        behavior=(
-            "A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt; repeated 403s do not loop."
-        ),
+        behavior="A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt.",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
@@ -3691,8 +3713,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
         behavior=(
             "The client validates the RFC 9207 iss authorization-response parameter against the "
-            "authorization server issuer (simple string comparison) and rejects a mismatch, or a "
-            "missing iss when the server advertises support (SEP-2468)."
+            "authorization server issuer (simple string comparison) and rejects a mismatch (SEP-2468)."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
