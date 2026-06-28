@@ -11,7 +11,11 @@ speaks the raw 2026 dialect against the mounted modern entry, the only seam wher
 params can originate. The directionality-edge tests pin the 2026 boundary itself: the retired
 push APIs fail loudly (except the in-memory request-scoped leg, a pinned divergence), embedded
 input requests cross un-gated to the refusing client driver, and a completed exchange's trace
-carries client requests and server responses only.
+carries client requests and server responses only. The error-handling SHOULDs the auto driver
+can never trigger (a missing or unrequested ``inputResponses`` key) are driven through the
+manual ``allow_input_required`` loop, and a trailing scripted-peer section plays the server by
+hand for result bodies a real ``Server`` cannot emit: an absent ``resultType`` (the
+backward-compat default) and an unrecognized ``resultType`` value (a pinned divergence).
 """
 
 from typing import Any
@@ -31,12 +35,16 @@ from mcp_types import (
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParams,
+    DiscoverResult,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
     ErrorData,
+    Implementation,
+    InitializeResult,
     InputRequiredResult,
     JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ListRootsRequest,
@@ -45,17 +53,19 @@ from mcp_types import (
     RootsCapability,
     SamplingCapability,
     SamplingMessage,
+    ServerCapabilities,
     TextContent,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
 from pydantic import FileUrl
 
 from mcp import InputRequiredRoundsExceededError, MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, ClientSession
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, Connect, base_headers, mounted_app
 from tests.interaction._helpers import RecordingTransport
@@ -300,6 +310,40 @@ async def test_auto_loop_raises_rounds_exceeded_when_the_server_never_completes(
     assert prompts == ["again", "again"]
 
 
+@requirement("protocol:result-type:input-required-not-masked")
+async def test_unopted_session_call_with_an_input_required_result_raises_instead_of_returning_it() -> None:
+    """A session-surface tools/call that has not opted into the manual loop raises the SDK's
+    guidance error when the server answers ``input_required`` -- the interim never surfaces as an
+    empty-content success (spec: clients use ``resultType`` to determine how to parse the
+    result; the error shape itself is SDK-defined). Constructed directly on the in-memory 2026
+    cell, the rounds-cap shape above: the claim is body-level, and the requirement's legacy-axis
+    half is recorded on its note rather than pinned.
+    """
+    calls: list[str] = []
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
+        assert params.name == "ask"
+        calls.append(params.name)
+        return InputRequiredResult(input_requests={"q": _form_request("Need a name")}, request_state="s")
+
+    server = Server("interim-only", on_call_tool=call_tool)
+
+    async with Client(server, mode=LATEST_MODERN_VERSION) as client:
+        # Inside the connect block: unwinding through Client.__aexit__ would wrap the error in
+        # ExceptionGroups (task-group teardown), and pytest.raises would miss the bare type.
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.session.call_tool("ask", {})
+
+    # The SDK's own deliberate guidance text; the snapshot also disambiguates the bare
+    # RuntimeError from any other.
+    assert str(exc_info.value) == snapshot(
+        "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
+        "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
+    )
+    # The handler ran exactly once: no hidden retry preceded the raise.
+    assert calls == ["ask"]
+
+
 @requirement("mrtr:input-required-result:at-least-one-of")
 async def test_input_required_result_with_neither_field_cannot_reach_the_client(connect: Connect) -> None:
     """A handler-built InputRequiredResult with neither inputRequests nor requestState cannot
@@ -376,6 +420,146 @@ async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys
         result = await client.call_tool("profile", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="octocat@file:///workspace")]))
+
+
+@requirement("mrtr:input-responses:missing-reprompted")
+async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: Connect) -> None:
+    """A retry that omits one of the requested ``inputResponses`` keys is answered with a new
+    InputRequiredResult naming the missing key, not an error (spec SHOULD). The re-prompt
+    decision itself belongs to the test's handler -- the spec binds the server application; the
+    SDK obligations pinned are that the partial map passes validation, reaches the handler
+    unmodified, and the re-prompt interim rides the loop as an ordinary input_required round.
+
+    Driven through the manual ``client.session.call_tool(..., allow_input_required=True)`` loop:
+    the auto driver answers every requested key, so a missing key is unconstructible through it.
+    """
+    seen: list[set[str] | None] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
+        # tools/list right after the completing tools/call result.
+        return types.ListToolsResult(tools=[types.Tool(name="enroll", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "enroll"
+        seen.append(None if params.input_responses is None else set(params.input_responses))
+        if params.input_responses is None:
+            return InputRequiredResult(
+                input_requests={"first": _form_request("first question"), "second": _form_request("second question")},
+                request_state="r1",
+            )
+        if "second" not in params.input_responses:
+            first = params.input_responses["first"]
+            assert isinstance(first, ElicitResult)
+            assert first.content is not None
+            # The spec's recovery path: re-prompt for the missing key rather than erroring,
+            # threading round 1's answer through the state (the stateless-server pattern).
+            return InputRequiredResult(
+                input_requests={"second": _form_request("second question")},
+                request_state=f"r2:{first.content['name']}",
+            )
+        assert params.request_state is not None and params.request_state.startswith("r2:")
+        second = params.input_responses["second"]
+        assert isinstance(second, ElicitResult)
+        assert second.content is not None
+        return CallToolResult(
+            content=[TextContent(text=f"{params.request_state.removeprefix('r2:')}+{second.content['name']}")]
+        )
+
+    server = Server("reprompting", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        round1 = await client.session.call_tool("enroll", {}, allow_input_required=True)
+        assert isinstance(round1, InputRequiredResult)
+        assert round1.input_requests is not None
+        assert set(round1.input_requests) == {"first", "second"}
+        # The SHOULD's observable: the partial retry comes back as a fresh InputRequiredResult
+        # naming only the missing key -- not an exception, not an error result.
+        round2 = await client.session.call_tool(
+            "enroll",
+            {},
+            input_responses={"first": ElicitResult(action="accept", content={"name": "one"})},
+            request_state=round1.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(round2, InputRequiredResult)
+        assert round2.input_requests is not None
+        assert set(round2.input_requests) == {"second"}
+        result = await client.session.call_tool(
+            "enroll",
+            {},
+            input_responses={"second": ElicitResult(action="accept", content={"name": "two"})},
+            request_state=round2.request_state,
+            allow_input_required=True,
+        )
+
+    # Both the partial round and the re-prompt round were productive: round 1's answer and the
+    # re-prompted answer meet in the terminal result.
+    assert result == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
+    # The partial map arrived as sent: a future SDK that filtered or rejected partial
+    # inputResponses maps fails here consciously.
+    assert seen == [None, {"first"}, {"second"}]
+
+
+@requirement("mrtr:input-responses:unknown-ignored")
+async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_completes(connect: Connect) -> None:
+    """A retry carrying a response under a key the server never requested completes normally,
+    the server using only the recognized key (spec SHOULD: ignore information it does not
+    recognize or need). The ignoring itself happens in the test's handler, where the spec's
+    judgement lives; the SDK half pinned here is that the stray entry passes validation and is
+    delivered unfiltered, so a future filter-before-dispatch change fails consciously (the
+    requirement note records that filtering would equally satisfy the SHOULD).
+
+    Manual loop again: the auto driver builds responses exclusively from the server's own
+    ``inputRequests`` keys, so an extra key is unconstructible through it.
+    """
+    seen: list[set[str] | None] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
+        # tools/list right after the completing tools/call result.
+        return types.ListToolsResult(tools=[types.Tool(name="greet", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "greet"
+        seen.append(None if params.input_responses is None else set(params.input_responses))
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"name": _form_request("Need a name")}, request_state="s1")
+        # Completes from the requested key alone; the stray entry is deliberately never read.
+        answer = params.input_responses["name"]
+        assert isinstance(answer, ElicitResult)
+        assert answer.content is not None
+        return CallToolResult(content=[TextContent(text=f"hello {answer.content['name']}")])
+
+    server = Server("tolerant", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        round1 = await client.session.call_tool("greet", {}, allow_input_required=True)
+        assert isinstance(round1, InputRequiredResult)
+        result = await client.session.call_tool(
+            "greet",
+            {},
+            # The stray value is structurally VALID -- its unknown-ness lives in the key alone,
+            # keeping this disjoint from the malformed-value claim of invalid-rejected below.
+            input_responses={
+                "name": ElicitResult(action="accept", content={"name": "ada"}),
+                "stray": ElicitResult(action="accept", content={"name": "noise"}),
+            },
+            request_state=round1.request_state,
+            allow_input_required=True,
+        )
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="hello ada")]))
+    # Delivered, not filtered: the stray key reached the handler intact.
+    assert seen == [None, {"name", "stray"}]
 
 
 @requirement("mrtr:push-api:loud-fail-2026")
@@ -936,3 +1120,146 @@ async def test_retry_with_malformed_input_responses_is_rejected_with_invalid_par
 
     error = JSONRPCError.model_validate(response.json())
     assert error.error == snapshot(ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""))
+
+
+# --- scripted server peer: result bodies a real Server cannot emit ---
+
+
+@requirement("protocol:result-type:absent-is-complete")
+async def test_result_body_without_result_type_parses_as_a_complete_result() -> None:
+    """A tools/call result body with no ``resultType`` key parses and surfaces as the normal
+    terminal result, resultType "complete" (spec MUST: for backward compatibility with servers
+    implementing earlier protocol versions, clients treat an absent resultType as "complete").
+
+    The test plays the server by hand over memory streams on a scripted 2025 handshake: a real
+    legacy SDK server omits resultType only incidentally (its 2025 serializer drops the field),
+    so only a byte-controlled body makes the absence explicit and assertable rather than an
+    artifact of the current serializer.
+    """
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+
+        def respond(request_id: types.RequestId, result: dict[str, object]) -> SessionMessage:
+            return SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
+
+        init = await server_read.receive()
+        assert isinstance(init, SessionMessage)
+        assert isinstance(init.message, JSONRPCRequest)
+        assert init.message.method == "initialize"
+        await server_write.send(
+            respond(
+                init.message.id,
+                InitializeResult(
+                    protocol_version="2025-11-25",
+                    capabilities=ServerCapabilities(),
+                    server_info=Implementation(name="scripted", version="0.0.1"),
+                ).model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
+        )
+
+        initialized = await server_read.receive()
+        assert isinstance(initialized, SessionMessage)
+        assert isinstance(initialized.message, JSONRPCNotification)
+        assert initialized.message.method == "notifications/initialized"
+
+        call = await server_read.receive()
+        assert isinstance(call, SessionMessage)
+        assert isinstance(call.message, JSONRPCRequest)
+        assert call.message.method == "tools/call"
+        # Deliberately no "resultType" key: the absence is the clause under test.
+        await server_write.send(respond(call.message.id, {"content": [{"type": "text", "text": "plain"}]}))
+
+        # The client refreshes its output-schema cache right after a successful call result; a
+        # peer that stops at the call response hangs the test.
+        refresh = await server_read.receive()
+        assert isinstance(refresh, SessionMessage)
+        assert isinstance(refresh.message, JSONRPCRequest)
+        assert refresh.message.method == "tools/list"
+        await server_write.send(
+            respond(refresh.message.id, {"tools": [{"name": "x", "inputSchema": {"type": "object"}}]})
+        )
+
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as task_group,
+        ClientSession(client_read, client_write) as session,
+    ):
+        task_group.start_soon(scripted_server, server_streams)
+        with anyio.fail_after(5):
+            await session.initialize()
+            result = await session.call_tool("x", {})
+
+        # The parse default filling "complete" IS the MUST under test; the full-object equality
+        # proves the body surfaced as an ordinary terminal result.
+        assert result.result_type == "complete"
+        assert result == snapshot(CallToolResult(content=[TextContent(text="plain")]))
+
+
+@requirement("protocol:result-type:unrecognized-invalid")
+async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_of_treated_as_invalid() -> None:
+    """PINS A KNOWN GAP: a resultType of any value unrecognized by the client MUST be considered
+    invalid (spec), but the client's open ResultType union accepts any string and its only
+    result-kind dispatch is the InputRequiredResult isinstance check, so the bogus value
+    round-trips and the body surfaces as a normal successful result. See the requirement's
+    divergence; when the client starts rejecting unrecognized resultType values, re-pin this to
+    the typed rejection and delete the Divergence.
+
+    The test plays the server by hand over memory streams against a pinned-2026 ClientSession:
+    the typed Server's result models cannot author an arbitrary resultType, and Client has no
+    public connect path over raw scripted streams.
+    """
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+
+        def respond(request_id: types.RequestId, result: dict[str, object]) -> SessionMessage:
+            return SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
+
+        call = await server_read.receive()
+        assert isinstance(call, SessionMessage)
+        assert isinstance(call.message, JSONRPCRequest)
+        assert call.message.method == "tools/call"
+        # "bogus" is in no core or extension vocabulary -- exactly the unrecognized value the
+        # MUST addresses; the content rides along to prove the body surfaces as a normal result.
+        await server_write.send(
+            respond(call.message.id, {"resultType": "bogus", "content": [{"type": "text", "text": "still here"}]})
+        )
+
+        # The post-call output-schema cache refresh (same choreography fact as the test above).
+        refresh = await server_read.receive()
+        assert isinstance(refresh, SessionMessage)
+        assert isinstance(refresh.message, JSONRPCRequest)
+        assert refresh.message.method == "tools/list"
+        await server_write.send(
+            respond(
+                refresh.message.id,
+                {
+                    "tools": [{"name": "x", "inputSchema": {"type": "object"}}],
+                    "resultType": "complete",
+                    "ttlMs": 0,
+                    "cacheScope": "private",
+                },
+            )
+        )
+
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+        anyio.create_task_group() as task_group,
+        ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
+    ):
+        task_group.start_soon(scripted_server, server_streams)
+        session.adopt(
+            DiscoverResult(
+                supported_versions=[LATEST_MODERN_VERSION],
+                capabilities=ServerCapabilities(),
+                server_info=Implementation(name="srv", version="0"),
+            )
+        )
+        with anyio.fail_after(5):
+            result = await session.call_tool("x", {})
+
+        # The divergent observable, pinned: the unrecognized discriminator survives the round
+        # trip unchanged and the body is a plain successful CallToolResult, never a rejection.
+        assert result.result_type == "bogus"
+        assert result == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))
