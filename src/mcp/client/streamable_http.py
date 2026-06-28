@@ -46,6 +46,16 @@ SessionMessageOrError = SessionMessage | Exception
 StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
+
+async def _send_or_ignore_closed(read_stream_writer: StreamWriter, message: SessionMessageOrError) -> bool:
+    try:
+        await read_stream_writer.send(message)
+    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        logger.debug("Read stream closed before Streamable HTTP message could be delivered", exc_info=True)
+        return False
+    return True
+
+
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
 
@@ -179,17 +189,17 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message, JSONRPCResponse | JSONRPCError)
 
-            # Forwarding to a closed read stream lands here when the caller cancels mid-SSE
-            # (BrokenResourceError, not a parse failure); coverage is timing-dependent in the
-            # streaming story's modern HTTP cancellation leg.
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                logger.debug("Read stream closed while forwarding SSE message", exc_info=True)
+                return True
             except Exception as exc:  # pragma: lax no cover
                 logger.exception("Error parsing SSE message")
                 if original_request_id is not None:
                     error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse SSE message: {exc}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
-                    await read_stream_writer.send(error_msg)
+                    await _send_or_ignore_closed(read_stream_writer, error_msg)
                     return True
-                await read_stream_writer.send(exc)
+                await _send_or_ignore_closed(read_stream_writer, exc)
                 return False
         else:  # pragma: no cover
             logger.warning(f"Unknown SSE event: {sse.event}")
