@@ -187,6 +187,35 @@ REQUIREMENTS: dict[str, Requirement] = {
             "sending notifications or serving callbacks."
         ),
     ),
+    "lifecycle:capability:experimental-passthrough": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
+        behavior=(
+            "Declared capabilities.experimental entries (vendor-namespaced keys, arbitrary object values) "
+            "survive negotiation verbatim in both directions: the client reads the server's via "
+            "server_capabilities, and server handlers see the client's."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client cannot declare experimental capabilities -- "
+            "_build_capabilities (src/mcp/client/session.py) hard-codes experimental=None with no public "
+            "override -- so the client-to-server half cannot be driven; the server-to-client half "
+            "(experimental_capabilities on get_capabilities, src/mcp/server/lowlevel/server.py) exists "
+            "and a later slice may split it out."
+        ),
+    ),
+    "lifecycle:capability:list-empty-when-not-advertised": Requirement(
+        source="sdk",
+        behavior=(
+            "Client list calls (list_tools, list_prompts, list_resources, list_resource_templates) "
+            "resolve with empty lists, without sending a request, when the server did not advertise the "
+            "corresponding capability."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client sends every list request regardless of the server's "
+            "advertised capabilities and surfaces whatever the server answers (the same gap recorded on "
+            "lifecycle:capability:server-not-advertised, whose spec-MUST arm is reject rather than "
+            "soft-empty)."
+        ),
+    ),
     "lifecycle:capability:server-not-advertised": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#operation",
         behavior=(
@@ -201,6 +230,24 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred=(
             "Not implemented in the SDK: the client sends any request regardless of the server's "
             "advertised capabilities and surfaces whatever the server answers."
+        ),
+    ),
+    "lifecycle:extensions:peer-unsupported-fallback": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning#extension-negotiation",
+        behavior=(
+            "When one party supports an extension and its peer does not declare it in "
+            "capabilities.extensions, the supporting party reverts to core protocol behavior or rejects "
+            "the request with an appropriate error."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: capabilities.extensions has wire types but no runtime -- "
+            "neither side can declare extensions through the public API (_build_capabilities in "
+            "src/mcp/client/session.py never sets the field; get_capabilities in "
+            "src/mcp/server/lowlevel/server.py takes no extensions argument), and nothing in src/mcp "
+            "reads it (the one planned consumer is the in-code TODO on the resultType gate in "
+            "src/mcp/server/runner.py), so a supporting party's revert-or-reject fallback cannot be "
+            "constructed or observed."
         ),
     ),
     "lifecycle:initialize:basic": Requirement(
@@ -363,6 +410,32 @@ REQUIREMENTS: dict[str, Requirement] = {
         removed_in="2026-07-28",
         superseded_by="lifecycle:discover:retry-on-32022",
         note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
+    ),
+    "lifecycle:version:custom-supported-versions": Requirement(
+        source="sdk",
+        behavior=(
+            "A supported-versions list passed in client or server options overrides the negotiation "
+            "set: a client requesting a version the server supports gets that version back, and both "
+            "sides report the negotiated version after connect."
+        ),
+        deferred=(
+            "Not implemented in the SDK: there is no supported-versions option on either side -- the "
+            "client negotiates against the module-level MODERN_PROTOCOL_VERSIONS constant "
+            "(src/mcp/client/session.py), the server advertises list(MODERN_PROTOCOL_VERSIONS) "
+            "(src/mcp/server/lowlevel/server.py), and neither constructor accepts a versions list."
+        ),
+    ),
+    "lifecycle:version:no-overlap-rejects": Requirement(
+        source="sdk",
+        behavior=(
+            "When the negotiated protocol version is not in the client's configured supported-versions "
+            "list, connecting fails and no session is established."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client has no configurable supported-versions list (see "
+            "lifecycle:version:custom-supported-versions); rejection against the built-in set is pinned "
+            "by lifecycle:version:reject-unsupported and lifecycle:version:unsupported-32022."
+        ),
     ),
     "lifecycle:stateless:request-envelope": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic#_meta",
@@ -736,6 +809,29 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
+    "protocol:cancel:http-stream-close": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
+        behavior=(
+            "On a 2026-07-28 streamable HTTP connection, cancelling an in-flight client request (caller "
+            "signal or timeout) closes that request's response stream as the cancellation signal; no "
+            "notifications/cancelled is sent on the wire and the local call fails."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: there is no public client-side API to cancel an in-flight "
+            "request (the standing gap recorded on protocol:cancel:abort-signal), and the streamable "
+            "HTTP client (src/mcp/client/streamable_http.py) has no deliberate cancel-closes-stream "
+            "path -- a request's response stream closes only as part of request teardown, which no "
+            "test can trigger on demand through the public API."
+        ),
+        note=(
+            "Only observable over streamable HTTP: the 2026 cancellation signal is closing the "
+            "per-request response stream. The server side of the same signal is pinned by "
+            "hosting:http:modern:disconnect-cancels-handler; the stdio face is the "
+            "notifications/cancelled MUST (see protocol:cancel:abort-signal's note)."
+        ),
+    ),
     "protocol:cancel:in-flight": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
@@ -775,6 +871,45 @@ REQUIREMENTS: dict[str, Requirement] = {
             "request stays failed and no error is raised."
         ),
     ),
+    "protocol:cancel:listen-teardown-cancelled": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#behavior-requirements",
+        behavior=(
+            "When a server tears down a subscriptions/listen stream it sends notifications/cancelled "
+            "referencing that listen request's id."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler "
+            "hook, but no runtime -- no server machinery tears down a listen stream, and the only "
+            "notifications/cancelled send machinery is the client-side courtesy cancel on abandoning a "
+            "server-initiated request (src/mcp/shared/jsonrpc_dispatcher.py), so the teardown emission "
+            "cannot be driven."
+        ),
+        note=(
+            "The spec is self-contradictory at this revision: the cancellation page says the server "
+            "MUST send notifications/cancelled on listen teardown, while the subscriptions page's "
+            "Graceful Closure section says the server SHOULD answer the listen request with an empty "
+            "result and close the stream. Tracked against the cancellation wording; revisit when the "
+            "spec editors reconcile the two."
+        ),
+    ),
+    "protocol:cancel:server-listen-only": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#behavior-requirements",
+        behavior=(
+            "At 2026-07-28 a server sends notifications/cancelled only to tear down a "
+            "subscriptions/listen stream, referencing that listen request's id; it never sends one for "
+            "any other purpose."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler "
+            "hook, but no runtime -- no server machinery tears down a listen stream, so the one "
+            "permitted emission cannot be driven; and the only other emitter, the courtesy cancel on "
+            "abandoning a server-initiated request (src/mcp/shared/jsonrpc_dispatcher.py), is "
+            "unreachable at 2026-07-28 where no server-initiated JSON-RPC requests exist, leaving the "
+            "prohibition vacuously satisfied with nothing to observe."
+        ),
+    ),
     "protocol:cancel:server-survives": Requirement(
         source="sdk",
         behavior="The session continues to serve new requests after an earlier request was cancelled.",
@@ -807,6 +942,29 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
+    "protocol:cancel:stdio-sends-cancelled": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
+        behavior=(
+            "On a 2026-07-28 stdio connection, cancelling an in-flight client request sends "
+            "notifications/cancelled referencing the request id -- stdio has no per-request stream to "
+            "close, so the notification remains the cancellation signal."
+        ),
+        added_in="2026-07-28",
+        transports=("stdio",),
+        deferred=(
+            "Not implemented in the SDK: there is no public client-side API to cancel an in-flight "
+            "request (the standing gap recorded on protocol:cancel:abort-signal); and the stdio "
+            "stream-loop server cannot serve 2026-era requests at all -- the legacy loop's init gate "
+            "(src/mcp/server/runner.py) rejects envelope-bearing requests with INVALID_PARAMS, so no "
+            "2026 stdio exchange exists on which the wire act could be observed (the same gap recorded "
+            "on transport:stdio:dual-era-serving)."
+        ),
+        note=(
+            "Only observable over stdio: the streamable HTTP face of the same transport split is "
+            "closing the response stream, pinned by protocol:cancel:http-stream-close and "
+            "hosting:http:modern:disconnect-cancels-handler."
+        ),
+    ),
     "protocol:cancel:unknown-id-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#error-handling",
         behavior=(
@@ -823,6 +981,59 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred=(
             "Not implemented in the SDK: there is no public client-side cancel API to drive (see "
             "protocol:cancel:abort-signal), so the sender-side targeting rule has nothing to pin."
+        ),
+    ),
+    "custom-methods:client-handler:roundtrip": Requirement(
+        source="sdk",
+        behavior=(
+            "A client-side handler registered for a vendor-defined (non-spec) request method serves "
+            "requests sent by the server, with params and result validated against caller-supplied "
+            "schemas."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28: with server-initiated JSON-RPC requests retired "
+            "(protocol:directionality:no-client-responses) there is no server-to-client request for a "
+            "vendor method to ride on. No replacement."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client exposes no per-method request-handler registration "
+            "-- inbound server requests are parsed against the closed per-version method registry, and "
+            "an unknown method is answered with METHOD_NOT_FOUND before any callback "
+            "(src/mcp/client/session.py), so a vendor-method request can never reach typed handler code."
+        ),
+    ),
+    "errors:capability:sdkerror-capability-not-supported": Requirement(
+        source="sdk",
+        behavior=(
+            "Invoking an operation whose capability the remote side did not declare rejects locally "
+            "with a typed capability-not-supported error, without sending the request."
+        ),
+        deferred=(
+            "Not implemented in the SDK: neither seat checks the peer's declared capabilities before "
+            "sending -- there is no local pre-send capability gate and no typed capability error class; "
+            "the only capability-check surface is the server-side ServerSession.check_client_capability "
+            "boolean (src/mcp/server/session.py), which no send path consults."
+        ),
+        note=(
+            "The capability-gating gaps are also recorded on lifecycle:capability:client-not-declared "
+            "and lifecycle:capability:server-not-advertised; this entry tracks the cross-SDK local "
+            "error contract."
+        ),
+    ),
+    "protocol:custom-method:notification": Requirement(
+        source="sdk",
+        behavior=(
+            "A notification sent for a vendor-defined (non-spec) method is dispatched on the receiving "
+            "client to a handler registered for that method, with schema-validated params and no "
+            "capability error on either side."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the client exposes no per-method notification handler "
+            "registration -- inbound notifications are parsed against the closed per-version method "
+            "registry, and an unknown method is dropped with a debug log before any callback "
+            "(src/mcp/client/session.py), so a vendor-method notification can never reach typed "
+            "handler code."
         ),
     ),
     "protocol:error:connection-closed": Requirement(
@@ -1233,6 +1444,35 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Tools: SDK guarantees
     # ═══════════════════════════════════════════════════════════════════════════
+    "client:jsonschema:ref-resolution:no-network-fetch": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#ref-resolution",
+        behavior=(
+            "The client-side schema validator never dereferences a $ref that resolves to a network URI; "
+            "a schema that fails to validate because of an unresolved external $ref is rejected rather "
+            "than treated as permissive."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Untestable negative through the public API: proving the validator never performs a network "
+            "fetch is a universally-quantified negative this suite refuses -- the client hands the "
+            "advertised outputSchema to the jsonschema library with no custom resolver "
+            "(src/mcp/client/session.py), and no public knob configures network retrieval whose absence "
+            "a test could pin."
+        ),
+    ),
+    "client:jsonschema:unsupported-dialect-graceful": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#json-schema-usage",
+        behavior=(
+            "A tool whose advertised outputSchema declares a $schema dialect the client validator does "
+            "not support is refused gracefully: the call fails with a clear unsupported-dialect error "
+            "instead of the underlying engine failing opaquely."
+        ),
+        deferred=(
+            "Not implemented in the SDK: nothing inspects the declared $schema dialect -- "
+            "_validate_tool_result (src/mcp/client/session.py) hands the advertised schema straight to "
+            "jsonschema.validate, so there is no SDK-authored unsupported-dialect rejection to pin."
+        ),
+    ),
     "client:output-schema:skip-on-error": Requirement(
         source="sdk",
         behavior="The client skips structured-content validation when the tool result has isError true.",
@@ -1372,6 +1612,118 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         note="A SHOULD; the same text also appears on the streamable-http transport page.",
     ),
+    "2025:jsonschema:non-object-output-wrapped": Requirement(
+        source="sdk",
+        behavior=(
+            "On a 2025-era listing, a tool registered with a non-object-root outputSchema advertises it "
+            "wrapped as {type: 'object', properties: {result: <natural>}, required: ['result']} (the "
+            "SEP-2106 legacy interop envelope), keeping the schema valid 2025 wire data."
+        ),
+        removed_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: there is no era-conditional SEP-2106 projection -- MCPServer "
+            "derives output schemas only from return annotations, wrapping non-object roots in "
+            "{'result': ...} at registration time on every era "
+            "(src/mcp/server/mcpserver/utilities/func_metadata.py; pinned by "
+            "mcpserver:tool:output-schema:wrapped), and no raw-outputSchema registration path exists, "
+            "so a natural non-object schema for the 2025 era to wrap cannot be constructed."
+        ),
+        note=(
+            "Era-bound, like its five 2025:jsonschema: siblings: the wrap exists only on 2025-era "
+            "exchanges; at 2026-07-28 non-object roots are legal wire data and pass through naturally "
+            "(the server:jsonschema: entries)."
+        ),
+    ),
+    "2025:jsonschema:non-object-structured-content-wrapped": Requirement(
+        source="sdk",
+        behavior=(
+            "On a 2025-era tools/call, non-object structuredContent (array, primitive, or null) is "
+            "delivered wrapped as {result: <value>} with the auto text fallback injected, satisfying "
+            "both the 2025 object-only wire shape and the wrapped advertised outputSchema."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound: 2025-era-only legacy interop projection (see 2025:jsonschema:non-object-output-wrapped's note)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: there is no era-aware projection on the result path -- "
+            "convert_result (src/mcp/server/mcpserver/utilities/func_metadata.py) wraps "
+            "annotation-derived values identically on every era and passes a handler-built "
+            "CallToolResult through untouched, so a 2025-specific wrap on the wire cannot be observed."
+        ),
+    ),
+    "2025:jsonschema:ref-rewrite-on-wrap": Requirement(
+        source="sdk",
+        behavior=(
+            "On a 2025-era listing, same-document $ref pointers in a non-object outputSchema wrapped "
+            "under #/properties/result are rewritten so they keep resolving: the wrapped schema "
+            "compiles on the client and validates the wrapped {result: ...} structuredContent."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound: 2025-era-only legacy interop projection (see 2025:jsonschema:non-object-output-wrapped's note)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: no $ref rewriting exists anywhere in src/mcp/server/ -- "
+            "schemas are generated whole from pydantic models with $defs at the document root "
+            "(src/mcp/server/mcpserver/utilities/func_metadata.py), and the SEP-2106 wrap-then-rewrite "
+            "projection that would create dangling pointers does not exist."
+        ),
+    ),
+    "2025:jsonschema:ref-rewrite-scope": Requirement(
+        source="sdk",
+        behavior=(
+            "The legacy-wrap $ref rewrite is position-aware ($ref and $dynamicRef in subschema "
+            "positions only, never keyword-position literal data) and $id-scoped (a subtree carrying "
+            "$id keeps its same-document refs unrewritten, resolving against the embedded base)."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound: 2025-era-only legacy interop projection (see 2025:jsonschema:non-object-output-wrapped's note)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the rewrite whose scoping this entry refines does not exist "
+            "(see 2025:jsonschema:ref-rewrite-on-wrap); no code in src/mcp/server/ walks or rewrites "
+            "schema documents."
+        ),
+    ),
+    "2025:jsonschema:schemaless-non-object-sc-wrapped": Requirement(
+        source="sdk",
+        behavior=(
+            "On a 2025-era tools/call, a tool with no advertised outputSchema whose handler returns "
+            "non-object structuredContent has the value wrapped as {result: <value>} on value shape "
+            "alone, because the 2025 wire shape requires structuredContent to be an object."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound: 2025-era-only legacy interop projection (see 2025:jsonschema:non-object-output-wrapped's note)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: a handler-built CallToolResult with no output schema is passed "
+            "through untouched by convert_result "
+            "(src/mcp/server/mcpserver/utilities/func_metadata.py) on every era, so non-object "
+            "structuredContent reaches the 2025 wire unwrapped rather than projected."
+        ),
+    ),
+    "2025:jsonschema:wrap-follows-schema-not-value": Requirement(
+        source="sdk",
+        behavior=(
+            "On the 2025 era, a tool whose outputSchema has a non-object root wraps every "
+            "structuredContent value as {result: <value>} -- including object-valued results -- so the "
+            "result always satisfies the wrapped schema advertised in tools/list: the wrap predicate "
+            "follows the per-tool schema decision, not the runtime value shape."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "Era-bound: 2025-era-only legacy interop projection (see 2025:jsonschema:non-object-output-wrapped's note)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the wrap decision the entry constrains is registration-time "
+            "and era-independent (wrap_output in "
+            "src/mcp/server/mcpserver/utilities/func_metadata.py), not the per-era projection predicate "
+            "SEP-2106 describes; a natural non-object root cannot be advertised in the first place."
+        ),
+    ),
     "mcpserver:output-schema:missing-structured": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#output-schema",
         behavior="A tool with an output schema whose function returns no structured content produces a server error.",
@@ -1421,6 +1773,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Arguments that fail the tool's input validation produce a tool execution error (isError true "
             "with the validation failure described in content) without invoking the function."
+        ),
+    ),
+    "mcpserver:tool:input-validation:dialect-default-2020-12": Requirement(
+        source=f"{SPEC_BASE_URL}/server/tools#tool",
+        behavior=(
+            "Tool-call arguments are validated against the advertised inputSchema under the JSON Schema "
+            "2020-12 dialect when the schema declares no $schema field."
+        ),
+        deferred=(
+            "Not implemented in the SDK: MCPServer never runs a JSON-Schema engine over tool-call "
+            "arguments -- Tool.run validates via the pydantic arg_model built from the function "
+            "signature (src/mcp/server/mcpserver/tools/base.py), the advertised inputSchema is that "
+            "model's generated schema, and there is no raw-inputSchema registration path, so no "
+            "$schema/dialect selection exists on the input side (the SDK's only JSON-Schema engine is "
+            "the client-side output validator in src/mcp/client/session.py)."
         ),
     ),
     "mcpserver:tool:naming-validation": Requirement(
@@ -1475,6 +1842,52 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying inputRequests."
         ),
     ),
+    "server:jsonschema:array-structured-content-textfallback": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/tools#structured-content",
+        behavior=(
+            "A tool whose handler returns array-typed structuredContent and no text content has a "
+            "serialized-JSON text block auto-appended (the backwards-compatibility SHOULD); an "
+            "author-supplied text block suppresses the auto-append."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: MCPServer never emits array-typed structuredContent -- "
+            "annotation-derived list returns are wrapped in {'result': ...} on every era "
+            "(src/mcp/server/mcpserver/utilities/func_metadata.py), so the 2026 natural-array result "
+            "the fallback would decorate cannot be produced; the wrapped-object fallback that exists "
+            "today is pinned by tools:call:structured-content:text-mirror."
+        ),
+    ),
+    "server:jsonschema:primitive-structured-content": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/tools#structured-content",
+        behavior=(
+            "A tool whose handler returns primitive (string, number, boolean, or null) "
+            "structuredContent round-trips on the 2026-07-28 era: the value reaches the client "
+            "unwrapped and the auto text fallback carries its JSON serialisation."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: primitive returns are wrapped in {'result': ...} on every era "
+            "(src/mcp/server/mcpserver/utilities/func_metadata.py; pinned by "
+            "mcpserver:tool:output-schema:wrapped), so an unwrapped primitive structuredContent never "
+            "reaches the wire."
+        ),
+    ),
+    "server:jsonschema:union-output-natural": Requirement(
+        source="sdk",
+        behavior=(
+            "On the 2026-07-28 era, a tool whose output type is a union of object and non-object arms "
+            "advertises the natural typeless {anyOf: [...]} root and returns structuredContent "
+            "unwrapped on both arms, with the auto text fallback still firing for the non-object arm."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: a union return annotation is wrapped in {'result': ...} like "
+            "any other non-object root (src/mcp/server/mcpserver/utilities/func_metadata.py), and no "
+            "registration path advertises a natural {anyOf: [...]} root, so neither arm can be "
+            "observed unwrapped."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer: Context helpers (SDK)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1512,6 +1925,25 @@ REQUIREMENTS: dict[str, Requirement] = {
             "mrtr:push-api:loud-fail-2026."
         ),
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+    ),
+    "mcpserver:context:sampling-from-handler": Requirement(
+        source="sdk",
+        behavior=(
+            "A Context sampling helper sends sampling/createMessage to the client from inside a tool "
+            "handler and resolves with the client's CreateMessageResult."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); in-tool sampling at 2026 is the input_required "
+            "embedding (sampling:mrtr:create:basic), so the push shape never gained a Context helper. "
+            "No replacement entry."
+        ),
+        deferred=(
+            "Not implemented in the SDK: Context (src/mcp/server/mcpserver/context.py) exposes "
+            "elicitation, logging, progress, and resource-read helpers but no sampling helper; the "
+            "only route is the ctx.session escape hatch onto the lowlevel session, which is not an "
+            "MCPServer idiom."
+        ),
     ),
     "mcpserver:context:read-resource": Requirement(
         source="sdk",
@@ -1661,6 +2093,71 @@ REQUIREMENTS: dict[str, Requirement] = {
             "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
         ),
     ),
+    "subscriptions:listen:capacity-guard": Requirement(
+        source="sdk",
+        behavior=(
+            "A subscriptions/listen request beyond the server's configured subscription limit is "
+            "refused with an in-band JSON-RPC error before any acknowledgment, leaving existing "
+            "streams intact."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. There is "
+            "no subscription-capacity knob either."
+        ),
+    ),
+    "subscriptions:listen:concurrent-demux": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#multiple-concurrent-subscriptions",
+        behavior=(
+            "A client may hold multiple subscriptions/listen streams concurrently; every notification "
+            "carries its own stream's listen request id under io.modelcontextprotocol/subscriptionId, "
+            "and the client demultiplexes by that id."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
+            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+        ),
+    ),
+    "subscriptions:listen:demux-by-subscription-id": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications",
+        behavior=(
+            "On stdio, where every message shares one channel, the client correlates each delivered "
+            "notification with its originating subscription via the "
+            "io.modelcontextprotocol/subscriptionId _meta key."
+        ),
+        added_in="2026-07-28",
+        transports=("stdio",),
+        note=(
+            "Only observable over stdio: on streamable HTTP each subscriptions/listen request has its "
+            "own response stream, so transport framing already correlates notifications."
+        ),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
+            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+        ),
+    ),
+    "subscriptions:listen:graceful-close": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#graceful-closure",
+        behavior=(
+            "A server ending a subscription on its own initiative answers the original "
+            "subscriptions/listen request with an empty result (stamped with the subscriptionId) before "
+            "closing the stream, so the client can distinguish a graceful close from a transport drop."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. There is "
+            "no server-side teardown path that could emit the closing result."
+        ),
+    ),
     "subscriptions:listen:honored-filter-narrows-to-advertised": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
         behavior=(
@@ -1670,6 +2167,50 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("resources:subscribe:capability-required",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+        ),
+    ),
+    "subscriptions:listen:notification-stamped": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications",
+        behavior=(
+            "Every notification delivered on a subscriptions/listen stream carries "
+            "io.modelcontextprotocol/subscriptionId in _meta, whose value is the JSON-RPC id of the "
+            "listen request that opened the stream."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
+            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+        ),
+    ),
+    "subscriptions:listen:per-stream-filter": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#notification-filter",
+        behavior=(
+            "A subscriptions/listen stream delivers only the notification types its filter requested; "
+            "a type the filter did not request is never delivered on that stream."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+        ),
+    ),
+    "subscriptions:listen:stdio-resubscribe-after-reconnect": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#graceful-closure",
+        behavior=(
+            "On stdio, after the connection is terminated and re-established, the client re-sends "
+            "subscriptions/listen to re-establish its subscriptions -- the server holds no subscription "
+            "state across reconnections."
+        ),
+        added_in="2026-07-28",
+        transports=("stdio",),
+        note="Only observable over stdio: the re-send obligation is tied to stdio connection re-establishment.",
         deferred=(
             "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
             "but no runtime -- there is no client-side listen API, and no server machinery emits the "
@@ -1746,6 +2287,19 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name). "
                 "Templates differ: a duplicate uri_template silently replaces the first with no warning."
             ),
+        ),
+    ),
+    "mcpserver:resource:handle-update-remove": Requirement(
+        source="sdk",
+        behavior=(
+            "Registering a resource returns a handle that can update or remove the registration, "
+            "emitting notifications/resources/list_changed on each mutation."
+        ),
+        deferred=(
+            "Not implemented in the SDK: resource registration returns the Resource model itself, not "
+            "a handle -- ResourceManager "
+            "(src/mcp/server/mcpserver/resources/resource_manager.py) exposes no update or remove "
+            "operation and MCPServer emits no list_changed on registration mutation."
         ),
     ),
     "mcpserver:resource:read-throws-surfaced": Requirement(
@@ -1911,6 +2465,18 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "MCPServer logs a warning and keeps the first registration instead of rejecting; same "
                 "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name)."
             ),
+        ),
+    ),
+    "mcpserver:prompt:handle-update-remove": Requirement(
+        source="sdk",
+        behavior=(
+            "Registering a prompt returns a handle that can update or remove the registration, "
+            "emitting notifications/prompts/list_changed on each mutation."
+        ),
+        deferred=(
+            "Not implemented in the SDK: prompt registration returns the Prompt model itself, not a "
+            "handle -- PromptManager (src/mcp/server/mcpserver/prompts/manager.py) exposes no update "
+            "or remove operation and MCPServer emits no list_changed on registration mutation."
         ),
     ),
     "mcpserver:prompt:optional-args": Requirement(
@@ -2734,6 +3300,17 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying inputRequests."
         ),
     ),
+    "elicitation:url:valid-url": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation-requests",
+        behavior="The url parameter of a url-mode elicitation contains a valid URL.",
+        deferred=(
+            "Not implemented in the SDK: the url is a plain str at every layer -- "
+            "ElicitRequestURLParams.url (src/mcp-types/mcp_types/_types.py) and the elicit_url helpers "
+            "(src/mcp/server/elicitation.py) forward the caller's string verbatim with no URL "
+            "validation anywhere on the path, so the producer-side MUST has no enforcement point to "
+            "pin (pass-through is covered by elicitation:url:basic)."
+        ),
+    ),
     "elicitation:mrtr:form:basic": Requirement(
         source=f"{SPEC_2026_BASE_URL}/client/elicitation#form-mode-elicitation-requests",
         behavior=(
@@ -2867,6 +3444,23 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "protocol:result-type:unrecognized-invalid": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "A resultType value the client does not recognize is treated as invalid rather than "
+            "surfaced as a normal result."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client never rejects an unrecognized resultType -- "
+            "ResultType is a deliberately open Literal-or-str union (src/mcp-types/mcp_types/_types.py), "
+            "the 2026-07-28 wire surface types resultType as a bare str, and the client's only "
+            "result-kind dispatch is isinstance(result, InputRequiredResult) "
+            "(src/mcp/client/session.py), so an unrecognized value round-trips and is surfaced on the "
+            "returned result unchanged (the in-code TODO in src/mcp/server/runner.py records the "
+            "missing rejection)."
+        ),
+    ),
     "mrtr:input-responses:invalid-rejected": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#error-handling",
         behavior=(
@@ -2933,6 +3527,38 @@ REQUIREMENTS: dict[str, Requirement] = {
             "a requestState key in the serialized retry."
         ),
         added_in="2026-07-28",
+    ),
+    "mrtr:request-state:reject-tampered": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "A server whose requestState influences authorization, resource access, or business logic "
+            "protects its integrity (e.g. HMAC or AEAD) and rejects state that fails verification."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: requestState integrity protection is left to the server "
+            "application -- the SDK never constructs an InputRequiredResult or mints request_state, and "
+            "delivers it to the handler as an opaque string (CallToolRequestParams.request_state; the "
+            "mcpserver Context.request_state property); the only integrity-comparison code in src/mcp/ "
+            "is the OAuth client-secret check (src/mcp/server/auth/middleware/client_auth.py), so a "
+            "test's verification logic would be fixture code pinning nothing of the SDK."
+        ),
+    ),
+    "mrtr:request-state:replay-binding": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "To prevent replay, a server includes the authenticated principal, a short expiry, and an "
+            "originating-request identifier inside the integrity-protected requestState payload and "
+            "verifies each on receipt, rejecting state presented by a different principal, after the "
+            "expiry lapses, or on a request that does not match."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: there is no SDK-defined requestState payload -- the SDK never "
+            "mints request_state (its only appearances in src/mcp/client/ are the opaque echo on retry) "
+            "and has no signing or verification surface into which a principal, TTL, or request digest "
+            "could be bound; replay binding is the server application's encoding of its own opaque blob."
+        ),
     ),
     "mrtr:request-state:scoped-to-originating-request": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#client-requirements-basic-workflow",
@@ -3140,6 +3766,20 @@ REQUIREMENTS: dict[str, Requirement] = {
             "auto-refresh mechanism."
         ),
     ),
+    "client:listen:signal-only": Requirement(
+        source="sdk",
+        behavior=(
+            "A client configured for signal-only list-changed handling on a modern connection is "
+            "notified of changes published on its subscriptions/listen stream without auto-refreshing "
+            "the corresponding list."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Not implemented in the SDK: the client has no subscriptions/listen API and no client-side "
+            "list-changed handling to configure."
+        ),
+        note="The 2025-era push-notification sibling is client:list-changed:signal-only.",
+    ),
     "client:list-changed:capability-gated": Requirement(
         source="sdk",
         behavior=(
@@ -3153,6 +3793,20 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="A client configured for signal-only list-changed handling is notified without auto-refreshing.",
         deferred="Not implemented in the SDK: no client-side list-changed handling exists.",
     ),
+    "mcpserver:handle:enable-disable": Requirement(
+        source="sdk",
+        behavior=(
+            "A registration handle can disable a registered item -- removing it from list results and "
+            "erroring calls or reads -- and re-enable it later, with each transition published as a "
+            "list change."
+        ),
+        deferred=(
+            "Not implemented in the SDK: MCPServer registration returns the registered model, not a "
+            "handle -- there is no disable/enable lifecycle and no list-change publication on mutation "
+            "(see mcpserver:register:post-connect); the only registration mutation surface is "
+            "MCPServer.remove_tool (src/mcp/server/mcpserver/server.py)."
+        ),
+    ),
     "mcpserver:list-changed:debounce": Requirement(
         source="sdk",
         behavior=(
@@ -3162,6 +3816,34 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Not implemented in the SDK: MCPServer does not send list_changed notifications on "
             "registration changes at all (see mcpserver:register:post-connect), so there is nothing to "
             "debounce."
+        ),
+    ),
+    "mcpserver:onerror:reach-through": Requirement(
+        source="sdk",
+        behavior=(
+            "An error callback on the underlying low-level server receives transport-level and "
+            "protocol-level errors (uncaught notification-handler exceptions, failed sends, unknown "
+            "message ids) raised outside request handlers."
+        ),
+        deferred=(
+            "Not implemented in the SDK: no error-callback surface exists at any layer -- neither the "
+            "lowlevel Server (src/mcp/server/lowlevel/server.py) nor the dispatcher "
+            "(src/mcp/shared/jsonrpc_dispatcher.py) accepts an error handler; out-of-request failures "
+            "go to the module logger."
+        ),
+    ),
+    "mcpserver:reach-through:set-request-handler": Requirement(
+        source="sdk",
+        behavior=(
+            "The low-level server under an MCPServer is publicly reachable, so a raw request handler "
+            "can be installed for a method the high-level API has not wired, alongside high-level "
+            "registrations."
+        ),
+        deferred=(
+            "Not implemented in the SDK: MCPServer keeps its low-level Server private (the "
+            "_lowlevel_server attribute, src/mcp/server/mcpserver/server.py) and exposes no public "
+            "reach-through; the lowlevel add_request_handler surface exists but is not reachable from "
+            "MCPServer."
         ),
     ),
     "mcpserver:register:post-connect": Requirement(
@@ -4080,6 +4762,46 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: auth
     # ═══════════════════════════════════════════════════════════════════════════
+    "hosting:auth:401-scope-hint": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#protected-resource-metadata-discovery-requirements",
+        behavior=(
+            "The 401 WWW-Authenticate challenge includes a scope parameter (RFC 6750 Section 3) naming "
+            "the scopes required for the resource, giving clients scope guidance before authorization."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; WWW-Authenticate is an HTTP header. The scope-less "
+            "401 the SDK emits today is pinned by hosting:auth:missing-401, whose Divergence records "
+            "this same SHOULD."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the 401 challenge builder "
+            "(src/mcp/server/auth/middleware/bearer_auth.py) serializes only error, error_description, "
+            "and resource_metadata -- the middleware holds required_scopes but never emits a scope "
+            "parameter, and no public configuration can make it do so."
+        ),
+    ),
+    "hosting:auth:as-iss-emission": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "The bundled authorization server appends the RFC 9207 iss parameter to every "
+            "authorization redirect -- success and error -- and advertises "
+            "authorization_response_iss_parameter_supported in its metadata."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; the bundled AS is an ASGI app. The suite's "
+            "client-side iss tests run against the in-process test provider, which stamps iss itself "
+            "precisely because the SDK handler does not."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the bundled authorize handler "
+            "(src/mcp/server/auth/handlers/authorize.py) builds success and error redirects without an "
+            "iss parameter, and build_metadata (src/mcp/server/auth/routes.py) never sets "
+            "authorization_response_iss_parameter_supported."
+        ),
+    ),
     "hosting:auth:as-router": Requirement(
         source="sdk",
         behavior=(
@@ -4123,6 +4845,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Auth is enforced at the HTTP layer; 401 is an HTTP status code.",
         divergence=Divergence(
             note="The challenge carries no `scope` parameter; see the note on hosting:auth:missing-401.",
+        ),
+    ),
+    "hosting:auth:malformed-request-400": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#error-handling",
+        behavior="A malformed authorization request to the protected resource is answered with HTTP 400.",
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; 400 is an HTTP status code. The 401 collapse the SDK "
+            "performs instead is pinned by hosting:auth:invalid-401 and hosting:auth:query-token-ignored."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the protected-resource gate has no 400 path -- "
+            "BearerAuthBackend.authenticate (src/mcp/server/auth/middleware/bearer_auth.py) returns "
+            "None for every malformed Authorization presentation and the middleware maps that to a 401 "
+            "invalid_token challenge; the only statuses the gate can emit are 401 and 403, so the "
+            "RFC 6750 invalid_request 400 case cannot be produced."
         ),
     ),
     "hosting:auth:metadata-endpoints": Requirement(
@@ -4184,6 +4922,25 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "parameter the spec SHOULD include; the SDK client reads `scope` from this header to drive "
                 "step-up (utils.py extract_scope_from_www_auth) — a resource-server/client asymmetry."
             ),
+        ),
+    ),
+    "hosting:auth:scope:no-offline-access": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#refresh-tokens",
+        behavior=(
+            "The protected resource does not include offline_access in its WWW-Authenticate scope or "
+            "in Protected Resource Metadata scopes_supported -- refresh tokens are not a resource "
+            "requirement."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; both surfaces are HTTP documents.",
+        deferred=(
+            "Not yet covered here: a server-deployment configuration rule with no SDK decision point "
+            "-- PRM scopes_supported is the integrator's AuthSettings.required_scopes passed through "
+            "verbatim (src/mcp/server/auth/routes.py) and the SDK never emits a WWW-Authenticate scope "
+            "parameter at all (src/mcp/server/auth/middleware/bearer_auth.py), so an in-suite "
+            "assertion would either restate the test's own configuration or assert an unobservable "
+            "negative."
         ),
     ),
     "hosting:auth:as:authorize-requires-pkce": Requirement(
@@ -4260,6 +5017,96 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+    ),
+    "hosting:auth:as:cimd-client-id": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#client-id-metadata-documents",
+        behavior=(
+            "The bundled authorization server supports clients using Client ID Metadata Documents: a "
+            "URL-formatted client_id is accepted end-to-end through the authorize flow by resolving "
+            "the metadata document instead of requiring registration."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; the bundled AS is an ASGI app. The client half is "
+            "pinned by client-auth:cimd; the suite's CIMD tests shim the AS metadata and pre-seed the "
+            "provider because the bundled AS has no CIMD-aware client lookup of its own."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the bundled authorization server has no Client ID Metadata "
+            "Document support -- no handler resolves a URL-formatted client_id (no document fetch, "
+            "validation, or client-info synthesis); client lookup is exclusively provider.get_client() "
+            "against the registration store (src/mcp/server/auth/middleware/client_auth.py)."
+        ),
+    ),
+    "hosting:auth:as:cimd-supported-flag": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#discovery",
+        behavior=(
+            "The bundled authorization server advertises CIMD support by setting "
+            "client_id_metadata_document_supported in its RFC 8414 metadata."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the metadata document is served over HTTP.",
+        deferred=(
+            "Not implemented in the SDK: build_metadata (src/mcp/server/auth/routes.py) never sets "
+            "client_id_metadata_document_supported -- the field exists only on the shared model "
+            "(src/mcp/shared/auth.py) for the client's parsing of a remote AS, and the suite shims the "
+            "flag into the in-process AS metadata for the client-side CIMD tests."
+        ),
+    ),
+    "hosting:auth:as:cimd:cache-respects-headers": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#implementation-requirements",
+        behavior=("The authorization server caches fetched client metadata documents respecting HTTP cache headers."),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; caching is an HTTP-header behaviour.",
+        deferred=(
+            "Not implemented in the SDK: there is no CIMD fetch to cache -- the bundled authorization "
+            "server never retrieves client metadata documents (see hosting:auth:as:cimd-client-id)."
+        ),
+    ),
+    "hosting:auth:as:cimd:client-id-matches-url": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#implementation-requirements",
+        behavior=(
+            "The authorization server validates that a fetched metadata document's client_id matches "
+            "the document URL exactly, rejecting the authorization request otherwise."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+        deferred=(
+            "Not implemented in the SDK: there is no CIMD fetch whose result could be validated -- the "
+            "bundled authorization server never retrieves client metadata documents (see "
+            "hosting:auth:as:cimd-client-id)."
+        ),
+    ),
+    "hosting:auth:as:cimd:document-validation": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#implementation-requirements",
+        behavior=(
+            "The authorization server validates that a fetched client metadata document is valid JSON "
+            "and contains the required fields before accepting it."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; the bundled AS is an ASGI app. Distinct from "
+            "hosting:auth:as:register-error-response, which is the DCR registration POST."
+        ),
+        deferred=(
+            "Not implemented in the SDK: there is no CIMD fetch whose result could be validated -- the "
+            "bundled authorization server never retrieves client metadata documents (see "
+            "hosting:auth:as:cimd-client-id)."
+        ),
+    ),
+    "hosting:auth:as:cimd:fetch-on-url-client-id": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#implementation-requirements",
+        behavior=(
+            "The authorization server fetches the client metadata document when it encounters a "
+            "URL-formatted client_id."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+        deferred=(
+            "Not implemented in the SDK: no handler detects a URL-shaped client_id or fetches "
+            "anything -- client lookup is exclusively provider.get_client() against the registration "
+            "store (src/mcp/server/auth/middleware/client_auth.py; see hosting:auth:as:cimd-client-id)."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: resumability
@@ -4915,6 +5762,47 @@ REQUIREMENTS: dict[str, Requirement] = {
             "is the recommended survivor of that merge."
         ),
     ),
+    "hosting:http:modern:get-delete-405": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#earlier-streamable-http-revisions",
+        behavior=(
+            "A server that supports only 2026-07-28 answers GET or DELETE to the MCP endpoint with 405 "
+            "Method Not Allowed, ignoring Mcp-Session-Id and Last-Event-ID."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: the modern-only posture the SHOULD is conditioned on does not "
+            "exist -- StreamableHTTPSessionManager.handle_request "
+            "(src/mcp/server/streamable_http_manager.py) unconditionally serves both eras at one "
+            "endpoint with no option to refuse legacy traffic, so GET and DELETE are always handled by "
+            "the legacy session machinery."
+        ),
+        note=(
+            "Same missing posture as hosting:http:modern-only:initialize-rejection-names-versions. "
+            "Distinct from the 2025-era unofficial-stateless 405 behaviour (a separate pre-existing "
+            "proposal, not yet a manifest entry)."
+        ),
+    ),
+    "hosting:http:modern:notification-post": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#sending-messages",
+        behavior=(
+            "A POST to the modern entry whose body is a notification (no id) is acknowledged without a "
+            "JSON-RPC response: 202 Accepted with an empty body, or the explicit cannot-accept "
+            "rejection -- the transport's two sanctioned responses."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        deferred=(
+            "Not yet covered here: which sanctioned response the modern entry gives is an explicitly "
+            "unmade design choice -- the cannot-accept branch it takes today carries the in-code TODO "
+            "recording strict-vs-lenient as open (src/mcp/server/_streamable_http_modern.py) -- so "
+            "pinning the current rejection would manufacture churn when the choice lands."
+        ),
+        note=(
+            "Only observable over streamable HTTP. The legacy path's 202 for notification POSTs is "
+            "pinned by hosting:http:notifications-202."
+        ),
+    ),
     "hosting:http:modern-only:initialize-rejection-names-versions": Requirement(
         source="sdk",
         behavior=(
@@ -5188,6 +6076,70 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over streamable HTTP: session-id, GET stream and DELETE are streamable-HTTP mechanics.",
         deferred="defensive against a misbehaving peer; covered by a tests/client/ unit test",
     ),
+    "client-transport:http:body-stream-error-preserved": Requirement(
+        source="sdk",
+        behavior=(
+            "When the SSE response body stream errors mid-read, the failure surfaces to the caller "
+            "preserving the original exception (as the instance or its cause), not a "
+            "string-interpolated wrapper that discards its type."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: the SSE response body stream is an HTTP mechanism.",
+        deferred=(
+            "Not implemented in the SDK: the client transport has no error callback and no "
+            "error-preservation contract -- read failures inside the SSE loops of "
+            "src/mcp/client/streamable_http.py are logged or trigger reconnection, with nothing "
+            "delivering the original exception to caller code."
+        ),
+    ),
+    "client-transport:http:error-status-code": Requirement(
+        source="sdk",
+        behavior=(
+            "An error produced by a non-OK HTTP response carries the originating HTTP status code so "
+            "callers can branch on 401/403/404."
+        ),
+        transports=("streamable-http",),
+        deferred=(
+            "Not implemented in the SDK: a non-2xx response without a JSON-RPC body is surfaced as a "
+            "synthesized INTERNAL_ERROR ('Server returned an error response') that carries no status "
+            "attribute (src/mcp/client/streamable_http.py), so no typed status-bearing error exists "
+            "to pin."
+        ),
+        note=(
+            "The testable weak sibling -- a non-2xx surfaces as an error at all rather than hanging -- "
+            "is a separate pre-existing proposal (client-transport:http:non-2xx-surfaces), not this "
+            "entry."
+        ),
+    ),
+    "client-transport:http:reconnect-failure-onerror": Requirement(
+        source="sdk",
+        behavior=(
+            "When the standalone SSE stream drops and automatic reconnection ultimately fails, the "
+            "failure is delivered to an error callback rather than thrown from an unrelated request or "
+            "silently swallowed."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: SSE reconnection is an HTTP transport mechanism.",
+        deferred=(
+            "Not implemented in the SDK: there is no transport error callback -- exhausting "
+            "MAX_RECONNECTION_ATTEMPTS on the GET stream ends with a debug log inside "
+            "src/mcp/client/streamable_http.py and nothing is delivered to caller code."
+        ),
+    ),
+    "client-transport:http:session-id-preconfigured": Requirement(
+        source="sdk",
+        behavior=(
+            "A session id supplied at transport construction is sent as Mcp-Session-Id from the first "
+            "request onwards, letting a client resume a known session."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: Mcp-Session-Id is an HTTP header mechanism.",
+        deferred=(
+            "Not implemented in the SDK: StreamableHTTPTransport.__init__ takes only the url -- "
+            "session_id starts as None and is only ever adopted from a server response header "
+            "(src/mcp/client/streamable_http.py), so a pre-existing session id cannot be supplied."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client auth
     # ═══════════════════════════════════════════════════════════════════════════
@@ -5269,6 +6221,39 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carries no field recording prior step-up failures, so a second send for the same "
             "resource and operation re-attempts the upgrade unconditionally. The per-send "
             '"repeated 403s do not loop" half of this spec line is client-auth:403-scope-upgrade.'
+        ),
+    ),
+    "client-auth:stepup:refresh-bypass-on-superset": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
+        behavior=(
+            "On a 403 insufficient_scope step-up, when the scope union strictly exceeds the current "
+            "token's grant the client bypasses the refresh-token branch and forces a fresh "
+            "authorization so the widened scope reaches the authorization server; when the token "
+            "already covers the union, refresh is used."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+        deferred=(
+            "Not implemented in the SDK: the 403 insufficient_scope branch "
+            "(src/mcp/client/auth/oauth2.py) performs one unconditional re-authorization -- there is "
+            "no granted-scope comparison choosing between refresh and fresh authorization, and no "
+            "force-reauthorization knob."
+        ),
+    ),
+    "client-auth:stepup:throw-mode": Requirement(
+        source="sdk",
+        behavior=(
+            "A throw-mode step-up option surfaces a 403 insufficient_scope challenge to the caller as "
+            "a typed error carrying the required scope, resource metadata URL, and error description, "
+            "without re-authorizing."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+        deferred=(
+            "Not implemented in the SDK: the step-up flow has no behaviour knob -- the 403 "
+            "insufficient_scope branch (src/mcp/client/auth/oauth2.py) always attempts the inline "
+            "re-authorization and there is no option to surface the challenge as a typed error "
+            "instead."
         ),
     ),
     "client-auth:as-metadata-discovery:priority-order": Requirement(
@@ -5467,6 +6452,32 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "a DCR-persisted one -- silently discarded and re-registered, the path the "
                 "spec blesses only for DCR-persisted credentials -- and no error is surfaced."
             ),
+        ),
+    ),
+    "client-auth:as-binding:m2m-no-cred-reuse": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization/client-registration#authorization-server-binding",
+        behavior=(
+            "Statically-credentialed machine-to-machine clients (the client_credentials and JWT-bearer "
+            "grants) treat their credentials as bound to the authorization server that issued them: "
+            "when discovery resolves a different authorization server, the flow refuses to present the "
+            "credential there and fails before any token request (SEP-2352)."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. This is the machine-to-machine face of the binding pinned by the "
+            "sibling as-binding entries; the cross-SDK manifests carry this row as as-migration "
+            "m2m-expected-issuer (an expected-issuer constructor knob), but the obligation tracked "
+            "here is the spec's, independent of any one surface."
+        ),
+        deferred=(
+            "Not implemented in the SDK: the machine-to-machine providers "
+            "(src/mcp/client/auth/extensions/client_credentials.py) record no issuer binding for their "
+            "static credentials and expose no expected-issuer surface -- every issuer reference in "
+            "that module is RFC 7523 assertion plumbing (the assertion's iss claim and its audience, "
+            "oauth_metadata.issuer); none stamps, stores, or compares the authorization server a "
+            "credential belongs to, so the credential is presented to whatever authorization server "
+            "discovery finds."
         ),
     ),
     "client-auth:invalid-client-clears-all": Requirement(
@@ -5719,11 +6730,50 @@ REQUIREMENTS: dict[str, Requirement] = {
             "preference to the missing-authorization-code failure."
         ),
     ),
+    "client-auth:finishauth:urlsearchparams-sanitizes": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
+        behavior=(
+            "A raw authorization-callback entry point accepting the redirect's query parameters "
+            "extracts code and iss, validates iss before the code is used, and on mismatch surfaces "
+            "none of the callback's error, error_description, or error_uri values; the authorization "
+            "code never reaches a token endpoint."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. The typed path's ordering and non-surfacing guarantees are pinned by "
+            "the client-auth:iss table (see client-auth:iss:error-response-validated)."
+        ),
+        deferred=(
+            "Not implemented in the SDK: there is no raw-callback entry point -- the "
+            "integrator-supplied callback_handler (src/mcp/client/auth/oauth2.py) parses the redirect "
+            "itself and returns a typed AuthorizationCodeResult, so the callback's raw query string "
+            "(and any error fields in it) never enters the SDK."
+        ),
+    ),
     "client-auth:token-endpoint-auth-method": Requirement(
         source="sdk",
         behavior="The client authenticates to the token endpoint using the auth method established at registration.",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
+    ),
+    "client-auth:token-endpoint:https-guard": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#refresh-tokens",
+        behavior=(
+            "Token-exchange and refresh requests are sent only to an https token endpoint (loopback "
+            "exempt); a non-https endpoint is refused before client credentials or refresh tokens are "
+            "transmitted."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+        deferred=(
+            "Not implemented in the SDK: the token-exchange and refresh paths "
+            "(src/mcp/client/auth/oauth2.py) take the discovered token_endpoint verbatim with no "
+            "scheme check -- the only https validation in the client auth stack is the CIMD "
+            "client_metadata_url shape check, so credentials are sent to whatever endpoint metadata "
+            "names."
+        ),
     ),
     "client-auth:token-error:machine-readable-code": Requirement(
         source="sdk",
@@ -5873,6 +6923,22 @@ REQUIREMENTS: dict[str, Requirement] = {
             "period plus up to a further 2.0 s for SIGTERM/SIGKILL escalation; testing that path is "
             "real-time-bound (the constant is module-level with no public override) and so is deliberately "
             "excluded from this suite. Covered by tests/client/test_stdio.py."
+        ),
+    ),
+    "transport:stdio:restart-after-crash": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#unexpected-termination",
+        behavior=(
+            "If the server process exits unexpectedly, the client restarts it; in-flight requests are "
+            "lost and may be retried against the fresh process."
+        ),
+        added_in="2026-07-28",
+        transports=("stdio",),
+        note="Only observable over stdio: child-process lifecycle is stdio-specific.",
+        deferred=(
+            "Not implemented in the SDK: stdio_client (src/mcp/client/stdio.py) spawns the server "
+            "process exactly once and has no restart or respawn path -- on unexpected exit the stdout "
+            "loop ends and the read stream closes, surfacing connection closure; the only "
+            "process-lifecycle code is teardown."
         ),
     ),
     "transport:stdio:stderr-passthrough": Requirement(
