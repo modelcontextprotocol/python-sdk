@@ -216,13 +216,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="The initialize result identifies the server: name and version, plus title when declared.",
         removed_in="2026-07-28",
-        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
+        superseded_by="lifecycle:discover:basic",
+        note="initialize handshake removed at 2026-07-28; server identity moved to the server/discover result.",
     ),
     "lifecycle:initialize:instructions": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="A server may include an instructions string in the initialize result; the client exposes it.",
         removed_in="2026-07-28",
-        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
+        superseded_by="lifecycle:discover:instructions",
+        note="initialize handshake removed at 2026-07-28; instructions moved to the server/discover result.",
     ),
     "lifecycle:initialize:capabilities:from-handlers": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
@@ -231,13 +233,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and omits the capability for areas it does not."
         ),
         removed_in="2026-07-28",
-        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "lifecycle:initialize:capabilities:minimal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
         behavior="A server with no feature handlers advertises no feature capabilities.",
         removed_in="2026-07-28",
-        note="initialize handshake removed at 2026-07-28; per-request _meta envelope replaces it.",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "lifecycle:initialize:client-info": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
@@ -322,6 +332,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and the connection succeeds at that version."
         ),
         removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:retry-on-32022",
         note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:version:match": Requirement(
@@ -340,6 +351,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "with another version the server supports — the latest one — rather than an error."
         ),
         removed_in="2026-07-28",
+        superseded_by="lifecycle:version:unsupported-32022",
         note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:version:reject-unsupported": Requirement(
@@ -349,6 +361,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "support fails initialization with an error rather than proceeding with the session."
         ),
         removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:retry-on-32022",
         note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:stateless:request-envelope": Requirement(
@@ -386,7 +399,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "_meta.{protocolVersion,clientInfo,clientCapabilities}."
         ),
         added_in="2026-07-28",
-        supersedes=("lifecycle:initialize:client-info", "lifecycle:initialize:client-capabilities"),
+        supersedes=(
+            "lifecycle:initialize:client-info",
+            "lifecycle:initialize:client-capabilities",
+            "sampling:capability:declare",
+        ),
         note=(
             "The spec MUST covers requests only. The session's modern stamp is message-agnostic, so "
             "session-sent notifications carry the envelope too, while dispatcher-built frames (the "
@@ -407,6 +424,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying supportedVersions, capabilities, serverInfo and the cache hint fields."
         ),
         added_in="2026-07-28",
+        supersedes=("lifecycle:initialize:server-info",),
     ),
     "lifecycle:discover:retry-on-32022": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/versioning#protocol-version-negotiation",
@@ -415,6 +433,55 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the intersection of error.data.supported and its own modern versions; an empty intersection raises."
         ),
         added_in="2026-07-28",
+        supersedes=("lifecycle:version:downgrade", "lifecycle:version:reject-unsupported"),
+    ),
+    "lifecycle:discover:instructions": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/discover#discoverresult",
+        behavior=(
+            "A server-configured instructions string is returned in the server/discover result and exposed "
+            "to the client."
+        ),
+        added_in="2026-07-28",
+        supersedes=("lifecycle:initialize:instructions",),
+        deferred=(
+            "Not yet covered here: lifecycle:discover:basic exercises the discover round trip but no test "
+            "asserts the instructions field."
+        ),
+    ),
+    "lifecycle:discover:capabilities:from-handlers": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/discover#response",
+        behavior=(
+            "The capabilities object in the server/discover result advertises a capability for each feature "
+            "area with a registered handler and omits feature areas without one."
+        ),
+        added_in="2026-07-28",
+        supersedes=(
+            "lifecycle:initialize:capabilities:from-handlers",
+            "lifecycle:initialize:capabilities:minimal",
+            "tools:capability:declared",
+            "resources:capability:declared",
+            "prompts:capability:declared",
+            "completion:capability:declared",
+            "logging:capability:declared",
+            "mcpserver:completion:capability-auto",
+        ),
+        deferred=(
+            "Not yet covered here: lifecycle:discover:basic pins the result shape but no test asserts the "
+            "per-area handler-to-capability derivation."
+        ),
+    ),
+    "lifecycle:version:unsupported-32022": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning#protocol-version-negotiation",
+        behavior=(
+            "A request declaring a protocol version the server does not implement is answered with -32022 "
+            "UnsupportedProtocolVersionError whose data.supported lists the versions the server does support."
+        ),
+        added_in="2026-07-28",
+        supersedes=("lifecycle:version:server-fallback-latest",),
+        deferred=(
+            "Not yet covered here: the server-side -32022 production is exercised only indirectly through "
+            "the client retry path."
+        ),
     ),
     "lifecycle:discover:fallback-method-not-found": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
@@ -495,13 +562,29 @@ REQUIREMENTS: dict[str, Requirement] = {
             "request; cancellation requires hand-constructing the notification (which is how "
             "protocol:cancel:in-flight exercises the receiving side)."
         ),
+        note=(
+            "At 2026-07-28 the cancellation wire act splits by transport: stdio still sends "
+            "notifications/cancelled (a MUST), while streamable HTTP replaces it with closing the response "
+            "stream. A single superseded_by cannot encode the split; the 2026 faces are pinned by "
+            "protocol:cancel:stdio-sends-cancelled and protocol:cancel:http-stream-close when the "
+            "cancellation add-batch lands them."
+        ),
     ),
     "protocol:cancel:handler-abort-propagates": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior="On the receiving side, a cancellation notification stops the running request handler.",
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+            ArmExclusion(
+                reason="requires-session",
+                spec_version="2026-07-28",
+                note=(
+                    "Client-initiated cancellation persists at 2026-07-28 but the SDK's modern path does not "
+                    "handle notifications/cancelled yet. Re-admission target is the in-memory arm only: on "
+                    "streamable HTTP the 2026 cancellation signal is closing the response stream, pinned "
+                    "separately by hosting:http:modern:disconnect-cancels-handler."
+                ),
+            ),
         ),
     ),
     "protocol:cancel:in-flight": Requirement(
@@ -520,7 +603,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+            ArmExclusion(
+                reason="requires-session",
+                spec_version="2026-07-28",
+                note=(
+                    "Client-initiated cancellation persists at 2026-07-28 but the SDK's modern path does not "
+                    "handle notifications/cancelled yet. Re-admission target is the in-memory arm only: on "
+                    "streamable HTTP the 2026 cancellation signal is closing the response stream, pinned "
+                    "separately by hosting:http:modern:disconnect-cancels-handler."
+                ),
+            ),
         ),
     ),
     "protocol:cancel:initialize-not-cancellable": Requirement(
@@ -539,7 +631,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="The session continues to serve new requests after an earlier request was cancelled.",
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+            ArmExclusion(
+                reason="requires-session",
+                spec_version="2026-07-28",
+                note=(
+                    "Client-initiated cancellation persists at 2026-07-28 but the SDK's modern path does not "
+                    "handle notifications/cancelled yet. Re-admission target is the in-memory arm only: on "
+                    "streamable HTTP the 2026 cancellation signal is closing the response stream, pinned "
+                    "separately by hosting:http:modern:disconnect-cancels-handler."
+                ),
+            ),
         ),
     ),
     "protocol:cancel:server-to-client": Requirement(
@@ -548,10 +649,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
             "cancels it, and the client stops processing the cancelled request."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322/SEP-2575); with server-initiated requests retired there is "
+            "nothing in flight on the client for a server to cancel, and servers MUST NOT send "
+            "notifications/cancelled except to tear down a subscriptions/listen stream (pinned separately as "
+            "protocol:cancel:server-listen-only when the cancellation slice lands it). No replacement."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#error-handling",
@@ -734,7 +839,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:progress:client-to-server": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior="A progress notification sent by the client is delivered to the server's progress handler.",
-        arm_exclusions=(ArmExclusion(reason="requires-session", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); client-to-server progress is unrepresentable -- the only "
+            "client notification is notifications/cancelled, and there are no server-initiated requests to "
+            "report progress on."
+        ),
     ),
     "protocol:timeout:basic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
@@ -770,6 +880,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "When a request times out, the sender issues notifications/cancelled for that request before "
             "failing the local call."
+        ),
+        note=(
+            "At 2026-07-28 on streamable HTTP, timeout cancellation is expressed by closing the response "
+            "stream rather than notifications/cancelled; the in-memory act this entry pins remains "
+            "spec-correct. Era-unbounded by design."
         ),
     ),
     "protocol:timeout:session-survives": Requirement(
@@ -820,10 +935,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool handler that issues an elicitation receives the client's result and can embed it in "
             "the tool call result."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="mrtr:tools-call:write-once-roundtrip",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the in-tool elicitation round trip is now the MRTR "
+            "input_required/retry loop."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "tools:call:is-error": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
@@ -837,6 +955,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Log notifications emitted by a tool handler during execution reach the client's logging "
             "callback before the tool result returns."
+        ),
+        divergence=Divergence(
+            note=(
+                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
+                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
+                "key and the tool handler's mid-call messages are delivered unconditionally, so a bound "
+                "test pins the un-gated delivery on the live 2026-07-28 cells."
+            ),
         ),
     ),
     "tools:call:progress": Requirement(
@@ -852,10 +978,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool handler that issues a sampling request receives the client's completion and can embed "
             "it in the tool call result."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:basic",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the in-tool sampling round trip is now the MRTR "
+            "input_required/retry loop."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "tools:call:structured-content": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#structured-content",
@@ -879,7 +1008,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "tools:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#capabilities",
         behavior="A server with a list_tools handler advertises the tools capability in its initialize result.",
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "tools:input-schema:json-schema-2020-12": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
@@ -906,9 +1040,27 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the tool set changes, the server sends notifications/tools/list_changed and it reaches "
             "the client's handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="tools:listen:list-changed",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); unsolicited server notifications retired -- list_changed is "
+            "delivered only on a subscriptions/listen stream."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+    ),
+    "tools:listen:list-changed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/tools#list-changed-notification",
+        behavior=(
+            "A notifications/tools/list_changed emitted while a client's subscriptions/listen stream "
+            "requested toolsListChanged is delivered on that stream and dispatched to the client's "
+            "registered notification handler."
+        ),
+        added_in="2026-07-28",
+        supersedes=("tools:list-changed",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
         ),
     ),
     "tools:list:basic": Requirement(
@@ -1058,6 +1210,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "error -32042 with the elicitation parameters intact."
         ),
         removed_in="2026-07-28",
+        superseded_by="mrtr:url-elicitation:no-32042-on-2026",
         note=(
             "removed in 2026-07-28 (SEP-2322); error -32042 retired, replaced by an MRTR input_required result "
             "carrying inputRequests."
@@ -1092,10 +1245,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Context.elicit sends a form elicitation built from a typed schema and returns a typed "
             "accepted/declined/cancelled result."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="mrtr:tools-call:write-once-roundtrip",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); in-tool elicitation now returns an input_required result from "
+            "the tool; the push Context API's 2026 failure mode is pinned separately by "
+            "mrtr:push-api:loud-fail-2026 when the mrtr add-batch lands it."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "mcpserver:context:read-resource": Requirement(
         source="sdk",
@@ -1120,7 +1277,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server with resource handlers advertises the resources capability, including the subscribe "
             "sub-flag when a subscribe handler is registered."
         ),
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "resources:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#list-changed-notification",
@@ -1128,9 +1290,27 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the resource set changes, the server sends notifications/resources/list_changed and it "
             "reaches the client's handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="resources:listen:list-changed",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); unsolicited server notifications retired -- list_changed is "
+            "delivered only on a subscriptions/listen stream."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+    ),
+    "resources:listen:list-changed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/resources#list-changed-notification",
+        behavior=(
+            "A notifications/resources/list_changed emitted while a client's subscriptions/listen stream "
+            "requested resourcesListChanged is delivered on that stream and dispatched to the client's "
+            "registered notification handler."
+        ),
+        added_in="2026-07-28",
+        supersedes=("resources:list-changed",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
         ),
     ),
     "resources:list:basic": Requirement(
@@ -1167,6 +1347,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
         behavior="resources/subscribe delivers the URI to the server's subscribe handler and returns an empty result.",
         removed_in="2026-07-28",
+        superseded_by="subscriptions:listen:ack-first-stamped",
         note="removed in 2026-07-28 (SEP-2575); resources/subscribe replaced by subscriptions/listen.",
     ),
     "resources:subscribe:capability-required": Requirement(
@@ -1175,6 +1356,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "resources/subscribe to a server that did not advertise the subscribe capability is rejected with an error."
         ),
         removed_in="2026-07-28",
+        superseded_by="subscriptions:listen:honored-filter-narrows-to-advertised",
         note=(
             "removed in 2026-07-28 (SEP-2575); the resources/subscribe RPC is gone. The resources.subscribe "
             "capability flag is retained but reinterpreted as opt-in for the resourceSubscriptions filter on "
@@ -1190,7 +1372,38 @@ REQUIREMENTS: dict[str, Requirement] = {
             "separately by resources:subscribe and resources:updated-notification."
         ),
         removed_in="2026-07-28",
+        superseded_by="resources:listen:updated",
         note="removed in 2026-07-28 (SEP-2575); resources/subscribe replaced by subscriptions/listen.",
+    ),
+    "subscriptions:listen:ack-first-stamped": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
+        behavior=(
+            "notifications/subscriptions/acknowledged is the first message on a subscriptions/listen stream "
+            "and carries the listen request's JSON-RPC id verbatim under the io.modelcontextprotocol/subscriptionId "
+            "_meta key, plus the honored subset of the requested filter."
+        ),
+        added_in="2026-07-28",
+        supersedes=("resources:subscribe",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+        ),
+    ),
+    "subscriptions:listen:honored-filter-narrows-to-advertised": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
+        behavior=(
+            "The acknowledged filter on a subscriptions/listen stream is the requested set narrowed to what "
+            "the server supports -- a requested notification type the server does not advertise is omitted "
+            "from the honored filter and never delivered."
+        ),
+        added_in="2026-07-28",
+        supersedes=("resources:subscribe:capability-required",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+        ),
     ),
     "resources:templates:list": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#resource-templates",
@@ -1227,9 +1440,27 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A resources/updated notification sent by the server reaches the client carrying the URI of "
             "the changed resource."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="resources:listen:updated",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); resources/updated is delivered only on a subscriptions/listen "
+            "stream whose resourceSubscriptions filter names the URI."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+    ),
+    "resources:listen:updated": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#notification-filter",
+        behavior=(
+            "A notifications/resources/updated for a URI named in a subscriptions/listen request's "
+            "resourceSubscriptions filter is delivered on that stream, carrying the changed URI and the "
+            "io.modelcontextprotocol/subscriptionId stamp."
+        ),
+        added_in="2026-07-28",
+        supersedes=("resources:subscribe:updated", "resources:updated-notification"),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1273,7 +1504,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#capabilities",
         behavior="A server with a list_prompts handler advertises the prompts capability in its initialize result.",
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "prompts:get:content:audio": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#audio-content",
@@ -1296,7 +1532,16 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "which the low-level server converts to error code 0 with the exception text as the message."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="modern-error-surface",
+                spec_version="2026-07-28",
+                note=(
+                    "prompts/get persists at 2026-07-28; only the error surface differs. The test pins the "
+                    "legacy code-0 error shape and needs an era-aware assertion before re-admission."
+                ),
+            ),
+        ),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1320,9 +1565,27 @@ REQUIREMENTS: dict[str, Requirement] = {
             "When the prompt set changes, the server sends notifications/prompts/list_changed and it "
             "reaches the client's handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="prompts:listen:list-changed",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); unsolicited server notifications retired -- list_changed is "
+            "delivered only on a subscriptions/listen stream."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+    ),
+    "prompts:listen:list-changed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/prompts#list-changed-notification",
+        behavior=(
+            "A notifications/prompts/list_changed emitted while a client's subscriptions/listen stream "
+            "requested promptsListChanged is delivered on that stream and dispatched to the client's "
+            "registered notification handler."
+        ),
+        added_in="2026-07-28",
+        supersedes=("prompts:list-changed",),
+        deferred=(
+            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
+            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
+            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
         ),
     ),
     "prompts:list:basic": Requirement(
@@ -1339,7 +1602,16 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="modern-error-surface",
+                spec_version="2026-07-28",
+                note=(
+                    "prompts/get persists at 2026-07-28; only the error surface differs. The test pins the "
+                    "legacy code-0 error shape and needs an era-aware assertion before re-admission."
+                ),
+            ),
+        ),
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -1371,7 +1643,17 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "ValueError, which the low-level server converts to error code 0."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="modern-error-surface",
+                spec_version="2026-07-28",
+                note=(
+                    "prompts/get persists at 2026-07-28; only the error surface differs (legacy code 0 vs "
+                    "-32602). The test pins the legacy shape and needs an era-aware assertion before "
+                    "re-admission."
+                ),
+            ),
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
@@ -1379,7 +1661,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "completion:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
         behavior="A server with a completion handler advertises the completions capability in its initialize result.",
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "completion:complete:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
@@ -1417,7 +1704,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "MCPServer advertises the completions capability when at least one completion source is "
             "registered, and omits it otherwise."
         ),
-        arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Logging
@@ -1433,17 +1725,38 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "even though the Context helpers send log message notifications."
             ),
         ),
-        arm_exclusions=(ArmExclusion(reason="legacy-only-vocabulary", spec_version="2026-07-28"),),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:discover:capabilities:from-handlers",
+        note=(
+            "initialize handshake removed at 2026-07-28; server capability advertisement moved to the "
+            "server/discover result."
+        ),
     ),
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
+        divergence=Divergence(
+            note=(
+                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
+                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
+                "key and all eight severity levels are delivered unconditionally, so a bound test pins the "
+                "un-gated delivery on the live 2026-07-28 cells."
+            ),
+        ),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
         behavior=(
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
+        ),
+        divergence=Divergence(
+            note=(
+                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
+                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
+                "key and the handler's messages are delivered unconditionally, so a bound test pins the "
+                "un-gated delivery on the live 2026-07-28 cells."
+            ),
         ),
     ),
     "logging:message:filtered": Requirement(
@@ -1457,6 +1770,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
         removed_in="2026-07-28",
+        superseded_by="logging:per-request-level:opt-in",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1466,6 +1780,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request-level:opt-in",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1475,9 +1790,37 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request-level:invalid-level",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
+        ),
+    ),
+    "logging:per-request-level:opt-in": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "A request whose _meta carries io.modelcontextprotocol/logLevel receives notifications/message "
+            "at or above that level on its own response stream, before the final response."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level", "logging:message:filtered"),
+        deferred=(
+            "Not implemented in the SDK: the server never reads io.modelcontextprotocol/logLevel from a "
+            "request's _meta -- the log helpers emit notifications/message unconditionally, with no "
+            "suppression when the key is absent and no at-or-above-level filter on the request's own stream."
+        ),
+    ),
+    "logging:per-request-level:invalid-level": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#error-handling",
+        behavior=(
+            "A request carrying an unrecognized io.modelcontextprotocol/logLevel value is rejected with "
+            "-32602 Invalid params."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level:invalid-level",),
+        deferred=(
+            "Not implemented in the SDK: an unrecognized io.modelcontextprotocol/logLevel value is accepted "
+            "rather than rejected with -32602; nothing validates the key on the inbound path."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1488,10 +1831,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A client that handles sampling requests advertises the sampling capability in its initialize request."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
-            ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="lifecycle:envelope:stamped-on-every-request",
+        note=(
+            "initialize handshake removed at 2026-07-28; client capabilities are stamped per-request in the "
+            "_meta envelope."
         ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
     "sampling:create:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
@@ -1499,18 +1845,24 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling/createMessage request from a server handler is answered by the client's sampling "
             "callback, and the callback's result (role, content, model, stopReason) is returned to the handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:basic",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:include-context": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
         behavior="The includeContext value supplied by the server reaches the client callback intact.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:include-context",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:context:server-gated-by-capability": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
@@ -1524,10 +1876,13 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "capability; the server-side validator only checks tools/tool_choice."
             ),
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the push vehicle is retired -- the capability gate persists "
+            "as the server-side embed gate on MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:model-preferences": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#model-preferences",
@@ -1535,18 +1890,24 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The model preferences supplied by the server (hints and the cost, speed, and intelligence "
             "priorities) reach the client callback intact."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:model-preferences",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:system-prompt": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
         behavior="The system prompt supplied by the server reaches the client callback intact.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:system-prompt",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:tools": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tools-in-sampling",
@@ -1563,18 +1924,24 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:create:audio-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#audio-content",
         behavior="Sampling messages can carry audio content: base64 data with a mimeType.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:audio-content",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:image-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#image-content",
         behavior="Sampling messages can carry image content: base64 data with a mimeType.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:create:image-content",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:create:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
@@ -1582,10 +1949,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling request to a client that did not declare the sampling capability fails with an "
             "error rather than hanging or being silently dropped; the spec names no error code for this case."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the client no longer answers server requests -- the surviving "
+            "protection is the server-side embed gate (and -32021 MissingRequiredClientCapability on the "
+            "originating client request)."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:error:user-rejected": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#error-handling",
@@ -1593,18 +1964,24 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A sampling request the user rejects is answered with a JSON-RPC error (the spec's code for "
             "this case is -1, 'User rejected sampling request'), surfaced to the requesting handler as an MCPError."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); there is no error answer to a sampling request under MRTR -- "
+            "the client simply does not retry and the server is not waiting. The -1 code dies with the "
+            "answer plane. No replacement."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:message:content-cardinality": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling",
         behavior="A sampling message's content may be a single block or an array of blocks.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:message:content-cardinality",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:result:no-tools-single-content": Requirement(
         source="sdk",
@@ -1619,10 +1996,13 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "pydantic.ValidationError from the server's response parsing (send_request) instead."
             ),
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the push answer this guarantee validated no longer exists. "
+            "Whether the MRTR client driver enforces the same shape on fulfilment results is undesigned SDK "
+            "surface -- re-pin as a new entry when it is."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:result:with-tools-array-content": Requirement(
         source="sdk",
@@ -1641,10 +2021,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A user sampling message that carries tool_result content contains only tool_result blocks; "
             "mixing tool_result with text, image, or audio content is rejected as invalid."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:tool-result:no-mixed-content",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); server-initiated sampling/createMessage retired -- the "
+            "request now rides MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:tool-use:result-balance": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tool-use-and-result-balance",
@@ -1671,10 +2054,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server validates tool_use/tool_result balance before sending a sampling/createMessage "
             "request; an unmatched tool_use raises ValueError and the request never reaches the wire."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the push send this preflight guarded is retired. The "
+            "tool-use/result balance MUST itself survives; an embedded-request preflight is undesigned SDK "
+            "surface."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "sampling:tools:server-gated-by-capability": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#tools-in-sampling",
@@ -1682,9 +2068,137 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool-enabled sampling request to a client that did not declare sampling.tools is rejected "
             "by the server before anything reaches the wire (the SDK surfaces this as an Invalid params error)."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="sampling:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the push vehicle is retired -- the capability gate persists "
+            "as the server-side embed gate on MRTR inputRequests."
+        ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+    ),
+    "sampling:mrtr:create:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#creating-messages",
+        behavior=(
+            "An embedded sampling/createMessage request returned in an input_required result from a tool "
+            "handler is fulfilled by the client's sampling callback, and the callback's result (role, "
+            "content, model, stopReason) reaches the retried tool handler in inputResponses."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:basic", "tools:call:sampling-roundtrip"),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "sampling:mrtr:create:include-context": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#context-inclusion",
+        behavior=(
+            "The includeContext value supplied in an embedded sampling/createMessage request reaches the "
+            "client sampling callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:include-context",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "sampling:mrtr:create:model-preferences": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#model-preferences",
+        behavior=(
+            "The model preferences supplied in an embedded sampling/createMessage request (hints and the "
+            "cost, speed, and intelligence priorities) reach the client sampling callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:model-preferences",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "sampling:mrtr:create:system-prompt": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#system-prompt",
+        behavior=(
+            "The system prompt supplied in an embedded sampling/createMessage request reaches the client "
+            "sampling callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:system-prompt",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "sampling:mrtr:create:audio-content": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#audio-content",
+        behavior=(
+            "Messages in an embedded sampling/createMessage request can carry audio content (base64 data "
+            "with a mimeType), reaching the client callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:audio-content",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "sampling:mrtr:create:image-content": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#image-content",
+        behavior=(
+            "Messages in an embedded sampling/createMessage request can carry image content (base64 data "
+            "with a mimeType), reaching the client callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:create:image-content",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "sampling:mrtr:message:content-cardinality": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#messages",
+        behavior=(
+            "A message in an embedded sampling/createMessage request may carry a single content block or an "
+            "array of blocks."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:message:content-cardinality",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "sampling:mrtr:tool-result:no-mixed-content": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/sampling#tool-result-messages",
+        behavior=(
+            "A user message carrying tool_result content in an embedded sampling request contains only "
+            "tool_result blocks; mixing tool_result with text, image, or audio content is rejected as invalid."
+        ),
+        added_in="2026-07-28",
+        supersedes=("sampling:tool-result:no-mixed-content",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "sampling:mrtr:capability:not-declared": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "The server does not place a sampling/createMessage request in an input_required result's "
+            "inputRequests for a client whose declared capabilities do not support it (tool-enabled "
+            "requests require sampling.tools; thisServer/allServers context -- itself deprecated -- should "
+            "not be used without sampling.context)."
+        ),
+        added_in="2026-07-28",
+        supersedes=(
+            "sampling:create:not-supported",
+            "sampling:tools:server-gated-by-capability",
+            "sampling:context:server-gated-by-capability",
+        ),
+        deferred=(
+            "Not implemented in the SDK: the server does not gate input_required input requests against the "
+            "client's declared capabilities -- a handler can embed a sampling/createMessage request for a "
+            "client that never declared the matching capability and it is sent as-is."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1722,10 +2236,13 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "elicitation/create; the spec's MUST NOT is not enforced."
             ),
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the push vehicle is retired -- the mode-level gate persists "
+            "as the server-side embed gate on MRTR inputRequests."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:action:accept": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1733,26 +2250,26 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A form-mode elicitation answered with action 'accept' returns the user's content to the "
             "requesting handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:basic",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:action:cancel": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:action:cancel",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:action:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A form-mode elicitation answered with action 'decline' returns no content to the handler.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:action:decline",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-elicitation-requests",
@@ -1760,10 +2277,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A form-mode elicitation delivers the message and requested schema to the client callback "
             "exactly as the server sent them."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:basic",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:defaults": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1789,10 +2306,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note="The client's default callback answers with -32600 Invalid request instead of -32602.",
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the client no longer answers elicitation requests (the "
+            "-32602 answer plane is gone) -- the surviving protection is the server-side embed gate."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:schema:enum-variants": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1800,18 +2320,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Requested-schema enum fields (including titled and multi-select variants) reach the client "
             "callback as sent."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:schema:enum-variants",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:schema:primitives": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
         behavior="Requested-schema fields may be string (with format), number or integer, or boolean.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:schema:primitives",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:schema:restricted-subset": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1829,10 +2349,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "the elicitation callback."
             ),
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:schema:restricted-subset",
+        note="removed in 2026-07-28 (SEP-2322); elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:form:response-validation": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-security",
@@ -1847,10 +2367,14 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "validates server-side, but the low-level session API does not)."
             ),
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="mrtr:input-responses:invalid-rejected",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the server-side validation half re-homes to the MRTR "
+            "inputResponses contract; the client-side validate-before-sending half folds into the MRTR "
+            "client driver's contract -- covered when that is pinned."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:action:accept-no-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1859,26 +2383,26 @@ REQUIREMENTS: dict[str, Requirement] = {
             "response carries no content (accept means the user agreed to visit the URL, not that the "
             "interaction completed)."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:url:action-no-content",
+        note="removed in 2026-07-28 (SEP-2322); URL-mode elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:action:cancel": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:url:action-no-content",
+        note="removed in 2026-07-28 (SEP-2322); URL-mode elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:action:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A URL-mode elicitation answered with decline returns the action with no content.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:url:action-no-content",
+        note="removed in 2026-07-28 (SEP-2322); URL-mode elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:basic": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation-requests",
@@ -1886,10 +2410,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A url-mode elicitation delivers the elicitation id and URL to the client callback exactly as "
             "the server sent them."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="mrtr:url-elicitation:no-32042-on-2026",
+        note="removed in 2026-07-28 (SEP-2322); URL-mode elicitation/create now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "elicitation:url:complete-notification": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#completion-notifications-for-url-mode-elicitation",
@@ -1931,9 +2455,189 @@ REQUIREMENTS: dict[str, Requirement] = {
             "-32042, carrying the pending elicitations in the error data."
         ),
         removed_in="2026-07-28",
+        superseded_by="mrtr:url-elicitation:no-32042-on-2026",
         note=(
             "removed in 2026-07-28 (SEP-2322); error -32042 retired, replaced by an MRTR input_required result "
             "carrying inputRequests."
+        ),
+    ),
+    "elicitation:mrtr:form:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#form-mode-elicitation-requests",
+        behavior=(
+            "An embedded form-mode elicitation/create request in an input_required result delivers the "
+            "message and requested schema to the client's elicitation callback exactly as sent, and an "
+            "accept response carrying the user's content reaches the retried handler in inputResponses."
+        ),
+        added_in="2026-07-28",
+        supersedes=(
+            "elicitation:form:basic",
+            "elicitation:form:action:accept",
+            "transport:streamable-http:server-to-client",
+        ),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "elicitation:mrtr:form:action:cancel": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
+        behavior=(
+            "An embedded form-mode elicitation answered with action 'cancel' reaches the retried handler "
+            "in inputResponses with no content."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:action:cancel",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "elicitation:mrtr:form:action:decline": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
+        behavior=(
+            "An embedded form-mode elicitation answered with action 'decline' reaches the retried handler "
+            "in inputResponses with no content."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:action:decline",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "elicitation:mrtr:form:schema:primitives": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#requested-schema",
+        behavior=(
+            "Requested-schema fields on an embedded form-mode elicitation may be string (with format), "
+            "number or integer, or boolean; they reach the client callback intact."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:schema:primitives",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "elicitation:mrtr:form:schema:enum-variants": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#requested-schema",
+        behavior=(
+            "Requested-schema enum fields (including titled and multi-select variants) on an embedded "
+            "form-mode elicitation reach the client callback as sent."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:schema:enum-variants",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "elicitation:mrtr:form:schema:restricted-subset": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#requested-schema",
+        behavior=(
+            "Form-mode requested schemas on embedded elicitations are flat objects with primitive-typed "
+            "properties only; nested structures and arrays of objects are not used."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:schema:restricted-subset",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    "elicitation:mrtr:capability:not-declared": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "The server does not place an elicitation/create request in an input_required result's "
+            "inputRequests for a client whose declared capabilities do not support it (including "
+            "mode-level support: form vs url)."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:not-supported", "elicitation:capability:server-respects-mode"),
+        deferred=(
+            "Not implemented in the SDK: the server does not gate input_required input requests against the "
+            "client's declared capabilities -- a handler can embed an elicitation/create request for a "
+            "client that never declared the matching capability or mode and it is sent as-is."
+        ),
+    ),
+    "elicitation:mrtr:url:action-no-content": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/elicitation#response-actions",
+        behavior=(
+            "ElicitResult actions for an embedded URL-mode elicitation carry no content: accept means the "
+            "user agreed to visit the URL, and cancel/decline reach the retried handler with the action "
+            "and no content."
+        ),
+        added_in="2026-07-28",
+        supersedes=(
+            "elicitation:url:action:accept-no-content",
+            "elicitation:url:action:cancel",
+            "elicitation:url:action:decline",
+        ),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "expected drivable by analogy with its triaged MRTR siblings."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MRTR (multi-round-trip requests, 2026-07-28)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "mrtr:input-responses:invalid-rejected": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#error-handling",
+        behavior=(
+            "The server validates that a retry's inputResponses parse as valid results for the requests it "
+            "issued; content that violates the requested schema is rejected rather than silently accepted."
+        ),
+        added_in="2026-07-28",
+        supersedes=("elicitation:form:response-validation",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "mrtr:url-elicitation:no-32042-on-2026": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr",
+        behavior=(
+            "URL-mode elicitation rides the multi-round-trip flow at 2026-07-28: a handler embeds a "
+            "URL-mode elicitation/create in an input_required result, the registered elicitation callback "
+            "fulfils it, the retried call completes, and error -32042 never appears on the wire."
+        ),
+        added_in="2026-07-28",
+        supersedes=(
+            "elicitation:url:basic",
+            "elicitation:url:required-error",
+            "mcpserver:tool:url-elicitation-error",
+            "flow:elicitation:url-required-then-retry",
+        ),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "mrtr:tools-call:write-once-roundtrip": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#basic-workflow",
+        behavior=(
+            "A tool that returns an input_required result on a 2026-07-28 connection is fulfilled by the "
+            "client driver: the registered callback answers the embedded request, and the original call is "
+            "retried with a fresh request id, a byte-exact requestState echo, and the collected "
+            "inputResponses, completing as a plain CallToolResult."
+        ),
+        added_in="2026-07-28",
+        supersedes=("tools:call:elicitation-roundtrip", "mcpserver:context:elicit-from-handler"),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "mrtr:multi-round:complete": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "A server may answer the same request with input_required on multiple successive attempts; "
+            "after two or more productive rounds the retried request completes normally."
+        ),
+        added_in="2026-07-28",
+        supersedes=("flow:elicitation:multi-step-form",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1969,26 +2673,29 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A roots/list request from a server handler is answered by the client's roots callback, and "
             "the returned roots (uri, name) reach the handler."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="roots:mrtr:list:basic",
+        note="removed in 2026-07-28 (SEP-2322); roots/list now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "roots:list:client-error": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#error-handling",
         behavior="A roots callback that answers with an error surfaces to the requesting handler as an MCPError.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); there is no error answer to a roots request under MRTR -- "
+            "the client does not replay the call with an error message, as the server is not waiting. No "
+            "replacement."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "roots:list:empty": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#listing-roots",
         behavior="An empty roots list is a valid response and reaches the handler as such.",
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
-        ),
+        removed_in="2026-07-28",
+        superseded_by="roots:mrtr:list:empty",
+        note="removed in 2026-07-28 (SEP-2322); roots/list now rides MRTR inputRequests.",
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "roots:list:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#error-handling",
@@ -1999,9 +2706,52 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note="The client's default callback answers with -32600 Invalid request instead of -32601.",
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="roots:mrtr:capability:not-declared",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); the client no longer answers roots requests (the -32601 "
+            "answer plane is gone) -- the surviving protection is the server-side embed gate."
+        ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
+    ),
+    "roots:mrtr:list:basic": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/roots#listing-roots",
+        behavior=(
+            "An embedded roots/list request in an input_required result is fulfilled by the client's roots "
+            "callback, and the returned roots (uri, name) reach the retried handler in inputResponses."
+        ),
+        added_in="2026-07-28",
+        supersedes=("roots:list:basic",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "roots:mrtr:list:empty": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/client/roots#listing-roots",
+        behavior=(
+            "An empty roots list returned by the client roots callback for an embedded roots/list request "
+            "reaches the retried handler as such."
+        ),
+        added_in="2026-07-28",
+        supersedes=("roots:list:empty",),
+        deferred=(
+            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
+            "the behaviour is implemented and drivable (phase-4 verdict)."
+        ),
+    ),
+    "roots:mrtr:capability:not-declared": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "The server does not place a roots/list request in an input_required result's inputRequests "
+            "for a client that did not declare the roots capability."
+        ),
+        added_in="2026-07-28",
+        supersedes=("roots:list:not-supported",),
+        deferred=(
+            "Not implemented in the SDK: the server does not gate input_required input requests against the "
+            "client's declared capabilities -- a handler can embed a roots/list request for a client that "
+            "never declared the roots capability and it is sent as-is."
         ),
     ),
     "roots:uri:file-scheme": Requirement(
@@ -2025,6 +2775,26 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred=(
             "Not implemented in the SDK: the client has no list-changed auto-refresh mechanism; "
             "notifications are only delivered to the message handler."
+        ),
+        removed_in="2026-07-28",
+        superseded_by="client:listen:auto-refresh",
+        note=(
+            "removed in 2026-07-28 (SEP-2575); unsolicited list_changed notifications retired -- the modern "
+            "auto-refresh reacts to changes published on a subscriptions/listen stream."
+        ),
+    ),
+    "client:listen:auto-refresh": Requirement(
+        source="sdk",
+        behavior=(
+            "A client configured with listChanged auto-refresh, on a modern connection, opens a "
+            "subscriptions/listen stream and on each published change re-fetches the corresponding list "
+            "and delivers the fresh result to its callback."
+        ),
+        added_in="2026-07-28",
+        supersedes=("client:list-changed:auto-refresh",),
+        deferred=(
+            "Not implemented in the SDK: the client has no subscriptions/listen API and no list-changed "
+            "auto-refresh mechanism."
         ),
     ),
     "client:list-changed:capability-gated": Requirement(
@@ -2539,6 +3309,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         removed_in="2026-07-28",
+        superseded_by="elicitation:mrtr:form:basic",
         note=(
             "removed in 2026-07-28 (SEP-2322); server-initiated requests are forbidden on streamable HTTP, "
             "replaced by MRTR input requests embedded in InputRequiredResult."
@@ -2994,6 +3765,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         removed_in="2026-07-28",
+        superseded_by="hosting:http:modern:disconnect-cancels-handler",
         note=(
             "removed in 2026-07-28 (SEP-2575); resumability dropped and the rule is inverted (closing the response "
             "stream is now the HTTP cancellation signal), no replacement."
@@ -3237,6 +4009,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: the modern entry's JSONRPCError-to-HTTP-status mapping.",
+    ),
+    "hosting:http:modern:disconnect-cancels-handler": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
+        behavior=(
+            "On a 2026-07-28 streamable HTTP request, the client closing the SSE response stream is "
+            "treated by the server as cancellation: the running handler is stopped and no JSON-RPC "
+            "response is written."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        supersedes=("hosting:http:disconnect-not-cancel",),
+        note="Only observable over streamable HTTP: stream closure is the transport-level cancellation signal.",
+        deferred=(
+            "Not yet covered here: planned transport-conformance test for the modern entry's disconnect handling."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP
@@ -3887,10 +4674,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A single tool handler issues sequential elicitations; an accept on one step feeds the next, "
             "and a decline or cancel at any step short-circuits to a final result."
         ),
-        arm_exclusions=(
-            ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
-            ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
+        removed_in="2026-07-28",
+        superseded_by="mrtr:multi-round:complete",
+        note=(
+            "removed in 2026-07-28 (SEP-2322); sequential elicitation steps become multiple MRTR "
+            "input_required rounds before completion."
         ),
+        arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
     "flow:elicitation:url-at-session-init": Requirement(
         source="sdk",
@@ -3919,6 +4709,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "after the client completes the URL flow and the server announces completion."
         ),
         removed_in="2026-07-28",
+        superseded_by="mrtr:url-elicitation:no-32042-on-2026",
         note=(
             "removed in 2026-07-28 (SEP-2322); the -32042 + elicitation/complete flow is replaced by the MRTR "
             "input_required/retry loop."
