@@ -11,7 +11,6 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
-from pydantic import AnyHttpUrl
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -164,8 +163,8 @@ def auth_settings(
     """
     scopes = required_scopes or ["mcp"]
     return AuthSettings(
-        issuer_url=AnyHttpUrl(BASE_URL),
-        resource_server_url=AnyHttpUrl(MCP_URL),
+        issuer_url=BASE_URL,  # type: ignore[arg-type]
+        resource_server_url=MCP_URL,  # type: ignore[arg-type]
         required_scopes=scopes,
         client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=scopes, default_scopes=scopes),
         identity_assertion_enabled=identity_assertion_enabled,
