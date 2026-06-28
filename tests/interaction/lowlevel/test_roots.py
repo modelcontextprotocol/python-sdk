@@ -4,7 +4,17 @@ import anyio
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
+from mcp_types import (
+    INTERNAL_ERROR,
+    CallToolResult,
+    ErrorData,
+    InputRequiredResult,
+    InputResponses,
+    ListRootsRequest,
+    ListRootsResult,
+    Root,
+    TextContent,
+)
 from pydantic import FileUrl
 
 from mcp import MCPError
@@ -165,3 +175,95 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
             await delivered.wait()
 
     assert received == snapshot([types.NotificationParams()])
+
+
+@requirement("roots:mrtr:list:basic")
+async def test_embedded_roots_list_is_fulfilled_and_the_roots_reach_the_retried_handler(connect: Connect) -> None:
+    """An embedded roots/list request in an input_required result is fulfilled by the client's
+    roots callback, and the returned roots (uri, name) reach the retried tool handler in
+    inputResponses. Spec-mandated (client/roots, Listing Roots -- the 2026 MRTR successor of the
+    retired push round trip).
+    """
+    ROOTS = ListRootsResult(
+        roots=[
+            Root(uri=FileUrl("file:///home/alice/project"), name="project"),
+            Root(uri=FileUrl("file:///home/alice/scratch")),
+        ]
+    )
+    handler_received: list[InputResponses] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "show_roots"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"roots": ListRootsRequest()})
+        handler_received.append(params.input_responses)
+        answer = params.input_responses["roots"]
+        assert isinstance(answer, ListRootsResult)
+        lines = [f"{root.uri} name={root.name}" for root in answer.roots]
+        return CallToolResult(content=[TextContent(text="\n".join(lines))])
+
+    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+        return ROOTS
+
+    async with connect(server, list_roots_callback=list_roots) as client:
+        result = await client.call_tool("show_roots", {})
+
+    assert result == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+file:///home/alice/project name=project
+file:///home/alice/scratch name=None\
+"""
+                )
+            ]
+        )
+    )
+    assert handler_received == [{"roots": ROOTS}]
+
+
+@requirement("roots:mrtr:list:empty")
+async def test_an_empty_embedded_roots_list_reaches_the_retried_handler_as_such(connect: Connect) -> None:
+    """An empty roots list returned by the client's roots callback for an embedded roots/list
+    request reaches the retried tool handler as an empty list -- not an error, not an absent
+    response. Spec-mandated (client/roots, Listing Roots).
+    """
+    EMPTY = ListRootsResult(roots=[])
+    handler_received: list[InputResponses] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="count_roots", input_schema={"type": "object"})])
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "count_roots"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"roots": ListRootsRequest()})
+        handler_received.append(params.input_responses)
+        answer = params.input_responses["roots"]
+        assert isinstance(answer, ListRootsResult)
+        return CallToolResult(content=[TextContent(text=str(len(answer.roots)))])
+
+    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+        return EMPTY
+
+    async with connect(server, list_roots_callback=list_roots) as client:
+        result = await client.call_tool("count_roots", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="0")]))
+    assert handler_received == [{"roots": EMPTY}]
