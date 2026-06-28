@@ -551,6 +551,20 @@ REQUIREMENTS: dict[str, Requirement] = {
             "to a request the client sent or a notification carrying no id."
         ),
     ),
+    "protocol:directionality:no-client-responses": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns",
+        behavior=(
+            "A 2026-07-28 wire trace contains no server-initiated JSON-RPC requests and no "
+            "client-sent JSON-RPC responses: every client-to-server frame is a request and every "
+            "server-to-client frame is a response, even across a multi-round-trip exchange that at "
+            "2025-11-25 was a server-initiated request answered by the client."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Asserted at the streamable HTTP wire seam: the in-memory 2026 transport dispatches "
+            "typed objects directly with no JSON-RPC framing, so it has no trace to inspect."
+        ),
+    ),
     "protocol:cancel:abort-signal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
         behavior=(
@@ -1250,7 +1264,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         note=(
             "removed in 2026-07-28 (SEP-2322); in-tool elicitation now returns an input_required result from "
             "the tool; the push Context API's 2026 failure mode is pinned separately by "
-            "mrtr:push-api:loud-fail-2026 when the mrtr add-batch lands it."
+            "mrtr:push-api:loud-fail-2026."
         ),
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
@@ -2197,16 +2211,21 @@ REQUIREMENTS: dict[str, Requirement] = {
             "requests require sampling.tools; thisServer/allServers context -- itself deprecated -- should "
             "not be used without sampling.context)."
         ),
+        divergence=Divergence(
+            note=(
+                "The embed gate is not implemented: an input_required result carrying a "
+                "sampling/createMessage request for a client that declared no sampling capability is "
+                "transmitted as-is, and the violation surfaces as the client driver's refusal "
+                "(INVALID_REQUEST, 'Sampling not supported') aborting the call. The sub-capability legs "
+                "(sampling.tools, sampling.context) are equally ungated and covered by this divergence "
+                "without separate pins."
+            ),
+        ),
         added_in="2026-07-28",
         supersedes=(
             "sampling:create:not-supported",
             "sampling:tools:server-gated-by-capability",
             "sampling:context:server-gated-by-capability",
-        ),
-        deferred=(
-            "Not implemented in the SDK: the server does not gate input_required input requests against the "
-            "client's declared capabilities -- a handler can embed a sampling/createMessage request for a "
-            "client that never declared the matching capability and it is sent as-is."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2577,18 +2596,42 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # MRTR (multi-round-trip requests, 2026-07-28)
     # ═══════════════════════════════════════════════════════════════════════════
+    "mrtr:input-required-result:at-least-one-of": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#server-requirements-basic-workflow",
+        behavior=(
+            "An InputRequiredResult carries at least one of inputRequests or requestState; a "
+            "handler-built violation fails at construction and surfaces to the client as a JSON-RPC "
+            "error, never as a malformed interim result."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "The at-least-one-of MUST is enforced by construction (mcp_types model validator). Both "
+            "2026 dispatchers map the handler's ValidationError to the shared "
+            "ErrorData(INVALID_PARAMS, 'Invalid request parameters', data='') shape "
+            "(handler_exception_to_error_data); INTERNAL_ERROR is arguably the more apt code for a "
+            "server-side construction bug, but the spec mandates no code for this failure."
+        ),
+    ),
     "mrtr:input-responses:invalid-rejected": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#error-handling",
         behavior=(
-            "The server validates that a retry's inputResponses parse as valid results for the requests it "
-            "issued; content that violates the requested schema is rejected rather than silently accepted."
+            "The server validates that a retry's inputResponses parse as a valid InputResponses object; "
+            "a structurally malformed map is rejected with a JSON-RPC error before the handler runs."
         ),
         added_in="2026-07-28",
         supersedes=("elicitation:form:response-validation",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
+        note=(
+            "Elicited content is handed to the handler without requestedSchema re-validation; servers "
+            "validate semantic constraints themselves (spec asks only for structural validation)."
         ),
+    ),
+    "mrtr:input-responses:key-correspondence": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr#inputresponses",
+        behavior=(
+            "A retry's inputResponses map is keyed by the originating inputRequests keys, each value "
+            "the client's typed result for that key's request (e.g. ElicitResult, ListRootsResult)."
+        ),
+        added_in="2026-07-28",
     ),
     "mrtr:url-elicitation:no-32042-on-2026": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr",
@@ -2603,10 +2646,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "elicitation:url:required-error",
             "mcpserver:tool:url-elicitation-error",
             "flow:elicitation:url-required-then-retry",
-        ),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
         ),
     ),
     "mrtr:tools-call:write-once-roundtrip": Requirement(
@@ -2656,10 +2695,41 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         supersedes=("flow:elicitation:multi-step-form",),
-        deferred=(
-            "Not yet covered here: 2026-07-28 successor entry registered by the era pass ahead of its test; "
-            "the behaviour is implemented and drivable (phase-4 verdict)."
+    ),
+    "mrtr:rounds-cap": Requirement(
+        source="sdk",
+        behavior=(
+            "Client.call_tool / get_prompt / read_resource bound the input_required retry loop at the "
+            "configurable input_required_max_rounds; a server that keeps answering input_required past "
+            "the cap raises InputRequiredRoundsExceededError carrying the configured cap."
         ),
+        added_in="2026-07-28",
+    ),
+    "mrtr:push-api:loud-fail-2026": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/mrtr",
+        behavior=(
+            "The push-style server-to-client request APIs (ServerSession.elicit_form / elicit_url / "
+            "create_message / list_roots) on a 2026-07-28 connection fail with a typed local error "
+            "(NoBackChannelError, INVALID_REQUEST) before any request reaches the client; a handler "
+            "can catch it and fall back, and the originating call still completes."
+        ),
+        divergence=Divergence(
+            note=(
+                "The prohibition is enforced by each transport's missing back-channel, not by an "
+                "era gate on the send path, and the enforcement splits per transport and per leg. "
+                "Standalone sends (no related_request_id) raise NoBackChannelError locally on both "
+                "2026 transports because the per-request Connection has no outbound channel. "
+                "Request-scoped sends (related_request_id=...) ride the per-request dispatch "
+                "context, whose can_send_request the modern HTTP entry hard-codes to False but the "
+                "in-memory direct-dispatcher pair leaves at its True default -- so in-memory the "
+                "forbidden elicitation/create frame IS transmitted, and the failure comes back from "
+                "the client's 2026 version gate (METHOD_NOT_FOUND) instead of arising locally. An "
+                "era-aware gate on the send path would loud-fail both legs on every transport; when "
+                "it lands, re-pin the request-scoped in-memory test to the local NoBackChannelError "
+                "and delete this divergence."
+            ),
+        ),
+        added_in="2026-07-28",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Roots (server → client)
@@ -2759,13 +2829,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server does not place a roots/list request in an input_required result's inputRequests "
             "for a client that did not declare the roots capability."
         ),
+        divergence=Divergence(
+            note=(
+                "The embed gate is not implemented: an input_required result carrying a roots/list "
+                "request for a client that did not declare the roots capability is transmitted as-is, "
+                "and the violation surfaces as the client driver's refusal (INVALID_REQUEST, 'List "
+                "roots not supported') aborting the call."
+            ),
+        ),
         added_in="2026-07-28",
         supersedes=("roots:list:not-supported",),
-        deferred=(
-            "Not implemented in the SDK: the server does not gate input_required input requests against the "
-            "client's declared capabilities -- a handler can embed a roots/list request for a client that "
-            "never declared the roots capability and it is sent as-is."
-        ),
     ),
     "roots:uri:file-scheme": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root",

@@ -9,6 +9,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitCompleteNotification,
     ElicitCompleteNotificationParams,
@@ -28,14 +29,17 @@ from mcp_types import (
     ServerCapabilities,
     TextContent,
 )
+from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import MCPError, UrlElicitationRequiredError
 from mcp.client import ClientRequestContext, ClientSession
+from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
+from tests.interaction._connect import BASE_URL, Connect, mounted_app
+from tests.interaction._helpers import IncomingMessage, RecordingTransport
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -943,3 +947,88 @@ async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitati
             }
         )
     )
+
+
+@requirement("mrtr:url-elicitation:no-32042-on-2026")
+async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() -> None:
+    """URL-mode elicitation rides the MRTR loop at 2026-07-28: the embedded URL request reaches the
+    callback, accepting it fulfils the loop, the retried call completes, and the retired -32042
+    urlElicitationRequired code never appears in any frame of the exchange.
+
+    Spec-mandated (-32042 is reserved-never-reused at 2026). Asserted at the client transport seam
+    over the modern streamable HTTP entry, the only transport serving 2026 JSON-RPC frames; the
+    post-exchange scan needs no waiting because the exchange is POST request/response pairs only,
+    each response fully consumed before its await returns.
+    """
+    received: list[types.ElicitRequestParams] = []
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
+        # tools/list right after the first successful tools/call result.
+        return types.ListToolsResult(
+            tools=[types.Tool(name="protected", description="Needs a sign-in.", input_schema={"type": "object"})]
+        )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "protected"
+        if not params.input_responses:
+            return InputRequiredResult(
+                input_requests={
+                    "link": ElicitRequest(
+                        params=ElicitRequestURLParams(message="Sign in to continue.", url="https://example.com/auth")
+                    )
+                }
+            )
+        answer = params.input_responses["link"]
+        assert isinstance(answer, ElicitResult)
+        return CallToolResult(content=[TextContent(text=f"{answer.action} content={answer.content}")])
+
+    server = Server("guard", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def answer_url(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        received.append(params)
+        # Accept means the user agreed to visit the URL; there is never content to carry.
+        return ElicitResult(action="accept")
+
+    with anyio.fail_after(5):
+        # One combined async-with, the recorder bound via := -- a separately nested `async with`
+        # line mis-traces its exit arcs under branch coverage on 3.11+.
+        async with (
+            mounted_app(server) as (http, _),
+            Client(
+                recording := RecordingTransport(streamable_http_client(f"{BASE_URL}/mcp", http_client=http)),
+                mode=LATEST_MODERN_VERSION,
+                elicitation_callback=answer_url,
+            ) as client,
+        ):
+            result = await client.call_tool("protected", {})
+
+    # The URL params crossed the real wire intact; elicitation_id rides its None default at 2026.
+    assert received == snapshot(
+        [ElicitRequestURLParams(message="Sign in to continue.", url="https://example.com/auth")]
+    )
+    assert result == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
+    # Positive control: the recording demonstrably captured the MRTR interim leg, so the scan
+    # below covers a conversation that contained the input_required round, not an empty log.
+    interim = [
+        message.message
+        for message in recording.received
+        if isinstance(message, SessionMessage)
+        and isinstance(message.message, JSONRPCResponse)
+        and message.message.result.get("resultType") == "input_required"
+    ]
+    assert len(interim) == 1
+    # The negative: no serialized frame in either direction carries the retired code. A substring
+    # scan also catches the code smuggled inside a result body -- the exact shape the 2025 era
+    # surfaced it in. Test-controlled payloads and single-digit request ids leave no legitimate
+    # occurrence of the digits.
+    frames = [
+        message.message.model_dump_json(by_alias=True, exclude_none=True)
+        for message in [*recording.sent, *recording.received]
+        if isinstance(message, SessionMessage)
+    ]
+    assert all(str(URL_ELICITATION_REQUIRED) not in frame for frame in frames)
