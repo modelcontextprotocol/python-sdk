@@ -3764,6 +3764,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "surfaced on the returned result unchanged -- on both eras (the in-code TODO "
                 "in src/mcp/server/runner.py records the missing rejection)."
             ),
+            issue="L117",
         ),
     ),
     "mrtr:input-responses:invalid-rejected": Requirement(
@@ -5299,6 +5300,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "hosting:auth:scope-403 divergence) -- a client missing several scopes is "
                 "challenged one scope per round trip."
             ),
+            issue="L118",
         ),
     ),
     "hosting:auth:scope:no-offline-access": Requirement(
