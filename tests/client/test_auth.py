@@ -2070,6 +2070,54 @@ class TestWWWAuthenticate:
         result = extract_field_from_www_auth(init_response, field_name)
         assert result is None, f"Should return None for {description}"
 
+    def test_extract_field_from_www_auth_does_not_match_substring_param_name(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test auth-param names are matched exactly, not as substrings."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer error_scope="decoy", scope="read write"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result == "read write"
+
+    def test_extract_field_from_www_auth_ignores_prefixed_param_only(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test a prefixed auth-param does not satisfy the requested field."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer custom_scope="leaked"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result is None
+
+    def test_extract_resource_metadata_from_www_auth_ignores_prefixed_param(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test resource_metadata does not match inside another auth-param name."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer x_resource_metadata="https://decoy.example.com"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_resource_metadata_from_www_auth(init_response)
+        assert result is None
+
 
 class TestCIMD:
     """Test Client ID Metadata Document (CIMD) support."""
