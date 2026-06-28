@@ -11,11 +11,8 @@ it has one golden rule: **extensions are off by default**.
 
 Pass instances at construction:
 
-```python
-from mcp.server.apps import Apps
-from mcp.server.mcpserver import MCPServer
-
-mcp = MCPServer("demo", extensions=[Apps()])
+```python title="server.py"
+--8<-- "docs_src/extensions/tutorial001.py"
 ```
 
 Done. The server now advertises `io.modelcontextprotocol/ui` under
@@ -39,8 +36,7 @@ Subclass `Extension` and override only what you need. Every method has a default
 ### The identifier
 
 ```python
-class Stamps(Extension):
-    identifier = "com.example/stamps"
+--8<-- "docs_src/extensions/tutorial002.py"
 ```
 
 The identifier is a `vendor-prefix/name` string following the spec's `_meta` key
@@ -60,8 +56,8 @@ specified by the MCP project itself.
 
 The smallest useful extension is one tool and a settings map:
 
-```python title="server.py" hl_lines="16 18-19 21-22 25"
---8<-- "docs_src/extensions/tutorial001.py"
+```python title="server.py" hl_lines="17 19-20 22-23 26"
+--8<-- "docs_src/extensions/tutorial003.py"
 ```
 
 * `tools()` returns `ToolBinding`s. The server registers each one exactly as if you
@@ -72,18 +68,10 @@ The smallest useful extension is one tool and a settings map:
 * The extension never receives the server. It declares contributions as data;
   `MCPServer` consumes them. There is no `self.server` to mutate.
 
-#### Try it
+And `main()` is the proof, an in-memory client straight against `mcp`:
 
-```python
-from mcp import Client
-
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.extensions)
-        # {'com.example/stamps': {'sealed': True}}
-        result = await client.call_tool("stamp", {"text": "hello"})
-        # [stamped] hello
+```python title="server.py" hl_lines="29-34"
+--8<-- "docs_src/extensions/tutorial003.py"
 ```
 
 ### Serving your own methods
@@ -91,8 +79,8 @@ async def main() -> None:
 An extension can register **new request methods**: its own verbs, served next to the
 spec's:
 
-```python title="server.py" hl_lines="14-20 24 33-41"
---8<-- "docs_src/extensions/tutorial002.py"
+```python title="server.py" hl_lines="15-21 30 39-47"
+--8<-- "docs_src/extensions/tutorial004.py"
 ```
 
 * `SearchParams` subclasses `RequestParams`, so the 2026 `_meta` envelope parses
@@ -116,10 +104,23 @@ runtime:
 * An empty `protocol_versions` set raises too: a method that can never be served
   is a bug, not a configuration.
 
-!!! tip
-    Calling a vendor method from the client goes through `client.session.send_request(...)`
-    today; `Client` only grows first-class methods for spec verbs. The
-    `custom_methods` story in `examples/stories/` shows the full round trip.
+### The client side
+
+The same file's `main()` is the whole client story, both halves of it:
+
+```python title="server.py" hl_lines="53-57"
+--8<-- "docs_src/extensions/tutorial004.py"
+```
+
+* `Client(..., extensions={EXTENSION_ID: {}})` declares the extension. That map
+  becomes `ClientCapabilities.extensions`: on a 2026-07-28 connection it travels in
+  the per-request `_meta` envelope, so the server sees it on **every** request; on
+  a legacy connection it rides the `initialize` handshake. Server code doesn't care
+  which: `require_client_extension(ctx, ...)` and
+  `ctx.session.check_client_capability(...)` read the right source on both paths.
+* Vendor methods drop one layer to `client.session.send_request(...)`; `Client`
+  only grows first-class methods for spec verbs. The `cast` is there because
+  `send_request` is typed against the spec's closed request union.
 
 ### Intercepting `tools/call`
 
@@ -127,7 +128,7 @@ The one interceptive hook. Override `intercept_tool_call` to observe, short-circ
 or veto a tool call:
 
 ```python title="server.py" hl_lines="18-25"
---8<-- "docs_src/extensions/tutorial003.py"
+--8<-- "docs_src/extensions/tutorial005.py"
 ```
 
 * `params` is the validated `CallToolRequestParams`: you get `params.name` and
@@ -142,23 +143,6 @@ or veto a tool call:
 
 The hook wraps `tools/call` and nothing else. For every-message concerns, use
 [Middleware](middleware.md). That is what it is for.
-
-## The client side
-
-A client declares the extensions it supports the same way the server does:
-
-```python
-from mcp import Client
-
-async with Client(target, extensions={"com.example/search": {}}) as client:
-    ...
-```
-
-That map becomes `ClientCapabilities.extensions`. On a 2026-07-28 connection it
-travels in the per-request `_meta` envelope, so the server sees it on **every**
-request; on a legacy connection it rides the `initialize` handshake. Server code
-doesn't care which: `require_client_extension(ctx, ...)` and
-`ctx.session.check_client_capability(...)` read the right source on both paths.
 
 ## What an extension cannot do
 

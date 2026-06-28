@@ -20,7 +20,7 @@ then come back.
 
 ## A clock with a face
 
-```python title="server.py" hl_lines="17 20 23-24 28 30"
+```python title="server.py" hl_lines="18 21 29 31"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -49,36 +49,22 @@ Not every client renders apps. The spec is blunt about what that means for you:
 
 The model reads `content`; the iframe is for humans. A UI-capable host still feeds
 the text result to the model, and a text-only client gets *only* that. So the
-canonical pattern is one tool, two answers:
+canonical pattern is one tool, two answers. Look at `get_time` again:
 
-```python
-@apps.tool(resource_uri="ui://clock/app.html")
-def get_time(ctx: Context) -> str:
-    now = current_time()
-    if not client_supports_apps(ctx):
-        return f"The time is {now}."   # a sentence for humans without the UI
-    return now                          # raw data the app renders
+```python title="server.py" hl_lines="22-26"
+--8<-- "docs_src/apps/tutorial001.py"
 ```
 
 `client_supports_apps(ctx)` is `True` only when the client declared the
 `io.modelcontextprotocol/ui` extension **and** listed `text/html;profile=mcp-app`
 in its `mimeTypes` settings. The field is required, so a client that omits it
-does not count.
+does not count. That is exactly what `main()` in the same file declares: the
+client half of the negotiation, and the rich answer comes back.
 
 !!! warning
     Never return a placeholder like `"[Rendered UI]"` as the only content. If the
     fallback text is useless, the tool is useless to every text-only client and to
     the model itself. Write the sentence.
-
-A client declares support like any extension capability:
-
-```python
-from mcp import Client
-from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
-
-async with Client(target, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as client:
-    ...
-```
 
 ## Locking the iframe down
 
@@ -149,10 +135,8 @@ rather you find out before a host does.
 `add_html_resource` covers the common case: a string of HTML. For anything else,
 HTML on disk or generated content, build the resource yourself and hand it over:
 
-```python
-from mcp.server.mcpserver.resources import FileResource
-
-apps.add_resource(FileResource(uri="ui://report/app.html", name="report", path=html_path))
+```python title="server.py" hl_lines="12 18"
+--8<-- "docs_src/apps/tutorial003.py"
 ```
 
 `add_resource` fills in the `text/html;profile=mcp-app` MIME type when the resource

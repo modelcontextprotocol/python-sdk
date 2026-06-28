@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from mcp_types import TextContent, TextResourceContents
 
-from docs_src.apps import tutorial001, tutorial002
+from docs_src.apps import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
 
@@ -42,6 +42,13 @@ async def test_one_tool_two_answers() -> None:
     assert plain.content == [TextContent(type="text", text="The time is 2026-06-26T12:00:00Z.")]
 
 
+async def test_the_clock_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial001: `main()` declares Apps support with the required `mimeTypes` and
+    receives the rich answer the page promises."""
+    await tutorial001.main()
+    assert "2026-06-26T12:00:00Z" in capsys.readouterr().out
+
+
 async def test_capability_advertised_under_server_extensions() -> None:
     """tutorial001: passing `extensions=[apps]` advertises `io.modelcontextprotocol/ui`."""
     async with Client(tutorial001.mcp) as client:
@@ -70,9 +77,24 @@ async def test_csp_permissions_domain_and_border_ride_the_resource_meta() -> Non
 
 async def test_an_app_only_tool_is_still_listed_and_callable() -> None:
     """tutorial002: `visibility=["app"]` is metadata for the host; the server lists the
-    tool like any other and serves its calls; filtering is the host's job."""
+    tool like any other and serves its calls. Filtering is the host's job."""
     async with Client(tutorial002.mcp) as client:
         listed = await client.list_tools()
         result = await client.call_tool("refresh_dashboard", {})
     assert listed.tools[0].meta == {"ui": {"resourceUri": "ui://dashboard/app.html", "visibility": ["app"]}}
     assert result.content == [TextContent(type="text", text="refreshed")]
+
+
+async def test_a_file_resource_is_served_with_the_app_mime_type_filled_in() -> None:
+    """tutorial003: `add_resource` accepts a pre-built `FileResource` and fills in the
+    `text/html;profile=mcp-app` MIME type the resource didn't set explicitly."""
+    async with Client(tutorial003.mcp) as client:
+        listed = await client.list_tools()
+        called = await client.call_tool("refresh_report", {})
+        result = await client.read_resource("ui://report/app.html")
+    assert listed.tools[0].meta == {"ui": {"resourceUri": "ui://report/app.html"}}
+    assert called.content == [TextContent(type="text", text="report refreshed")]
+    contents = result.contents[0]
+    assert isinstance(contents, TextResourceContents)
+    assert contents.mime_type == APP_MIME_TYPE
+    assert contents.text == tutorial003.REPORT_HTML.read_text()
