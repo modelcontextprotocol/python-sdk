@@ -352,7 +352,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="initialize-time version negotiation removed at 2026-07-28; version carried per-request in _meta.",
     ),
     "lifecycle:stateless:request-envelope": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
+        source=f"{SPEC_2026_BASE_URL}/basic#_meta",
         behavior=(
             "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion, "
             "/clientInfo, and /clientCapabilities in params._meta; no initialize handshake occurs."
@@ -369,7 +369,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred="covered by a tests/client/ unit test; not observable as an interaction",
     ),
     "lifecycle:stateless:caller-meta-preserved": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
+        source=f"{SPEC_2026_BASE_URL}/basic#_meta",
         behavior=(
             "Caller-supplied _meta keys on a request survive the per-request envelope merge: the "
             "three io.modelcontextprotocol/* envelope keys overwrite any caller-supplied values for "
@@ -398,14 +398,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         supersedes=("lifecycle:initialize:client-info", "lifecycle:initialize:client-capabilities"),
     ),
     "lifecycle:envelope:header-matches-meta": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#headers",
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#protocol-version-header",
         behavior="On HTTP, the MCP-Protocol-Version header on every POST matches _meta.protocolVersion in the body.",
         transports=("streamable-http", "streamable-http-stateless"),
         added_in="2026-07-28",
         note="HTTP-only: the header is a streamable-http transport concern; stdio and in-memory carry no headers.",
     ),
     "lifecycle:discover:basic": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#discover",
+        source=f"{SPEC_2026_BASE_URL}/server/discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
             "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
@@ -413,7 +413,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
     ),
     "lifecycle:discover:retry-on-32022": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#version-errors",
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning#protocol-version-negotiation",
         behavior=(
             "When server/discover returns -32022 UnsupportedProtocolVersion, the client retries once with "
             "the intersection of error.data.supported and its own modern versions; an empty intersection raises."
@@ -3382,7 +3382,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="removed in 2026-07-28 (SEP-2567); session DELETE removed with Mcp-Session-Id, no replacement.",
     ),
     "client-transport:http:body-derived-headers": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#standard-request-headers",
         behavior=(
             "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method, and (for tools/call) "
             "Mcp-Name headers on the outgoing HTTP request; a body without the envelope yields none."
@@ -3418,7 +3418,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     "client-transport:http:stateless-ignores-session-id": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#standard-request-headers",
         behavior=(
             "A pinned client never echoes a server-issued Mcp-Session-Id and never opens the standalone "
             "GET stream or the closing DELETE: the recorded wire is POST-only."
@@ -3549,7 +3549,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="OAuth is HTTP-only.",
     ),
     "client-auth:as-binding": Requirement(
-        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-binding",
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization/client-registration#authorization-server-binding",
         behavior=(
             "Stored client credentials are bound to the issuer that registered them; when the authorization "
             "server changes, the client discards them and re-registers rather than reusing them (SEP-2352)."
@@ -3693,12 +3693,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="OAuth is HTTP-only.",
     ),
     "client-auth:authorization-response:iss-verify": Requirement(
-        source=f"{SPEC_BASE_URL}/basic/authorization#authorization-server-metadata-discovery",
+        source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
         behavior=(
             "The client validates the RFC 9207 iss authorization-response parameter against the "
             "authorization server issuer (simple string comparison) and rejects a mismatch, or a "
             "missing iss when the server advertises support (SEP-2468)."
         ),
+        added_in="2026-07-28",
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
