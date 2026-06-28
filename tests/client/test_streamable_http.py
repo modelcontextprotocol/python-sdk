@@ -8,6 +8,7 @@ the public client never exposes.
 
 import base64
 import json
+from types import SimpleNamespace
 
 import anyio
 import httpx
@@ -101,11 +102,7 @@ async def test_reconnection_empty_streams_count_toward_max_attempts(monkeypatch:
             return None
 
         async def aiter_sse(self) -> object:
-            yield type(
-                "SSE",
-                (),
-                {"event": "message", "data": "", "id": f"event-{reconnect_attempts}", "retry": 0},
-            )()
+            yield SimpleNamespace(event="message", data="", id=f"event-{reconnect_attempts}", retry=0)
 
     def connect_sse(*args: object, **kwargs: object) -> PrimingOnlyEventSource:
         return PrimingOnlyEventSource()
