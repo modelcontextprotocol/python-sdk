@@ -319,6 +319,53 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
     assert storage.client_info.issuer == f"{BASE_URL}/"
 
 
+@requirement("client-auth:as-binding:prereg-mismatch-error")
+async def test_preregistered_credentials_bound_to_a_different_issuer_are_silently_replaced_without_an_error() -> None:
+    """Pre-registered credentials with a mismatched issuer are silently replaced rather than erroring.
+
+    The 2026 binding section says a client holding pre-registered credentials SHOULD surface an
+    error when the authorization server no longer matches the issuer they were registered with,
+    rather than silently attempting to use them. The SDK cannot tell pre-registered from
+    DCR-persisted credentials, so the issuer-stamped credential takes the DCR
+    discard-and-re-register path and the flow completes with no error -- a known divergence,
+    recorded on the requirement; the mismatched credential is at least never presented.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    prereg = seeded_client(
+        provider,
+        client_id="prereg-old-as",
+        client_secret="prereg-secret",
+        token_endpoint_auth_method="client_secret_post",
+        issuer="https://old-as.example.com",
+    )
+    storage = InMemoryTokenStorage(client_info=prereg)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    # The flow completed: no error surfaced -- the divergent observable everything below qualifies.
+    assert result.tools[0].name == "echo"
+
+    # The replacement happened via a silent dynamic registration.
+    assert path_counts(recorded)[("POST", "/register")] == 1
+
+    # The mismatched credential was never presented anywhere: the SDK does not "silently attempt
+    # to use" it -- only the error half of the SHOULD is missed.
+    for r in recorded:
+        assert "prereg-old-as" not in r.url.query.decode()
+        assert "prereg-old-as" not in r.content.decode()
+        assert "prereg-secret" not in r.content.decode()
+
+    # The pre-registered identity is gone and its replacement is bound to the current AS:
+    # "silently replaced" made concrete rather than inferred from a changed client_id.
+    assert storage.client_info is not None
+    assert storage.client_info.client_id != "prereg-old-as"
+    assert storage.client_info.issuer == f"{BASE_URL}/"
+
+
 @requirement("client-auth:401-after-auth-throws")
 async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_looping() -> None:
     """A 401 on the post-auth retry surfaces as an error rather than re-entering discovery.
