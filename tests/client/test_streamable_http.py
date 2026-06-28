@@ -13,7 +13,14 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import CONNECTION_CLOSED, METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
+from mcp_types import (
+    CONNECTION_CLOSED,
+    METHOD_NOT_FOUND,
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 
 from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport, streamable_http_client
 from mcp.shared._context_streams import create_context_streams
