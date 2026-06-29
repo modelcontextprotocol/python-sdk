@@ -115,10 +115,12 @@ markdown_extensions:
   - pymdownx.superfences
   # Code examples live as complete, importable, tested files under `docs_src/`
   # and are included into pages with `--8<-- "docs_src/<chapter>/tutorialNNN.py"`
-  # (resolved against the repo root, the extension's default base_path).
+  # (resolved against the repo root regardless of the build's working
+  # directory; the extension's default base_path is the CWD).
   # `check_paths: true` + `strict: true` turn a renamed/deleted example into a
   # build failure instead of a silently empty code block.
   - pymdownx.snippets:
+      base_path: !relative $config_dir
       check_paths: true
   - pymdownx.tilde
   - pymdownx.inlinehilite
@@ -145,6 +147,9 @@ markdown_extensions:
 watch:
   - src
   - docs_src
+
+hooks:
+  - docs/hooks/llms_txt.py
 
 plugins:
   - search
