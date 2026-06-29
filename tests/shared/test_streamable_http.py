@@ -1614,7 +1614,7 @@ async def test_handle_sse_event_skips_empty_data() -> None:
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
     # Create a mock SSE event with empty data (keep-alive ping)
-    mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
+    mock_sse = ServerSentEvent(event="message", data="")
 
     # Create a context-aware stream writer (matches StreamWriter type alias)
     write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
