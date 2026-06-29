@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar
+from urllib.parse import urlsplit, urlunsplit
 
 import anyio
+import anyio.lowlevel
 import mcp_types as types
 from mcp_types import (
     CallToolResult,
@@ -39,6 +44,7 @@ from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_in
 from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
+from mcp.client.caching import CacheConfig, ClientResponseCache, InMemoryResponseCacheStore
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -56,6 +62,9 @@ from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.session import RequestResponder
+
+logger = logging.getLogger(__name__)
 
 ConnectMode = Literal["legacy", "auto"] | str
 """``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to
@@ -113,6 +122,45 @@ def _connected(value: _T | None) -> _T:
     if value is None:  # pragma: no cover
         raise RuntimeError("Client must be used within an async context manager")
     return value
+
+
+def _strip_userinfo(url: str) -> str:
+    """Drop any userinfo from the URL's authority component; byte-exact otherwise.
+
+    Cache identity must never over-normalize (case-folding or query rewriting could
+    merge distinct servers, e.g. `?tenant=a` vs `?tenant=b`), and credentials must
+    never enter cache-key material — userinfo removal is the single permitted rewrite.
+    """
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
+def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
+    """Wrap the session message handler with cache eviction on server notifications.
+
+    Eviction runs before delegation, inside its own boundary, so a cache fault can
+    never suppress delivery. Every item — notification, `RequestResponder`, or
+    transport `Exception` — then reaches the user's handler; with none supplied, the
+    wrapper performs the same bare checkpoint `ClientSession` installs by default.
+    """
+
+    async def handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, types.ServerNotification):
+            try:
+                await cache.evict_for_notification(message)
+            except Exception:  # boundary: eviction reaches user store code; a cache fault must not block delivery
+                logger.exception("Response cache eviction failed; the notification is still delivered")
+        if user_handler is not None:
+            await user_handler(message)
+        else:
+            # Mirrors ClientSession's default handler (session._default_message_handler).
+            await anyio.lowlevel.checkpoint()
+
+    return handler
 
 
 def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
@@ -221,10 +269,23 @@ class Client:
     """SEP-2133 extension support to advertise under `ClientCapabilities.extensions`
     (identifier -> settings), e.g. `{"io.modelcontextprotocol/ui": {"mimeTypes": [...]}}`."""
 
+    cache: CacheConfig | Literal[False] | None = None
+    """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
+
+    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
+    in-memory store; results carrying no hints are not cached. Pass a `CacheConfig`
+    to customize (shared store, partition, default TTL), or `False` to disable
+    caching entirely.
+
+    Construction raises `ValueError` for a `CacheConfig` with a custom `store` when
+    no server identity can be derived (an in-process server or a `Transport`
+    instance) — set `CacheConfig.target_id` to name the server."""
+
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _connect: _Connector = field(init=False, repr=False, compare=False)
+    _response_cache: ClientResponseCache | None = field(init=False, default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
@@ -247,16 +308,48 @@ class Client:
         else:
             self._connect = _connect_transport(srv)
 
+        if self.cache is not False:
+            config = self.cache if self.cache is not None else CacheConfig()
+            # Server identity, in resolution order: explicit override, server URL
+            # (userinfo stripped, byte-exact otherwise), per-Client random. Only the
+            # hash below leaves this scope — the raw identity may carry credentials
+            # in its query string and must never be logged or stored.
+            target_id = config.target_id
+            if target_id is None and isinstance(self.server, str):
+                target_id = _strip_userinfo(self.server)
+            if target_id is None:
+                if config.store is not None:
+                    raise ValueError(
+                        "a custom cache store requires CacheConfig.target_id when the server is not a URL: "
+                        "in-process servers and Transport instances get a random per-client identity, so "
+                        "their entries in a shared store could never be served to another client"
+                    )
+                target_id = uuid.uuid4().hex
+            self._response_cache = ClientResponseCache(
+                store=config.store if config.store is not None else InMemoryResponseCacheStore(),
+                partition=config.partition,
+                arm_id=hashlib.sha256(target_id.encode()).hexdigest(),
+                default_ttl_ms=config.default_ttl_ms,
+                clock=config.clock,
+                share_public=config.share_public,
+                # Lazy: the era is unknown until __aenter__'s handshake, and the
+                # session is unpublished outside the context manager.
+                negotiated_version=lambda: self._session.protocol_version if self._session is not None else None,
+            )
+
     async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
         """Enter the resolved connector and return an un-entered ClientSession."""
         dispatcher = await self._connect(exit_stack, self.mode, self.raise_exceptions)
+        message_handler = self.message_handler
+        if self._response_cache is not None:
+            message_handler = _evicting_message_handler(self._response_cache, self.message_handler)
         return ClientSession(
             dispatcher=dispatcher,
             read_timeout_seconds=self.read_timeout_seconds,
             sampling_callback=self.sampling_callback,
             list_roots_callback=self.list_roots_callback,
             logging_callback=self.logging_callback,
-            message_handler=self.message_handler,
+            message_handler=message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
             extensions=self.extensions,
