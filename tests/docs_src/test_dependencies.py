@@ -1,5 +1,7 @@
 """`docs/tutorial/dependencies.md`: every claim the page makes, proved against the real SDK."""
 
+from typing import Literal
+
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import ElicitRequestParams, ElicitResult, TextContent
@@ -79,18 +81,24 @@ async def test_a_shared_dependency_runs_once_per_call(monkeypatch: pytest.Monkey
         assert inventory.lookups == ["Dune", "Dune"]
 
 
-async def test_an_in_stock_order_asks_no_question() -> None:
+# The `!!! info` claims the tutorial003 behaviour is transport-independent, so each claim is
+# proved on both: mode="legacy" elicits synchronously mid-call (2025-11-25 and earlier), while
+# mode="auto" negotiates 2026-07-28, where the question rides a multi-round-trip `tools/call`
+# and `Client` drives the retries.
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_an_in_stock_order_asks_no_question(mode: Literal["legacy", "auto"]) -> None:
     """tutorial003: `confirm_backorder` returns directly when stock exists - no round-trip."""
 
     async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
         raise AssertionError("an in-stock order must not elicit")
 
-    async with Client(tutorial003.mcp, mode="legacy", elicitation_callback=never) as client:
+    async with Client(tutorial003.mcp, mode=mode, elicitation_callback=never) as client:
         result = await client.call_tool("order_book", {"title": "Dune"})
 
     assert result.content == [TextContent(type="text", text="Ordered 'Dune'.")]
 
 
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
 @pytest.mark.parametrize(
     ("confirm", "expected"),
     [
@@ -98,7 +106,9 @@ async def test_an_in_stock_order_asks_no_question() -> None:
         (False, "No order placed."),
     ],
 )
-async def test_an_out_of_stock_order_asks_and_honours_the_answer(confirm: bool, expected: str) -> None:
+async def test_an_out_of_stock_order_asks_and_honours_the_answer(
+    mode: Literal["legacy", "auto"], confirm: bool, expected: str
+) -> None:
     """tutorial003: the resolver elicits, the SDK validates the answer, the tool reads it."""
     asked: list[str] = []
 
@@ -106,20 +116,21 @@ async def test_an_out_of_stock_order_asks_and_honours_the_answer(confirm: bool, 
         asked.append(params.message)
         return ElicitResult(action="accept", content={"confirm": confirm})
 
-    async with Client(tutorial003.mcp, mode="legacy", elicitation_callback=on_elicit) as client:
+    async with Client(tutorial003.mcp, mode=mode, elicitation_callback=on_elicit) as client:
         result = await client.call_tool("order_book", {"title": "Neuromancer"})
 
     assert result.content == [TextContent(type="text", text=expected)]
     assert asked == ["'Neuromancer' is out of stock (2-3 weeks). Order anyway?"]
 
 
-async def test_declining_an_unwrapped_dependency_aborts_the_call() -> None:
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_declining_an_unwrapped_dependency_aborts_the_call(mode: Literal["legacy", "auto"]) -> None:
     """tutorial003: no answer, no order - the error text on the page is the real one."""
 
     async def decline(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")
 
-    async with Client(tutorial003.mcp, mode="legacy", elicitation_callback=decline) as client:
+    async with Client(tutorial003.mcp, mode=mode, elicitation_callback=decline) as client:
         result = await client.call_tool("order_book", {"title": "Neuromancer"})
 
     assert result.is_error

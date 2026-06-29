@@ -68,6 +68,6 @@ uv run python -m stories.legacy_elicitation.client --http --legacy --server serv
 ## See also
 
 `sampling/` (same push-request shape, deprecated per SEP-2577), `mrtr/`
-(planned — the 2026-era carrier), `error_handling/`
+(the 2026-era carrier), `error_handling/`
 (`UrlElicitationRequiredError`), `refund_desk/` (resolver DI rides this push
-mechanism today).
+mechanism on handshake-era connections).

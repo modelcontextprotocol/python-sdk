@@ -19,7 +19,7 @@ That's the whole protocol. Every leg is an ordinary request from the client to t
 
 ## The server side
 
-The high-level `@mcp.tool()` decorator has no sugar for this yet. Today you write it on the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
+On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user and the SDK returns the `InputRequiredResult` for you - that form is the **[Dependencies](../tutorial/dependencies.md)** tutorial. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
 
 ```python title="server.py" hl_lines="44-47"
 --8<-- "docs_src/mrtr/tutorial001.py"
@@ -93,6 +93,6 @@ Drop to the underlying session, where `allow_input_required=True` hands you the 
 * `input_requests` is what it needs. `request_state` is an opaque resume token only the server reads.
 * `Client` runs the retry loop for you: register `elicitation_callback` / `sampling_callback` / `list_roots_callback` and `call_tool` returns a plain `CallToolResult`. `input_required_max_rounds` (default 10) bounds it.
 * To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
-* The server side is the **low-level** `Server` only; `@mcp.tool()` has no sugar for this yet.
+* On `@mcp.tool()`, a dependency that asks the user produces this result for you (**[Dependencies](../tutorial/dependencies.md)**); the **low-level** `Server` is the manual form.
 
 This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](deprecated.md)**.

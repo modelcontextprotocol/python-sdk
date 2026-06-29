@@ -76,8 +76,8 @@ A refusal is not an error. The tool decides what declining means (here, no booki
 
 !!! tip
     The answer is validated against your model before your code sees it. A client that sends
-    `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with the
-    `ValidationError`, your `if` never runs.
+    `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with a
+    schema-mismatch error, your `if` never runs.
 
 ## Ask before the tool runs
 
