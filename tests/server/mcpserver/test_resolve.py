@@ -1,11 +1,14 @@
 """Tests for resolver dependency injection (MRTR) on MCPServer tools."""
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
+import anyio
 import pytest
 from mcp_types import (
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolResult,
     CreateMessageResult,
     ElicitRequestFormParams,
@@ -17,7 +20,7 @@ from mcp_types import (
 )
 from pydantic import BaseModel, Field
 
-from mcp import Client
+from mcp import Client, InputRequiredRoundsExceededError
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import (
     AcceptedElicitation,
@@ -36,10 +39,12 @@ from mcp.server.mcpserver.resolve import (
     _encode_state,
     _outcome_from_state,
     _resolver_key,
+    _state_key,
+    _uses_input_required,
     find_resolved_parameters,
-    uses_input_required,
 )
 from mcp.server.mcpserver.tools.base import Tool
+from mcp.shared.exceptions import MCPError
 
 
 class Login(BaseModel):
@@ -48,6 +53,10 @@ class Login(BaseModel):
 
 class Confirm(BaseModel):
     ok: bool
+
+
+class Handle(BaseModel):
+    user_name: str = Field(alias="userName")
 
 
 async def _alias_login(ctx: Context) -> Login:
@@ -65,6 +74,12 @@ async def _decline(context: ClientRequestContext, params: ElicitRequestParams) -
     return ElicitResult(action="decline")
 
 
+async def _never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+    # Declares the form elicitation capability for clients that drive the
+    # input_required loop manually; the auto-driver never invokes it.
+    raise AssertionError("should not be called")
+
+
 async def _text(client: Client, tool: str, args: dict[str, object]) -> str:
     result = await client.call_tool(tool, args)
     assert len(result.content) == 1
@@ -72,35 +87,16 @@ async def _text(client: Client, tool: str, args: dict[str, object]) -> str:
     return result.content[0].text
 
 
-async def _drive_mrtr(
-    client: Client,
-    tool: str,
-    args: dict[str, object],
-    answer: Callable[[str, ElicitRequestFormParams], ElicitResult],
-    max_rounds: int = 10,
-) -> CallToolResult:
-    """Drive the 2026-07-28 `input_required` loop to completion.
-
-    Re-invokes `tools/call` with `input_responses`/`request_state` until the
-    server returns a final `CallToolResult`, fulfilling each pending request via
-    `answer(key, request_params)`.
-    """
-    responses: InputResponses | None = None
-    state: str | None = None
-    for _ in range(max_rounds):
-        result = await client.call_tool(
-            tool, args, input_responses=responses, request_state=state, allow_input_required=True
-        )
-        if isinstance(result, CallToolResult):
-            return result
-        assert isinstance(result, InputRequiredResult)
-        assert result.input_requests is not None
-        responses = {}
-        for key, req in result.input_requests.items():
-            assert isinstance(req.params, ElicitRequestFormParams)
-            responses[key] = answer(key, req.params)
-        state = result.request_state
-    raise AssertionError("input_required loop did not converge")  # pragma: no cover
+def _answer_round(
+    result: InputRequiredResult, answer: Callable[[str, ElicitRequestFormParams], ElicitResult]
+) -> InputResponses:
+    """Fulfil every question in one `InputRequiredResult` round via `answer(key, request_params)`."""
+    assert result.input_requests is not None
+    responses: InputResponses = {}
+    for key, req in result.input_requests.items():
+        assert isinstance(req.params, ElicitRequestFormParams)
+        responses[key] = answer(key, req.params)
+    return responses
 
 
 @pytest.mark.anyio
@@ -626,9 +622,9 @@ async def test_input_required_first_round_returns_the_question():
     mcp, fs = _delete_folder_server()
     fs["/docs"] = ["a.txt", "b.txt"]
 
-    async with Client(mcp) as client:  # mode="auto" negotiates 2026-07-28
+    async with Client(mcp, elicitation_callback=_never) as client:  # mode="auto" negotiates 2026-07-28
         assert client.session.protocol_version == "2026-07-28"
-        result = await client.call_tool("delete_folder", {"path": "/docs"}, allow_input_required=True)
+        result = await client.session.call_tool("delete_folder", {"path": "/docs"}, allow_input_required=True)
         assert isinstance(result, InputRequiredResult)
         assert result.input_requests is not None
         (request,) = result.input_requests.values()
@@ -653,30 +649,32 @@ async def test_input_required_loop_handles_every_outcome(
     content: dict[str, str | int | float | bool | list[str] | None] | None,
     expected: str,
 ):
+    # End-to-end at 2026-07-28: the client's auto-driver answers the embedded
+    # elicitation through the ordinary `elicitation_callback` and retries.
     mcp, fs = _delete_folder_server()
     fs["/docs"] = ["a.txt", "b.txt"]
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         assert "/docs has 2 file(s)" in params.message
         return ElicitResult(action=action, content=content)
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "delete_folder", {"path": "/docs"}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:  # mode="auto" negotiates 2026-07-28
+        result = await client.call_tool("delete_folder", {"path": "/docs"})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == expected
     assert ("/docs" in fs) is (expected != "deleted /docs")
 
 
 @pytest.mark.anyio
-async def test_input_required_empty_folder_completes_in_one_round():
+async def test_input_required_empty_folder_completes_without_eliciting():
     mcp, fs = _delete_folder_server()
     fs["/empty"] = []
 
-    def never(key: str, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
+    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
         raise AssertionError("should not elicit for an empty folder")
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "delete_folder", {"path": "/empty"}, never)
+    async with Client(mcp, elicitation_callback=never) as client:
+        result = await client.call_tool("delete_folder", {"path": "/empty"})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "deleted /empty"
     assert "/empty" not in fs
@@ -702,16 +700,22 @@ async def test_input_required_resolver_asks_and_consumes_then_never_reruns():
     ) -> str:
         return f"{login.username}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    asked: list[str] = []
+
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params.message)
         if "Username" in params.message:
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "act", {}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("act", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
 
+    # `confirm` can only form its question from `login`'s answer, so the auto-driver
+    # sees the questions in two successive rounds and answers each exactly once.
+    assert asked == ["Username?", "As octocat?"]
     # An eliciting resolver runs twice - once to ask, once to consume the answer -
     # then its outcome is carried in `request_state` and it never runs again. `login`
     # asks in round 1 and is consumed in round 2; `confirm` (which depends on
@@ -742,22 +746,74 @@ async def test_input_required_batches_independent_elicits_in_one_round():
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
+    async with Client(mcp, elicitation_callback=_never) as client:
         # Both independent resolvers are asked together in the first round.
-        first = await client.call_tool("both", {}, allow_input_required=True)
+        first = await client.session.call_tool("both", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
         assert first.input_requests is not None
         assert len(first.input_requests) == 2
 
-        result = await _drive_mrtr(client, "both", {}, answer)
+        # Answering both and echoing `request_state` completes in a single retry.
+        final = await client.session.call_tool(
+            "both",
+            {},
+            input_responses=_answer_round(first, answer),
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_auto_driver_answers_independent_questions_in_a_single_round():
+    # The pure `count_round` resolver is never persisted in `request_state`, so it
+    # re-runs on every round: its run count is the number of rounds the call took.
+    mcp = MCPServer(name="AutoBatch")
+    rounds = 0
+
+    async def count_round(ctx: Context) -> int:
+        nonlocal rounds
+        rounds += 1
+        return rounds
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("Name?", Login)
+
+    async def ask_confirm(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Confirm?", Confirm)
+
+    @mcp.tool()
+    async def both(
+        round_no: Annotated[int, Resolve(count_round)],
+        name: Annotated[Login, Resolve(ask_name)],
+        confirm: Annotated[Confirm, Resolve(ask_confirm)],
+    ) -> str:
+        return f"{name.username}:{confirm.ok}"
+
+    asked: list[str] = []
+
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params.message)
+        if "Name" in params.message:
+            return ElicitResult(action="accept", content={"username": "octocat"})
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("both", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
 
+    # The driver dispatches batched questions concurrently, so order is unspecified.
+    assert sorted(asked) == ["Confirm?", "Name?"]  # both questions, each exactly once
+    assert rounds == 2  # one question round, then the completing round
+
 
 def test_uses_input_required_version_gate():
-    assert uses_input_required("2026-07-28") is True
-    assert uses_input_required("2025-11-25") is False
-    assert uses_input_required(None) is False
+    assert _uses_input_required("2026-07-28") is True
+    assert _uses_input_required("2025-11-25") is False
+    assert _uses_input_required(None) is False
 
 
 @pytest.mark.parametrize(
@@ -798,6 +854,10 @@ def test_elicit_return_schema_extraction():
     assert _elicit_return_schema(Login | Elicit[Login]) is Login  # union arm
     assert _elicit_return_schema(Login) is None  # no Elicit arm
     assert _elicit_return_schema(None) is None
+    # The bound on `Elicit`'s parameter is unenforced at runtime, so a non-model
+    # subscription is constructible and must yield no schema rather than crash.
+    unbounded_elicit: Any = Elicit
+    assert _elicit_return_schema(unbounded_elicit[int]) is None
 
 
 @pytest.mark.anyio
@@ -811,13 +871,13 @@ async def test_non_elicitation_response_raises():
     async def tool(name: Annotated[Login, Resolve(ask)]) -> str:
         return name.username  # pragma: no cover
 
-    async with Client(mcp) as client:
-        r1 = await client.call_tool("tool", {}, allow_input_required=True)
+    async with Client(mcp, elicitation_callback=_never) as client:
+        r1 = await client.session.call_tool("tool", {}, allow_input_required=True)
         assert isinstance(r1, InputRequiredResult)
         assert r1.input_requests is not None
         (key,) = r1.input_requests
         # Answer with a sampling result instead of an elicitation result.
-        r2 = await client.call_tool(
+        r2 = await client.session.call_tool(
             "tool",
             {},
             input_responses={
@@ -895,11 +955,11 @@ async def test_non_serializable_sibling_resolver_does_not_break_rounds():
     ) -> str:
         return f"{when.year}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "act", {}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("act", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "2026:True"
 
@@ -923,20 +983,23 @@ async def test_bare_elicit_dependency_restored_as_model():
     ) -> str:
         return f"{login.username}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         if "user" in params.message:
             return ElicitResult(action="accept", content={"username": "octocat"})
         assert "as octocat?" in params.message  # proves login was a real model
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "act", {}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("act", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
 
 
 @pytest.mark.anyio
-async def test_accept_with_no_content_is_an_error_not_a_cancel():
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["legacy", "auto"]):
+    # Both transports must agree: mode="legacy" elicits synchronously mid-call,
+    # mode="auto" rides the 2026-07-28 input_required loop.
     mcp = MCPServer(name="AcceptNoContent")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -946,22 +1009,36 @@ async def test_accept_with_no_content_is_an_error_not_a_cancel():
     async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
         return login.username  # pragma: no cover
 
+    async def empty_accept(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action="accept", content=None)
+
+    async with Client(mcp, mode=mode, elicitation_callback=empty_accept) as client:
+        result = await client.call_tool("tool", {})
+        assert result.is_error
+        assert isinstance(result.content[0], TextContent)
+        assert "no content" in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_eliciting_tool_without_client_capability_is_a_protocol_error():
+    # The server must not send an `input_requests` entry the client has not declared
+    # capability for: with no `elicitation` declared (no callback), the call fails as
+    # a -32021 protocol error, not a CallToolResult execution failure.
+    mcp = MCPServer(name="NoElicitationCapability")
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover
+
     async with Client(mcp) as client:
-        r1 = await client.call_tool("tool", {}, allow_input_required=True)
-        assert isinstance(r1, InputRequiredResult)
-        assert r1.input_requests is not None
-        (key,) = r1.input_requests
-        r2 = await client.call_tool(
-            "tool",
-            {},
-            input_responses={key: ElicitResult(action="accept", content=None)},
-            request_state=r1.request_state,
-            allow_input_required=True,
-        )
-        assert isinstance(r2, CallToolResult)
-        assert r2.is_error
-        assert isinstance(r2.content[0], TextContent)
-        assert "no content" in r2.content[0].text
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.call_tool("tool", {}, allow_input_required=True)
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data is not None
+    assert "elicitation" in exc_info.value.error.data["requiredCapabilities"]
 
 
 @pytest.mark.anyio
@@ -991,15 +1068,22 @@ async def test_independent_nested_deps_batch_into_one_round():
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        first = await client.call_tool("tool", {}, allow_input_required=True)
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("tool", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
         assert first.input_requests is not None
         assert len(first.input_requests) == 2  # batched, not serialized
 
-        result = await _drive_mrtr(client, "tool", {}, answer)
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "octocat:True"
+        final = await client.session.call_tool(
+            "tool",
+            {},
+            input_responses=_answer_round(first, answer),
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"
 
 
 @pytest.mark.anyio
@@ -1030,15 +1114,15 @@ async def test_deep_chain_keeps_early_answers_across_rounds():
 
     a_asks = 0
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         nonlocal a_asks
         if "name" in params.message:
             a_asks += 1
             return ElicitResult(action="accept", content={"username": "octocat"})
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "tool", {}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("tool", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
     assert a_asks == 1  # ra's answer survived in request_state; never re-asked
@@ -1068,15 +1152,22 @@ async def test_factory_closures_get_distinct_wire_keys():
     def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
         return ElicitResult(action="accept", content={"username": params.message[0]})
 
-    async with Client(mcp) as client:
-        first = await client.call_tool("tool", {}, allow_input_required=True)
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("tool", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
         assert first.input_requests is not None
         assert len(first.input_requests) == 2  # distinct keys, not collapsed to one
 
-        result = await _drive_mrtr(client, "tool", {}, answer)
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "A,B"
+        final = await client.session.call_tool(
+            "tool",
+            {},
+            input_responses=_answer_round(first, answer),
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "A,B"
 
 
 @pytest.mark.anyio
@@ -1101,21 +1192,19 @@ async def test_eliciting_resolver_without_elicit_arm_restores_a_typed_model():
     ) -> str:
         return f"{login.username}:{confirm.ok}"
 
-    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         if "user" in params.message:
             return ElicitResult(action="accept", content={"username": "octocat"})
         assert "as octocat?" in params.message  # login restored as a real model
         return ElicitResult(action="accept", content={"ok": True})
 
-    async with Client(mcp) as client:
-        result = await _drive_mrtr(client, "act", {}, answer)
+    async with Client(mcp, elicitation_callback=callback) as client:
+        result = await client.call_tool("act", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
 
 
 def test_wire_key_is_worker_stable_for_methods_and_callable_objects():
-    from mcp.server.mcpserver.resolve import _state_key
-
     class Service:
         async def token(self, ctx: Context) -> Login:
             return Login(username="x")  # pragma: no cover
@@ -1132,3 +1221,287 @@ def test_wire_key_is_worker_stable_for_methods_and_callable_objects():
     assert _state_key(a.token).endswith("Service.token")
     # Callable objects key by their type's qualname (they have no `__qualname__`).
     assert _state_key(CallableResolver()).endswith("CallableResolver")
+
+
+@pytest.mark.anyio
+async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
+    # A decline is recorded in `request_state` just like an accept: RB elicits only
+    # after seeing RA's decline, so RA's outcome must survive into the round that
+    # answers RB without RA being asked again.
+    mcp = MCPServer(name="DeclinePersists")
+
+    async def ra(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    async def rb(a: Annotated[ElicitationResult[Login], Resolve(ra)]) -> Elicit[Confirm]:
+        assert isinstance(a, DeclinedElicitation)
+        return Elicit("proceed anonymously?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        a: Annotated[ElicitationResult[Login], Resolve(ra)],
+        c: Annotated[Confirm, Resolve(rb)],
+    ) -> str:
+        assert isinstance(a, DeclinedElicitation)
+        return f"anonymous:{c.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (ra_key,) = first.input_requests
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={ra_key: ElicitResult(action="decline")},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        (rb_key,) = second.input_requests  # only RB's question; RA is not re-asked
+        assert rb_key != ra_key
+        assert _decode_state(second.request_state)[ra_key].action == "decline"
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={rb_key: ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "anonymous:True"
+
+
+@pytest.mark.anyio
+async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
+    # `input_responses` keys the server never asked for and `request_state` outcome
+    # entries matching no resolver are tolerated (both are client-supplied), and the
+    # ghost state entry is not echoed into any later round's `request_state`.
+    mcp = MCPServer(name="GhostKeys")
+
+    async def ra(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    async def rb(a: Annotated[Login, Resolve(ra)]) -> Elicit[Confirm]:
+        return Elicit(f"as {a.username}?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        a: Annotated[Login, Resolve(ra)],
+        c: Annotated[Confirm, Resolve(rb)],
+    ) -> str:
+        return f"{a.username}:{c.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        assert first.request_state is not None
+        (ra_key,) = first.input_requests
+
+        spliced = json.loads(first.request_state)
+        spliced["outcomes"]["ghost"] = {"action": "accept", "data": {"username": "spooky"}}
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={
+                ra_key: ElicitResult(action="accept", content={"username": "octocat"}),
+                "ghost": ElicitResult(action="accept", content={"username": "spooky"}),
+            },
+            request_state=json.dumps(spliced),
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        (rb_key,) = second.input_requests
+        outcomes = _decode_state(second.request_state)
+        assert ra_key in outcomes
+        assert "ghost" not in outcomes  # the spliced entry is dropped, not carried onward
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={rb_key: ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "forged_data",
+    [
+        pytest.param("not-a-dict", id="non-dict-data"),
+        pytest.param({"hacked": True}, id="dict-failing-schema"),
+    ],
+)
+async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(forged_data: str | dict[str, bool]):
+    # `request_state` is client-trusted JSON: an accept entry whose data does not
+    # validate against the resolver's schema reads as no recorded progress, so the
+    # question is asked again (not an error) and a proper answer completes the call.
+    mcp = MCPServer(name="ForgedState")
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("whoami", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        assert first.request_state is not None
+        (key,) = first.input_requests
+
+        forged = json.loads(first.request_state)
+        forged["outcomes"][key] = {"action": "accept", "data": forged_data}
+        second = await client.session.call_tool(
+            "whoami", {}, request_state=json.dumps(forged), allow_input_required=True
+        )
+        assert isinstance(second, InputRequiredResult)  # re-asked, not an error
+        assert second.input_requests is not None
+        assert set(second.input_requests) == {key}
+        assert _decode_state(second.request_state) == {}  # the forged entry is dropped
+
+        final = await client.session.call_tool(
+            "whoami",
+            {},
+            input_responses={key: ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat"
+
+
+@pytest.mark.anyio
+async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_leakage():
+    # An accepted answer whose content fails the requested schema fails the call with
+    # the resolver's own message; pydantic's error text (which carries a
+    # "For further information" link) must not leak to the client.
+    mcp = MCPServer(name="MismatchedAnswer")
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        raise NotImplementedError  # pragma: no cover - the mismatched answer never reaches the body
+
+    async with Client(mcp, elicitation_callback=_accept({"nope": "x"})) as client:
+        result = await client.call_tool("whoami", {})
+        assert result.is_error
+        assert isinstance(result.content[0], TextContent)
+        assert "does not match the requested schema" in result.content[0].text
+        assert "For further information" not in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_auto_driver_gives_up_when_the_chain_outlasts_its_round_budget():
+    # A dependency chain of 11 eliciting resolvers needs 11 retry rounds, one more
+    # than the default `input_required_max_rounds`, so `client.call_tool` must raise
+    # rather than loop on. The pure `count_leg` resolver is never persisted, so it
+    # re-runs on every server leg: its final value is the exact number of legs.
+    mcp = MCPServer(name="TooDeep")
+    legs = 0
+
+    async def count_leg(ctx: Context) -> int:
+        nonlocal legs
+        legs += 1
+        return legs
+
+    async def root(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Q1?", Confirm)
+
+    def extend(dep: Callable[..., Any], n: int) -> Callable[..., Any]:
+        async def link(prev: Annotated[Confirm, Resolve(dep)]) -> Elicit[Confirm]:
+            return Elicit(f"Q{n}?", Confirm)
+
+        return link
+
+    chain: Callable[..., Any] = root
+    for n in range(2, 12):  # 11 eliciting resolvers in total
+        chain = extend(chain, n)
+
+    @mcp.tool()
+    async def long_haul(
+        leg: Annotated[int, Resolve(count_leg)],
+        last: Annotated[Confirm, Resolve(chain)],
+    ) -> str:
+        raise NotImplementedError  # pragma: no cover - the driver gives up first
+
+    answered = 0
+
+    async def callback(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        nonlocal answered
+        answered += 1
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp, elicitation_callback=callback) as client:
+        with anyio.fail_after(5):  # the loop must end by raising, not spin on retries
+            with pytest.raises(InputRequiredRoundsExceededError) as exc_info:
+                await client.call_tool("long_haul", {})
+        assert exc_info.value.max_rounds == client.input_required_max_rounds
+        assert answered == client.input_required_max_rounds  # one question answered per retry round
+        assert legs == client.input_required_max_rounds + 1  # the initial call plus one leg per retry
+
+
+@pytest.mark.anyio
+async def test_aliased_elicitation_model_round_trips_through_request_state():
+    # `_encode_state` must dump accepted models by alias: restore re-validates
+    # against the alias-keyed shape the client answered with (the rendered
+    # elicitation schema is alias-keyed). A field-name dump would fail validation
+    # on the round after next, drop the stored answer, and re-ask the user forever.
+    mcp = MCPServer(name="AliasState")
+
+    async def who(ctx: Context) -> Elicit[Handle]:
+        return Elicit("handle?", Handle)
+
+    async def confirm(h: Annotated[Handle, Resolve(who)]) -> Elicit[Confirm]:
+        return Elicit(f"go as {h.user_name}?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        h: Annotated[Handle, Resolve(who)],
+        c: Annotated[Confirm, Resolve(confirm)],
+    ) -> str:
+        return f"{h.user_name}:{c.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (who_key,) = first.input_requests
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={who_key: ElicitResult(action="accept", content={"userName": "octocat"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        (confirm_key,) = second.input_requests  # only the dependent question; the stored answer holds
+        assert confirm_key != who_key
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={confirm_key: ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"

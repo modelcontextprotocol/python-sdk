@@ -34,12 +34,17 @@ from typing import Annotated, Any, Generic, Literal, TypeGuard, get_args, get_or
 
 import anyio.to_thread
 from mcp_types import (
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
+    ClientCapabilities,
+    ElicitationCapability,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
+    FormElicitationCapability,
     InputRequests,
     InputRequiredResult,
     InputResponses,
+    MissingRequiredClientCapabilityErrorData,
 )
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, ValidationError
@@ -55,6 +60,7 @@ from mcp.server.elicitation import (
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -189,7 +195,7 @@ def _elicit_return_schema(return_annotation: Any) -> type[BaseModel] | None:
     for candidate in candidates:
         if get_origin(candidate) is Elicit:
             schema = get_args(candidate)[0]
-            if isinstance(schema, type) and issubclass(schema, BaseModel):  # pragma: no branch
+            if isinstance(schema, type) and issubclass(schema, BaseModel):
                 return schema
     return None
 
@@ -383,7 +389,7 @@ async def resolve_arguments(
     # called directly builds such a `Context`, and a tool whose resolvers never elicit
     # must still work there. A missing version means the synchronous (non-input_required)
     # transport, which never reaches a server-to-client request anyway.
-    res = _Resolution(plans, tool_args, context, uses_input_required(context.protocol_version))
+    res = _Resolution(plans, tool_args, context, _uses_input_required(context.protocol_version))
     injected: dict[str, Any] = {}
     for name, (marker, wants_union) in resolved_params.items():
         try:
@@ -417,13 +423,10 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
     # `-> ... Elicit[T]`), fall through and re-run the resolver so `_elicit` can
     # re-validate the stored answer against the live `Elicit.schema`.
     if wire_key in res.state and (plan.elicit_schema is not None or res.state[wire_key].action != "accept"):
-        outcome = _outcome_from_state(res.state[wire_key], plan.elicit_schema)
-        res.cache[cache_key] = outcome
-        # Carry the restored answer forward: if a later resolver is still pending,
-        # the next round's `request_state` is built from `res.elicited`, so an
-        # earlier answer must stay there or it would be dropped and re-asked.
-        res.elicited[wire_key] = outcome
-        return outcome
+        outcome = _restore_outcome(res, wire_key, plan.elicit_schema)
+        if outcome is not None:
+            res.cache[cache_key] = outcome
+            return outcome
 
     kwargs: dict[str, Any] = {}
     dep_pending = False
@@ -470,14 +473,16 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
         return await res.context.elicit(elicit.message, elicit.schema)
 
     # Answered in a prior round (restored without a known schema, e.g. an unannotated
-    # resolver): re-validate the stored entry against the live `Elicit.schema`.
-    if key in res.state and key not in res.answers:
-        outcome = _outcome_from_state(res.state[key], elicit.schema)
-        res.elicited[key] = outcome
+    # resolver): re-validate the stored entry against the live `Elicit.schema`. A
+    # recorded outcome wins over a re-sent answer; an invalid entry self-deletes and
+    # falls through to the fresh answer (or to re-asking).
+    outcome = _restore_outcome(res, key, elicit.schema)
+    if outcome is not None:
         return outcome
 
     answer = res.answers.get(key)
     if answer is None:
+        _require_form_elicitation(res.context, key)
         res.pending[key] = _elicit_request(elicit)
         raise _Pending
     if not isinstance(answer, ElicitResult):
@@ -485,7 +490,13 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
     if answer.action == "accept":
         if answer.content is None:
             raise ToolError(f"Resolver {key!r} received an accepted elicitation with no content")
-        return AcceptedElicitation(data=elicit.schema.model_validate(answer.content))
+        try:
+            data = elicit.schema.model_validate(answer.content)
+        except ValidationError as e:
+            raise ToolError(
+                f"Resolver {key!r} received an accepted elicitation whose content does not match the requested schema"
+            ) from e
+        return AcceptedElicitation(data=data)
     if answer.action == "decline":
         return DeclinedElicitation()
     return CancelledElicitation()
@@ -511,13 +522,38 @@ def _accepted(data: Any) -> AcceptedElicitation[Any]:
     return AcceptedElicitation[Any].model_construct(data=data)
 
 
-def uses_input_required(protocol_version: str | None) -> bool:
+def _uses_input_required(protocol_version: str | None) -> bool:
     """True when this request must elicit via `InputRequiredResult` (>= 2026-07-28).
 
     Older revisions still carry a standalone `elicitation/create` server-to-client
     request, so the framework keeps the synchronous `ctx.elicit()` path for them.
     """
     return protocol_version is not None and is_version_at_least(protocol_version, _INPUT_REQUIRED_VERSION)
+
+
+def _require_form_elicitation(context: Context[Any, Any], key: str) -> None:
+    """Assert the client declared form elicitation before queueing a question for it.
+
+    The spec forbids sending an `input_requests` entry the client has not declared a
+    capability for. A bare `elicitation: {}` declaration (the only shape before modes
+    existed) counts as form support; an explicit url-only declaration does not.
+
+    Raises:
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` and a
+            `requiredCapabilities` payload when form elicitation is not declared.
+    """
+    capabilities = context.client_capabilities
+    elicitation = capabilities.elicitation if capabilities is not None else None
+    if elicitation is not None and (elicitation.form is not None or elicitation.url is None):
+        return
+    data = MissingRequiredClientCapabilityErrorData(
+        required_capabilities=ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability()))
+    )
+    raise MCPError(
+        code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+        message=f"Client did not declare the form elicitation capability required by resolver {key!r}",
+        data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
 
 
 def _elicit_request(elicit: Elicit[Any]) -> ElicitRequest:
@@ -561,21 +597,52 @@ def _encode_state(outcomes: Mapping[str, ElicitationResult[Any]]) -> str:
     for path, outcome in outcomes.items():
         data = outcome.data if isinstance(outcome, AcceptedElicitation) else None
         if isinstance(data, BaseModel):
-            data = data.model_dump(mode="json")
+            # By alias: the stored shape must round-trip through
+            # `schema.model_validate` on restore, which expects the alias-keyed
+            # form the client answered with (the rendered schema is alias-keyed).
+            data = data.model_dump(mode="json", by_alias=True)
         entries[path] = _StateEntry(action=outcome.action, data=data)
     return _State(v=_STATE_VERSION, outcomes=entries).model_dump_json()
 
 
 def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel] | None) -> ElicitationResult[Any]:
-    """Rebuild an `ElicitationResult` from a decoded `request_state` entry."""
+    """Rebuild an `ElicitationResult` from a decoded `request_state` entry.
+
+    Raises:
+        ValidationError: If `schema` is known and the entry's data does not
+            validate against it.
+    """
     if entry.action == "decline":
         return DeclinedElicitation()
     if entry.action == "cancel":
         return CancelledElicitation()
     data = entry.data
-    if schema is not None and isinstance(data, dict):
+    if schema is not None:
         data = schema.model_validate(data)
     return _accepted(data)
+
+
+def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel] | None) -> ElicitationResult[Any] | None:
+    """Restore `key`'s recorded outcome from a prior round, or `None` when absent.
+
+    `request_state` is client-trusted, so an entry whose data fails validation gets
+    the `_decode_state` treatment - dropped as if no progress was recorded, so the
+    question is asked again - rather than surfacing a validation error.
+
+    Carries a restored outcome forward in `res.elicited`: if a later resolver is
+    still pending, the next round's `request_state` is built from `res.elicited`,
+    so an earlier answer must stay there or it would be dropped and re-asked.
+    """
+    entry = res.state.get(key)
+    if entry is None:
+        return None
+    try:
+        outcome = _outcome_from_state(entry, schema)
+    except ValidationError:
+        del res.state[key]
+        return None
+    res.elicited[key] = outcome
+    return outcome
 
 
 __all__ = [
