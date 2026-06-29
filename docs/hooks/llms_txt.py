@@ -82,8 +82,13 @@ def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Fil
 
     def include(match: re.Match[str]) -> str:
         indent, path = match["indent"], match["path"]
+        # Mirror the snippets extension's restrict_base_path: reject paths
+        # that resolve outside the repo root.
+        resolved_path = (repo_root / path).resolve()
+        if not resolved_path.is_relative_to(repo_root.resolve()):
+            raise PluginError(f"llms_txt: snippet path {path!r} in {page.file.src_uri} escapes the repo root")
         try:
-            content = (repo_root / path).read_text(encoding="utf-8").rstrip("\n")
+            content = resolved_path.read_text(encoding="utf-8").rstrip("\n")
         except OSError as exc:
             raise PluginError(f"llms_txt: cannot read snippet {path!r} in {page.file.src_uri}") from exc
         if indent:
