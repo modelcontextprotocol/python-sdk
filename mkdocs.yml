@@ -1,5 +1,5 @@
-site_name: MCP Server
-site_description: MCP Server
+site_name: MCP Python SDK
+site_description: The official Python SDK for the Model Context Protocol
 strict: true
 
 repo_name: modelcontextprotocol/python-sdk
