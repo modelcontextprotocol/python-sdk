@@ -79,6 +79,24 @@ A refusal is not an error. The tool decides what declining means (here, no booki
     `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with the
     `ValidationError`, your `if` never runs.
 
+## Ask before the tool runs
+
+The booking tool above weaves the question into its own body. When the question is really a *precondition* - confirm before deleting, authenticate before acting - you can lift it out of the tool into a **resolver** and let the framework ask for you.
+
+A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` before the tool body. The resolver returns the value directly when it already knows it, or returns `Elicit(...)` to have the framework ask:
+
+```python title="server.py" hl_lines="24-30 35-36"
+--8<-- "docs_src/elicitation/tutorial004.py"
+```
+
+* `confirm_delete` reads the tool's own `path` argument by name, lists the folder, and **only elicits when it must** - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client.
+* `delete_folder` annotates `ElicitationResult[Confirm]`, so the framework injects the whole outcome and the tool `match`es every case: accept-and-confirm, accept-but-keep (`ok=False`), decline, cancel.
+* The `confirm` parameter never appears in the tool's input schema - the client supplies `path`, the resolver supplies `confirm`.
+
+Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
+
+Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **Dependencies** chapter.
+
 ## Send the user to a URL
 
 Some things must not go through the model or the client: credentials, card numbers, OAuth consent. For those you don't ask for data; you ask the user to go somewhere:

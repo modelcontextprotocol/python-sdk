@@ -69,21 +69,36 @@ class FuncMetadata(BaseModel):
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
     wrap_output: bool = False
 
+    def validate_arguments(self, arguments_to_validate: dict[str, Any]) -> dict[str, Any]:
+        """Validate raw arguments into a one-level kwargs dict (no function call).
+
+        Used to feed resolver dependency injection the validated tool arguments
+        before the tool function itself runs.
+        """
+        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
+        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
+        return arguments_parsed_model.model_dump_one_level()
+
     async def call_fn_with_arg_validation(
         self,
         fn: Callable[..., Any | Awaitable[Any]],
         fn_is_async: bool,
         arguments_to_validate: dict[str, Any],
         arguments_to_pass_directly: dict[str, Any] | None,
+        pre_validated: dict[str, Any] | None = None,
     ) -> Any:
         """Call the given function with arguments validated and injected.
 
         Arguments are first attempted to be parsed from JSON, then validated against
-        the argument model, before being passed to the function.
+        the argument model, before being passed to the function. Pass `pre_validated`
+        (the output of `validate_arguments`) to reuse an earlier validation pass -
+        validating twice can re-run `default_factory`/stateful validators and hand the
+        function different values than a caller already observed.
         """
-        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
-        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
-        arguments_parsed_dict = arguments_parsed_model.model_dump_one_level()
+        # Copy so a caller-provided `pre_validated` dict is never mutated in place.
+        arguments_parsed_dict = dict(
+            pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
+        )
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 
@@ -150,7 +165,7 @@ class FuncMetadata(BaseModel):
                 key_to_field_info[field_info.alias] = field_info
 
         for data_key, data_value in data.items():
-            if data_key not in key_to_field_info:  # pragma: no cover
+            if data_key not in key_to_field_info:
                 continue
 
             field_info = key_to_field_info[data_key]

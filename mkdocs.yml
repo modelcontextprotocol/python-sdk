@@ -21,6 +21,7 @@ nav:
       - Resources: tutorial/resources.md
       - Prompts: tutorial/prompts.md
       - The Context: tutorial/context.md
+      - Dependencies: tutorial/dependencies.md
       - Handling errors: tutorial/handling-errors.md
       - Lifespan: tutorial/lifespan.md
       - Media: tutorial/media.md

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Generic
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
@@ -216,6 +216,16 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         bearer token. For that, use `get_access_token().client_id`.
         """
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
+
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        """Request headers carried by this message, when the transport has them.
+
+        Populated by HTTP-based transports; `None` on stdio or when the
+        transport's request object carries no headers. Headers are
+        client-supplied input - never treat one as an identity assertion.
+        """
+        return cast("Mapping[str, str] | None", getattr(self.request_context.request, "headers", None))
 
     @property
     def request_id(self) -> str:

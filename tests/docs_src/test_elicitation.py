@@ -14,7 +14,7 @@ from mcp_types import (
 )
 from pydantic import BaseModel
 
-from docs_src.elicitation import tutorial001, tutorial002, tutorial003
+from docs_src.elicitation import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client, MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import MCPServer
@@ -246,3 +246,54 @@ async def test_a_client_without_the_callback_cannot_be_asked() -> None:
     async with Client(tutorial001.mcp, mode="legacy") as client:
         with pytest.raises(MCPError, match="Elicitation not supported"):
             await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
+
+
+async def test_resolver_asks_only_when_the_folder_is_not_empty() -> None:
+    """tutorial004: `confirm_delete` resolves an empty folder directly and elicits otherwise."""
+    tutorial004._FOLDERS.update({"/tmp/empty": [], "/tmp/project": ["main.py", "README.md"]})
+    asked: list[str] = []
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        assert isinstance(params, ElicitRequestFormParams)
+        asked.append(params.message)
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(tutorial004.mcp, mode="legacy", elicitation_callback=on_elicit) as client:
+        empty = await client.call_tool("delete_folder", {"path": "/tmp/empty"})
+        non_empty = await client.call_tool("delete_folder", {"path": "/tmp/project"})
+
+    assert empty.content == [TextContent(type="text", text="deleted /tmp/empty")]
+    assert non_empty.content == [TextContent(type="text", text="deleted /tmp/project")]
+    assert asked == ["/tmp/project has 2 file(s). Delete anyway?"]  # the empty folder was not queried
+
+
+async def test_the_resolved_parameter_is_hidden_from_the_tool_schema() -> None:
+    """tutorial004: the `Resolve`-filled parameter never appears in the client-facing input schema."""
+    async with Client(tutorial004.mcp, mode="legacy") as client:
+        (tool,) = (await client.list_tools()).tools
+        assert tool.name == "delete_folder"
+        assert set(tool.input_schema["properties"]) == {"path"}
+
+
+@pytest.mark.parametrize(
+    ("action", "content", "expected"),
+    [
+        ("accept", {"ok": False}, "kept the folder"),
+        ("decline", None, "declined: folder not deleted"),
+        ("cancel", None, "cancelled: folder not deleted"),
+    ],
+)
+async def test_the_tool_branches_on_every_elicitation_outcome(
+    action: Literal["accept", "decline", "cancel"],
+    content: dict[str, str | int | float | bool | list[str] | None] | None,
+    expected: str,
+) -> None:
+    """tutorial004: annotating the result union lets the tool handle accept/decline/cancel."""
+    tutorial004._FOLDERS["/tmp/project"] = ["main.py", "README.md"]
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action=action, content=content)
+
+    async with Client(tutorial004.mcp, mode="legacy", elicitation_callback=on_elicit) as client:
+        result = await client.call_tool("delete_folder", {"path": "/tmp/project"})
+    assert result.content == [TextContent(type="text", text=expected)]

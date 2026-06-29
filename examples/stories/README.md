@@ -130,6 +130,7 @@ opens with a banner saying what replaces it.
 | [`streaming`](streaming/) | progress notifications, in-flight logging, cancellation | current |
 | [`mrtr`](mrtr/) | `InputRequiredResult` round-trip: the `Client` auto-loop and a manual session-level loop | current |
 | [`legacy_elicitation`](legacy_elicitation/) | server pauses a tool to ask the user (form + url) via a push request | legacy |
+| [`refund_desk`](refund_desk/) | resolver DI: `Annotated[T, Resolve(fn)]` params filled server-side, hidden from the input schema | current |
 | [`sampling`](sampling/) | server asks the client's LLM mid-tool (push request) | deprecated |
 | [`stickynotes`](stickynotes/) | capstone: tools mutate state → resources + `list_changed` + elicit guard | current |
 | [`custom_methods`](custom_methods/) | vendor-prefixed JSON-RPC via `add_request_handler` / `send_request` | current |

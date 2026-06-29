@@ -1624,6 +1624,20 @@ app = server.streamable_http_app(
 
 The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
+### `ElicitationResult` is now a subscriptable generic alias
+
+`ElicitationResult` is now a `TypeAliasType` instead of a plain union, so `ElicitationResult[Confirm]` works as an annotation (resolver dependency injection consumes it that way - see [Dependencies](tutorial/dependencies.md)). The members are unchanged: `AcceptedElicitation[T] | DeclinedElicitation | CancelledElicitation`.
+
+The one behavioral change: a runtime `isinstance(result, ElicitationResult)` now raises `TypeError`. Check against the member classes directly instead:
+
+```python
+result = await ctx.elicit("Proceed?", Confirm)
+if isinstance(result, AcceptedElicitation):
+    ...  # result.data is a Confirm
+```
+
+Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected.
+
 ## Need Help?
 
 If you encounter issues during migration:

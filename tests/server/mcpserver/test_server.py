@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1799,6 +1800,33 @@ async def test_report_progress_delegates_to_session_report_progress():
     await ctx.report_progress(50, 100, message="halfway")
 
     mock_session.report_progress.assert_awaited_once_with(50, 100, "halfway")
+
+
+def _request_context(request: object | None) -> ServerRequestContext[None, object]:
+    return ServerRequestContext(
+        session=AsyncMock(),
+        method="tools/call",
+        lifespan_context=None,
+        protocol_version="2025-11-25",
+        request=request,
+    )
+
+
+def test_context_headers_returns_request_headers():
+    request = SimpleNamespace(headers={"x-github-user": "octocat"})
+    ctx = Context(request_context=_request_context(request), mcp_server=MagicMock())
+    assert ctx.headers == {"x-github-user": "octocat"}
+
+
+def test_context_headers_is_none_without_request():
+    ctx = Context(request_context=_request_context(None), mcp_server=MagicMock())
+    assert ctx.headers is None
+
+
+def test_context_headers_is_none_when_request_carries_no_headers():
+    """A transport may attach a custom request object that has no headers attribute."""
+    ctx = Context(request_context=_request_context(object()), mcp_server=MagicMock())
+    assert ctx.headers is None
 
 
 async def test_read_resource_template_error():

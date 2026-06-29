@@ -155,6 +155,28 @@ async def test_complex_function_runtime_arg_validation_with_json():
     assert result == "ok!"
 
 
+@pytest.mark.anyio
+async def test_call_fn_does_not_mutate_pre_validated():
+    """A caller-provided `pre_validated` dict must not be mutated by the call."""
+
+    def fn(x: int, ctx: str) -> str:
+        return f"{x}:{ctx}"
+
+    meta = func_metadata(fn, skip_names=["ctx"])
+    pre_validated = meta.validate_arguments({"x": 1})
+    snapshot = dict(pre_validated)
+
+    result = await meta.call_fn_with_arg_validation(
+        fn,
+        fn_is_async=False,
+        arguments_to_validate={"x": 1},
+        arguments_to_pass_directly={"ctx": "injected"},
+        pre_validated=pre_validated,
+    )
+    assert result == "1:injected"
+    assert pre_validated == snapshot  # `ctx` was not leaked into the caller's dict
+
+
 def test_str_vs_list_str():
     """Test handling of string vs list[str] type annotations.
 

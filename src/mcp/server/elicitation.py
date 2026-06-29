@@ -11,6 +11,7 @@ from mcp_types.v2025_11_25 import PrimitiveSchemaDefinition
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
+from typing_extensions import TypeAliasType
 
 from mcp.server.session import ServerSession
 
@@ -36,7 +37,11 @@ class CancelledElicitation(BaseModel):
     action: Literal["cancel"] = "cancel"
 
 
-ElicitationResult = AcceptedElicitation[ElicitSchemaModelT] | DeclinedElicitation | CancelledElicitation
+ElicitationResult = TypeAliasType(
+    "ElicitationResult",
+    AcceptedElicitation[ElicitSchemaModelT] | DeclinedElicitation | CancelledElicitation,
+    type_params=(ElicitSchemaModelT,),
+)
 
 
 class AcceptedUrlElicitation(BaseModel):
