@@ -39,6 +39,12 @@ era = "modern"
 era    = "legacy"
 status = "legacy"
 
+[story.refund_desk]
+# Resolver DI rides push elicitation (ctx.elicit) today; era flips to "dual" once
+# the SDK carries resolver elicitation over the 2026 input_required round-trip.
+era      = "legacy"
+lowlevel = false
+
 [story.sampling]
 era    = "legacy"
 status = "deprecated"

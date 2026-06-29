@@ -51,4 +51,5 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
 ## See also
 
 `legacy_elicitation/` and `sampling/` — the handshake-era push equivalents this
-mechanism replaces on the 2026 protocol.
+mechanism replaces on the 2026 protocol. `refund_desk/` — resolver DI at the
+MCPServer tier: the questions a tool can declare instead of pushing by hand.
