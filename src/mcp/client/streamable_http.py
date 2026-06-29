@@ -187,11 +187,11 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
-                async with client.stream("GET", self.url, headers=headers) as response:
-                    response.raise_for_status()
+                async with client.sse(self.url, headers=headers) as event_source:
+                    event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
-                    async for sse in EventSource(response):
+                    async for sse in event_source:
                         # Track last event ID for reconnection
                         if sse.id:
                             last_event_id = sse.id
@@ -230,11 +230,11 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with ctx.client.stream("GET", self.url, headers=headers) as response:
-            response.raise_for_status()
+        async with ctx.client.sse(self.url, headers=headers) as event_source:
+            event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
-            async for sse in EventSource(response):  # pragma: no branch
+            async for sse in event_source:  # pragma: no branch
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -242,7 +242,7 @@ class StreamableHTTPTransport:
                     ctx.metadata.on_resumption_token_update if ctx.metadata else None,
                 )
                 if is_complete:
-                    await response.aclose()
+                    await event_source.response.aclose()
                     break
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
@@ -408,15 +408,15 @@ class StreamableHTTPTransport:
             original_request_id = ctx.session_message.message.id
 
         try:
-            async with ctx.client.stream("GET", self.url, headers=headers) as response:
-                response.raise_for_status()
+            async with ctx.client.sse(self.url, headers=headers) as event_source:
+                event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
 
                 # Track for potential further reconnection
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
 
-                async for sse in EventSource(response):
+                async for sse in event_source:
                     if sse.id:  # pragma: no branch
                         reconnect_last_event_id = sse.id
                     if sse.retry is not None:

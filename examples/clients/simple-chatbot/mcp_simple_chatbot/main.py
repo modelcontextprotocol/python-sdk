@@ -227,10 +227,7 @@ class LLMClient:
             messages: A list of message dictionaries.
 
         Returns:
-            The LLM's response as a string.
-
-        Raises:
-            httpx2.RequestError: If the request to the LLM fails.
+            The LLM's response as a string, or an error message if the request fails.
         """
         url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -255,7 +252,7 @@ class LLMClient:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
 
-        except httpx2.RequestError as e:
+        except httpx2.HTTPError as e:
             error_message = f"Error getting LLM response: {str(e)}"
             logging.error(error_message)
 

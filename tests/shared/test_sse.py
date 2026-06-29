@@ -3,7 +3,7 @@
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 from urllib.parse import urlparse
 
 import anyio
@@ -416,26 +416,24 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     )
     response_json = response.model_dump_json(by_alias=True, exclude_none=True)
 
-    # Create mock SSE events using httpx2's ServerSentEvent
-    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
-        # First: endpoint event
-        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
-        # Empty data keep-alive ping - this is what we're testing
-        yield ServerSentEvent(event="message", data="")
-        # Real JSON-RPC response
-        yield ServerSentEvent(event="message", data=response_json)
+    # Mock SSE events using httpx2's ServerSentEvent: an endpoint event, an
+    # empty keep-alive ping (the case under test), then a real response.
+    mock_event_source = MagicMock()
+    mock_event_source.__aiter__.return_value = [
+        ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123"),
+        ServerSentEvent(event="message", data=""),
+        ServerSentEvent(event="message", data=response_json),
+    ]
+    mock_event_source.response.raise_for_status = MagicMock()
 
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-
-    mock_stream = MagicMock()
-    mock_stream.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_stream.__aexit__ = AsyncMock(return_value=None)
+    mock_sse = MagicMock()
+    mock_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_sse.__aexit__ = AsyncMock(return_value=None)
 
     mock_client = MagicMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.stream = MagicMock(return_value=mock_stream)
+    mock_client.sse = MagicMock(return_value=mock_sse)
     mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
 
     def mock_factory(
@@ -445,14 +443,13 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     ) -> httpx2.AsyncClient:
         return mock_client
 
-    with patch("mcp.client.sse.EventSource", return_value=mock_aiter_sse()):
-        async with sse_client("http://test/sse", httpx_client_factory=mock_factory) as (read_stream, _):
-            # Read the message - should skip the empty one and get the real response
-            msg = await read_stream.receive()
-            # If we get here without error, the empty message was skipped successfully
-            assert not isinstance(msg, Exception)
-            assert isinstance(msg.message, types.JSONRPCResponse)
-            assert msg.message.id == 1
+    async with sse_client("http://test/sse", httpx_client_factory=mock_factory) as (read_stream, _):
+        # Read the message - should skip the empty one and get the real response
+        msg = await read_stream.receive()
+        # If we get here without error, the empty message was skipped successfully
+        assert not isinstance(msg, Exception)
+        assert isinstance(msg.message, types.JSONRPCResponse)
+        assert msg.message.id == 1
 
 
 @pytest.mark.anyio

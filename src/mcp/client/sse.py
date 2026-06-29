@@ -8,7 +8,7 @@ import anyio
 import httpx2
 import mcp_types as types
 from anyio.abc import TaskStatus
-from httpx2 import EventSource, SSEError
+from httpx2 import SSEError
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
@@ -55,9 +55,8 @@ async def sse_client(
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx2.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with client.stream("GET", url) as response:
-            event_source = EventSource(response)
-            response.raise_for_status()
+        async with client.sse(url) as event_source:
+            event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
             read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)

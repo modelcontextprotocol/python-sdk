@@ -93,7 +93,7 @@ def main(url: str, items: int, checkpoint_every: int, log_level: str) -> None:
     )
     # Suppress noisy HTTP client logging
     logging.getLogger("httpx2").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
 
     asyncio.run(run_demo(url, items, checkpoint_every))
 
