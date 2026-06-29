@@ -429,7 +429,7 @@ For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may
 
 ### `Client` verbs may serve cached responses ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549))
 
-On protocol 2026-07-28, servers attach caching hints (`ttlMs`, `cacheScope`) to the cacheable results, and `Client` now honors them: `list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, and `read_resource` may serve a cached response instead of making a round trip, for as long as the server's `ttlMs` says the result is fresh. Servers that send no hints — including every pre-2026 server — see identical call-for-call behavior, because hint-less results are not cached. Pass `Client(..., cache=False)` to disable the cache and restore v1 behavior exactly; per-call control (`cache_mode`) and configuration (`CacheConfig`) are described in [Caching hints](advanced/caching.md).
+On protocol 2026-07-28, servers attach caching hints (`ttlMs`, `cacheScope`) to the cacheable results, and `Client` now honors them: `list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, and `read_resource` may serve a cached response instead of making a round trip, for as long as the server's `ttlMs` says the result is fresh. Servers that send no hints, including every pre-2026 server, see identical call-for-call behavior, because hint-less results are not cached. Pass `Client(..., cache=False)` to disable the cache and restore v1 behavior exactly; per-call control (`cache_mode`) and configuration (`CacheConfig`) are described in [Caching hints](advanced/caching.md).
 
 ### Server extensions API ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133))
 

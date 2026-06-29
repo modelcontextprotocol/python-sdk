@@ -94,8 +94,8 @@ class _OpaqueTransport:
 
 
 def _list_changed_server() -> Server[Any]:
-    """Server whose `touch` tool emits tools/list_changed; connect with `mode="legacy"` —
-    the modern in-process path drops standalone server notifications."""
+    """Server whose `touch` tool emits tools/list_changed; connect with `mode="legacy"`
+    because the modern in-process path drops standalone server notifications."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[types.Tool(name="touch", input_schema={"type": "object"})])
@@ -142,7 +142,7 @@ def test_the_server_url_is_sha256_hashed_before_it_enters_key_material() -> None
 
 
 def test_urls_differing_only_in_query_have_distinct_cache_identities() -> None:
-    """URL identity is byte-exact outside userinfo — over-normalization would merge tenants."""
+    """URL identity is byte-exact outside userinfo; over-normalization would merge tenants."""
     tenant_a = Client("https://example.com/mcp?tenant=a")
     tenant_b = Client("https://example.com/mcp?tenant=b")
 
@@ -688,7 +688,7 @@ async def test_a_terminal_read_reached_through_driver_rounds_is_never_cached() -
 
 async def test_a_refresh_that_resolves_to_input_required_purges_the_warm_entry() -> None:
     """The refresh cannot store its driven terminal result (the rounds carry
-    `inputResponses` — spec MUST), but it still purges the warm entry."""
+    `inputResponses`, a spec MUST), but it still purges the warm entry."""
     reads = 0
     ask = ElicitRequest(
         params=ElicitRequestFormParams(
@@ -793,7 +793,7 @@ async def test_validation_from_a_served_listing_rejects_missing_structured_conte
 
 
 async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -> None:
-    """The arg→header maps are rebuilt from a served listing. Asserted at the wire
+    """The arg-to-header maps are rebuilt from a served listing. Asserted at the wire
     because the client never surfaces outgoing headers."""
     tool = Tool(
         name="run",
@@ -883,7 +883,7 @@ async def test_a_tools_list_changed_notification_makes_the_next_list_refetch() -
 
 
 async def test_a_resource_updated_notification_evicts_that_uris_read_entry() -> None:
-    """Spec SHOULD: resources/updated invalidates the cached read for its uri —
+    """Spec SHOULD: resources/updated invalidates the cached read for its uri,
     and the notification's `params.uri` must match the stored key's uri form."""
     uri = "memo://cached"
     reads: list[str] = []
@@ -955,7 +955,7 @@ async def test_the_modern_in_process_path_drops_the_eviction_notification() -> N
 
 
 async def test_a_discover_result_never_enters_the_response_cache() -> None:
-    """SDK ruling (documented): the cache covers the five verbs only — a persisted
+    """SDK ruling (documented): the cache covers the five verbs only; a persisted
     `prior_discover`'s freshness is the user's bookkeeping."""
     server = Server("hinted", cache_hints={"server/discover": CacheHint(ttl_ms=60_000)})
 
@@ -1085,7 +1085,7 @@ def _resource_text(result: ReadResourceResult) -> str:
 
 async def test_each_notification_evicts_exactly_its_entries_end_to_end() -> None:
     """Spec SHOULD (notifications invalidate) plus its negative space: each notification
-    refetches exactly its own entries — resources/list_changed also covers templates."""
+    refetches exactly its own entries, and resources/list_changed also covers templates."""
     uri_x, uri_y = "memo://x", "memo://y"
     fetched: list[str] = []
 

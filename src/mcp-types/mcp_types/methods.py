@@ -406,8 +406,6 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
 """Monolith result model (or two-arm union) per request method."""
 
 
-# --- Cacheable methods ---
-
 CacheableMethod = Literal[
     "prompts/list",
     "resources/list",
