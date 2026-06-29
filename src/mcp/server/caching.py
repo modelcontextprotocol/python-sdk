@@ -73,7 +73,9 @@ def validate_cache_hints(cache_hints: Mapping[Any, Any] | None) -> dict[str, Cac
     """
     if cache_hints is None:
         return {}
-    unknown = sorted(method for method in cache_hints if method not in CACHEABLE_METHODS)
+    # Keys come from an untyped mapping, so format via repr: a non-string key
+    # must produce this ValueError too, not a TypeError from sorted/join.
+    unknown = sorted(repr(method) for method in cache_hints if method not in CACHEABLE_METHODS)
     if unknown:
         raise ValueError(f"cache_hints keys must be cacheable methods (see CacheableMethod); got: {', '.join(unknown)}")
     validated: dict[str, CacheHint] = {}

@@ -6,9 +6,11 @@ from typing import Any, cast
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    InputRequiredResult,
     ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
     Resource,
     Tool,
 )
@@ -68,7 +70,7 @@ def test_a_non_cacheable_method_in_cache_hints_is_rejected_at_server_constructio
     with pytest.raises(ValueError) as exc:
         Server("srv", cache_hints=cast(Any, {"tools/call": CacheHint()}))
     assert str(exc.value) == snapshot(
-        "cache_hints keys must be cacheable methods (see CacheableMethod); got: tools/call"
+        "cache_hints keys must be cacheable methods (see CacheableMethod); got: 'tools/call'"
     )
 
 
@@ -79,6 +81,83 @@ def test_a_non_cache_hint_value_is_rejected_at_server_construction() -> None:
     with pytest.raises(TypeError) as exc:
         Server("srv", cache_hints=cast(Any, {"tools/list": {"ttl_ms": 60_000}}))
     assert str(exc.value) == snapshot("cache_hints['tools/list'] must be a CacheHint, got dict")
+
+
+def test_a_non_string_cache_hints_key_is_rejected_with_the_unknown_key_error() -> None:
+    """SDK-defined: `cache_hints` is deliberately loose for config-shaped callers,
+    so a non-string key takes the same unknown-key ValueError as a typo - not a
+    TypeError from formatting the message."""
+    with pytest.raises(ValueError) as exc:
+        Server("srv", cache_hints=cast(Any, {42: CacheHint()}))
+    assert str(exc.value) == snapshot("cache_hints keys must be cacheable methods (see CacheableMethod); got: 42")
+
+
+async def test_a_dict_returning_handler_takes_the_configured_hint() -> None:
+    """SDK-defined: the construction-time hint also stamps a handler that returns
+    a raw dict for a cacheable method, so the 2026-07-28 surface (where both
+    fields are required) accepts it and the wire carries the hint's values."""
+    hint = CacheHint(ttl_ms=60_000, scope="public")
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": [], "resultType": "complete"}
+
+    server = Server("srv", cache_hints={"tools/list": hint})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server) as client:
+        result = await client.list_tools()
+    assert result.ttl_ms == hint.ttl_ms
+    assert result.cache_scope == hint.scope
+
+
+async def test_a_dict_provided_ttl_wins_and_the_hint_fills_only_the_missing_scope() -> None:
+    """SDK-defined precedence, dict path: wire keys the handler put in the dict
+    win, mirroring `model_fields_set` semantics on the model path - the hint
+    fills only the absent `cacheScope`."""
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": [], "resultType": "complete", "ttlMs": 25}
+
+    server = Server("srv", cache_hints={"tools/list": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server) as client:
+        result = await client.list_tools()
+    assert result.ttl_ms == 25
+    assert result.cache_scope == "public"
+
+
+async def test_a_dict_returning_handler_leaks_no_hint_fields_to_a_2025_session() -> None:
+    """SDK-defined era gate: the stamp runs version-independently, but the 2025
+    serialize sieve still strips `ttlMs`/`cacheScope` from a dict result - the
+    client model parses them as unset, not as wire values."""
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": []}
+
+    server = Server("srv", cache_hints={"tools/list": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server, mode="legacy") as client:
+        result = await client.list_tools()
+    assert "ttl_ms" not in result.model_fields_set
+    assert "cache_scope" not in result.model_fields_set
+
+
+async def test_an_input_required_shaped_dict_is_never_stamped() -> None:
+    """Spec-mandated MRTR carve-out: an interim `input_required` result carries no
+    cache hints even on a hinted cacheable method. The runner's stamp skips a
+    dict declaring that shape (and the serialize surface would drop stray hint
+    keys regardless), so the full dump is exactly what the handler returned."""
+
+    async def read_resource(ctx: ServerRequestContext[Any], params: ReadResourceRequestParams) -> dict[str, Any]:
+        return {"resultType": "input_required", "requestState": "s1"}
+
+    server = Server("srv", cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("resources/read", ReadResourceRequestParams, read_resource)
+    async with Client(server) as client:
+        result = await client.session.read_resource("res://x", allow_input_required=True)
+    assert isinstance(result, InputRequiredResult)
+    assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+        {"resultType": "input_required", "requestState": "s1"}
+    )
 
 
 async def test_server_cache_hints_reach_the_wire_for_a_bare_handler_result() -> None:

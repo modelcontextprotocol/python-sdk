@@ -48,7 +48,7 @@ async def test_a_non_cacheable_method_is_rejected_at_construction() -> None:
     with pytest.raises(ValueError) as exc:
         MCPServer("Weather", cache_hints=cast(Any, {"tools/call": CacheHint(ttl_ms=1_000)}))
     assert str(exc.value) == snapshot(
-        "cache_hints keys must be cacheable methods (see CacheableMethod); got: tools/call"
+        "cache_hints keys must be cacheable methods (see CacheableMethod); got: 'tools/call'"
     )
 
 

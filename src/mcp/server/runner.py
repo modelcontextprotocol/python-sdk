@@ -198,19 +198,27 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            # Fill cache hints on the typed result, before the serialize sieve
+            # Fill cache hints on the handler result, before the serialize sieve
             # decides whether the negotiated version carries the fields at all.
-            # `input_required` interim results are not `CacheableResult` models,
-            # so the MRTR carve-out (no hints on them) holds by shape.
-            if isinstance(result, CacheableResult) and (hint := self.server.cache_hints.get(method)) is not None:
-                result = apply_cache_hint(result, hint)
+            # `input_required` interim results are not `CacheableResult` models
+            # and mapping results declaring that shape are skipped explicitly,
+            # so the MRTR carve-out (no hints on them) holds on both paths.
+            if (hint := self.server.cache_hints.get(method)) is not None:
+                if isinstance(result, CacheableResult):
+                    result = apply_cache_hint(result, hint)
+                elif isinstance(result, Mapping) and result.get("resultType") != "input_required":
+                    # Same per-field precedence as `apply_cache_hint`: wire keys the
+                    # handler put in the mapping win. Fresh dict, so a mapping the
+                    # handler may still hold an alias to is never mutated.
+                    result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
             # Dump and serialize inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
             return self._serialize(method, version, result)
 
         call = self._compose_server_middleware(_inner)
         # `_inner` already produced the wire dict; a middleware that short-circuited
-        # without `call_next` is trusted to return its own well-formed result.
+        # without `call_next` is trusted to return its own well-formed result,
+        # configured cache hints included.
         result = _dump_result(await call(ctx))
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
