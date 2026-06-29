@@ -116,11 +116,24 @@ And if the user won't answer at all - declines the question, or cancels it?
 
 That's the right default for a precondition: no answer, no order. When declining is an outcome your tool wants to handle - skip the backorder but still suggest another title - annotate `ElicitationResult[Backorder]` instead and the tool receives the full accept/decline/cancel outcome to branch on. **[Elicitation](elicitation.md)** shows that form, and everything else about asking: the schema rules, the three answers, the client's side of the conversation.
 
+!!! info
+    The framework picks the question's transport from the negotiated protocol version; the code
+    above is identical on both. On **2026-07-28** and later the question rides inside a
+    multi-round-trip `tools/call` - the server returns it, the client's `elicitation_callback`
+    answers it, and the `Client` retries the call for you (**[Multi-round-trip requests](../advanced/multi-round-trip.md)**). On
+    **2025-11-25** and earlier it is a synchronous elicitation request mid-call. Each question is
+    asked exactly once per call; a resolver that answered *without* asking, like `check_stock`,
+    may run again when the call resumes after a question. When it resumes, each answer is matched
+    back to its question, so an eliciting resolver must derive its question deterministically from
+    the tool's arguments and earlier answers - a per-call generated value (a `default_factory` id,
+    a timestamp) is re-derived on each round and must not appear in a question the answer is meant
+    to bind to.
+
 ## Recap
 
 * `Annotated[T, Resolve(fn)]` on a tool parameter: the SDK runs `fn` and injects its return value.
 * A resolved parameter is invisible to the model and cannot be supplied by a client. Values the model must not invent - prices, identities, permissions - belong here.
-* A resolver's parameters are resolved the same way: the `Context`, another `Resolve(...)`, or a tool argument by name. The graph runs each resolver at most once per call.
+* A resolver's parameters are resolved the same way: the `Context`, another `Resolve(...)`, or a tool argument by name. The graph runs each resolver at most once, however many consumers it has; a resolver that never asked may run again when a call resumes after a question.
 * Bad graphs fail at registration with `InvalidSignature`, not mid-call.
 * Return `Elicit(message, Model)` to ask the user, only when you have to. Unwrapped annotations abort on decline; `ElicitationResult[T]` lets the tool branch.
 
