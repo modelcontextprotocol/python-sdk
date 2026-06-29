@@ -2047,6 +2047,7 @@ class TestWWWAuthenticate:
             # Header without requested field
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            ("Bearer", "scope", "no auth parameters"),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
@@ -2160,6 +2161,38 @@ class TestWWWAuthenticate:
         init_response = httpx.Response(
             status_code=401,
             headers={"WWW-Authenticate": 'Bearer realm="api \\"scope\\", still realm", scope="read write"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result == "read write"
+
+    def test_extract_field_from_www_auth_ignores_empty_comma_segments(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test empty segments between commas are ignored while parsing."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer scope="read write", , error="insufficient_scope"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result == "read write"
+
+    def test_extract_field_from_www_auth_ignores_trailing_comma(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test a trailing comma does not create a malformed final param."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer scope="read write",'},
             request=httpx.Request("GET", "https://api.example.com/test"),
         )
 
