@@ -85,7 +85,10 @@ markdown_extensions:
   - pymdownx.critic
   - pymdownx.mark
   - pymdownx.superfences
-  - pymdownx.snippets
+  # Resolve snippet includes against the repo root regardless of the build's
+  # working directory (the extension's default base_path is the CWD).
+  - pymdownx.snippets:
+      base_path: !relative $config_dir
   - pymdownx.tilde
   - pymdownx.inlinehilite
   - pymdownx.highlight:
@@ -110,6 +113,9 @@ markdown_extensions:
 
 watch:
   - src/mcp
+
+hooks:
+  - docs/hooks/llms_txt.py
 
 plugins:
   - search

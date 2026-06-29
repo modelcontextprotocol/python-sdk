@@ -70,3 +70,9 @@ npx -y @modelcontextprotocol/inspector
 ## API Reference
 
 Full API documentation is available in the [API Reference](api.md).
+
+## llms.txt
+
+Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:
+[llms.txt](https://py.sdk.modelcontextprotocol.io/llms.txt) is an index of the pages, and
+[llms-full.txt](https://py.sdk.modelcontextprotocol.io/llms-full.txt) contains every page in a single file.
