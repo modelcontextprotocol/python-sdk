@@ -56,13 +56,7 @@ logger = logging.getLogger("client")
 
 
 def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
-    """Floor a negative inbound `ttlMs` to 0, in place (2026-07-28 caching SHOULD).
-
-    Runs before the surface validation, whose `ge=0` would otherwise fail the
-    whole call over one bad hint. Emit-side strictness is untouched — only a
-    misbehaving peer reaches this. Floats are floored too; bools are not numbers
-    here and are left for the validation to reject.
-    """
+    """Floor a negative inbound `ttlMs` to 0 before `ge=0` validation fails the call (2026-07-28 caching SHOULD)."""
     ttl = raw.get("ttlMs")
     if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
         raw["ttlMs"] = 0
@@ -473,10 +467,7 @@ class ClientSession:
             "headers": {MCP_PROTOCOL_VERSION_HEADER: version, MCP_METHOD_HEADER: data["method"]},
         }
         raw = await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
-        # Clamping here (not in the callers) covers both discover() and the
-        # mode='auto' probe — un-floored, a negative ttl fails DiscoverResult
-        # validation in the probe, which reads as "not modern evidence" and
-        # silently downgrades the connection to the legacy handshake.
+        # Un-floored, a negative ttl fails the mode='auto' probe's validation and silently downgrades the handshake.
         _clamp_inbound_ttl(raw)
         return raw
 
@@ -918,13 +909,9 @@ class ClientSession:
         return self._absorb_tool_listing(result)
 
     def _absorb_tool_listing(self, result: types.ListToolsResult) -> types.ListToolsResult:
-        """Filter a tool listing per the 2026 x-mcp-header MUST and rebuild the derived
-        per-tool state (arg→header maps, output schemas) from it.
+        """Filter the listing per the 2026 x-mcp-header MUST and rebuild derived per-tool state, in place.
 
-        Idempotent, so the client response cache can re-absorb a served listing: stored
-        values are already post-filter, making the re-filter a no-op that rebuilds the
-        maps and schemas from the served value. `result` is mutated in place (the cache
-        only ever passes a private deep copy).
+        Idempotent: cached values are already post-filter, so the response cache can re-absorb a served listing.
         """
         if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
             # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.

@@ -416,17 +416,14 @@ CacheableMethod = Literal[
     "server/discover",
     "tools/list",
 ]
-"""The methods whose results carry `ttlMs`/`cacheScope`. Closed set: the spec
-defines caching hints on exactly these six. Hand-written because a Literal
-cannot be computed at runtime; tests weld it to `CACHEABLE_METHODS`."""
+"""Methods whose results carry `ttlMs`/`cacheScope`; hand-written Literal, welded to `CACHEABLE_METHODS` by tests."""
 
 CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(
     method
     for method, row in MONOLITH_RESULTS.items()
     if any(issubclass(arm, types.CacheableResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,)))
 )
-"""Runtime mirror of `CacheableMethod`, derived from `MONOLITH_RESULTS`: a
-method is cacheable iff its result row has a `CacheableResult` arm."""
+"""Runtime mirror of `CacheableMethod`, derived from `MONOLITH_RESULTS`."""
 
 
 # --- Parse functions ---

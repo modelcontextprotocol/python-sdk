@@ -130,9 +130,7 @@ def _connected(value: _T | None) -> _T:
 def _strip_userinfo(url: str) -> str:
     """Drop any userinfo from the URL's authority component; byte-exact otherwise.
 
-    Cache identity must never over-normalize (case-folding or query rewriting could
-    merge distinct servers, e.g. `?tenant=a` vs `?tenant=b`), and credentials must
-    never enter cache-key material — userinfo removal is the single permitted rewrite.
+    Credentials must not enter cache-key material; any further normalization could merge distinct servers.
     """
     parts = urlsplit(url)
     if "@" not in parts.netloc:
@@ -141,13 +139,7 @@ def _strip_userinfo(url: str) -> str:
 
 
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
-    """Wrap the session message handler with cache eviction on server notifications.
-
-    Eviction runs before delegation, inside its own boundary, so a cache fault can
-    never suppress delivery. Every item — notification, `RequestResponder`, or
-    transport `Exception` — then reaches the user's handler; with none supplied, the
-    wrapper performs the same bare checkpoint `ClientSession` installs by default.
-    """
+    """Wrap the session message handler with cache eviction on server notifications."""
 
     async def handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
@@ -276,15 +268,10 @@ class Client:
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
     `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
-    in-memory store; results carrying no hints are not cached. Pass a `CacheConfig`
-    to customize (shared store, partition, default TTL), or `False` to disable
-    caching entirely. The cacheable verbs (`list_tools`, `list_prompts`,
-    `list_resources`, `list_resource_templates`, `read_resource`) take a per-call
-    `cache_mode` to narrow caching for one call; with `cache=False` it is inert.
-
-    Construction raises `ValueError` for a `CacheConfig` with a custom `store` when
-    no server identity can be derived (an in-process server or a `Transport`
-    instance) — set `CacheConfig.target_id` to name the server."""
+    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
+    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
+    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
+    `target_id` when the server is not a URL (no identity can be derived)."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
@@ -315,10 +302,7 @@ class Client:
 
         if self.cache is not False:
             config = self.cache if self.cache is not None else CacheConfig()
-            # Server identity, in resolution order: explicit override, server URL
-            # (userinfo stripped, byte-exact otherwise), per-Client random. Only the
-            # hash below leaves this scope — the raw identity may carry credentials
-            # in its query string and must never be logged or stored.
+            # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
             target_id = config.target_id
             if target_id is None and isinstance(self.server, str):
                 target_id = _strip_userinfo(self.server)
@@ -337,8 +321,7 @@ class Client:
                 default_ttl_ms=config.default_ttl_ms,
                 clock=config.clock,
                 share_public=config.share_public,
-                # Lazy: the era is unknown until __aenter__'s handshake, and the
-                # session is unpublished outside the context manager.
+                # Lazy: the negotiated version is unknown until __aenter__'s handshake.
                 negotiated_version=lambda: self._session.protocol_version if self._session is not None else None,
             )
 
@@ -471,25 +454,18 @@ class Client:
     ) -> _CacheableT:
         """Serve one of the four list verbs through the response cache.
 
-        `send` performs the fetch via the session; `absorb` (tools/list only)
-        re-applies session-side derived state to a served cache hit.
+        `absorb` (tools/list only) re-applies session-side derived state to a served cache hit.
         """
         cache = self._response_cache
         if cache is None or cache_mode == "bypass":
-            return await send()  # no read, no write, no eviction side-effects
-        # Cache participation requires a live session: a closed (or never-entered)
-        # client raises the no-context RuntimeError on every verb, exactly as the
-        # verbs did before the cache existed - never serving stale entries.
+            return await send()
+        # A closed (or never-entered) client must raise, never serve cached entries.
         _ = self.session
         if meta is not None and cache_mode == "use":
-            # A call carrying meta (a progress token, tracing fields) expects a
-            # wire request, so it is never served from the cache; the fetched
-            # result still replaces the entry, the same as an explicit refresh.
+            # meta (a progress token, tracing fields) expects a wire request; fetch and replace the entry.
             cache_mode = "refresh"
         if cursor is not None:
-            # Continuation pages never read or write the (cursor-less) entry, but an
-            # expired-cursor rejection signals the listing changed since the entry was
-            # fetched, so it is evicted (spec SHOULD; over-eviction is harmless).
+            # Continuation pages skip the cache, but an expired cursor means the listing changed (spec SHOULD evict).
             try:
                 return await send()
             except MCPError as e:
@@ -497,9 +473,7 @@ class Client:
                     await cache.evict_method(method)
                 raise
         if cache_mode == "use" and (hit := await cache.read(method, "")) is not None:
-            # The store key carries the method, so the entry under it has `send`'s
-            # result type. The hit is already a private deep copy of the stored
-            # value, so absorption may mutate it freely.
+            # The hit is a private deep copy, so absorption may mutate it freely.
             served = cast(_CacheableT, hit)
             return served if absorb is None else absorb(served)
         gen = cache.capture(method, "")
@@ -514,11 +488,7 @@ class Client:
         meta: RequestParamsMeta | None = None,
         cache_mode: CacheMode = "use",
     ) -> ListResourcesResult:
-        """List available resources from the server.
-
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
-        calls carrying `meta` always reach the server.
-        """
+        """List available resources from the server."""
         return await self._cached_fetch(
             "resources/list",
             cursor=cursor,
@@ -534,11 +504,7 @@ class Client:
         meta: RequestParamsMeta | None = None,
         cache_mode: CacheMode = "use",
     ) -> ListResourceTemplatesResult:
-        """List available resource templates from the server.
-
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
-        calls carrying `meta` always reach the server.
-        """
+        """List available resource templates from the server."""
         return await self._cached_fetch(
             "resources/templates/list",
             cursor=cursor,
@@ -568,13 +534,9 @@ class Client:
             input_responses: Responses to seed the first call with (e.g. when
                 resuming from a persisted `InputRequiredResult`).
             request_state: Opaque state to seed the first call with.
-            meta: Additional metadata for the request. Calls carrying `meta`
-                always reach the server.
-            cache_mode: Adjusts the response cache's behavior for this call
-                (see `CacheMode`). Seeded calls (either `input_responses` or
-                `request_state` set) are resumptions of a multi-round-trip
-                read and ignore it entirely: no cache read, no write, no
-                refresh purge.
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for this call (see `CacheMode`); seeded
+                calls (`input_responses` or `request_state` set) ignore it.
 
         Returns:
             The resource content.
@@ -589,36 +551,28 @@ class Client:
                 uri, input_responses=r, request_state=s, meta=meta, allow_input_required=True
             )
 
-        # Results of requests carrying inputResponses or requestState must never be
-        # cached (spec MUST), and a seeded call exists to resume a specific exchange -
-        # serving it from the cache would skip the resumption.
+        # Seeded calls resume a specific exchange and must never be cached (spec MUST).
         seeded = input_responses is not None or request_state is not None
         cache = None if seeded else self._response_cache
         if cache is None or cache_mode == "bypass":
             return await self._drive_input_required(await retry(input_responses, request_state), retry)
-        # Cache participation requires a live session: a closed (or never-entered)
-        # client raises the no-context RuntimeError here, never serving stale entries.
+        # A closed (or never-entered) client must raise, never serve cached entries.
         _ = self.session
         if meta is not None and cache_mode == "use":
             # Calls carrying meta always reach the server (mirrors `_cached_fetch`).
             cache_mode = "refresh"
         if cache_mode == "use" and (hit := await cache.read("resources/read", uri)) is not None:
-            # InputRequiredResult is never stored (only terminal first-round results
-            # are written below), so a hit is always terminal and legitimately skips
-            # the driver.
+            # Only terminal first-round results are stored, so a hit legitimately skips the driver.
             return cast(ReadResourceResult, hit)
         gen = cache.capture("resources/read", uri)
         first = await retry(None, None)
         if not isinstance(first, InputRequiredResult):
             await cache.write("resources/read", uri, first, gen, cache_mode)
         elif cache_mode == "refresh":
-            # An input_required resolution can never be stored, but the explicit
-            # refresh still superseded whatever was cached: purge the warm entry
-            # so it cannot be served again (the same supersession rule as a
-            # refreshed ttl<=0 result in `ClientResponseCache.write`).
+            # The refresh superseded whatever was cached, but an input_required resolution
+            # cannot be stored: purge the warm entry so it cannot be served again.
             await cache.evict_key("resources/read", uri)
-        # A terminal result reached through driver rounds is never cached: the rounds
-        # carried inputResponses (the same spec MUST as the seeded skip above).
+        # Driver rounds carry inputResponses, so a terminal result reached through them is never cached (spec MUST).
         return await self._drive_input_required(first, retry)
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
@@ -688,11 +642,7 @@ class Client:
         meta: RequestParamsMeta | None = None,
         cache_mode: CacheMode = "use",
     ) -> ListPromptsResult:
-        """List available prompts from the server.
-
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
-        calls carrying `meta` always reach the server.
-        """
+        """List available prompts from the server."""
         return await self._cached_fetch(
             "prompts/list",
             cursor=cursor,
@@ -788,11 +738,7 @@ class Client:
         meta: RequestParamsMeta | None = None,
         cache_mode: CacheMode = "use",
     ) -> ListToolsResult:
-        """List available tools from the server.
-
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
-        calls carrying `meta` always reach the server.
-        """
+        """List available tools from the server."""
         return await self._cached_fetch(
             "tools/list",
             cursor=cursor,
@@ -800,8 +746,7 @@ class Client:
             cache_mode=cache_mode,
             send=lambda: self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
             # A cache hit skips session.list_tools, so the session re-absorbs the
-            # served listing to rebuild its derived per-tool state (header maps,
-            # output schemas) - idempotent on the already-filtered stored value.
+            # served listing to rebuild its derived per-tool state.
             absorb=self.session._absorb_tool_listing,  # pyright: ignore[reportPrivateUsage]
         )
 

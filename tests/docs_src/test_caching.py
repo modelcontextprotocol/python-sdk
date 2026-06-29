@@ -64,17 +64,14 @@ async def test_the_handler_value_wins_over_the_map_per_field() -> None:
 async def test_the_client_program_on_the_page_makes_three_fetches_for_four_calls(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """tutorial003: `main()` is the literal client program on the page - the second
-    call is served from the cache, the clock advance expires the entry, and
-    `cache_mode="refresh"` skips the read, so four calls cost three fetches."""
+    """tutorial003: a cache hit, an expiry, and `cache_mode="refresh"` make four calls cost three fetches."""
     await tutorial003.main()
     assert capsys.readouterr().out == "4 calls, 3 fetches\n"
 
 
 def _counting_tools_server(*, ttl_ms: int | None = 60_000) -> tuple[Server[Any], list[str | None]]:
-    """In-process server whose every tools/list fetch returns a distinct tool name
-    `t<n>`, so a served cache entry is distinguishable from a refetch by payload.
-    `ttl_ms=None` sends no hints at all."""
+    """Each tools/list fetch returns a distinct tool name, so a cache hit is
+    payload-distinguishable from a refetch; `ttl_ms=None` sends no hints."""
     fetches: list[str | None] = []
 
     async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -88,8 +85,6 @@ def _counting_tools_server(*, ttl_ms: int | None = 60_000) -> tuple[Server[Any],
 
 
 async def test_caching_is_on_by_default_the_second_call_makes_no_fetch() -> None:
-    """The page's claim: with no `cache=` argument at all, a result carrying a `ttlMs`
-    hint is stored and the identical call within the TTL never reaches the server."""
     server, fetches = _counting_tools_server()
     async with Client(server) as client:
         first = await client.list_tools()
@@ -99,8 +94,7 @@ async def test_caching_is_on_by_default_the_second_call_makes_no_fetch() -> None
 
 
 async def test_a_hintless_result_is_not_cached_by_default() -> None:
-    """The page's claim: `default_ttl_ms` defaults to 0, so a server that declares
-    nothing sees exactly the call-for-call traffic it always did."""
+    """`default_ttl_ms` defaults to 0, so a hintless server sees its usual call-for-call traffic."""
     server, fetches = _counting_tools_server(ttl_ms=None)
     async with Client(server) as client:
         await client.list_tools()
@@ -109,8 +103,6 @@ async def test_a_hintless_result_is_not_cached_by_default() -> None:
 
 
 async def test_cache_false_makes_every_call_a_round_trip() -> None:
-    """The page's claim: `cache=False` disables caching entirely - two calls are two
-    fetches even though the server's hint allowed a minute of reuse."""
     server, fetches = _counting_tools_server()
     async with Client(server, cache=False) as client:
         await client.list_tools()
@@ -119,8 +111,6 @@ async def test_cache_false_makes_every_call_a_round_trip() -> None:
 
 
 async def test_refresh_refetches_and_replaces_the_cached_entry() -> None:
-    """The page's claim: `cache_mode="refresh"` never serves - it fetches and stores
-    the result, which the next plain call is then served from."""
     server, fetches = _counting_tools_server()
     async with Client(server) as client:
         await client.list_tools()
@@ -132,8 +122,6 @@ async def test_refresh_refetches_and_replaces_the_cached_entry() -> None:
 
 
 async def test_bypass_fetches_without_reading_or_writing_the_cache() -> None:
-    """The page's claim: `cache_mode="bypass"` makes the round trip without touching
-    the cache - it neither serves the warm entry nor replaces it."""
     server, fetches = _counting_tools_server()
     async with Client(server) as client:
         first = await client.list_tools()
@@ -145,9 +133,7 @@ async def test_bypass_fetches_without_reading_or_writing_the_cache() -> None:
 
 
 async def test_an_expired_entry_is_not_revived_when_the_refetch_fails() -> None:
-    """The page's claim (SDK ruling, no stale-if-error): once the entry has expired,
-    a failing refetch propagates the server's error instead of serving the expired
-    entry."""
+    """SDK ruling: no stale-if-error - the refetch failure propagates."""
     now = 1_000_000.0
     fetches: list[None] = []
 
@@ -160,7 +146,7 @@ async def test_an_expired_entry_is_not_revived_when_the_refetch_fails() -> None:
     server = Server("flaky", on_list_tools=list_tools, cache_hints={"tools/list": CacheHint(ttl_ms=60_000)})
     async with Client(server, cache=CacheConfig(clock=lambda: now)) as client:
         await client.list_tools()
-        now += 60.0  # the entry is now expired, so the next call must refetch
+        now += 60.0  # past the 60s TTL
         with pytest.raises(MCPError) as exc:
             await client.list_tools()
     assert exc.value.code == INTERNAL_ERROR
@@ -168,10 +154,8 @@ async def test_an_expired_entry_is_not_revived_when_the_refetch_fails() -> None:
 
 
 async def test_two_concurrent_identical_calls_are_two_fetches() -> None:
-    """The page's claim (SDK ruling, no coalescing): a second identical call issued
-    while the first fetch is still in flight makes its own fetch instead of waiting
-    on the first. The handler barrier releases only once both calls are inside it,
-    so the test passes only if the two fetches were genuinely concurrent."""
+    """SDK ruling: no coalescing. The handler barrier releases only once both
+    calls are inside it, so the test passes only if the fetches were concurrent."""
     both_fetching = anyio.Event()
     fetches: list[None] = []
 
@@ -192,8 +176,7 @@ async def test_two_concurrent_identical_calls_are_two_fetches() -> None:
 
 
 async def test_a_session_tier_call_always_makes_the_round_trip() -> None:
-    """The page's claim: the cache lives on the `Client` verbs - `client.session`
-    calls bypass it even when a fresh entry is sitting in the store."""
+    """The cache lives on the `Client` verbs; `client.session` sits below it."""
     server, fetches = _counting_tools_server()
     async with Client(server) as client:
         await client.list_tools()
@@ -202,16 +185,12 @@ async def test_a_session_tier_call_always_makes_the_round_trip() -> None:
 
 
 async def test_a_custom_store_requires_a_partition() -> None:
-    """The page's claim: passing your own store without a `partition` raises at
-    construction."""
     with pytest.raises(ValueError) as exc:
         CacheConfig(store=InMemoryResponseCacheStore())
     assert str(exc.value) == snapshot("a custom store requires an explicit partition")
 
 
 async def test_a_custom_store_with_an_in_process_server_requires_target_id() -> None:
-    """The page's claim: with no URL to derive a server identity from, a custom store
-    needs `CacheConfig.target_id` - and construction says so."""
     server, _ = _counting_tools_server()
     with pytest.raises(ValueError) as exc:
         Client(server, cache=CacheConfig(store=InMemoryResponseCacheStore(), partition="user-1"))

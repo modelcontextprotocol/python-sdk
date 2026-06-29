@@ -200,16 +200,12 @@ class ServerRunner(Generic[LifespanT]):
                 raise MCPError.from_error_data(result)
             # Fill cache hints on the handler result, before the serialize sieve
             # decides whether the negotiated version carries the fields at all.
-            # `input_required` interim results are not `CacheableResult` models
-            # and mapping results declaring that shape are skipped explicitly,
-            # so the MRTR carve-out (no hints on them) holds on both paths.
+            # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
             if (hint := self.server.cache_hints.get(method)) is not None:
                 if isinstance(result, CacheableResult):
                     result = apply_cache_hint(result, hint)
                 elif isinstance(result, Mapping) and result.get("resultType") != "input_required":
-                    # Same per-field precedence as `apply_cache_hint`: wire keys the
-                    # handler put in the mapping win. Fresh dict, so a mapping the
-                    # handler may still hold an alias to is never mutated.
+                    # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
                     result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
             # Dump and serialize inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
@@ -217,8 +213,7 @@ class ServerRunner(Generic[LifespanT]):
 
         call = self._compose_server_middleware(_inner)
         # `_inner` already produced the wire dict; a middleware that short-circuited
-        # without `call_next` is trusted to return its own well-formed result,
-        # configured cache hints included.
+        # without `call_next` is trusted to return its own well-formed result.
         result = _dump_result(await call(ctx))
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.

@@ -84,18 +84,14 @@ def test_a_non_cache_hint_value_is_rejected_at_server_construction() -> None:
 
 
 def test_a_non_string_cache_hints_key_is_rejected_with_the_unknown_key_error() -> None:
-    """SDK-defined: `cache_hints` is deliberately loose for config-shaped callers,
-    so a non-string key takes the same unknown-key ValueError as a typo - not a
-    TypeError from formatting the message."""
+    """A non-string key takes the same unknown-key ValueError as a typo, not a TypeError from message formatting."""
     with pytest.raises(ValueError) as exc:
         Server("srv", cache_hints=cast(Any, {42: CacheHint()}))
     assert str(exc.value) == snapshot("cache_hints keys must be cacheable methods (see CacheableMethod); got: 42")
 
 
 async def test_a_dict_returning_handler_takes_the_configured_hint() -> None:
-    """SDK-defined: the construction-time hint also stamps a handler that returns
-    a raw dict for a cacheable method, so the 2026-07-28 surface (where both
-    fields are required) accepts it and the wire carries the hint's values."""
+    """The stamp covers raw-dict results too - 2026-07-28 requires both fields on the wire."""
     hint = CacheHint(ttl_ms=60_000, scope="public")
 
     async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
@@ -110,9 +106,7 @@ async def test_a_dict_returning_handler_takes_the_configured_hint() -> None:
 
 
 async def test_a_dict_provided_ttl_wins_and_the_hint_fills_only_the_missing_scope() -> None:
-    """SDK-defined precedence, dict path: wire keys the handler put in the dict
-    win, mirroring `model_fields_set` semantics on the model path - the hint
-    fills only the absent `cacheScope`."""
+    """Dict path mirrors the model path's `model_fields_set` precedence: present wire keys win."""
 
     async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
         return {"tools": [], "resultType": "complete", "ttlMs": 25}
@@ -126,9 +120,7 @@ async def test_a_dict_provided_ttl_wins_and_the_hint_fills_only_the_missing_scop
 
 
 async def test_a_dict_returning_handler_leaks_no_hint_fields_to_a_2025_session() -> None:
-    """SDK-defined era gate: the stamp runs version-independently, but the 2025
-    serialize sieve still strips `ttlMs`/`cacheScope` from a dict result - the
-    client model parses them as unset, not as wire values."""
+    """The stamp runs version-independently; the 2025 serialize sieve strips the fields."""
 
     async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
         return {"tools": []}
@@ -142,10 +134,7 @@ async def test_a_dict_returning_handler_leaks_no_hint_fields_to_a_2025_session()
 
 
 async def test_an_input_required_shaped_dict_is_never_stamped() -> None:
-    """Spec-mandated MRTR carve-out: an interim `input_required` result carries no
-    cache hints even on a hinted cacheable method. The runner's stamp skips a
-    dict declaring that shape (and the serialize surface would drop stray hint
-    keys regardless), so the full dump is exactly what the handler returned."""
+    """Spec carve-out: interim `input_required` results carry no cache hints, even on a hinted method."""
 
     async def read_resource(ctx: ServerRequestContext[Any], params: ReadResourceRequestParams) -> dict[str, Any]:
         return {"resultType": "input_required", "requestState": "s1"}

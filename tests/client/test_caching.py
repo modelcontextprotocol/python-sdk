@@ -1,13 +1,6 @@
-"""`mcp.client.caching`: the `CacheConfig` construction guards, the store
-contract every `ResponseCacheStore` implementation must satisfy, the default
-in-memory store's bounded `resources/read` FIFO, and the `ClientResponseCache`
-coordinator (scope arms, era gate, TTL/scope resolution, eviction, store error
-discipline).
-
-The store-contract tests are parametrized over `STORE_FACTORIES`; a
-third-party store implementation can be run against the same contract by
-adding its factory to the list (or copying the parametrization).
-"""
+"""Tests for `mcp.client.caching`. The store-contract tests are parametrized
+over `STORE_FACTORIES`; a third-party store can be run against the same
+contract by adding its factory."""
 
 import json
 import logging
@@ -64,8 +57,6 @@ def _read_key(uri: str) -> CacheKey:
 
 @store_contract
 async def test_a_set_entry_round_trips_through_get(make_store: Callable[[], ResponseCacheStore]) -> None:
-    """SDK-defined contract: `get` returns an entry equal to the one `set`
-    stored under the same three-field key."""
     store = make_store()
     key = CacheKey("tools/list", "", "partition-1")
     entry = CacheEntry(value={"tools": []}, scope="public", expires_at=1700000000.0)
@@ -75,7 +66,6 @@ async def test_a_set_entry_round_trips_through_get(make_store: Callable[[], Resp
 
 @store_contract
 async def test_get_misses_for_a_key_never_set(make_store: Callable[[], ResponseCacheStore]) -> None:
-    """SDK-defined contract: an unknown key is a miss (`None`), not an error."""
     store = make_store()
     assert await store.get(CacheKey("tools/list")) is None
 
@@ -84,9 +74,7 @@ async def test_get_misses_for_a_key_never_set(make_store: Callable[[], ResponseC
 async def test_keys_differing_in_only_one_field_do_not_collide(
     make_store: Callable[[], ResponseCacheStore],
 ) -> None:
-    """Spec-mandated: the cache key spans the method, the result-affecting
-    params, and the authorization context - a store collapsing any one field
-    would serve a response across method, params, or principal boundaries."""
+    """Spec-mandated: collapsing any key field would serve responses across method, params, or principal boundaries."""
     store = make_store()
     base = CacheKey("resources/read", "file:///a", "partition-1")
     keys = [
@@ -105,8 +93,6 @@ async def test_keys_differing_in_only_one_field_do_not_collide(
 async def test_swapped_params_key_and_partition_values_are_distinct_keys(
     make_store: Callable[[], ResponseCacheStore],
 ) -> None:
-    """SDK-defined contract: identical values in different field positions are
-    different keys - the fields are positional, not a bag of strings."""
     store = make_store()
     await store.set(CacheKey("m", "a", "b"), _entry("params=a"))
     await store.set(CacheKey("m", "b", "a"), _entry("params=b"))
@@ -118,9 +104,7 @@ async def test_swapped_params_key_and_partition_values_are_distinct_keys(
 async def test_keys_with_field_values_that_concatenate_identically_do_not_collide(
     make_store: Callable[[], ResponseCacheStore],
 ) -> None:
-    """SDK-defined contract: keys MUST be compared as the field tuple, so pairs
-    whose fields join to the same string under any delimiter (or none) stay
-    distinct - flattening would let crafted values collide across boundaries."""
+    """Keys compare as the field tuple - flattening would let crafted values collide across boundaries."""
     store = make_store()
     keys = [
         CacheKey("a", "b.c", "p"),
@@ -141,8 +125,6 @@ async def test_keys_with_field_values_that_concatenate_identically_do_not_collid
 
 @store_contract
 async def test_set_replaces_the_entry_for_an_existing_key(make_store: Callable[[], ResponseCacheStore]) -> None:
-    """SDK-defined contract: a second `set` under the same key overwrites; the
-    store holds at most one entry per key."""
     store = make_store()
     key = CacheKey("tools/list")
     await store.set(key, _entry("first"))
@@ -152,7 +134,6 @@ async def test_set_replaces_the_entry_for_an_existing_key(make_store: Callable[[
 
 @store_contract
 async def test_delete_removes_only_the_given_key(make_store: Callable[[], ResponseCacheStore]) -> None:
-    """SDK-defined contract: `delete` is exact - sibling keys survive."""
     store = make_store()
     doomed = CacheKey("tools/list", "", "partition-1")
     survivor = CacheKey("tools/list", "", "partition-2")
@@ -165,8 +146,7 @@ async def test_delete_removes_only_the_given_key(make_store: Callable[[], Respon
 
 @store_contract
 async def test_delete_is_idempotent(make_store: Callable[[], ResponseCacheStore]) -> None:
-    """SDK-defined contract: deleting an absent key is a no-op, not an error -
-    the SDK issues unconditional deletes during eviction."""
+    """The SDK issues unconditional deletes during eviction, so deleting an absent key must be a no-op."""
     store = make_store()
     key = CacheKey("prompts/list")
     await store.delete(key)
@@ -180,8 +160,6 @@ async def test_delete_is_idempotent(make_store: Callable[[], ResponseCacheStore]
 async def test_clear_removes_every_entry_across_methods_and_partitions(
     make_store: Callable[[], ResponseCacheStore],
 ) -> None:
-    """SDK-defined contract: `clear` empties the store wholesale - every
-    method, params_key, and partition."""
     store = make_store()
     keys = [
         CacheKey("tools/list", "", "partition-1"),
@@ -199,9 +177,6 @@ async def test_clear_removes_every_entry_across_methods_and_partitions(
 
 
 def test_cache_config_defaults_construct_an_unshared_zero_ttl_config() -> None:
-    """SDK-defined defaults: in-memory store minted per client, empty
-    partition, no identity override, hint-less results uncached, wall clock,
-    and public-entry sharing OFF (sharing is an explicit operator opt-in)."""
     config = CacheConfig()
     assert config.store is None
     assert config.partition == ""
@@ -212,17 +187,13 @@ def test_cache_config_defaults_construct_an_unshared_zero_ttl_config() -> None:
 
 
 def test_a_custom_store_without_a_partition_is_rejected_at_construction() -> None:
-    """SDK-defined guard: a custom store is shareable, so omitting the
-    authorization-context partition would let private entries cross
-    principals - rejected at `CacheConfig` construction, not on first use."""
+    """A custom store is shareable, so a missing partition would let private entries cross principals."""
     with pytest.raises(ValueError) as exc:
         CacheConfig(store=InMemoryResponseCacheStore())
     assert str(exc.value) == snapshot("a custom store requires an explicit partition")
 
 
 def test_a_custom_store_with_an_explicit_partition_constructs() -> None:
-    """SDK-defined: the partition guard is satisfied by any non-empty
-    operator-supplied principal id."""
     store = InMemoryResponseCacheStore()
     config = CacheConfig(store=store, partition="token-subject-1")
     assert config.store is store
@@ -230,18 +201,14 @@ def test_a_custom_store_with_an_explicit_partition_constructs() -> None:
 
 
 def test_an_empty_target_id_is_rejected_at_construction() -> None:
-    """SDK-defined guard: an explicit empty `target_id` would hash to the one
-    shared `sha256("")` identity, collapsing distinct servers onto it -
-    rejected at construction; omit the field (None) to derive an identity."""
+    """An empty target_id would collapse distinct servers onto the one shared sha256("") identity."""
     with pytest.raises(ValueError) as exc:
         CacheConfig(target_id="")
     assert str(exc.value) == snapshot("target_id must be a non-empty string or omitted")
 
 
 def test_a_negative_default_ttl_is_rejected_at_construction() -> None:
-    """SDK-defined guard: a negative configured TTL is a programming error,
-    rejected at construction (negative `ttlMs` from the wire is tolerated as 0
-    at the parse seam instead)."""
+    """A configured negative TTL is a programming error; negative wire ttlMs is tolerated as 0 at the parse seam."""
     with pytest.raises(ValueError) as exc:
         CacheConfig(default_ttl_ms=-1)
     assert str(exc.value) == snapshot("default_ttl_ms must be >= 0, got -1")
@@ -251,8 +218,6 @@ def test_a_negative_default_ttl_is_rejected_at_construction() -> None:
 
 
 async def test_a_new_read_key_at_the_cap_evicts_the_oldest_read_key() -> None:
-    """SDK-defined bound: `resources/read` keys are unbounded in principle (one
-    per uri), so storing a new one at the cap drops the oldest, FIFO."""
     store = InMemoryResponseCacheStore(max_read_entries=2)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.set(_read_key("file:///b"), _entry("b"))
@@ -263,9 +228,7 @@ async def test_a_new_read_key_at_the_cap_evicts_the_oldest_read_key() -> None:
 
 
 async def test_replacing_a_read_key_at_the_cap_neither_evicts_nor_refreshes_its_age() -> None:
-    """SDK-defined: replacement is not growth (no double-count, nothing
-    evicted) and does not renew the key's position - eviction order is
-    first-insertion order (FIFO), not recency (LRU)."""
+    """Eviction order is first-insertion order (FIFO), not recency (LRU)."""
     store = InMemoryResponseCacheStore(max_read_entries=2)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.set(_read_key("file:///b"), _entry("b"))
@@ -278,8 +241,7 @@ async def test_replacing_a_read_key_at_the_cap_neither_evicts_nor_refreshes_its_
 
 
 async def test_only_read_keys_count_toward_the_cap_and_only_read_keys_are_evicted() -> None:
-    """SDK-defined: the non-read cacheable methods are a small closed key set -
-    they neither consume cap slots nor ever get cap-evicted."""
+    """The non-read cacheable methods are a small closed key set, so they are never capped."""
     store = InMemoryResponseCacheStore(max_read_entries=1)
     list_keys = [
         CacheKey("tools/list"),
@@ -301,8 +263,6 @@ async def test_only_read_keys_count_toward_the_cap_and_only_read_keys_are_evicte
 
 
 async def test_a_non_read_set_never_triggers_eviction_even_with_reads_at_the_cap() -> None:
-    """SDK-defined: only storing a NEW read key can evict - a non-read `set`
-    while reads sit at the cap leaves them untouched."""
     store = InMemoryResponseCacheStore(max_read_entries=1)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.set(CacheKey("tools/list"), _entry("tools"))
@@ -311,7 +271,6 @@ async def test_a_non_read_set_never_triggers_eviction_even_with_reads_at_the_cap
 
 
 async def test_a_zero_cap_disables_read_eviction() -> None:
-    """SDK-defined: `max_read_entries=0` means unbounded read entries."""
     store = InMemoryResponseCacheStore(max_read_entries=0)
     uris = [f"file:///{i}" for i in range(5)]
     for uri in uris:
@@ -321,8 +280,6 @@ async def test_a_zero_cap_disables_read_eviction() -> None:
 
 
 async def test_deleting_a_read_key_frees_its_cap_slot() -> None:
-    """SDK-defined: the cap counts live entries, so a deleted read key's slot
-    is reusable without evicting anything."""
     store = InMemoryResponseCacheStore(max_read_entries=1)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.delete(_read_key("file:///a"))
@@ -331,8 +288,6 @@ async def test_deleting_a_read_key_frees_its_cap_slot() -> None:
 
 
 def test_a_negative_read_cap_is_rejected_at_construction() -> None:
-    """SDK-defined guard: a negative cap is meaningless (0 already means
-    uncapped) and would otherwise evict on every read insert."""
     with pytest.raises(ValueError) as exc:
         InMemoryResponseCacheStore(max_read_entries=-1)
     assert str(exc.value) == snapshot("max_read_entries must be >= 0, got -1")
@@ -386,8 +341,7 @@ def _public_arm(arm_id: str = "arm", partition: str = "") -> str:
 
 
 def _wire_result(ttl_ms: int | None = None, cache_scope: str | None = None) -> ListToolsResult:
-    """A `tools/list` result as parsed off the wire; `None` omits the hint so
-    it stays out of `model_fields_set`."""
+    """A wire-parsed `tools/list` result; `None` keeps the hint out of `model_fields_set`."""
     payload: dict[str, Any] = {"tools": []}
     if ttl_ms is not None:
         payload["ttlMs"] = ttl_ms
@@ -401,9 +355,7 @@ def _read_result(ttl_ms: int) -> ReadResourceResult:
 
 
 class _ScriptedStore:
-    """In-memory store that logs `(op, key)` and can await one-shot hooks
-    around an operation's commit, modelling an async store mid-commit when an
-    eviction or a cancellation lands."""
+    """Logs `(op, key)` and awaits one-shot hooks around commits, modelling an async store mid-commit."""
 
     def __init__(self) -> None:
         self.inner = InMemoryResponseCacheStore()
@@ -438,8 +390,7 @@ class _ScriptedStore:
 
 
 class _FailingStore:
-    """In-memory store whose operations raise while their flag is set; the
-    flags toggle so tests can model recovery."""
+    """Operations raise while their flag is set; toggling a flag models recovery."""
 
     def __init__(self, *, fail_get: bool = False, fail_set: bool = False, fail_delete: bool = False) -> None:
         self.inner = InMemoryResponseCacheStore()
@@ -467,9 +418,7 @@ class _FailingStore:
 
 
 class _ArmDeleteFailingStore:
-    """In-memory store whose `delete` raises only for keys on the given arm,
-    modelling a write whose opposite-arm cleanup fails while everything else
-    works. A write hitting that failure never reaches `set`."""
+    """`delete` raises only for keys on the given arm, modelling a failed opposite-arm cleanup."""
 
     def __init__(self, failing_arm: str) -> None:
         self.inner = InMemoryResponseCacheStore()
@@ -491,8 +440,7 @@ class _ArmDeleteFailingStore:
 
 
 class _RehydratingStore:
-    """Models a persistent store whose `get` returns what its deserializer
-    produced - possibly not the shape `set` received."""
+    """`get` returns whatever a persistent store's deserializer produced - not necessarily what `set` received."""
 
     def __init__(self, rehydrated: Any) -> None:
         self.rehydrated = rehydrated
@@ -515,11 +463,8 @@ class _RehydratingStore:
 
 @pytest.mark.parametrize("version", [LEGACY_VERSION, None], ids=["legacy", "pre-negotiation"])
 async def test_hints_from_a_non_modern_session_are_ignored(version: str | None) -> None:
-    """SDK-defined era gate: `ttlMs`/`cacheScope` are 2026-07-28 assertions. A
-    legacy peer can inject the keys onto the wire (the 2025 surfaces validate
-    and discard unknown keys, so they reach `model_fields_set`), so wire
-    presence is not trusted: on a non-modern session every result is
-    hint-absent - with the default `default_ttl_ms=0`, nothing is stored."""
+    """The hints are 2026-07-28 assertions a legacy peer can still inject onto the wire (unknown keys
+    reach `model_fields_set`), so on a non-modern session every result is treated as hint-absent."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store, version=version)
     gen = cache.capture("tools/list", "")
@@ -530,9 +475,7 @@ async def test_hints_from_a_non_modern_session_are_ignored(version: str | None) 
 
 
 async def test_a_legacy_session_with_a_default_ttl_caches_on_the_private_arm_only() -> None:
-    """SDK-defined era gate: the operator's `default_ttl_ms` still applies on
-    legacy sessions, but an injected `cacheScope: "public"` cannot promote the
-    entry, and an injected `ttlMs` does not shorten (or extend) its life."""
+    """The operator's default TTL still applies on legacy sessions; injected hints cannot promote or re-clock."""
     store = InMemoryResponseCacheStore()
     clock = _ManualClock()
     cache = _coordinator(store, version=LEGACY_VERSION, default_ttl_ms=60_000, clock=clock)
@@ -550,9 +493,7 @@ async def test_a_legacy_session_with_a_default_ttl_caches_on_the_private_arm_onl
 
 
 async def test_an_explicit_zero_ttl_is_not_overridden_by_the_default_ttl() -> None:
-    """Spec-mandated: `ttlMs: 0` means immediately stale. The configured
-    `default_ttl_ms` fills in only for hint-ABSENT results - an explicit 0
-    stores nothing."""
+    """Spec-mandated: ttlMs 0 means immediately stale; the default fills in only for hint-absent results."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store, default_ttl_ms=60_000)
     gen = cache.capture("tools/list", "")
@@ -562,9 +503,6 @@ async def test_an_explicit_zero_ttl_is_not_overridden_by_the_default_ttl() -> No
 
 
 async def test_a_hint_absent_modern_result_uses_the_default_ttl_privately() -> None:
-    """SDK-defined: on a modern session a result without `ttlMs` in
-    `model_fields_set` gets `default_ttl_ms` and scope `"private"`, expiring
-    exactly when the default says."""
     store = InMemoryResponseCacheStore()
     clock = _ManualClock()
     cache = _coordinator(store, default_ttl_ms=60_000, clock=clock)
@@ -580,9 +518,7 @@ async def test_a_hint_absent_modern_result_uses_the_default_ttl_privately() -> N
 
 
 async def test_a_ttl_above_24_hours_is_clamped_to_the_cap() -> None:
-    """SDK-defined hardening (SEP-2549 security discussion): a server cannot
-    pin an entry beyond 24 hours - the stored expiry is clamped to
-    `MAX_TTL_MS`."""
+    """SEP-2549 hardening: a server cannot pin an entry beyond `MAX_TTL_MS`."""
     store = InMemoryResponseCacheStore()
     clock = _ManualClock()
     cache = _coordinator(store, clock=clock)
@@ -594,9 +530,7 @@ async def test_a_ttl_above_24_hours_is_clamped_to_the_cap() -> None:
 
 
 async def test_a_public_result_lands_on_the_public_arm_and_clears_the_private_arm() -> None:
-    """Spec-mandated scope routing plus the SDK's no-stale-pair invariant:
-    when a key's scope flips, writing the new arm deletes the other so the two
-    arms never both answer."""
+    """On a scope flip, writing the new arm deletes the other so the two arms never both answer."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -613,9 +547,7 @@ async def test_a_public_result_lands_on_the_public_arm_and_clears_the_private_ar
 
 
 async def test_arm_key_layout_is_pinned_for_shared_store_compatibility() -> None:
-    """SDK-defined persistence contract: arm strings are the cross-process
-    store key material, so their layout is pinned - JSON arrays of the scope,
-    the hashed server identity, and (unless `share_public`) the partition."""
+    """Arm strings are cross-process store key material; changing their layout breaks shared stores."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store, partition="tenant-a", arm_id="abc123", default_ttl_ms=60_000)
     gen = cache.capture("tools/list", "")
@@ -630,10 +562,8 @@ async def test_arm_key_layout_is_pinned_for_shared_store_compatibility() -> None
 
 
 async def test_public_entries_do_not_cross_partitions_by_default() -> None:
-    """SDK security default (deviates from the ts SDK): the public arm is
-    partition-scoped, so a server stamping `cacheScope: "public"` on
-    per-tenant data (bug or malice) cannot leak one tenant's response to
-    another through a shared store."""
+    """Security default (deviates from the TypeScript SDK): a server stamping per-tenant data public
+    (bug or malice) cannot leak one tenant's response to another through a shared store."""
     store = InMemoryResponseCacheStore()
     tenant_a = _coordinator(store, partition="tenant-a")
     tenant_b = _coordinator(store, partition="tenant-b")
@@ -644,9 +574,6 @@ async def test_public_entries_do_not_cross_partitions_by_default() -> None:
 
 
 async def test_share_public_serves_public_entries_across_partitions_but_never_private_ones() -> None:
-    """SDK-defined opt-in: `share_public=True` drops the partition from the
-    public arm, sharing server-asserted-public entries fleet-wide. Private
-    entries still never cross partitions."""
     store = InMemoryResponseCacheStore()
     tenant_a = _coordinator(store, partition="tenant-a", share_public=True)
     tenant_b = _coordinator(store, partition="tenant-b", share_public=True)
@@ -660,9 +587,7 @@ async def test_share_public_serves_public_entries_across_partitions_but_never_pr
 
 
 async def test_a_private_scoped_entry_under_the_public_arm_is_not_served() -> None:
-    """SDK defense in depth: the arm routes, the entry's scope verifies - a
-    `"private"` entry sitting under the shared arm (a corrupted or pre-seeded
-    store) is refused, not served across the boundary."""
+    """Defense in depth against a corrupted or pre-seeded store: the arm routes, the entry's scope verifies."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     await store.set(
@@ -673,10 +598,8 @@ async def test_a_private_scoped_entry_under_the_public_arm_is_not_served() -> No
 
 
 async def test_a_stale_private_entry_does_not_shadow_a_fresh_public_one() -> None:
-    """SDK-defined fall-through: a stale private-arm entry is a miss for
-    arm-probing purposes, so after a server scope flip (private -> public,
-    with the public entry seeded by another client sharing the store) the
-    fresh public entry is served, not shadowed into a spurious miss."""
+    """A stale private entry is an arm-probe miss, so the fall-through finds a public entry seeded by
+    another client after a server scope flip."""
     store = InMemoryResponseCacheStore()
     clock = _ManualClock()
     cache = _coordinator(store, clock=clock)
@@ -693,8 +616,7 @@ async def test_a_stale_private_entry_does_not_shadow_a_fresh_public_one() -> Non
 
 
 async def test_an_entry_without_an_expiry_is_never_fresh() -> None:
-    """SDK-defined: `expires_at=None` means never fresh - a store rehydrating
-    entries without expiry metadata yields misses, not immortal entries."""
+    """Entries rehydrated without expiry metadata are misses, not immortal."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     await store.set(
@@ -708,9 +630,7 @@ async def test_an_entry_without_an_expiry_is_never_fresh() -> None:
 
 
 async def test_write_deletes_the_opposite_arm_before_setting_its_own() -> None:
-    """SDK-defined ordering: the opposite arm is deleted before the own-arm
-    set, so a cancellation between the two operations leaves a miss - never
-    two arms answering for one key."""
+    """Delete-then-set: a cancellation between the two operations leaves a miss, never two answering arms."""
     store = _ScriptedStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -722,11 +642,8 @@ async def test_write_deletes_the_opposite_arm_before_setting_its_own() -> None:
 
 
 async def test_an_eviction_landing_during_an_async_set_is_compensated() -> None:
-    """SDK-defined TOCTOU re-check. Steps: (1) write captures, deletes the
-    opposite arm, and issues `set`; (2) before the store commits, an eviction
-    runs fully (bump + deletes, which see nothing); (3) the set commits the
-    now-stale entry; (4) the post-set generation re-check fires a compensating
-    delete, so the evicted key does not resurface."""
+    """TOCTOU re-check: the eviction's deletes see nothing (the set has not committed yet), so the
+    post-set generation re-check must fire a compensating delete."""
     store = _ScriptedStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -750,13 +667,8 @@ async def test_an_eviction_landing_during_an_async_set_is_compensated() -> None:
 
 
 async def test_a_cancellation_landing_as_the_set_commits_still_compensates_an_eviction() -> None:
-    """SDK-defined: the eviction re-check survives cancellation. Steps: (1)
-    write deletes the opposite arm and issues `set`; (2) before the store
-    commits, an eviction runs fully (its deletes see nothing) and the caller's
-    scope is cancelled; (3) the set commits and the cancellation is delivered
-    at the store's next checkpoint - a timeout firing while an async store's
-    set is already on the wire; (4) the shielded compensating delete still
-    runs, so the evicted entry is not resurrected for its full TTL."""
+    """The compensating delete is shielded: a timeout firing while the store's set is already on the
+    wire must not resurrect the evicted entry for its full TTL."""
     store = _ScriptedStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -783,9 +695,7 @@ async def test_a_cancellation_landing_as_the_set_commits_still_compensates_an_ev
 
 
 async def test_a_cancellation_during_the_refresh_purge_still_purges_both_arms() -> None:
-    """SDK-defined: the `mode="refresh"` purge is shielded - a cancellation
-    delivered between its two arm deletes must not leave the warm
-    opposite-arm entry that the refetch superseded."""
+    """The refresh purge is shielded - a mid-purge cancellation must not leave the superseded opposite arm."""
     store = _ScriptedStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -794,17 +704,15 @@ async def test_a_cancellation_during_the_refresh_purge_still_purges_both_arms() 
     assert await store.inner.get(public_key) is not None
     with anyio.CancelScope() as scope:
         scope.cancel()
-        # The cancellation would be delivered at the first checkpoint after the
-        # first (private-arm) delete commits, skipping the warm public arm.
+        # Delivers at the first checkpoint after the private-arm delete commits.
         store.after_delete_commits = anyio.lowlevel.checkpoint
         await cache.write("tools/list", "", _wire_result(ttl_ms=0), gen, "refresh")
     assert await store.inner.get(public_key) is None
 
 
 async def test_a_cancellation_during_an_eviction_still_evicts_both_arms() -> None:
-    """SDK-defined: eviction's two arm deletes are shielded - a notification
-    task cancelled mid-eviction (e.g. session teardown) must not leave one arm
-    serving the evicted entry until its TTL."""
+    """Eviction's arm deletes are shielded - a notification task cancelled mid-eviction (session
+    teardown) must not leave one arm serving the evicted entry."""
     store = _ScriptedStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -812,8 +720,7 @@ async def test_a_cancellation_during_an_eviction_still_evicts_both_arms() -> Non
     public_key = CacheKey("tools/list", "", _public_arm())
     with anyio.CancelScope() as scope:
         scope.cancel()
-        # The cancellation would be delivered at the first checkpoint after the
-        # first (private-arm) delete commits, skipping the warm public arm.
+        # Delivers at the first checkpoint after the private-arm delete commits.
         store.after_delete_commits = anyio.lowlevel.checkpoint
         await cache.evict_method("tools/list")
     assert await store.inner.get(public_key) is None
@@ -823,8 +730,6 @@ async def test_a_cancellation_during_an_eviction_still_evicts_both_arms() -> Non
 
 
 async def test_a_raising_store_get_is_a_cache_miss() -> None:
-    """SDK error discipline: a raising store never fails the caller - a
-    read-path `get` raise is a miss."""
     store = _FailingStore(fail_get=True)
     cache = _coordinator(store)
     assert await cache.read("tools/list", "") is None
@@ -841,12 +746,8 @@ async def test_a_raising_store_get_is_a_cache_miss() -> None:
 async def test_an_entry_rehydrated_into_the_wrong_shape_is_a_warned_miss(
     rehydrated: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """SDK error discipline: a persistent store has no method-to-model mapping
-    to rehydrate with, so its `get` may return serialized shapes (a dict where
-    the result model was stored, or a dict for the whole entry); the read
-    degrades to a warned miss instead of failing the call - and a store that
-    is persistently misconfigured this way is one warning burst, not one
-    warning per cached read."""
+    """A persistent store has no method-to-model mapping, so its `get` may return serialized shapes;
+    the warned miss is one burst, not one warning per cached read."""
     cache = _coordinator(_RehydratingStore(rehydrated))
     with caplog.at_level(logging.WARNING, logger="mcp.client.caching"):
         assert await cache.read("tools/list", "") is None
@@ -855,8 +756,7 @@ async def test_an_entry_rehydrated_into_the_wrong_shape_is_a_warned_miss(
 
 
 async def test_a_raising_opposite_arm_delete_aborts_the_write() -> None:
-    """SDK error discipline: if the opposite-arm delete fails, setting anyway
-    could leave both arms populated - the write aborts with nothing cached."""
+    """Setting after a failed opposite-arm delete could leave both arms populated."""
     store = _FailingStore(fail_delete=True)
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -866,10 +766,7 @@ async def test_a_raising_opposite_arm_delete_aborts_the_write() -> None:
 
 
 async def test_a_failed_opposite_arm_delete_degrades_the_key_to_a_full_miss() -> None:
-    """SDK error discipline: when only the opposite-arm delete fails, the write
-    cannot set its own arm (two arms might answer) - but the warm own-arm
-    entry was superseded by the fetch, so it is best-effort deleted too: both
-    arms read as misses, and the write itself never raises."""
+    """The fetch superseded the warm own-arm entry, so it is best-effort deleted too; the write never raises."""
     store = _ArmDeleteFailingStore(failing_arm=_public_arm())
     cache = _coordinator(store)
     await store.inner.set(
@@ -885,8 +782,6 @@ async def test_a_failed_opposite_arm_delete_degrades_the_key_to_a_full_miss() ->
 
 
 async def test_a_raising_store_set_caches_nothing_and_does_not_raise() -> None:
-    """SDK error discipline: a `set` raise is logged and swallowed - the fetch
-    already succeeded, the result just is not cached."""
     store = _FailingStore(fail_set=True)
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -895,9 +790,7 @@ async def test_a_raising_store_set_caches_nothing_and_does_not_raise() -> None:
 
 
 async def test_eviction_with_a_raising_delete_still_bumps_the_generation() -> None:
-    """SDK error discipline (bump-first): even when the store deletes raise,
-    the eviction's generation bump lands - an in-flight fetch captured before
-    the eviction cannot write back, while a fetch captured after it can."""
+    """Bump-first: a fetch captured before the eviction cannot write back even when the deletes raise."""
     store = _FailingStore()
     cache = _coordinator(store)
     stale_gen = cache.capture("tools/list", "")  # fetch in flight when the eviction lands
@@ -912,8 +805,6 @@ async def test_eviction_with_a_raising_delete_still_bumps_the_generation() -> No
 
 
 async def test_store_failures_warn_once_per_burst(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined logging: consecutive store failures log a single warning; a
-    successful operation re-arms it so the next burst warns again."""
     store = _FailingStore(fail_get=True)
     cache = _coordinator(store)
     with caplog.at_level(logging.WARNING, logger="mcp.client.caching"):
@@ -929,10 +820,7 @@ async def test_store_failures_warn_once_per_burst(caplog: pytest.LogCaptureFixtu
 
 
 async def test_a_set_only_store_failure_warns_once_across_write_cycles(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined logging: the warning burst is tracked per operation kind -
-    a store where only `set` is broken warns once across write cycles, the
-    healthy deletes in between never re-arming it; only a `set` succeeding
-    re-arms the `set` warning."""
+    """Bursts are tracked per operation kind - the healthy deletes between failing sets never re-arm."""
     store = _FailingStore(fail_set=True)
     cache = _coordinator(store)
     with caplog.at_level(logging.WARNING, logger="mcp.client.caching"):
@@ -953,9 +841,7 @@ async def test_a_set_only_store_failure_warns_once_across_write_cycles(caplog: p
 
 
 async def test_an_eviction_between_capture_and_write_discards_the_write() -> None:
-    """Spec-aligned race rule: a fetch in flight when its key is evicted must
-    not write the evicted entry back - the generation captured before the send
-    no longer matches at write time."""
+    """Spec-aligned: a fetch in flight when its key is evicted must not write the evicted entry back."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -966,8 +852,6 @@ async def test_an_eviction_between_capture_and_write_discards_the_write() -> Non
 
 
 async def test_recapturing_a_registered_key_returns_its_current_generation() -> None:
-    """SDK-defined: `capture` re-reads, it does not reset - after an eviction
-    a new fetch captures the bumped generation and its write lands."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     gen_before = cache.capture("tools/list", "")
@@ -979,11 +863,8 @@ async def test_recapturing_a_registered_key_returns_its_current_generation() -> 
 
 
 async def test_the_generation_map_drops_the_oldest_key_at_its_cap() -> None:
-    """SDK-defined bound (cap parametrized small; 4096 in production):
-    registering a new key at the cap drops the oldest, whose race guard
-    degrades to the accepted co-tenant class - an eviction racing the dropped
-    key's in-flight fetch goes undetected and its write lands, while a
-    still-registered key's write is discarded."""
+    """A dropped key's race guard degrades to the accepted co-tenant class - an eviction racing its
+    in-flight fetch goes undetected (cap is 4096 in production, parametrized small here)."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store, generation_map_cap=2)
     gen_a = cache.capture("resources/read", "file:///a")
@@ -1001,9 +882,7 @@ async def test_the_generation_map_drops_the_oldest_key_at_its_cap() -> None:
 
 
 async def test_a_refresh_resolving_uncacheable_purges_the_warm_entry() -> None:
-    """SDK-defined: a `cache_mode="refresh"` whose fresh result resolves to an
-    uncacheable TTL deletes both arms - the refetch superseded the warm entry,
-    which must not be served again."""
+    """The refetch superseded the warm entry, which must not be served again."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
@@ -1015,9 +894,7 @@ async def test_a_refresh_resolving_uncacheable_purges_the_warm_entry() -> None:
 
 
 async def test_evict_key_on_an_unregistered_key_still_deletes_both_arms() -> None:
-    """SDK-defined: a persistent store may hold warm entries from a prior
-    process that this coordinator never captured - eviction always issues the
-    store deletes, registered or not."""
+    """A persistent store may hold warm entries from a prior process this coordinator never captured."""
     store = InMemoryResponseCacheStore()
     await store.set(
         CacheKey("resources/read", "file:///warm", _private_arm()),
@@ -1053,10 +930,7 @@ async def test_evict_key_on_an_unregistered_key_still_deletes_both_arms() -> Non
 async def test_notifications_evict_exactly_their_mapped_entries(
     notification: ServerNotification, evicted: set[tuple[str, str]]
 ) -> None:
-    """Spec SHOULD (notifications invalidate) plus negative space: each
-    list_changed notification evicts its own method's entry and nothing else,
-    resources/list_changed co-evicts the templates list, resources/updated
-    evicts only the named uri, and an unrelated notification evicts nothing."""
+    """Spec SHOULD: notifications invalidate - and nothing beyond their mapped entries."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store)
     seeded = [

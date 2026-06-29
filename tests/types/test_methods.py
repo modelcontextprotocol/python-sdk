@@ -549,10 +549,7 @@ def test_built_in_maps_are_immutable():
 
 
 def test_cacheable_methods_mirror_the_cacheable_method_literal():
-    """Spec-mandated set (SEP-2549): the hand-written `CacheableMethod` Literal and
-    `CACHEABLE_METHODS` (derived from which `MONOLITH_RESULTS` rows have a
-    `CacheableResult` arm) name the same methods - if the schema gains or loses a
-    cacheable result, this weld breaks."""
+    """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
     assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
 
 
