@@ -185,6 +185,19 @@ ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
 _CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult] = TypeAdapter(
     types.CallToolResult | types.InputRequiredResult
 )
+_GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequiredResult] = TypeAdapter(
+    types.GetPromptResult | types.InputRequiredResult
+)
+_ReadResourceResultAdapter: TypeAdapter[types.ReadResourceResult | types.InputRequiredResult] = TypeAdapter(
+    types.ReadResourceResult | types.InputRequiredResult
+)
+
+
+def _input_required_unexpected(method: str) -> RuntimeError:
+    return RuntimeError(
+        "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
+        f"and retry {method}(..., input_responses=..., request_state=result.request_state)."
+    )
 
 
 class ClientSession:
@@ -211,12 +224,14 @@ class ClientSession:
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
+        self._extensions = extensions
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -356,7 +371,9 @@ class ClientSession:
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
-        return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
+        return types.ClientCapabilities(
+            sampling=sampling, elicitation=elicitation, experimental=None, extensions=self._extensions, roots=roots
+        )
 
     async def initialize(self) -> types.InitializeResult:
         if self._initialize_result is not None:
@@ -591,12 +608,64 @@ class ClientSession:
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
-        """Send a resources/read request."""
-        return await self.send_request(
-            types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri, _meta=meta)),
-            types.ReadResourceResult,
+    @overload
+    async def read_resource(
+        self,
+        uri: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: Literal[False] = False,
+    ) -> types.ReadResourceResult: ...
+
+    @overload
+    async def read_resource(
+        self,
+        uri: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.ReadResourceResult | types.InputRequiredResult: ...
+
+    async def read_resource(
+        self,
+        uri: str,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.ReadResourceResult | types.InputRequiredResult:
+        """Send a resources/read request.
+
+        Args:
+            input_responses: Responses to a prior `InputRequiredResult.input_requests`.
+            request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            allow_input_required: When `False` (default), an `InputRequiredResult`
+                from the server raises `RuntimeError`; when `True`, it is returned
+                so the caller can resolve the requests and retry.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                `allow_input_required` is `False`.
+        """
+        result = await self.send_request(
+            types.ReadResourceRequest(
+                params=types.ReadResourceRequestParams(
+                    uri=uri,
+                    input_responses=input_responses,
+                    request_state=request_state,
+                    _meta=meta,
+                ),
+            ),
+            _ReadResourceResultAdapter,
         )
+        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
+            raise _input_required_unexpected("read_resource")
+        return result
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/subscribe request."""
@@ -689,10 +758,7 @@ class ClientSession:
             await self._validate_tool_result(name, result)
 
         if isinstance(result, types.InputRequiredResult) and not allow_input_required:
-            raise RuntimeError(
-                "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
-                "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
-            )
+            raise _input_required_unexpected("call_tool")
         return result
 
     def _resolve_param_headers(self, name: str, arguments: Mapping[str, Any]) -> dict[str, str]:
@@ -734,18 +800,68 @@ class ClientSession:
         """
         return await self.send_request(types.ListPromptsRequest(params=params), types.ListPromptsResult)
 
+    @overload
     async def get_prompt(
         self,
         name: str,
         arguments: dict[str, str] | None = None,
         *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-    ) -> types.GetPromptResult:
-        """Send a prompts/get request."""
-        return await self.send_request(
-            types.GetPromptRequest(params=types.GetPromptRequestParams(name=name, arguments=arguments, _meta=meta)),
-            types.GetPromptResult,
+        allow_input_required: Literal[False] = False,
+    ) -> types.GetPromptResult: ...
+
+    @overload
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+    ) -> types.GetPromptResult | types.InputRequiredResult: ...
+
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool = False,
+    ) -> types.GetPromptResult | types.InputRequiredResult:
+        """Send a prompts/get request.
+
+        Args:
+            input_responses: Responses to a prior `InputRequiredResult.input_requests`.
+            request_state: Opaque state echoed from a prior `InputRequiredResult`.
+            allow_input_required: When `False` (default), an `InputRequiredResult`
+                from the server raises `RuntimeError`; when `True`, it is returned
+                so the caller can resolve the requests and retry.
+
+        Raises:
+            RuntimeError: If the server returns an `InputRequiredResult` and
+                `allow_input_required` is `False`.
+        """
+        result = await self.send_request(
+            types.GetPromptRequest(
+                params=types.GetPromptRequestParams(
+                    name=name,
+                    arguments=arguments,
+                    input_responses=input_responses,
+                    request_state=request_state,
+                    _meta=meta,
+                ),
+            ),
+            _GetPromptResultAdapter,
         )
+        if isinstance(result, types.InputRequiredResult) and not allow_input_required:
+            raise _input_required_unexpected("get_prompt")
+        return result
 
     async def complete(
         self,
@@ -829,13 +945,7 @@ class ClientSession:
             ctx = ClientRequestContext(
                 session=self, request_id=dctx.request_id, meta=request.params.meta if request.params else None
             )
-            match request:
-                case types.CreateMessageRequest(params=sampling_params):
-                    response = await self._sampling_callback(ctx, sampling_params)
-                case types.ElicitRequest(params=elicit_params):
-                    response = await self._elicitation_callback(ctx, elicit_params)
-                case types.ListRootsRequest():  # pragma: no branch
-                    response = await self._list_roots_callback(ctx)
+            response = await self._dispatch_input_request(ctx, request)
         client_response = ClientResponse.validate_python(response)
         if isinstance(client_response, types.ErrorData):
             raise MCPError.from_error_data(client_response)
@@ -846,6 +956,23 @@ class ClientSession:
             logger.exception("client callback for %r returned an invalid result", method)
             raise MCPError(code=INTERNAL_ERROR, message="Client callback returned an invalid result") from None
         return dumped
+
+    async def _dispatch_input_request(
+        self, ctx: ClientRequestContext, req: types.InputRequest
+    ) -> types.InputResponse | types.ErrorData:
+        """Route a server-initiated input request to the matching constructor callback.
+
+        Shared by the legacy server→client RPC path (`_on_request`) and the
+        2026-07-28 multi-round-trip driver, which dispatches the embedded
+        `InputRequiredResult.input_requests` through the same callbacks.
+        """
+        match req:
+            case types.CreateMessageRequest(params=p):
+                return await self._sampling_callback(ctx, p)
+            case types.ElicitRequest(params=p):
+                return await self._elicitation_callback(ctx, p)
+            case types.ListRootsRequest():  # pragma: no branch
+                return await self._list_roots_callback(ctx)
 
     async def _on_notify(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None

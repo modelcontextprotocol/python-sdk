@@ -178,7 +178,10 @@ class HeadlessOAuth:
 
 
 def auth_settings(
-    *, required_scopes: Sequence[str] = ("mcp",), valid_scopes: Sequence[str] | None = None
+    *,
+    required_scopes: Sequence[str] = ("mcp",),
+    valid_scopes: Sequence[str] | None = None,
+    identity_assertion_enabled: bool = False,
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
@@ -188,6 +191,10 @@ def auth_settings(
     validation; tests pass a wider set when they need the protected-resource metadata's
     `scopes_supported` (which mirrors `required_scopes`) to differ from what the client may
     register or when AS metadata should advertise additional scopes such as `offline_access`.
+
+    `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
+    jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
+    issue tokens.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -199,6 +206,7 @@ def auth_settings(
             enabled=True, valid_scopes=valid, default_scopes=required
         ),
         revocation_options=RevocationOptions(enabled=False),
+        identity_assertion_enabled=identity_assertion_enabled,
     )
 
 

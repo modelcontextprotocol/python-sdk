@@ -20,18 +20,9 @@
 # (the runner fails on stale entries), so the baseline burns down per
 # milestone.
 
-client:
-  []
-  # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
-  # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
-  # (it is an extension scenario not carried into the 2026 wire), so it is
-  # neither run nor evaluated on this leg.
+client: []
 
 server:
-  # The stateless 2026 path now reaches handlers for plain request/response
-  # scenarios; tools-call-with-progress still fails because the stateless
-  # server has no channel for server→client progress notifications.
-  - tools-call-with-progress
   # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
   # cannot return InputRequiredResult from MCPServer yet (tools/call can).
   - input-required-result-non-tool-request

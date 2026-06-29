@@ -93,12 +93,6 @@ _TASKS_DEFERRAL = (
     "unimplemented."
 )
 
-_MODERN_NOTIFY_DROP = (
-    "The modern single-exchange dispatch context no-ops notify() on the streamable-http driver; "
-    "handler-emitted logging/progress notifications never reach the per-request SSE response. "
-    "Passes once SSE response mode lands."
-)
-
 
 @dataclass(frozen=True, kw_only=True)
 class Divergence:
@@ -656,9 +650,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Progress notifications emitted by a handler during a request are delivered to the caller's "
             "progress callback, in order, with their progress, total, and message."
         ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
-        ),
     ),
     "protocol:progress:token-injected": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -676,9 +667,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "interleaved emission. Token distinctness is the JSON-RPC mechanism for that; the in-process "
             "direct dispatcher carries the callback per-request without a wire-level token."
         ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
-        ),
     ),
     "protocol:progress:monotonic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -690,9 +678,6 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The spec MUST is not enforced: progress values are not validated on either side, so a "
                 "handler that emits non-increasing values has them forwarded to the callback unchanged."
             ),
-        ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
         ),
     ),
     "protocol:progress:stops-after-completion": Requirement(
@@ -831,18 +816,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Log notifications emitted by a tool handler during execution reach the client's logging "
             "callback before the tool result returns."
         ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
-        ),
     ),
     "tools:call:progress": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior=(
             "Progress notifications emitted by a tool handler reach the caller's progress callback before "
             "the tool result returns."
-        ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
         ),
     ),
     "tools:call:sampling-roundtrip": Requirement(
@@ -1064,17 +1043,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
             "corresponding severity."
         ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
-        ),
     ),
     "mcpserver:context:progress": Requirement(
         source="sdk",
         behavior=(
             "Context.report_progress sends a progress notification against the requesting client's progress token."
-        ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
         ),
     ),
     "mcpserver:context:elicit": Requirement(
@@ -1433,18 +1406,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
-        ),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
         behavior=(
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
-        ),
-        known_failures=(
-            KnownFailure(spec_version="2026-07-28", transport="streamable-http", note=_MODERN_NOTIFY_DROP, issue=None),
         ),
     ),
     "logging:message:filtered": Requirement(
@@ -2063,17 +2030,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             note=(
                 "MCPServer never sends list_changed notifications on registration changes, so a connected "
                 "client cannot learn that the set changed without polling."
-            ),
-        ),
-        known_failures=(
-            KnownFailure(
-                spec_version="2026-07-28",
-                transport="streamable-http",
-                note=(
-                    "List-mutation assertions hold; only the sentinel ctx.info() never reaches the client. "
-                    + _MODERN_NOTIFY_DROP
-                ),
-                issue=None,
             ),
         ),
     ),
@@ -3688,6 +3644,64 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Untestable negative through the public API: there is no path to inject a token obtained "
             "elsewhere into the auth provider's state, so the absence cannot be observed end to end."
         ),
+    ),
+    "client-auth:identity-assertion": Requirement(
+        source="sdk",
+        behavior=(
+            "The identity-assertion provider (SEP-990) presents an enterprise IdP-issued ID-JAG to the MCP "
+            "authorization server via the RFC 7523 jwt-bearer grant, with no authorize or registration step, "
+            "and the issued bearer token authorizes subsequent requests."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:assertion-callback": Requirement(
+        source="sdk",
+        behavior=(
+            "The identity-assertion provider sources the ID-JAG from its async assertion_provider callback, "
+            "invoked with the authorization server's issuer as audience and the MCP server's resource "
+            "identifier, and sends it as `assertion` on the RFC 7523 jwt-bearer request."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:issuer-pinning": Requirement(
+        source="sdk",
+        behavior=(
+            "The identity-assertion provider's authorization server is configuration: metadata is "
+            "fetched only from the configured issuer's RFC 8414 well-known, the resource server is "
+            "never consulted for AS selection, and the ID-JAG and client secret are not sent unless "
+            "that metadata validates."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:disabled-rejected": Requirement(
+        source="sdk",
+        behavior=(
+            "When the authorization server has the identity-assertion grant disabled, the token endpoint "
+            "rejects it with unsupported_grant_type and the connection fails rather than issuing a token."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:invalid-assertion": Requirement(
+        source="sdk",
+        behavior=(
+            "A jwt-bearer request whose ID-JAG the authorization server rejects surfaces as an OAuth error "
+            "and the connection fails rather than proceeding with a bearer token."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:identity-assertion:metadata-advertised": Requirement(
+        source="sdk",
+        behavior=(
+            "When the identity-assertion grant is enabled, the authorization-server metadata advertises the "
+            "jwt-bearer grant type and the id-jag grant profile in authorization_grant_profiles_supported."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # stdio transport

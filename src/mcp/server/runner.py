@@ -14,9 +14,9 @@ the `Connection`, the driver tears it down.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Awaitable, Mapping
 from dataclasses import KW_ONLY, dataclass
-from functools import cached_property, partial, reduce
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio
@@ -45,7 +45,7 @@ from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -141,22 +141,10 @@ class ServerRunner(Generic[LifespanT]):
     _: KW_ONLY
     init_options: InitializationOptions | None = None
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
-    dispatch_middleware: Sequence[DispatchMiddleware] = ()
-    """Raw dispatch-tier wrappers `(dctx, method, params) -> dict`, applied outermost-first
-    around `_on_request`. Empty by default; OpenTelemetry tracing lives at the context tier
-    (`OpenTelemetryMiddleware`, seeded into `Server.middleware`)."""
 
     @cached_property
     def on_request(self) -> OnRequest:
-        """`_on_request` wrapped in `dispatch_middleware`, outermost-first.
-
-        Dispatch-tier middleware sees raw `(dctx, method, params) -> dict` and
-        wraps everything - initialize, METHOD_NOT_FOUND, validation failures
-        included.
-        """
-        return reduce(
-            lambda handler, middleware: middleware(handler), reversed(self.dispatch_middleware), self._on_request
-        )
+        return self._on_request
 
     @cached_property
     def on_notify(self) -> OnNotify:

@@ -1662,7 +1662,10 @@ async def test_discover_reraises_unsupported_version_with_malformed_error_data()
 
 
 @pytest.mark.anyio
-async def test_call_tool_returns_input_required_result_when_server_requests_input() -> None:
+async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the
+    raw `InputRequiredResult` so the caller can drive the loop manually."""
+
     # `on_call_tool` is still typed `-> CallToolResult` on this branch (#2967 widens it later);
     # `add_request_handler` is `HandlerResult`-typed and accepts `InputRequiredResult` cleanly.
     async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
@@ -1672,7 +1675,7 @@ async def test_call_tool_returns_input_required_result_when_server_requests_inpu
     server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
     with anyio.fail_after(5):
         async with Client(server, mode="2026-07-28") as client:
-            result = await client.call_tool("ask", allow_input_required=True)
+            result = await client.session.call_tool("ask", allow_input_required=True)
     assert isinstance(result, types.InputRequiredResult)
     assert result.request_state == "s"
 
@@ -1703,7 +1706,11 @@ async def test_call_tool_threads_input_responses_and_request_state_into_params()
 
 
 @pytest.mark.anyio
-async def test_client_call_tool_raises_on_input_required_without_opt_in() -> None:
+async def test_session_call_tool_raises_on_input_required_without_opt_in() -> None:
+    """SDK-defined: `ClientSession.call_tool` is mechanics-only; an
+    `InputRequiredResult` with the default `allow_input_required=False` raises
+    `RuntimeError` (the auto-loop policy lives on `Client`, not here)."""
+
     async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
         return types.InputRequiredResult(request_state="s")
 
@@ -1711,7 +1718,45 @@ async def test_client_call_tool_raises_on_input_required_without_opt_in() -> Non
     server.add_request_handler("tools/call", types.CallToolRequestParams, handler)
     with anyio.fail_after(5):
         async with Client(server, mode="2026-07-28") as client:
-            with pytest.raises(RuntimeError):
-                await client.call_tool("t")
-            result = await client.call_tool("t", allow_input_required=True)
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.call_tool("t")
+            result = await client.session.call_tool("t", allow_input_required=True)
     assert isinstance(result, types.InputRequiredResult)
+
+
+@pytest.mark.anyio
+async def test_session_get_prompt_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.get_prompt` mirrors `call_tool`: opting in returns the
+    raw `InputRequiredResult`; the default raises `RuntimeError`."""
+
+    async def handler(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="prompt-state")
+
+    server = Server("test")
+    server.add_request_handler("prompts/get", types.GetPromptRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.get_prompt("p")
+            result = await client.session.get_prompt("p", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "prompt-state"
+
+
+@pytest.mark.anyio
+async def test_session_read_resource_returns_input_required_result_when_opted_in() -> None:
+    """`ClientSession.read_resource` mirrors `call_tool`: opting in returns the
+    raw `InputRequiredResult`; the default raises `RuntimeError`."""
+
+    async def handler(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> types.InputRequiredResult:
+        return types.InputRequiredResult(request_state="resource-state")
+
+    server = Server("test")
+    server.add_request_handler("resources/read", types.ReadResourceRequestParams, handler)
+    with anyio.fail_after(5):
+        async with Client(server, mode="2026-07-28") as client:
+            with pytest.raises(RuntimeError, match="allow_input_required=True"):
+                await client.session.read_resource("memory://r")
+            result = await client.session.read_resource("memory://r", allow_input_required=True)
+    assert isinstance(result, types.InputRequiredResult)
+    assert result.request_state == "resource-state"

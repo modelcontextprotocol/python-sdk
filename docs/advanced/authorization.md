@@ -109,6 +109,8 @@ To watch all three parties move, run `examples/servers/simple-auth/` from the SD
     server inside your MCP server. It predates the AS/RS separation that the MCP authorization spec
     is built around. New servers should not reach for it.
 
+An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **Identity assertion**.
+
 ## Recap
 
 * Over Streamable HTTP your server is an OAuth 2.1 **resource server**: it verifies tokens, it never issues them.

@@ -156,7 +156,10 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message, JSONRPCResponse | JSONRPCError)
 
-            except Exception as exc:  # pragma: no cover
+            # Forwarding to a closed read stream lands here when the caller cancels mid-SSE
+            # (BrokenResourceError, not a parse failure); coverage is timing-dependent in the
+            # streaming story's modern HTTP cancellation leg.
+            except Exception as exc:  # pragma: lax no cover
                 logger.exception("Error parsing SSE message")
                 if original_request_id is not None:
                     error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse SSE message: {exc}")
@@ -372,7 +375,7 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
-            logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+            logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:  # pragma: no branch

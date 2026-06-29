@@ -57,7 +57,7 @@ def build_server() -> Server[Any]:
         """Registered so the server advertises the `logging` capability; never called."""
         raise NotImplementedError
 
-    return Server(
+    return Server(  # pyright: ignore[reportDeprecated]
         "streaming-example",
         on_list_tools=list_tools,
         on_call_tool=call_tool,

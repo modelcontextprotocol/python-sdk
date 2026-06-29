@@ -395,13 +395,61 @@ For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` 
 
 `Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
 
-### `call_tool` can return `InputRequiredResult` (opt-in)
+### `InputRequiredResult` handling differs between `Client` and `ClientSession`
 
-For protocol 2026-07-28, a `tools/call` request may return an `InputRequiredResult` asking the client to supply additional input and retry. By default `call_tool` (on `ClientSession`, `Client`, and `ClientSessionGroup`) still returns `CallToolResult` and raises `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then retry with `input_responses=` / `request_state=`.
+For protocol 2026-07-28, `tools/call`, `prompts/get`, and `resources/read` may return an `InputRequiredResult` asking the client to supply additional input (sampling, elicitation, roots) and retry.
+
+On the high-level `Client`, `call_tool`, `get_prompt`, and `read_resource` resolve this automatically: they dispatch each requested input to the matching callback (`sampling_callback`, `elicitation_callback`, `list_roots_callback`) and retry until a final result is returned, so the call still returns the bare `CallToolResult` / `GetPromptResult` / `ReadResourceResult`. The round limit is `Client(input_required_max_rounds=...)` (default 10). Earlier v2 prereleases exposed an `allow_input_required` parameter on these `Client` methods; that parameter has been removed. For manual control use `client.session.call_tool(..., allow_input_required=True)`. Note that `read_timeout_seconds` now bounds each underlying round, not the whole loop; wrap the call in `anyio.fail_after(...)` for a whole-loop bound.
+
+On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return the bare result and raise `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then drive the loop yourself with `input_responses=` / `request_state=`. `ClientSessionGroup.call_tool` accepts the same flag.
 
 ### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers (SEP-2243)
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.
+
+### Server extensions API (SEP-2133)
+
+`MCPServer` now accepts opt-in extensions that bundle MCP behaviour behind a
+reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
+(the 2026-07-28 capability map). An extension subclasses `mcp.server.extension.Extension`
+and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
+(additive) and `intercept_tool_call()` (wraps `tools/call`). The `identifier` must be a
+`vendor-prefix/name` string following the spec's `_meta` key grammar; a class-level
+`identifier` is validated when the subclass is defined, one assigned in `__init__` when
+the extension is registered. Pass instances at construction:
+
+```python
+from mcp.server.mcpserver import MCPServer
+from mcp.server.apps import Apps
+
+mcp = MCPServer("demo", extensions=[Apps()])
+```
+
+The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
+it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
+`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback — `True` only
+when the client's ui-extension settings list the `text/html;profile=mcp-app`
+MIME type, per the Apps spec's required `mimeTypes` field. Every
+`@apps.tool(resource_uri=...)` must have a matching resource registered on the
+same `Apps` instance (`add_html_resource` for inline HTML, `add_resource` for a
+pre-built `Resource`); a tool bound to an unregistered URI raises at
+`MCPServer(...)` construction rather than 404ing on `resources/read` at runtime.
+
+Extension methods are strictly additive: a `MethodBinding` cannot name a
+spec-defined request method, and registering one whose method collides with
+another handler raises at construction. A `MethodBinding` may set
+`protocol_versions` to scope an extension method to specific wire versions
+(`frozenset()` is rejected — use `None` to admit every version); a request at
+any other version is `METHOD_NOT_FOUND`. An
+extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
+to reject a request with the `-32021` (missing required client capability) error
+when the client did not declare the extension.
+
+Clients advertise extension support with the new `Client(extensions=...)` /
+`ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.
+The extensions capability map is negotiated over `server/discover` (modern path);
+a legacy `initialize` handshake does not carry it. Extensions are off by default
+and never alter behaviour unless registered.
 
 ### `McpError` renamed to `MCPError`
 
@@ -604,6 +652,76 @@ The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `Reso
 Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a template handler that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
+
+### Resource templates: matching behavior changes
+
+Resource template matching has been rewritten with RFC 6570 support.
+Several behaviors have changed:
+
+**Path-safety checks applied by default.** Extracted parameter values
+containing `..` as a path component, a null byte, or looking like an
+absolute path (`/etc/passwd`, `C:\Windows`) now cause the read to
+fail — the client receives an "Unknown resource" error and template
+iteration stops, so a strict template's rejection does not fall
+through to a later permissive template. This is checked on the
+decoded value, so `..%2Fetc`, `%2E%2E`, and `%00` are caught too.
+Note that `..` is only flagged as a standalone path component, so
+values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
+
+If a parameter legitimately needs to receive absolute paths or
+traversal sequences, exempt it:
+
+```python
+from mcp.server.mcpserver import ResourceSecurity
+
+@mcp.resource(
+    "inspect://file/{+target}",
+    security=ResourceSecurity(exempt_params={"target"}),
+)
+def inspect_file(target: str) -> str: ...
+```
+
+**Template literals and structural delimiters match exactly.** The
+previous matcher built a regex without escaping, so `.` matched any
+character and simple `{var}` swallowed `?`, `#`, `&`, and `,`. Now
+`data://v1.0/{id}` no longer matches `data://v1X0/42`, and
+`api://{id}` no longer matches `api://foo?x=1` — use `api://{id}{?x}`
+to capture the query parameter.
+
+**`{var}` now matches an empty value.** A simple expression captures
+zero or more characters, so `tickets://{ticket_id}` now matches
+`tickets://` with `ticket_id=""` (v1.x's `[^/]+` regex required at
+least one). This makes `match` round-trip `expand` for empty values — RFC 6570
+expands an empty string to nothing — but handlers that assumed a
+non-empty value should validate it explicitly.
+
+**Template syntax errors surface at decoration time.** Unclosed
+braces, duplicate variable names, and unsupported syntax raise
+`InvalidUriTemplate` when the decorator runs rather than `re.error`
+on first match. Two variables with no literal between them are also
+rejected — matching cannot tell where one ends and the next begins —
+so `{name}{+path}` raises. Write `{name}/{+path}`, or use an operator
+that emits its own delimiter: `{+path}{.ext}` is fine because the `.`
+operator contributes a literal `.` between the two. A handler
+parameter bound to a query variable in the template's trailing
+`{?...}`/`{&...}` run — the variables `match()` treats as optional,
+listed by `UriTemplate.query_variable_names` — must declare a Python
+default: a client may omit those, so a handler that requires one now
+raises `ValueError` when the decorator runs instead of failing on the
+first request that leaves it out. (A `{&...}` expression with no
+preceding `{?...}` is not in that run: it is matched strictly, may
+not be omitted, and needs no default.)
+
+**Static URIs with Context-only handlers now error.** A non-template
+URI paired with a handler that takes only a `Context` parameter
+previously registered but was silently unreachable (the resource
+could never be read). This now raises `ValueError` at decoration time.
+Context injection for static resources is not supported — use a
+template with at least one variable or access context through other
+means.
+
+See [URI templates](advanced/uri-templates.md) for the full template syntax,
+security configuration, and filesystem safety utilities.
 
 ### Registering lowlevel handlers from `MCPServer`
 
@@ -1341,6 +1459,8 @@ The user-facing methods for these features now carry `typing_extensions.deprecat
 - Roots: `ServerSession.list_roots()`, `ClientPeer.list_roots()`, `ClientSession.send_roots_list_changed()`, `Client.send_roots_list_changed()`
 - Logging: `ServerSession.send_log_message()`, `Connection.log()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, `mcp.server.context.Context.log()` (the lowlevel `Context`), and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
 
+Registering a handler for a deprecated capability is deprecated too. The `Server.__init__` parameters `on_set_logging_level` (Logging) and `on_roots_list_changed` (Roots) are now split out into a `typing_extensions.deprecated` overload, so passing either is flagged by type checkers and emits `mcp.MCPDeprecationWarning` at construction time. `on_progress` follows the same pattern (see below). The non-deprecated overload omits these parameters, so the common case stays warning-free.
+
 The runtime warning is emitted as `mcp.MCPDeprecationWarning`, which subclasses `UserWarning` (not `DeprecationWarning`) so it is visible by default. To silence it, filter that category:
 
 ```python
@@ -1444,6 +1564,37 @@ client_metadata = OAuthClientMetadata(
 ```
 
 Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
+
+### Identity Assertion Authorization Grant for enterprise IdP flows (SEP-990)
+
+The SDK now supports SEP-990's enterprise identity-provider policy controls. The client presents an Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise IdP - to the MCP authorization server using the RFC 7523 jwt-bearer grant (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, the ID-JAG as `assertion`), and receives an MCP access token. This matches the SEP-990 normative profile and interoperates with the other MCP SDKs. (Leg 1 - exchanging the user's IdP ID token for the ID-JAG against the IdP - is deployment-specific and out of scope for the SDK.) This is additive and opt-in on both sides; existing flows are unchanged.
+
+On the client, `IdentityAssertionOAuthProvider` (in `mcp.client.auth.extensions.identity_assertion`) is an `httpx.Auth` that posts the jwt-bearer request. The ID-JAG is supplied lazily through an async `assertion_provider(audience, resource)` callback - `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's identifier (the ID-JAG `resource` claim):
+
+```python
+from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
+
+
+async def fetch_id_jag(audience: str, resource: str) -> str:
+    # The ID-JAG must carry `audience` as `aud` and `resource` as its `resource` claim.
+    return await my_idp.issue_id_jag(audience=audience, resource=resource)
+
+
+provider = IdentityAssertionOAuthProvider(
+    server_url="https://mcp.example.com/mcp",
+    storage=my_token_storage,
+    client_id="enterprise-mcp-client",
+    client_secret="enterprise-mcp-secret",
+    issuer="https://auth.example.com",
+    assertion_provider=fetch_id_jag,
+)
+```
+
+SEP-990 §5.1 requires the client to authenticate; this SDK currently requires a shared secret, so `client_secret` is mandatory (`token_endpoint_auth_method` chooses `client_secret_post` (default) or `client_secret_basic`; the spec also permits `private_key_jwt`). The authorization server is configuration, not discovery: `issuer` is the AS the client is provisioned for, authorization-server metadata is fetched from that issuer's RFC 8414 well-known, and the resource server is never asked which AS to use - so a hostile resource server cannot redirect the ID-JAG or secret.
+
+On the authorization server, set `AuthSettings(identity_assertion_enabled=True)` (or pass `identity_assertion_enabled=True` to `create_auth_routes`) and implement `exchange_identity_assertion` on your `OAuthAuthorizationServerProvider`. The method receives an `IdentityAssertionParams` (the ID-JAG `assertion`, requested scopes, and request `resource`) and returns a plain RFC 6749 `OAuthToken`. The flag gates both metadata advertisement and the token endpoint: when off, `/token` rejects the grant with `unsupported_grant_type` even if the provider implements the hook. When on, the metadata advertises the jwt-bearer grant and the `urn:ietf:params:oauth:grant-profile:id-jag` profile in `authorization_grant_profiles_supported` (the discovery mechanism per ext-auth §6).
+
+The implementation is responsible for validating the assertion per RFC 7523 §3 and SEP-990 §5.1 - verify the signature/`iss`/`exp`/`typ`, require `aud` to be this AS, require the ID-JAG's `client_id` claim to match the authenticated client, audience-restrict the issued token to the ID-JAG's `resource` claim (not the client-controlled request `resource`), and derive scopes from the ID-JAG rather than granting the request verbatim. See `examples/snippets/servers/identity_assertion_server.py`, which fails closed. Two hardening points are enforced by the SDK: the handler rejects clients without a stored secret before calling the hook (and `ClientAuthenticator` itself now refuses a secret-based auth method registered without a secret), and Dynamic Client Registration refuses the jwt-bearer grant so the ID-JAG flow requires a pre-registered confidential client.
 
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 

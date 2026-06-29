@@ -49,7 +49,7 @@ from mcp.shared.message import (
 )
 from mcp.shared.transport_context import TransportContext
 
-__all__ = ["JSONRPCDispatcher", "handler_exception_to_error_data"]
+__all__ = ["JSONRPCDispatcher", "handler_exception_to_error_data", "progress_token_from_params"]
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,15 @@ def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
     if isinstance(exc, ValidationError):
         return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
     return None
+
+
+def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToken | None:
+    """Read `params._meta.progressToken`; reject bool (bool subclasses int, so True would alias 1)."""
+    match params:
+        case {"_meta": {"progressToken": str() | int() as token}} if not isinstance(token, bool):
+            return token
+        case _:
+            return None
 
 
 def _coerce_id(request_id: RequestId) -> RequestId:
@@ -515,13 +524,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         on_request: OnRequest,
         sender_ctx: contextvars.Context | None,
     ) -> None:
-        progress_token: ProgressToken | None
-        match req.params:
-            # bool subclasses int: without the guard True would alias request id 1.
-            case {"_meta": {"progressToken": str() | int() as progress_token}} if not isinstance(progress_token, bool):
-                pass
-            case _:
-                progress_token = None
+        progress_token = progress_token_from_params(req.params)
         try:
             transport_ctx = self._transport_builder(metadata)
         except Exception:

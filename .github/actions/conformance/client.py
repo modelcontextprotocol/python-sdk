@@ -22,9 +22,10 @@ Scenarios:
     http-standard-headers                   - Connect, call a tool (Mcp-* headers checked)
     http-invalid-tool-headers               - List tools, call every surfaced tool (x-mcp-header filter)
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
-    sep-2322-client-request-state           - Drive the manual MRTR retry surface
+    sep-2322-client-request-state           - Drive the MRTR auto-loop (SEP-2322)
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
+    auth/enterprise-managed-authorization   - SEP-990 ID-JAG (RFC 8693 + RFC 7523 jwt-bearer)
     auth/*                                  - Authorization code flow (default for auth scenarios)
 """
 
@@ -48,6 +49,8 @@ from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
+from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
+from mcp.client.auth.utils import build_protected_resource_metadata_discovery_urls
 from mcp.client.client import Client
 from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
@@ -374,46 +377,28 @@ async def run_elicitation_defaults(server_url: str) -> None:
 
 @register("sep-2322-client-request-state")
 async def run_mrtr_client(server_url: str) -> None:
-    """Drive the manual MRTR retry surface against the SEP-2322 client mock.
+    """Drive the SEP-2322 client mock through `Client.call_tool`'s auto-loop.
 
-    The mock speaks the modern lifecycle (server/discover, no initialize) and
-    inspects the wire params of each tools/call round, so this exercises the
-    explicit allow_input_required=True path rather than an auto-loop: round 1
-    receives an InputRequiredResult, the fixture fulfils the elicitation
-    locally, then round 2 retries with input_responses + the echoed
-    request_state. Passing request_state straight off the typed result -- a
-    str when the server sent one, None when it didn't -- lets the
-    serializer's exclude_none drop the key in the no-state case without a
-    branch here. The unrelated call between rounds proves MRTR params don't
-    leak across tools, and the no-result-type call must parse as a complete
-    CallToolResult with no retry.
+    The mock inspects raw `tools/call` params, so registering an
+    `elicitation_callback` and letting the driver run is enough to satisfy
+    all five wire-shape checks: the driver echoes `request_state` byte-exact
+    and omits it when the server sent none, every retry mints a fresh
+    JSON-RPC id, the unrelated call between auto-loops carries no MRTR
+    params, and the no-`resultType` response parses as a terminal
+    `CallToolResult` so the driver never retries it.
     """
-    async with Client(server_url, mode=client_mode()) as client:
+
+    async def confirm(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        return types.ElicitResult(action="accept", content={"confirmed": True})
+
+    async with Client(server_url, mode=client_mode(), elicitation_callback=confirm) as client:
         await client.list_tools()
-        confirm = {"confirm": types.ElicitResult(action="accept", content={"confirmed": True})}
 
-        r1 = await client.call_tool("test_mrtr_echo_state", {}, allow_input_required=True)
-        assert isinstance(r1, types.InputRequiredResult)
-
+        await client.call_tool("test_mrtr_echo_state", {})
         await client.call_tool("test_mrtr_unrelated", {})
-
-        await client.call_tool(
-            "test_mrtr_echo_state",
-            {},
-            input_responses=confirm,
-            request_state=r1.request_state,
-            allow_input_required=True,
-        )
-
-        r2 = await client.call_tool("test_mrtr_no_state", {}, allow_input_required=True)
-        assert isinstance(r2, types.InputRequiredResult)
-        await client.call_tool(
-            "test_mrtr_no_state",
-            {},
-            input_responses=confirm,
-            request_state=r2.request_state,
-            allow_input_required=True,
-        )
+        await client.call_tool("test_mrtr_no_state", {})
 
         result = await client.call_tool("test_mrtr_no_result_type", {})
         assert isinstance(result, types.CallToolResult)
@@ -472,6 +457,70 @@ async def run_client_credentials_basic(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
+@register("auth/enterprise-managed-authorization")
+async def run_enterprise_managed_authorization(server_url: str) -> None:
+    """SEP-990 enterprise-managed authorization: RFC 8693 token-exchange at the
+    enterprise IdP for an ID-JAG, then RFC 7523 jwt-bearer at the MCP
+    authorization server."""
+    context = get_conformance_context()
+    client_id = context.get("client_id")
+    client_secret = context.get("client_secret")
+    idp_client_id = context.get("idp_client_id")
+    idp_id_token = context.get("idp_id_token")
+    idp_token_endpoint = context.get("idp_token_endpoint")
+
+    if not client_id:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'client_id'")
+    if not client_secret:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'client_secret'")
+    if not idp_client_id:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_client_id'")
+    if not idp_id_token:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_id_token'")
+    if not idp_token_endpoint:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_token_endpoint'")
+
+    # IdentityAssertionOAuthProvider takes the AS issuer as configuration (the
+    # SEP-990 trust model: the resource server is never asked which AS to use).
+    # The harness does not put the issuer in context, so for conformance we
+    # learn it from the harness's PRM document (RFC 9728); production
+    # deployments would supply it as static configuration instead.
+    prm_url = build_protected_resource_metadata_discovery_urls(None, server_url)[0]
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        prm = (await http.get(prm_url)).raise_for_status().json()
+    as_issuer = prm["authorization_servers"][0]
+
+    async def fetch_id_jag(audience: str, resource: str) -> str:
+        """Leg 1 - RFC 8693 token-exchange at the enterprise IdP."""
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            resp = await http.post(
+                idp_token_endpoint,
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "requested_token_type": "urn:ietf:params:oauth:token-type:id-jag",
+                    "subject_token": idp_id_token,
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                    "audience": audience,
+                    "resource": resource,
+                    "client_id": idp_client_id,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["access_token"]
+
+    oauth_auth = IdentityAssertionOAuthProvider(
+        server_url=server_url,
+        storage=InMemoryTokenStorage(),
+        client_id=client_id,
+        client_secret=client_secret,
+        issuer=as_issuer,
+        assertion_provider=fetch_id_jag,
+        token_endpoint_auth_method="client_secret_basic",
+    )
+
+    await _run_auth_session(server_url, oauth_auth)
+
+
 async def run_auth_code_client(server_url: str) -> None:
     """Authorization code flow (default for auth/* scenarios)."""
     callback_handler = ConformanceOAuthCallbackHandler()
@@ -514,7 +563,7 @@ async def run_auth_code_client(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
-async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
+async def _run_auth_session(server_url: str, oauth_auth: httpx.Auth) -> None:
     """Common session logic for all OAuth flows."""
     http_client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
     transport = streamable_http_client(url=server_url, http_client=http_client)

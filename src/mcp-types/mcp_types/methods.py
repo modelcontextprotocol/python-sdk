@@ -292,7 +292,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/read", "2026-07-28"): v2026.AnyReadResourceResult,
         ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesResult,
         ("server/discover", "2026-07-28"): v2026.DiscoverResult,
-        ("subscriptions/listen", "2026-07-28"): v2026.EmptyResult,
+        ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenResult,
         ("tools/call", "2026-07-28"): v2026.AnyCallToolResult,
         ("tools/list", "2026-07-28"): v2026.ListToolsResult,
     }
@@ -396,7 +396,7 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
         # smart-union ties resolve leftmost. Pinned by tests/types/test_methods.py.
         "sampling/createMessage": types.CreateMessageResult | types.CreateMessageResultWithTools,
         "server/discover": types.DiscoverResult,
-        "subscriptions/listen": types.EmptyResult,
+        "subscriptions/listen": types.SubscriptionsListenResult,
         "tools/call": types.CallToolResult | types.InputRequiredResult,
         "tools/list": types.ListToolsResult,
     }

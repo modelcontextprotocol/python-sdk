@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import base64
 import inspect
-import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -14,10 +13,13 @@ import pydantic_core
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
     CallToolResult,
+    ClientCapabilities,
     CompleteRequestParams,
     CompleteResult,
     Completion,
@@ -29,6 +31,7 @@ from mcp_types import (
     ListResourcesResult,
     ListResourceTemplatesResult,
     ListToolsResult,
+    MissingRequiredClientCapabilityErrorData,
     PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -55,14 +58,27 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.context import HandlerResult, ServerRequestContext
+from mcp.server.extension import (
+    Extension,
+    MethodBinding,
+    RequestHandler,
+    compose_tool_call_interceptor,
+    validate_extension_identifier,
+)
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import (
+    DEFAULT_RESOURCE_SECURITY,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceSecurity,
+)
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -72,6 +88,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import UriTemplate
 
 logger = get_logger(__name__)
 
@@ -142,6 +159,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
+        extensions: Sequence[Extension] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -150,7 +168,9 @@ class MCPServer(Generic[LifespanResultT]):
         dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ):
+        self._resource_security = resource_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -207,6 +227,11 @@ class MCPServer(Generic[LifespanResultT]):
         # Configure logging
         configure_logging(self.settings.log_level)
 
+        self._extensions: list[Extension] = []
+        for extension in extensions or ():
+            self._apply_extension(extension)
+        self._install_extension_interceptor()
+
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
@@ -246,6 +271,44 @@ class MCPServer(Generic[LifespanResultT]):
             RuntimeError: If called before streamable_http_app() has been called.
         """
         return self._lowlevel_server.session_manager
+
+    def _apply_extension(self, extension: Extension) -> None:
+        """Apply one opt-in extension's contributions through the public surface.
+
+        Registers its tools/resources/methods and advertises its settings under
+        `ServerCapabilities.extensions[extension.identifier]`. Extensions are fixed
+        at construction, so this is private; the `tools/call` interceptor is
+        composed once afterwards by `_install_extension_interceptor`.
+        """
+        identifier = getattr(extension, "identifier", None)
+        validate_extension_identifier(identifier, owner=type(extension).__name__)
+        if any(e.identifier == identifier for e in self._extensions):
+            raise ValueError(f"Extension {identifier!r} is already registered")
+        self._extensions.append(extension)
+
+        for tool in extension.tools():
+            self.add_tool(tool.fn, meta=tool.meta, **tool.kwargs)
+        for resource in extension.resources():
+            self.add_resource(resource.resource)
+        for method in extension.methods():
+            if self._lowlevel_server.get_request_handler(method.method) is not None:
+                raise ValueError(
+                    f"Extension {identifier!r} binds method {method.method!r}, which is already "
+                    "registered; extension methods are additive and cannot replace another handler"
+                )
+            handler = _version_gated(method) if method.protocol_versions is not None else method.handler
+            self._lowlevel_server.add_request_handler(method.method, method.params_type, handler)
+
+        self._lowlevel_server.extensions[extension.identifier] = extension.settings()
+
+    def _install_extension_interceptor(self) -> None:
+        """Compose every extension's `tools/call` interceptor into one middleware.
+
+        Installed only when at least one extension overrides `intercept_tool_call`,
+        so a server with purely additive extensions adds no middleware.
+        """
+        if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
+            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -622,6 +685,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
@@ -631,8 +695,9 @@ class MCPServer(Generic[LifespanResultT]):
         - bytes for binary content
         - other types will be converted to JSON
 
-        If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        If the URI contains parameters (e.g. "resource://{param}"), it is
+        registered as a template resource. Otherwise it is registered as a
+        static resource; function parameters on a static URI raise an error.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -643,6 +708,9 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the resource
             annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
+            security: Path-safety policy for extracted template parameters.
+                Defaults to the server's ``resource_security`` setting.
+                Only applies to template resources.
 
         Example:
             ```python
@@ -664,6 +732,15 @@ class MCPServer(Generic[LifespanResultT]):
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+
+        Raises:
+            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the
+                function's parameters, or if a parameter bound to a
+                ``{?...}``/``{&...}`` query variable has no default
+                (the client may omit it).
+            TypeError: If the decorator is applied without being called
+                (``@resource`` instead of ``@resource("uri")``).
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -672,25 +749,42 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
+        # Parse once, early — surfaces malformed-template errors at
+        # decoration time with a clear position, and gives us correct
+        # variable names for all RFC 6570 operators.
+        parsed = UriTemplate.parse(uri)
+        uri_params = set(parsed.variable_names)
+
         def decorator(fn: _CallableT) -> _CallableT:
-            # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+            # Template/static is decided purely by the URI: variables
+            # present means template, none means static.
+            if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
+                    )
+
+                # A {?...}/{&...} query variable is optional on the wire:
+                # match() omits it from the extracted parameters when the
+                # client leaves it out of the URI. The handler parameter
+                # bound to it must therefore have a Python default; without
+                # one, the author only finds out on the first request that
+                # omits it, as an opaque internal error.
+                missing_defaults = sorted(
+                    name
+                    for name in parsed.query_variable_names
+                    if sig.parameters[name].default is inspect.Parameter.empty
+                )
+                if missing_defaults:
+                    raise ValueError(
+                        f"Resource {uri!r}: query parameter(s) {missing_defaults} have no "
+                        f"default value. A client may omit a {{?...}}/{{&...}} query "
+                        f"parameter, so the matching handler parameter must declare a "
+                        f"default."
                     )
 
                 # Register as template
@@ -703,9 +797,24 @@ class MCPServer(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    security=security if security is not None else self._resource_security,
                     meta=meta,
                 )
             else:
+                if func_params:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares parameters {func_params}. Add matching "
+                        f"{{...}} variables to the URI or remove the parameters."
+                    )
+                if context_param is not None:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares a Context parameter. Context injection "
+                        f"for static resources is not supported. "
+                        f"Add a template variable to the URI or remove the "
+                        f"Context parameter."
+                    )
                 # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,
@@ -964,6 +1073,7 @@ class MCPServer(Generic[LifespanResultT]):
                         service_documentation_url=self.settings.auth.service_documentation_url,
                         client_registration_options=self.settings.auth.client_registration_options,
                         revocation_options=self.settings.auth.revocation_options,
+                        identity_assertion_enabled=self.settings.auth.identity_assertion_enabled,
                     )
                 )
 
@@ -1097,3 +1207,50 @@ class MCPServer(Generic[LifespanResultT]):
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e
+
+
+def _version_gated(method: MethodBinding) -> RequestHandler:
+    """Wrap a method handler so a request at a disallowed protocol version is rejected.
+
+    The low-level `_request_handlers` dict is keyed by method only, so per-version
+    scoping is enforced here rather than at the runner's boundary table.
+    """
+    versions = method.protocol_versions
+    assert versions is not None
+
+    async def gated(ctx: ServerRequestContext[Any, Any], params: Any) -> HandlerResult:
+        if ctx.protocol_version not in versions:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method.method)
+        return await method.handler(ctx, params)
+
+    return gated
+
+
+def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
+    """Assert the connected client declared support for `identifier`.
+
+    Call this from an extension's handler or `intercept_tool_call` before
+    offering extension-specific behaviour. Raises `MCPError` with the
+    `-32021` (missing required client capability) code and a
+    `requiredCapabilities` payload when the client did not declare the
+    extension, per SEP-2133.
+
+    Args:
+        ctx: The current request context.
+        identifier: The extension identifier the client must have declared.
+
+    Raises:
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
+            did not advertise `identifier`.
+    """
+    client_params = ctx.session.client_params
+    declared = client_params.capabilities.extensions if client_params else None
+    if not declared or identifier not in declared:
+        data = MissingRequiredClientCapabilityErrorData(
+            required_capabilities=ClientCapabilities(extensions={identifier: {}})
+        )
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message=f"Client did not declare required extension {identifier!r}",
+            data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
+        )

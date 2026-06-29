@@ -26,7 +26,7 @@ class TextResource(Resource):
 
     async def read(self) -> str:
         """Read the text content."""
-        return self.text  # pragma: no cover
+        return self.text
 
 
 class BinaryResource(Resource):

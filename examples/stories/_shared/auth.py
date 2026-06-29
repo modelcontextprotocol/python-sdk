@@ -86,10 +86,17 @@ class InMemoryAuthorizationServerProvider(
         self.codes: dict[str, AuthorizationCode] = {}
         self.access_tokens: dict[str, AccessToken] = {}
 
-    def mint_access_token(self, *, client_id: str, scopes: list[str], resource: str | None = None) -> str:
+    def mint_access_token(
+        self, *, client_id: str, scopes: list[str], resource: str | None = None, subject: str | None = None
+    ) -> str:
         access = f"access_{secrets.token_hex(16)}"
         self.access_tokens[access] = AccessToken(
-            token=access, client_id=client_id, scopes=scopes, expires_at=int(time.time()) + 3600, resource=resource
+            token=access,
+            client_id=client_id,
+            scopes=scopes,
+            expires_at=int(time.time()) + 3600,
+            resource=resource,
+            subject=subject,
         )
         return access
 
@@ -148,12 +155,18 @@ class InMemoryAuthorizationServerProvider(
         raise NotImplementedError
 
 
-def auth_settings(*, required_scopes: list[str] | None = None) -> AuthSettings:
-    """``AuthSettings`` for the co-hosted demo AS+RS on the loopback origin, DCR enabled."""
+def auth_settings(
+    *, required_scopes: list[str] | None = None, identity_assertion_enabled: bool = False
+) -> AuthSettings:
+    """``AuthSettings`` for the co-hosted demo AS+RS on the loopback origin, DCR enabled.
+
+    ``identity_assertion_enabled`` passes through to the SEP-990 jwt-bearer grant flag.
+    """
     scopes = required_scopes or ["mcp"]
     return AuthSettings(
         issuer_url=AnyHttpUrl(BASE_URL),
         resource_server_url=AnyHttpUrl(MCP_URL),
         required_scopes=scopes,
         client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=scopes, default_scopes=scopes),
+        identity_assertion_enabled=identity_assertion_enabled,
     )

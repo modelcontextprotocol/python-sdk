@@ -16,6 +16,19 @@ class AuthorizationParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator
 
 
+class IdentityAssertionParams(BaseModel):
+    """Validated parameters of a SEP-990 identity-assertion (RFC 7523 jwt-bearer) request.
+
+    Passed to ``OAuthAuthorizationServerProvider.exchange_identity_assertion``. ``assertion`` is the
+    ID-JAG (a signed JWT) the enterprise identity provider issued; the provider validates it per
+    RFC 7523 §3 and the SEP-990 §5.1 processing rules before issuing an access token.
+    """
+
+    assertion: str  # RFC 7523 §2.1: the JWT (ID-JAG) presented as the authorization grant
+    scopes: list[str] | None = None
+    resource: str | None = None  # RFC 8707 resource indicator from the token request
+
+
 class AuthorizationCode(BaseModel):
     code: str
     scopes: list[str]
@@ -85,6 +98,8 @@ TokenErrorCode = Literal[
     "unauthorized_client",
     "unsupported_grant_type",
     "invalid_scope",
+    # RFC 8707 §2: the requested resource (RFC 8707 indicator) is unknown or unsupported.
+    "invalid_target",
 ]
 
 
@@ -269,6 +284,53 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Args:
             token: The token to revoke.
         """
+
+    async def exchange_identity_assertion(
+        self,
+        client: OAuthClientInformationFull,
+        params: IdentityAssertionParams,
+    ) -> OAuthToken:
+        """Exchanges an Identity Assertion Authorization Grant (ID-JAG) for an access token.
+
+        This is leg 2 of SEP-990: the client presents an ID-JAG - issued by the enterprise
+        identity provider - using the RFC 7523 ``urn:ietf:params:oauth:grant-type:jwt-bearer``
+        grant, and receives an access token for this MCP server. The default implementation
+        rejects every request as an unsupported grant type; override it to enable the grant.
+
+        The implementation is responsible for validating ``params.assertion`` per RFC 7523 §3
+        and the SEP-990 §5.1 processing rules, in particular:
+
+        - verify the JWT signature, ``iss``, and ``exp``, and that ``typ`` is ``oauth-id-jag+jwt``;
+        - require ``aud`` to identify this authorization server (its own issuer);
+        - require a ``sub`` (RFC 7523 §3 makes it mandatory) identifying the end user;
+        - reject replays - enforce ``exp``, and track ``jti`` for the assertion's lifetime;
+        - require the ID-JAG's ``client_id`` claim to match the authenticated ``client`` - do
+          NOT derive authorization from ``client.client_id`` alone, which for a confidential
+          client is authenticated but for any client is ultimately self-asserted in the request;
+        - audience-restrict the issued access token to the resource named in the ID-JAG's
+          ``resource`` claim, not merely ``params.resource`` (which the client controls);
+        - derive the granted scopes from the ID-JAG and policy rather than granting
+          ``params.scopes`` verbatim.
+
+        The handler guarantees ``client`` is confidential (it rejects clients without a stored
+        secret before calling this hook), but the ID-JAG remains the authoritative grant.
+
+        Args:
+            client: The authenticated client presenting the assertion.
+            params: The validated jwt-bearer request parameters (the ID-JAG and indicators).
+
+        Returns:
+            The OAuth token, containing the issued access token. A refresh token SHOULD NOT be
+            issued: SEP-990 relies on the IdP to control session lifetime via re-issued ID-JAGs.
+
+        Raises:
+            TokenError: If the assertion or request is invalid. Use ``invalid_grant`` for a
+                rejected assertion and ``invalid_target`` for an unknown ``resource``.
+        """
+        raise TokenError(
+            error="unsupported_grant_type",
+            error_description="The JWT bearer grant is not supported by this authorization server",
+        )
 
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:

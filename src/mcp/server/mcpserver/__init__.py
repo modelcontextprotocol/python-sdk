@@ -2,6 +2,8 @@
 
 from mcp_types import Icon
 
+from mcp.server.extension import Extension, MethodBinding, ResourceBinding, ToolBinding
+
 from .context import Context
 from .resolve import (
     AcceptedElicitation,
@@ -11,7 +13,8 @@ from .resolve import (
     ElicitationResult,
     Resolve,
 )
-from .server import MCPServer
+from .resources import DEFAULT_RESOURCE_SECURITY, ResourceSecurity
+from .server import MCPServer, require_client_extension
 from .utilities.types import Audio, Image
 
 __all__ = [
@@ -26,4 +29,11 @@ __all__ = [
     "AcceptedElicitation",
     "DeclinedElicitation",
     "CancelledElicitation",
+    "Extension",
+    "ToolBinding",
+    "ResourceBinding",
+    "MethodBinding",
+    "require_client_extension",
+    "ResourceSecurity",
+    "DEFAULT_RESOURCE_SECURITY",
 ]

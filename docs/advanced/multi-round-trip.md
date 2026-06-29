@@ -33,40 +33,43 @@ Everything else in that file (the explicit `input_schema`, the hand-built `CallT
 
 ## The client side
 
-`call_tool` will not hand you an `InputRequiredResult` unless you opt in.
+`Client` runs the loop for you.
 
-!!! check
-    Call a tool that needs input without opting in and `call_tool` raises:
+Register the callbacks the server might ask for (`elicitation_callback`, `sampling_callback`, `list_roots_callback`) and call the tool. When an `InputRequiredResult` arrives, `Client` dispatches each entry in `input_requests` to the matching callback, retries with the answers and the echoed `request_state`, and keeps going until a `CallToolResult` comes back:
 
-    ```text
-    Server returned InputRequiredResult; pass allow_input_required=True to receive it and retry call_tool(..., input_responses=..., request_state=result.request_state).
-    ```
-
-    That is deliberate. Most call sites expect a result or an exception, not a third thing in the
-    middle of the happy path, and pyright agrees: without the flag, `call_tool` is typed to return
-    a plain `CallToolResult`.
-
-Pass `allow_input_required=True` and the result reaches you intact:
-
-```python
-result.result_type     # 'input_required'
-result.request_state   # 'provision-v1'
-result.input_requests  # {'region': ElicitRequest(method='elicitation/create', params=ElicitRequestFormParams(...))}
+```python title="client.py" hl_lines="12 13"
+--8<-- "docs_src/mrtr/tutorial003.py"
 ```
 
-### The retry loop
+* That `elicitation_callback` is the same one a pre-2026 server's back-channel `elicitation/create` would have hit. The same is true of `sampling_callback` for `sampling/createMessage` and `list_roots_callback` for `roots/list`: at 2026-07-28 the standalone server->client RPCs are gone, but the identical `ElicitRequest` / `CreateMessageRequest` / `ListRootsRequest` payloads ride inside `input_requests` and dispatch to the same three callbacks. One set of callbacks serves both eras.
+* `call_tool` returns a plain `CallToolResult`. The intermediate rounds are invisible to the caller.
+* `get_prompt` and `read_resource` drive the same loop.
 
-Now you own the loop. There is no automatic driver yet; `while isinstance(result, InputRequiredResult)` **is** the API:
+!!! check
+    Leave the callback off and the loop fails on the first round: the SDK's stand-in callback
+    answers every elicitation with an error, and `call_tool` raises `MCPError` with the message
+    *"Elicitation not supported"*.
 
-```python title="client.py" hl_lines="13-15 17-20"
+The loop is bounded. `Client(..., input_required_max_rounds=10)` is the default cap; a server that keeps returning `InputRequiredResult` past it makes `call_tool` raise. If a round carries only `request_state` and no `input_requests`, `Client` sleeps briefly (50ms doubling to a 250ms ceiling) before retrying, so a server that is just saying *"not done yet"* isn't busy-polled.
+
+### Driving the loop yourself
+
+The auto-loop is enough for a single-process client. Own the loop instead when:
+
+* Your client is **distributed**: the process that renders the question to the user is not the process that called `call_tool`, so a different worker issues the retry. `request_state` is the persistable token you carry across that boundary, through your own storage, and `input_responses` is what the other side sends back with it.
+* You want to **inspect** each round: log or audit every `input_requests` entry, refuse certain request kinds, or apply your own backoff between legs.
+* You want a **wall-clock** bound rather than a round-count bound: wrap your own loop in `anyio.fail_after(...)` instead of relying on `input_required_max_rounds`.
+
+Drop to the underlying session, where `allow_input_required=True` hands you the union directly:
+
+```python title="client.py" hl_lines="13 14 20"
 --8<-- "docs_src/mrtr/tutorial002.py"
 ```
 
-* `allow_input_required=True` widens the return type to `CallToolResult | InputRequiredResult`. That union is exactly what the `isinstance` is narrowing.
+* `client.session.call_tool(..., allow_input_required=True)` widens the return type to `CallToolResult | InputRequiredResult`. The `isinstance` is what narrows it back.
+* `request_state` is now in your hands. Write it down between legs and the conversation can resume from a fresh process.
 * For every entry in `input_requests` you put an `InputResponse` under the **same key** in `input_responses`. `fulfil` is where your UI goes; this one hard-codes the answer.
 * Same tool name, same `arguments`, every leg. The retry is the original call carried out again, not a new method.
-* `request_state=result.request_state`: copy it across. Never inspect it, never invent it.
-* When the server has everything it needs it returns a `CallToolResult` and the loop exits.
 
 ## A 2026-07-28 result
 
@@ -88,9 +91,8 @@ Now you own the loop. There is no automatic driver yet; `while isinstance(result
 
 * At 2026-07-28 a server that needs input mid-call **returns** an `InputRequiredResult`. It never opens a request to the client.
 * `input_requests` is what it needs. `request_state` is an opaque resume token only the server reads.
-* The client answers by calling the **same tool again** with `input_responses=` and `request_state=`.
-* By default `call_tool` raises on an `InputRequiredResult`; `allow_input_required=True` opts in and widens the return type.
-* The manual `while isinstance(result, InputRequiredResult)` loop is the whole client API; there is no auto-retry driver yet.
+* `Client` runs the retry loop for you: register `elicitation_callback` / `sampling_callback` / `list_roots_callback` and `call_tool` returns a plain `CallToolResult`. `input_required_max_rounds` (default 10) bounds it.
+* To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
 * The server side is the **low-level** `Server` only; `@mcp.tool()` has no sugar for this yet.
 
 This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **Deprecated features**.

@@ -4,6 +4,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     INTERNAL_ERROR,
+    INVALID_REQUEST,
     CallToolResult,
     CreateMessageRequest,
     CreateMessageRequestParams,
@@ -14,7 +15,7 @@ from mcp_types import (
     TextContent,
 )
 
-from docs_src.mrtr import tutorial001, tutorial002
+from docs_src.mrtr import tutorial001, tutorial002, tutorial003
 from mcp import Client, MCPError
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -24,7 +25,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 async def test_first_call_returns_an_input_required_result() -> None:
     """tutorial001: a tool that is missing input returns `InputRequiredResult` instead of calling back."""
     async with Client(tutorial001.server) as client:
-        result = await client.call_tool("provision", {"name": "orders"}, allow_input_required=True)
+        result = await client.session.call_tool("provision", {"name": "orders"}, allow_input_required=True)
         assert result == snapshot(
             InputRequiredResult(
                 result_type="input_required",
@@ -47,15 +48,22 @@ async def test_first_call_returns_an_input_required_result() -> None:
         )
 
 
-async def test_call_tool_raises_without_the_opt_in() -> None:
-    """The page's `!!! check`: `allow_input_required` defaults to `False` and the result is a hard error."""
+async def test_the_auto_loop_drives_the_call_to_completion() -> None:
+    """tutorial003: register `elicitation_callback`, call the tool, get a plain `CallToolResult` back."""
+    async with Client(tutorial001.server, elicitation_callback=tutorial003.handle_elicitation) as client:
+        result = await client.call_tool("provision", {"name": "orders"})
+        assert result == snapshot(
+            CallToolResult(content=[TextContent(type="text", text="Provisioned 'orders' in eu-west-1.")])
+        )
+
+
+async def test_the_auto_loop_without_a_callback_raises_mcp_error() -> None:
+    """The page's `!!! check`: no `elicitation_callback` means the SDK's stand-in answers with an error."""
     async with Client(tutorial001.server) as client:
-        with pytest.raises(RuntimeError) as exc:
+        with pytest.raises(MCPError) as exc:
             await client.call_tool("provision", {"name": "orders"})
-    assert str(exc.value) == (
-        "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
-        "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
-    )
+    assert exc.value.error.code == INVALID_REQUEST
+    assert exc.value.error.message == "Elicitation not supported"
 
 
 async def test_retry_with_input_responses_and_request_state_completes_the_call() -> None:
@@ -73,7 +81,7 @@ async def test_retry_with_input_responses_and_request_state_completes_the_call()
 
 
 async def test_the_manual_loop_drives_the_call_to_completion() -> None:
-    """tutorial002: `while isinstance(result, InputRequiredResult)` is the whole client API, and it terminates."""
+    """tutorial002: `client.session.call_tool(..., allow_input_required=True)` for callers who own the loop."""
     async with Client(tutorial001.server) as client:
         result = await tutorial002.provision(client, "billing")
         assert result == snapshot(
@@ -91,7 +99,7 @@ async def test_a_pre_2026_session_has_nowhere_to_put_the_result() -> None:
     """The page's `!!! warning`: on a legacy session the runner cannot serialize an `InputRequiredResult`."""
     async with Client(tutorial001.server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc:
-            await client.call_tool("provision", {"name": "orders"}, allow_input_required=True)
+            await client.call_tool("provision", {"name": "orders"})
     assert exc.value.error.code == INTERNAL_ERROR
     assert exc.value.error.message == "Handler returned an invalid result"
 

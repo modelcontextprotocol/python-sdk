@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar, overload
+from typing import Any, Literal, TypeVar
 
 import anyio
 import mcp_types as types
@@ -13,9 +13,12 @@ from mcp_types import (
     CallToolResult,
     CompleteResult,
     EmptyResult,
+    ErrorData,
     GetPromptResult,
     Implementation,
+    InputRequest,
     InputRequiredResult,
+    InputResponse,
     InputResponses,
     ListPromptsResult,
     ListResourcesResult,
@@ -32,10 +35,19 @@ from mcp_types import (
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from typing_extensions import deprecated
 
+from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
 from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ClientRequestContext,
+    ClientSession,
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    SamplingFnT,
+)
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
@@ -51,6 +63,7 @@ initialize), or a modern protocol-version string (adopt directly). The ``str`` a
 forward-compat; ``Client.__post_init__`` rejects anything outside that set at construction."""
 
 _T = TypeVar("_T")
+_ResultT = TypeVar("_ResultT")
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -199,6 +212,15 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    input_required_max_rounds: int = DEFAULT_INPUT_REQUIRED_MAX_ROUNDS
+    """Cap on `InputRequiredResult` retry rounds before `call_tool` / `get_prompt` /
+    `read_resource` give up. Use `client.session.<method>(..., allow_input_required=True)`
+    to drive the loop manually instead."""
+
+    extensions: dict[str, dict[str, Any]] | None = None
+    """SEP-2133 extension support to advertise under `ClientCapabilities.extensions`
+    (identifier -> settings), e.g. `{"io.modelcontextprotocol/ui": {"mimeTypes": [...]}}`."""
+
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
@@ -237,6 +259,7 @@ class Client:
             message_handler=self.message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
+            extensions=self.extensions,
         )
 
     async def __aenter__(self) -> Client:
@@ -356,17 +379,42 @@ class Client:
         """List available resource templates from the server."""
         return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> ReadResourceResult:
+    async def read_resource(
+        self,
+        uri: str,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ReadResourceResult:
         """Read a resource from the server.
+
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the read is retried automatically (up to
+        `input_required_max_rounds`).
 
         Args:
             uri: The URI of the resource to read.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
             meta: Additional metadata for the request.
 
         Returns:
             The resource content.
+
+        Raises:
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        return await self.session.read_resource(uri, meta=meta)
+
+        async def retry(r: InputResponses | None, s: str | None) -> ReadResourceResult | InputRequiredResult:
+            return await self.session.read_resource(
+                uri, input_responses=r, request_state=s, meta=meta, allow_input_required=True
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
@@ -376,7 +424,6 @@ class Client:
         """Unsubscribe from resource updates."""
         return await self.session.unsubscribe_resource(uri, meta=meta)
 
-    @overload
     async def call_tool(
         self,
         name: str,
@@ -387,69 +434,47 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
-        allow_input_required: Literal[False] = False,
-    ) -> CallToolResult: ...
-
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        input_responses: InputResponses | None = None,
-        request_state: str | None = None,
-        meta: RequestParamsMeta | None = None,
-        allow_input_required: bool,
-    ) -> CallToolResult | InputRequiredResult: ...
-
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        input_responses: InputResponses | None = None,
-        request_state: str | None = None,
-        meta: RequestParamsMeta | None = None,
-        allow_input_required: bool = False,
-    ) -> CallToolResult | InputRequiredResult:
+    ) -> CallToolResult:
         """Call a tool on the server.
 
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the call is retried automatically (up to
+        `input_required_max_rounds`). To drive the loop yourself — e.g. to
+        persist `request_state` across process restarts — use
+        `client.session.call_tool(..., allow_input_required=True)`.
+
         Args:
-            name: The name of the tool to call
-            arguments: Arguments to pass to the tool
-            read_timeout_seconds: Timeout for the tool call
-            progress_callback: Callback for progress updates
-            input_responses: Responses to a prior `InputRequiredResult.input_requests`
-            request_state: Opaque state echoed from a prior `InputRequiredResult`
-            meta: Additional metadata for the request
-            allow_input_required: When ``False`` (default), an `InputRequiredResult`
-                from the server raises `RuntimeError`; when ``True``, it is returned
-                so the caller can resolve the requests and retry.
+            name: The name of the tool to call.
+            arguments: Arguments to pass to the tool.
+            read_timeout_seconds: Timeout for each underlying `tools/call` round.
+            progress_callback: Callback for progress updates.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
+            meta: Additional metadata for the request.
 
         Returns:
-            The tool result. When ``allow_input_required=True``, may instead be an
-            `InputRequiredResult` carrying the server's input requests and opaque
-            ``request_state`` for the retry.
+            The tool result.
 
         Raises:
-            RuntimeError: If the server returns an `InputRequiredResult` and
-                ``allow_input_required`` is ``False``.
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        # TODO(L84): stop forwarding allow_input_required; run the MRTR auto-loop driver here (S6).
-        return await self.session.call_tool(
-            name=name,
-            arguments=arguments,
-            read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-            input_responses=input_responses,
-            request_state=request_state,
-            meta=meta,
-            allow_input_required=allow_input_required,
-        )
+
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult:
+            return await self.session.call_tool(
+                name,
+                arguments,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                input_responses=r,
+                request_state=s,
+                meta=meta,
+                allow_input_required=True,
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
 
     async def list_prompts(
         self,
@@ -461,19 +486,66 @@ class Client:
         return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, str] | None = None, *, meta: RequestParamsMeta | None = None
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        input_responses: InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> GetPromptResult:
         """Get a prompt from the server.
 
+        If the server returns an `InputRequiredResult`, the embedded input
+        requests are dispatched to this client's sampling / elicitation / roots
+        callbacks and the get is retried automatically (up to
+        `input_required_max_rounds`).
+
         Args:
-            name: The name of the prompt
-            arguments: Arguments to pass to the prompt
-            meta: Additional metadata for the request
+            name: The name of the prompt.
+            arguments: Arguments to pass to the prompt.
+            input_responses: Responses to seed the first call with (e.g. when
+                resuming from a persisted `InputRequiredResult`).
+            request_state: Opaque state to seed the first call with.
+            meta: Additional metadata for the request.
 
         Returns:
             The prompt content.
+
+        Raises:
+            InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
+            MCPError: A callback returned `ErrorData` for an embedded input request.
         """
-        return await self.session.get_prompt(name=name, arguments=arguments, meta=meta)
+
+        async def retry(r: InputResponses | None, s: str | None) -> GetPromptResult | InputRequiredResult:
+            return await self.session.get_prompt(
+                name, arguments, input_responses=r, request_state=s, meta=meta, allow_input_required=True
+            )
+
+        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+
+    async def _drive_input_required(
+        self,
+        first: _ResultT | InputRequiredResult,
+        retry: Callable[[InputResponses | None, str | None], Awaitable[_ResultT | InputRequiredResult]],
+    ) -> _ResultT:
+        """Hand an `InputRequiredResult` to the SEP-2322 driver, or pass a terminal result through.
+
+        `dispatch` routes each embedded request through the same callback table
+        that serves legacy server→client RPCs, so the two paths stay
+        behaviourally identical by construction.
+        """
+        if not isinstance(first, InputRequiredResult):
+            return first
+        session = self.session
+
+        async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
+            ctx = ClientRequestContext(session=session, request_id=key, meta=req.params.meta if req.params else None)
+            return await session._dispatch_input_request(ctx, req)  # pyright: ignore[reportPrivateUsage]
+
+        return await run_input_required_driver(
+            first, dispatch=dispatch, retry=retry, max_rounds=self.input_required_max_rounds
+        )
 
     async def complete(
         self,

@@ -1063,6 +1063,21 @@ class SubscriptionsAcknowledgedNotification(
     params: SubscriptionsAcknowledgedNotificationParams
 
 
+class SubscriptionsListenResult(Result):
+    """Signals that a `subscriptions/listen` stream has ended gracefully (2026-07-28).
+
+    Because the listen stream is long-lived, this result is sent only when the
+    server tears the subscription down (for example during shutdown); an abrupt
+    transport close carries no response. The body is otherwise empty: the
+    `_meta["io.modelcontextprotocol/subscriptionId"]` key is required on the
+    wire and equals the JSON-RPC id of the originating `subscriptions/listen`
+    request.
+    """
+
+    result_type: ResultType = "complete"
+    """See `ResultType`. Always serialized; older peers ignore it."""
+
+
 class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
     """Sent from the client to request a list of prompts and prompt templates the server has."""
 
@@ -2061,7 +2076,7 @@ class InputRequiredResult(Result):
 
     @model_validator(mode="after")
     def _require_one_field(self) -> Self:
-        if self.input_requests is None and self.request_state is None:
+        if not self.input_requests and self.request_state is None:
             raise ValueError("InputRequiredResult requires at least one of input_requests or request_state")
         return self
 
@@ -2156,6 +2171,7 @@ ServerResult = (
     | ReadResourceResult
     | CallToolResult
     | ListToolsResult
+    | SubscriptionsListenResult
     | InputRequiredResult
 )
 """Union of every result payload a server can return for a client request.

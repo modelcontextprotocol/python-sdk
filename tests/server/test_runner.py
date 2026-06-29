@@ -9,7 +9,7 @@ behaviour under test. Driver tests (`serve_connection`, `serve_one`,
 
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any, cast
 
@@ -48,7 +48,7 @@ from mcp.server.runner import (
     serve_one,
 )
 from mcp.server.session import ServerSession
-from mcp.shared.dispatcher import CallOptions, DispatchContext, DispatchMiddleware, OnRequest
+from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata
@@ -91,7 +91,6 @@ async def connected_runner(
     *,
     initialized: bool = True,
     init_options: InitializationOptions | None = None,
-    dispatch_middleware: list[DispatchMiddleware] | None = None,
     connection: Connection | None = None,
 ) -> AsyncIterator[tuple[JSONRPCDispatcher[TransportContext], ServerRunner[dict[str, Any]]]]:
     """Yield `(client, runner)` running over an in-memory JSON-RPC dispatcher pair.
@@ -116,7 +115,6 @@ async def connected_runner(
         connection=connection,
         lifespan_state={},
         init_options=init_options,
-        dispatch_middleware=dispatch_middleware or [],
     )
     c_req, c_notify = echo_handlers(Recorder())
     body_exc: BaseException | None = None
@@ -511,8 +509,8 @@ async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_mod
     """A request with no `params` member on the wire reaches the handler as
     the params model with its defaults, never `None`.
 
-    The in-SDK client always attaches `_meta`, so a dispatch middleware
-    forwards `params=None` to model what an external client sends.
+    The in-SDK client always attaches `_meta`, so a middleware rewrites
+    `ctx.params` to `None` to model what an external client sends.
     """
     seen: list[PaginatedRequestParams | None] = []
 
@@ -520,14 +518,12 @@ async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_mod
         seen.append(params)
         return ListToolsResult(tools=[])
 
-    def drop_params(next_on_request: OnRequest) -> OnRequest:
-        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
-            return await next_on_request(dctx, method, None if method == "tools/list" else params)
-
-        return wrapped
+    async def drop_params(ctx: Ctx, call_next: Any) -> Any:
+        return await call_next(replace(ctx, params=None) if ctx.method == "tools/list" else ctx)
 
     server: SrvT = Server(name="s", on_list_tools=list_tools)
-    async with connected_runner(server, dispatch_middleware=[drop_params]) as (client, _):
+    server.middleware.append(drop_params)
+    async with connected_runner(server) as (client, _):
         await client.send_raw_request("tools/list", None)
     assert seen == [PaginatedRequestParams()]
 
@@ -543,15 +539,13 @@ async def test_runner_absent_wire_params_for_required_params_custom_method_is_in
     async def greet(ctx: Ctx, params: GreetParams) -> dict[str, Any]:
         raise NotImplementedError
 
-    def drop_params(next_on_request: OnRequest) -> OnRequest:
-        async def wrapped(dctx: DispatchContext[Any], method: str, params: Any) -> dict[str, Any]:
-            return await next_on_request(dctx, method, None if method == "custom/greet" else params)
-
-        return wrapped
+    async def drop_params(ctx: Ctx, call_next: Any) -> Any:
+        return await call_next(replace(ctx, params=None) if ctx.method == "custom/greet" else ctx)
 
     server: SrvT = Server(name="s")
     server.add_request_handler("custom/greet", GreetParams, greet)
-    async with connected_runner(server, dispatch_middleware=[drop_params]) as (client, _):
+    server.middleware.append(drop_params)
+    async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("custom/greet", {"name": "x"})
     assert exc.value.error.code == INVALID_PARAMS
@@ -572,22 +566,6 @@ async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: Sr
         await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
         await anyio.wait_all_tasks_blocked()
     assert seen == [NotificationParams()]  # only the post-init one reached the handler
-
-
-@pytest.mark.anyio
-async def test_runner_dispatch_middleware_wraps_everything_including_initialize(server: SrvT):
-    seen_methods: list[str] = []
-
-    def trace_mw(next_on_request: Any) -> Any:
-        async def wrapped(dctx: Any, method: str, params: Any) -> Any:
-            seen_methods.append(method)
-            return await next_on_request(dctx, method, params)
-
-        return wrapped
-
-    async with connected_runner(server, dispatch_middleware=[trace_mw]) as (client, _):
-        await client.send_raw_request("tools/list", None)
-    assert seen_methods == ["initialize", "tools/list"]
 
 
 @pytest.mark.anyio

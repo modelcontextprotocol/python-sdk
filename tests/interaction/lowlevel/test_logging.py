@@ -36,7 +36,7 @@ async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
         assert params.level == "warning"
         return EmptyResult()
 
-    server = Server("logger", on_set_logging_level=set_logging_level)
+    server = Server("logger", on_set_logging_level=set_logging_level)  # pyright: ignore[reportDeprecated]
 
     async with connect(server) as client:
         result = await client.set_logging_level("warning")  # pyright: ignore[reportDeprecated]
@@ -76,7 +76,9 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
     async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
@@ -115,7 +117,9 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
     async with connect(server, logging_callback=collect) as client:
         await client.call_tool("siren", {})

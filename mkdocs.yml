@@ -40,11 +40,15 @@ nav:
   - Advanced:
       - Multi-round-trip requests: advanced/multi-round-trip.md
       - The low-level Server: advanced/low-level-server.md
+      - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
       - Middleware: advanced/middleware.md
+      - Extensions: advanced/extensions.md
+      - MCP Apps: advanced/apps.md
       - OpenTelemetry: advanced/opentelemetry.md
       - Authorization: advanced/authorization.md
       - OAuth clients: advanced/oauth-clients.md
+      - Identity assertion: advanced/identity-assertion.md
       - Session groups: advanced/session-groups.md
       - Deprecated features: advanced/deprecated.md
   - Migration Guide: migration.md

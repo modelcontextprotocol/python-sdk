@@ -160,6 +160,7 @@ from mcp_types._types import (
     SubscriptionsAcknowledgedNotificationParams,
     SubscriptionsListenRequest,
     SubscriptionsListenRequestParams,
+    SubscriptionsListenResult,
     Task,
     TaskMetadata,
     TasksCallCapability,
@@ -385,6 +386,7 @@ __all__ = [
     "ListTasksResult",
     "ListToolsResult",
     "ReadResourceResult",
+    "SubscriptionsListenResult",
     # Error data payloads
     "MissingRequiredClientCapabilityErrorData",
     "UnsupportedProtocolVersionErrorData",
