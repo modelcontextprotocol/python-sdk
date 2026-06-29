@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
 import anyio
 import pytest
@@ -62,8 +62,20 @@ class Restock(BaseModel):
     needed: bool
 
 
-# The `type X = ...` spelling of an InputRequiredResult-bearing return annotation.
+# The `type X = ...` spelling of an InputRequiredResult-bearing return annotation,
+# bare and generic (a subscripted alias forwards `__value__` to its origin).
 IRRAlias = TypeAliasType("IRRAlias", InputRequiredResult | str)
+T_alias = TypeVar("T_alias")
+IRRAliasGeneric = TypeAliasType("IRRAliasGeneric", InputRequiredResult | T_alias, type_params=(T_alias,))
+
+
+class _UnevaluableAlias:
+    """Stand-in for `type X = GhostType | str` whose names exist only under
+    TYPE_CHECKING: accessing `__value__` evaluates the alias and raises."""
+
+    @property
+    def __value__(self) -> Any:
+        raise NameError("name 'GhostType' is not defined")
 
 
 class Handle(BaseModel):
@@ -1711,6 +1723,7 @@ async def test_dynamic_schema_resolver_restores_across_rounds():
         Annotated[InputRequiredResult | str, "meta"],
         str | Annotated[InputRequiredResult, "meta"],  # Annotated as a union member
         IRRAlias,  # `type X = ...` alias
+        IRRAliasGeneric[str],  # subscripted generic alias
     ],
 )
 def test_tool_combining_resolvers_with_input_required_return_is_rejected(annotation: Any):
@@ -1734,6 +1747,30 @@ def test_tool_combining_resolvers_with_input_required_return_is_rejected(annotat
         raise NotImplementedError  # pragma: no cover - only registration is exercised
 
     assert returns_input_required(manual)
+
+
+def test_unevaluable_alias_and_parameterized_generics_declare_no_arm():
+    # A `type X = ...` alias is evaluated lazily, so one naming TYPE_CHECKING-only
+    # imports raises NameError on `__value__` access: it declares no arm the check
+    # can see and must not break registration (the in-call guard still covers a
+    # body that returns an InputRequiredResult anyway). A parameterized generic
+    # return is never the InputRequiredResult class either.
+    mcp = MCPServer(name="RegistrationTolerance")
+
+    async def lookup(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover - only registration is exercised
+
+    async def lazy(login: Annotated[Login, Resolve(lookup)]):
+        raise NotImplementedError  # pragma: no cover
+
+    lazy.__annotations__["return"] = _UnevaluableAlias()
+    assert not returns_input_required(lazy)
+
+    @mcp.tool()
+    async def listy(login: Annotated[Login, Resolve(lookup)]) -> list[str]:
+        raise NotImplementedError  # pragma: no cover
+
+    assert not returns_input_required(listy)
 
 
 @pytest.mark.anyio

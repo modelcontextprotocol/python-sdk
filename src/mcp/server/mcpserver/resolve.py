@@ -189,8 +189,15 @@ def _has_input_required_arm(annotation: Any) -> bool:
     """Walk an annotation's arms through `Annotated`, type aliases, and unions."""
     if get_origin(annotation) is Annotated:
         return _has_input_required_arm(get_args(annotation)[0])
-    # A `type X = ...` / `TypeAliasType` alias carries its target on `__value__`.
-    value = getattr(annotation, "__value__", None)
+    # A `type X = ...` / `TypeAliasType` alias carries its target on `__value__` (a
+    # subscripted alias forwards the attribute to its origin). The access evaluates
+    # a PEP 695 alias lazily, so an alias naming things unavailable at runtime
+    # (TYPE_CHECKING-only imports) raises NameError; such an alias declares no arm
+    # this check can see, and the in-call guard in `Tool.run` still covers it.
+    try:
+        value = getattr(annotation, "__value__", None)
+    except NameError:
+        return False
     if value is not None:
         return _has_input_required_arm(value)
     if _is_union(annotation):
