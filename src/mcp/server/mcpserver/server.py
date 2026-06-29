@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -58,6 +58,7 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.caching import CacheableMethod, CacheHint
 from mcp.server.context import HandlerResult, ServerRequestContext
 from mcp.server.extension import (
     Extension,
@@ -169,6 +170,7 @@ class MCPServer(Generic[LifespanResultT]):
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -196,6 +198,7 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
+            cache_hints=cache_hints,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,

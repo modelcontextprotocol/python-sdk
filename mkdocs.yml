@@ -43,6 +43,7 @@ nav:
       - The low-level Server: advanced/low-level-server.md
       - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
+      - Caching hints: advanced/caching.md
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md

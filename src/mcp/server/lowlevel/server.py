@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version as importlib_version
@@ -59,6 +59,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_loop
@@ -140,6 +141,7 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -222,6 +224,7 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -313,6 +316,7 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -420,6 +424,9 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
+        # after the handler returns; fields the handler set explicitly win.
+        self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
         self.lifespan = lifespan
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
