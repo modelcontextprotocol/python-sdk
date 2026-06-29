@@ -30,10 +30,11 @@ server = Server(
 
 
 async def main() -> None:
+    start = state.fetches
     async with Client(server, cache=CacheConfig(clock=lambda: state.now)) as client:
         await client.list_tools()  # fetch 1
         await client.list_tools()  # fresh for 60s: served from the cache
         state.now += 60.0
         await client.list_tools()  # the TTL ran out: fetch 2
         await client.list_tools(cache_mode="refresh")  # skip the cache read: fetch 3
-        print(f"4 calls, {state.fetches} fetches")
+        print(f"4 calls, {state.fetches - start} fetches")

@@ -133,6 +133,22 @@ def test_userinfo_variants_of_a_server_url_share_one_cache_identity() -> None:
     assert _private_arm(bare) == _private_arm(with_password) == _private_arm(with_token)
 
 
+@pytest.mark.parametrize(
+    ("with_userinfo", "bare"),
+    [
+        ("HTTPS://a@X.example/mcp", "HTTPS://X.example/mcp"),
+        ("https://u@h/p?", "https://h/p?"),
+        ("https://u@h/p#", "https://h/p#"),
+    ],
+    ids=["scheme-case", "empty-query", "empty-fragment"],
+)
+def test_stripping_userinfo_changes_no_other_byte_of_the_url(with_userinfo: str, bare: str) -> None:
+    """The removed `userinfo@` is the only byte difference: no scheme case-folding, no dropped
+    empty `?`/`#` delimiters. A userinfo-free URL passes through untouched, so arm equality
+    proves the stripped form is byte-identical to the bare URL."""
+    assert _private_arm(Client(with_userinfo)) == _private_arm(Client(bare))
+
+
 def test_the_server_url_is_sha256_hashed_before_it_enters_key_material() -> None:
     """Pins the docs' secrets-never-in-keys claim: a query-string secret never appears in store keys."""
     client = Client("https://user:pass@example.com/mcp?api_key=SECRET")

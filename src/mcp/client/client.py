@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar, cast
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import anyio
 import anyio.lowlevel
@@ -132,10 +132,11 @@ def _strip_userinfo(url: str) -> str:
 
     Credentials must not enter cache-key material; any further normalization could merge distinct servers.
     """
-    parts = urlsplit(url)
-    if "@" not in parts.netloc:
+    netloc = urlsplit(url).netloc  # raw authority bytes (urlsplit case-folds only `.scheme`), so slicing is exact
+    if "@" not in netloc:
         return url
-    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+    start = url.index("//") + 2
+    return url[:start] + netloc.rpartition("@")[2] + url[start + len(netloc) :]
 
 
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
