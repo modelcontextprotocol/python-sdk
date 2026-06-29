@@ -85,9 +85,13 @@ Cache keys also carry the **server's identity**: the URL string you dialed, with
 * **Continuation pages are never cached.** Only cursor-less calls participate. A continuation page rejected for an expired cursor does *evict* the cached listing — the listing changed under it.
 * **Multi-round-trip reads are never cached.** A `read_resource` seeded with `input_responses`/`request_state`, or one that resolves through input rounds, never enters the cache (a spec MUST).
 * **Notification eviction needs notifications.** Eviction is only as good as the transport's delivery — the modern in-process path (`Client(server)` with the default `mode="auto"`) does not deliver standalone notifications today.
+* **Eviction is eventual, not instantaneous.** Wire-path notifications are dispatched from spawned tasks, so a call racing a notification's arrival may be served the pre-eviction entry once more; the window is bounded by dispatch latency, and the eviction still lands.
 * **No stale-if-error.** An expired entry is never served because the refetch failed; the error propagates.
+* **No early re-fetch.** A stored entry is served until its TTL expires and the next call after that pays the round trip — nothing refreshes in the background.
 * **No coalescing.** Two concurrent identical calls are two fetches.
-* On a **shared persistent store**, a session that negotiated a different protocol era than the entry's writer may be served the writer's entry until TTL or eviction — accepted, and bounded by the cache's 24-hour TTL cap.
+* **No TTL beyond 24 hours.** A larger `ttlMs` — server-sent or configured — is clamped down on store (`mcp.client.caching.MAX_TTL_MS`), bounding how long any entry, however generously hinted, can be served.
+* On a **shared store**, clients race each other. Each client drops its own write when an eviction overtook the fetch in flight, but a *co-tenant* client can still write back an entry that an eviction it never saw had removed; and that race bookkeeping is itself bounded — past 4096 tracked keys the oldest key's guard is dropped first. Both windows are accepted, and closed by the TTL cap above.
+* On a **shared persistent store**, a session that negotiated a different protocol era than the entry's writer may be served the writer's entry until TTL or eviction — accepted, and likewise bounded by the TTL cap.
 
 ### Reading the hints yourself
 
