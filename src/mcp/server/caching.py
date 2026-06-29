@@ -1,10 +1,7 @@
 """Server-side caching hints (SEP-2549, protocol revision 2026-07-28).
 
-Results for the cacheable methods carry `ttlMs`/`cacheScope` freshness hints.
-A handler sets them by returning a result with explicit `ttl_ms`/`cache_scope`
-values; `Server(cache_hints={method: CacheHint(...)})` fills them for handlers
-that don't. Fields the handler set win, per field, so a server-wide hint never
-overrides a handler's explicit choice.
+`Server(cache_hints={method: CacheHint(...)})` fills `ttlMs`/`cacheScope` on
+cacheable results per field, never overriding a value the handler set explicitly.
 """
 
 from __future__ import annotations
@@ -25,9 +22,7 @@ CacheableMethod = Literal[
     "server/discover",
     "tools/list",
 ]
-"""The methods whose results carry `ttlMs`/`cacheScope`. Closed set: the spec
-defines caching hints on exactly these six (tests pin it to which result models
-mix in `CacheableResult`)."""
+"""Methods whose results carry `ttlMs`/`cacheScope`; a closed set, fixed by the spec."""
 
 CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(get_args(CacheableMethod))
 """Runtime mirror of `CacheableMethod`, for callers the type checker can't see."""
@@ -37,10 +32,9 @@ CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(get_args(CacheableMethod))
 class CacheHint:
     """Freshness hint for one cacheable method's results.
 
-    `ttl_ms` is how long, in milliseconds, a client may consider the result
-    fresh (`0` means immediately stale). `scope` is whether a cached result may
-    be shared across authorization contexts (`"public"`) or only reused within
-    the one that produced it (`"private"`).
+    `ttl_ms` is how long (in ms) a client may treat the result as fresh, `0` meaning
+    immediately stale; `scope` is whether a cached result may be shared across
+    authorization contexts (`"public"`) or only the one that produced it (`"private"`).
     """
 
     ttl_ms: int = 0
@@ -57,12 +51,10 @@ CacheableResultT = TypeVar("CacheableResultT", bound=types.CacheableResult)
 
 
 def apply_cache_hint(result: CacheableResultT, hint: CacheHint) -> CacheableResultT:
-    """Fill `ttl_ms`/`cache_scope` on `result` from `hint`.
+    """Fill unset `ttl_ms`/`cache_scope` fields on `result` from `hint`.
 
-    Per-field: a field the handler set explicitly - even to its default value,
-    tracked via `model_fields_set` - is left alone; only unset fields take the
-    hint. A handler constructing results with `model_construct` bypasses that
-    tracking and is treated as having set nothing.
+    Explicitly set fields win even at their defaults (per `model_fields_set`);
+    `model_construct` bypasses that tracking and counts as having set nothing.
     """
     update: dict[str, int | str] = {}
     if "ttl_ms" not in result.model_fields_set:
@@ -75,11 +67,9 @@ def apply_cache_hint(result: CacheableResultT, hint: CacheHint) -> CacheableResu
 def validate_cache_hints(cache_hints: Mapping[Any, Any] | None) -> dict[str, CacheHint]:
     """Validate a `cache_hints` constructor argument into a plain dict.
 
-    The `Server`/`MCPServer` signatures already close the key set and value
-    type for type-checked callers; this runtime gate is deliberately loose in
-    its parameter so it covers everyone else (e.g. a map deserialized from
-    config) - a bad entry fails at construction, not on the first request to
-    that method.
+    Deliberately loose parameter type: covers callers the `Server`/`MCPServer`
+    signatures can't (e.g. maps from config), failing at construction rather
+    than on the first request.
 
     Raises:
         ValueError: If a key is not a cacheable method.

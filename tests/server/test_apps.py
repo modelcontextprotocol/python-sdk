@@ -1,10 +1,7 @@
 """Tests for the MCP Apps extension (`io.modelcontextprotocol/ui`, SEP-2133).
 
-The headline property is SEP-2133 graceful degradation: a UI-bound tool returns
-rich output to a client that negotiated Apps and text-only output to one that did
-not. The remaining tests pin SDK-defined wiring (the `_meta.ui.resourceUri` stamp,
-the `ui://` resource MIME type, capability advertisement, and `ui://`-scheme
-validation).
+Headline property: graceful degradation — a UI-bound tool returns rich output to a
+client that negotiated Apps and a text-only fallback to one that did not.
 """
 
 from typing import Any
@@ -45,8 +42,6 @@ def _clock_server() -> MCPServer:
 
 
 async def test_apps_tool_stamps_ui_resource_uri_on_tool_meta() -> None:
-    """SDK-defined: `@apps.tool(resource_uri=...)` stamps `_meta.ui.resourceUri` on the
-    advertised tool, observed end-to-end through `list_tools`."""
     async with Client(_clock_server()) as client:
         result = await client.list_tools()
     assert [(t.name, t.meta) for t in result.tools] == snapshot(
@@ -55,8 +50,6 @@ async def test_apps_tool_stamps_ui_resource_uri_on_tool_meta() -> None:
 
 
 async def test_add_html_resource_serves_ui_resource_at_app_mime_type() -> None:
-    """SDK-defined: `add_html_resource` registers the `ui://` resource served as
-    `text/html;profile=mcp-app`, observed through `read_resource`."""
     async with Client(_clock_server()) as client:
         result = await client.read_resource("ui://clock/app.html")
     assert result == snapshot(
@@ -75,24 +68,18 @@ async def test_add_html_resource_serves_ui_resource_at_app_mime_type() -> None:
 
 
 async def test_auto_mode_carries_apps_extension_under_server_capabilities() -> None:
-    """SDK-defined: the Apps extension rides `server/discover`, so a `mode='auto'` client
-    sees `EXTENSION_ID` under `server_capabilities.extensions`."""
     async with Client(_clock_server(), mode="auto") as client:
         assert client.server_capabilities.extensions == snapshot({"io.modelcontextprotocol/ui": {}})
 
 
 async def test_legacy_handshake_drops_apps_extension_from_capabilities() -> None:
     """Pinned gap: the 2025 `ServerCapabilities` wire schema has no `extensions` field,
-    so a `mode='legacy'` handshake cannot carry the Apps capability -- only `mode='auto'`
-    (server/discover) does. This pins the divergence rather than fixing it."""
+    so a legacy handshake cannot carry the Apps capability — only `mode='auto'` (server/discover) can."""
     async with Client(_clock_server(), mode="legacy") as client:
         assert client.server_capabilities.extensions is None
 
 
 async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> None:
-    """SEP-2133 graceful degradation: a client that advertised `EXTENSION_ID` gets the
-    rich (UI) path, while one that did not gets the text-only fallback. The same tool,
-    branching on `client_supports_apps(ctx)`, drives both halves."""
     server = _clock_server()
 
     async with Client(server, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as supports:
@@ -105,11 +92,7 @@ async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> No
 
 
 async def _observed_client_supports_apps(extensions: dict[str, dict[str, Any]] | None) -> bool:
-    """Run one probe `tools/call` and report what `client_supports_apps` saw server-side.
-
-    Exercises the lowlevel `ServerRequestContext` form, which reads the client's
-    advertised extensions off `session.client_params`.
-    """
+    """Run one probe `tools/call` and report what `client_supports_apps` saw server-side."""
     observed: list[bool] = []
 
     async def list_tools(
@@ -141,24 +124,18 @@ async def _observed_client_supports_apps(extensions: dict[str, dict[str, Any]] |
 async def test_client_supports_apps_from_lowlevel_request_context(
     extensions: dict[str, dict[str, Any]] | None, expected: bool
 ) -> None:
-    """ext-apps: `client_supports_apps` is `True` only when the client declared the ui
-    extension AND listed `text/html;profile=mcp-app` in its `mimeTypes` settings — a
-    required field, so its absence means unsupported (the reference SDK's check is
-    `uiCap?.mimeTypes?.includes(...)`)."""
+    """ext-apps: True only when the client declared the ui extension AND listed the app MIME
+    in `mimeTypes` (the reference SDK checks `uiCap?.mimeTypes?.includes(...)`)."""
     assert await _observed_client_supports_apps(extensions) is expected
 
 
 def test_apps_tool_rejects_non_ui_resource_uri() -> None:
-    """SDK-defined: `@apps.tool` accepts only `ui://` URIs; any other scheme is a
-    programmer error raised at decoration time."""
     apps = Apps()
     with pytest.raises(ValueError):
         apps.tool(resource_uri="https://example.com/app.html")
 
 
 def test_add_html_resource_rejects_non_ui_resource_uri() -> None:
-    """SDK-defined: `add_html_resource` accepts only `ui://` URIs; any other scheme is
-    a programmer error raised at registration time."""
     apps = Apps()
     with pytest.raises(ValueError):
         apps.add_html_resource("https://example.com/app.html", "<title>x</title>")
@@ -170,7 +147,6 @@ def _widget() -> str:
 
 
 async def test_apps_tool_stamps_visibility_when_given() -> None:
-    """SDK-defined: `@apps.tool(visibility=...)` is stamped into `_meta.ui.visibility`."""
     apps = Apps()
     apps.tool(resource_uri="ui://v/app.html", visibility=["app"])(_widget)
     apps.add_html_resource("ui://v/app.html", "<title>v</title>")
@@ -184,8 +160,7 @@ async def test_apps_tool_stamps_visibility_when_given() -> None:
 
 
 async def test_apps_tool_merges_extra_meta_alongside_ui() -> None:
-    """SDK-defined: `@apps.tool(meta=...)` merges extra `_meta` keys with the `ui` entry
-    (previously a `meta=` argument raised a duplicate-keyword TypeError)."""
+    """Regression: a `meta=` argument previously raised a duplicate-keyword TypeError instead of merging."""
     apps = Apps()
     apps.tool(resource_uri="ui://m/app.html", meta={"com.example/k": 1})(_widget)
     apps.add_html_resource("ui://m/app.html", "<title>m</title>")
@@ -197,7 +172,6 @@ async def test_apps_tool_merges_extra_meta_alongside_ui() -> None:
 
 
 async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -> None:
-    """SDK-defined: `csp`/`permissions` populate the resource's `_meta.ui` per ext-apps."""
     apps = Apps()
     apps.add_html_resource(
         "ui://r/app.html",
@@ -222,17 +196,14 @@ async def test_add_html_resource_stamps_csp_and_permissions_on_resource_meta() -
             }
         }
     )
-    # Hosts read `_meta.ui` from the read content item, with the list entry as
-    # fallback — the SDK stamps the same value in both places.
+    # Hosts read `_meta.ui` from the read content, falling back to the list entry — the SDK stamps both.
     assert isinstance(result.contents[0], TextResourceContents)
     assert result.contents[0].meta == expected_ui_meta
     assert listed.resources[0].meta == expected_ui_meta
 
 
 def test_apps_tool_with_unregistered_resource_uri_is_rejected_at_construction() -> None:
-    """SDK-defined: a tool whose `resource_uri` has no matching registered resource would
-    advertise a `_meta.ui.resourceUri` that 404s on `resources/read`; the misconfiguration
-    is rejected when the server consumes the extension."""
+    """An unregistered `resource_uri` would advertise a `_meta.ui.resourceUri` that 404s on read."""
     apps = Apps()
     apps.tool(resource_uri="ui://missing/app.html")(_widget)
 
@@ -245,8 +216,6 @@ def test_apps_tool_with_unregistered_resource_uri_is_rejected_at_construction() 
 
 
 async def test_add_resource_registers_a_prebuilt_ui_resource() -> None:
-    """SDK-defined: `add_resource` is the escape hatch for pre-built `ui://` resources
-    that `add_html_resource` cannot express; it satisfies a tool's `resource_uri` binding."""
     apps = Apps()
     apps.tool(resource_uri="ui://prebuilt/app.html")(_widget)
     apps.add_resource(
@@ -261,15 +230,13 @@ async def test_add_resource_registers_a_prebuilt_ui_resource() -> None:
 
 
 def test_add_resource_rejects_non_ui_resource_uri() -> None:
-    """SDK-defined: `add_resource` accepts only `ui://` URIs, like the other registrars."""
     apps = Apps()
     with pytest.raises(ValueError):
         apps.add_resource(TextResource(uri="https://example.com/app.html", name="x", text="x"))
 
 
 def test_apps_tool_rejects_a_ui_meta_key() -> None:
-    """SDK-defined: the decorator owns `_meta['ui']` — a caller-supplied `'ui'` entry would be
-    silently clobbered, so it is rejected at decoration time (use `resource_uri=`/`visibility=`)."""
+    """A caller-supplied `'ui'` meta entry would be silently clobbered by the decorator's own stamp."""
     apps = Apps()
     with pytest.raises(ValueError) as exc_info:
         apps.tool(resource_uri="ui://c/app.html", meta={"ui": {"resourceUri": "ui://other.html"}})
@@ -279,8 +246,7 @@ def test_apps_tool_rejects_a_ui_meta_key() -> None:
 
 
 async def test_add_resource_defaults_the_mime_type_to_the_app_mime() -> None:
-    """ext-apps: hosts only render `ui://` resources served as `text/html;profile=mcp-app`,
-    so a resource registered without an explicit `mime_type` gets it by default."""
+    """ext-apps: hosts only render `ui://` resources served at the app MIME, so it is the default."""
     apps = Apps()
     apps.add_resource(TextResource(uri="ui://d/app.html", name="d", text="<title>d</title>"))
 
@@ -292,8 +258,6 @@ async def test_add_resource_defaults_the_mime_type_to_the_app_mime() -> None:
 
 
 def test_add_resource_rejects_an_explicit_non_app_mime_type() -> None:
-    """ext-apps: an explicit `mime_type` other than `text/html;profile=mcp-app` would make
-    the resource unrenderable; the mismatch is rejected at registration."""
     apps = Apps()
     with pytest.raises(ValueError) as exc_info:
         apps.add_resource(TextResource(uri="ui://e/app.html", name="e", mime_type="text/html", text="x"))

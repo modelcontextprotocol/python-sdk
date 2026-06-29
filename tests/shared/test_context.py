@@ -1,9 +1,4 @@
-"""Tests for `BaseContext`.
-
-`BaseContext` is composition over a `DispatchContext` - it forwards
-`transport`/`cancel_requested`/`send_raw_request`/`notify`/`progress`
-and adds `meta`. It must satisfy `Outbound` so `ClientPeer` can wrap it.
-"""
+"""Tests for `BaseContext`: composition over `DispatchContext` that forwards its operations and adds `meta`."""
 
 from collections.abc import Mapping
 from typing import Any
@@ -43,8 +38,7 @@ async def test_base_context_forwards_transport_and_cancel_requested():
 
 @pytest.mark.anyio
 async def test_base_context_can_send_request_reflects_dispatch_context_closed_state():
-    """`can_send_request` must track the dctx, not the static transport flag,
-    so it agrees with whether `send_raw_request` would raise."""
+    """Must track the dctx, not the static transport flag, so it agrees with whether `send_raw_request` raises."""
     captured: list[BaseContext[TransportContext]] = []
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -104,8 +98,6 @@ async def test_base_context_report_progress_invokes_caller_on_progress():
 
 @pytest.mark.anyio
 async def test_base_context_satisfies_outbound_so_peer_mixin_works():
-    """Wrapping a BaseContext in ClientPeer proves it satisfies Outbound structurally."""
-
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         bctx = BaseContext(ctx)
         await ClientPeer(bctx).ping()

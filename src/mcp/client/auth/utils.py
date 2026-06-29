@@ -17,41 +17,28 @@ from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
-    """Extract field from WWW-Authenticate header.
-
-    Returns:
-        Field value if found in WWW-Authenticate header, None otherwise
-    """
+    """Extract a field value from the WWW-Authenticate header, or None if absent."""
     www_auth_header = response.headers.get("WWW-Authenticate")
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
+    # Matches field_name="value" or field_name=value (unquoted)
     pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
     match = re.search(pattern, www_auth_header)
 
     if match:
-        # Return quoted value if present, otherwise unquoted value
         return match.group(1) or match.group(2)
 
     return None
 
 
 def extract_scope_from_www_auth(response: Response) -> str | None:
-    """Extract scope parameter from WWW-Authenticate header as per RFC 6750.
-
-    Returns:
-        Scope string if found in WWW-Authenticate header, None otherwise
-    """
+    """Extract the scope parameter from the WWW-Authenticate header (RFC 6750)."""
     return extract_field_from_www_auth(response, "scope")
 
 
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
-    """Extract protected resource metadata URL from WWW-Authenticate header as per RFC 9728.
-
-    Returns:
-        Resource metadata URL if found in WWW-Authenticate header, None otherwise
-    """
+    """Extract the protected resource metadata URL from the WWW-Authenticate header (RFC 9728)."""
     if not response or response.status_code != 401:
         return None  # pragma: no cover
 
@@ -59,36 +46,23 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
-    """Build ordered list of URLs to try for protected resource metadata discovery.
+    """Build the ordered list of URLs to try for protected resource metadata discovery.
 
-    Per SEP-985, the client MUST:
-    1. Try resource_metadata from WWW-Authenticate header (if present)
-    2. Fall back to path-based well-known URI: /.well-known/oauth-protected-resource/{path}
-    3. Fall back to root-based well-known URI: /.well-known/oauth-protected-resource
-
-    Args:
-        www_auth_url: Optional resource_metadata URL extracted from the WWW-Authenticate header
-        server_url: Server URL
-
-    Returns:
-        Ordered list of URLs to try for discovery
+    Per SEP-985: the WWW-Authenticate `resource_metadata` URL first (if present), then the
+    path-based well-known URI, then the root-based well-known URI (RFC 9728).
     """
     urls: list[str] = []
 
-    # Priority 1: WWW-Authenticate header with resource_metadata parameter
     if www_auth_url:
         urls.append(www_auth_url)
 
-    # Priority 2-3: Well-known URIs (RFC 9728)
     parsed = urlparse(server_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Priority 2: Path-based well-known URI (if server has a path component)
     if parsed.path and parsed.path != "/":
         path_based_url = urljoin(base_url, f"/.well-known/oauth-protected-resource{parsed.path}")
         urls.append(path_based_url)
 
-    # Priority 3: Root-based well-known URI
     root_based_url = urljoin(base_url, "/.well-known/oauth-protected-resource")
     urls.append(root_based_url)
 
@@ -104,11 +78,7 @@ def get_client_metadata_scopes(
     """Select effective scopes and augment for refresh token support."""
     selected_scope: str | None = None
 
-    # MCP spec scope selection priority:
-    #   1. WWW-Authenticate header scope
-    #   2. PRM scopes_supported
-    #   3. AS scopes_supported (SDK fallback)
-    #   4. Omit scope parameter
+    # MCP spec scope priority: WWW-Authenticate scope > PRM scopes_supported > AS scopes_supported > omit
     if www_authenticate_scope is not None:
         selected_scope = www_authenticate_scope
     elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
@@ -135,9 +105,8 @@ def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | Non
     """Merge two space-delimited scope strings, preserving order and dropping duplicates.
 
     SEP-2350: on step-up re-authorization the client requests the union of previously requested
-    scopes and the newly challenged scopes, so escalating one operation does not drop the
-    permissions granted for another. Previously requested scopes come first; new scopes are
-    appended in order.
+    and newly challenged scopes, so escalating one operation does not drop permissions granted
+    for another.
     """
     if not previous_scope:
         return new_scope
@@ -154,16 +123,10 @@ def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | Non
 
 
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
-    """Generate an ordered list of URLs for authorization server metadata discovery.
-
-    Args:
-        auth_server_url: OAuth Authorization Server Metadata URL if found, otherwise None
-        server_url: URL for the MCP server, used as a fallback if auth_server_url is None
-    """
+    """Generate an ordered list of URLs for authorization server metadata discovery."""
 
     if not auth_server_url:
-        # Legacy path using the 2025-03-26 spec:
-        # link: https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization
+        # Legacy 2025-03-26 spec path: https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization
         parsed = urlparse(server_url)
         return [f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"]
 
@@ -171,26 +134,23 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
     parsed = urlparse(auth_server_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # RFC 8414: Path-aware OAuth discovery
+    # RFC 8414: path-aware OAuth discovery
     if parsed.path and parsed.path != "/":
         oauth_path = f"/.well-known/oauth-authorization-server{parsed.path.rstrip('/')}"
         urls.append(urljoin(base_url, oauth_path))
 
-        # RFC 8414 section 5: Path-aware OIDC discovery
-        # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
+        # RFC 8414 section 5: path-aware OIDC discovery
         oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
         urls.append(urljoin(base_url, oidc_path))
 
-        # https://openid.net/specs/openid-connect-discovery-1_0.html
+        # OIDC discovery 1.0: well-known suffix appended after the path
         oidc_path = f"{parsed.path.rstrip('/')}/.well-known/openid-configuration"
         urls.append(urljoin(base_url, oidc_path))
         return urls
 
-    # OAuth root
     urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
 
-    # OIDC 1.0 fallback (appends to full URL per OIDC spec)
-    # https://openid.net/specs/openid-connect-discovery-1_0.html
+    # OIDC 1.0 fallback (https://openid.net/specs/openid-connect-discovery-1_0.html)
     urls.append(urljoin(base_url, "/.well-known/openid-configuration"))
 
     return urls
@@ -199,12 +159,9 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
 async def handle_protected_resource_response(
     response: Response,
 ) -> ProtectedResourceMetadata | None:
-    """Handle protected resource metadata discovery response.
+    """Parse a protected resource metadata discovery response.
 
-    Per SEP-985, supports fallback when discovery fails at one URL.
-
-    Returns:
-        ProtectedResourceMetadata if successfully discovered, None if we should try next URL
+    Returns None when discovery failed at this URL and the next one should be tried (SEP-985).
     """
     if response.status_code == 200:
         try:
@@ -213,10 +170,8 @@ async def handle_protected_resource_response(
             return metadata
 
         except ValidationError:  # pragma: no cover
-            # Invalid metadata - try next URL
             return None
     else:
-        # Not found - try next URL in fallback chain
         return None
 
 
@@ -236,15 +191,12 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
 def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMetadata | None) -> None:
     """Validate the RFC 9207 `iss` authorization-response parameter.
 
-    Per RFC 9207 section 2.4, the client compares `iss` against the issuer of the
-    authorization server the request was sent to, using simple string comparison
-    (RFC 3986 section 6.2.1, i.e. without URL normalization), and rejects on mismatch.
-    A response that omits `iss` is rejected only when the server advertised support via
-    `authorization_response_iss_parameter_supported`.
+    Per RFC 9207 section 2.4, `iss` is compared to the issuer of the authorization server the
+    request was sent to by simple string comparison (RFC 3986 section 6.2.1); a missing `iss` is
+    rejected only when the server advertised `authorization_response_iss_parameter_supported`.
 
     Raises:
-        OAuthFlowError: If `iss` is present and does not match, or is absent when the
-            authorization server advertised support.
+        OAuthFlowError: On mismatch, or when `iss` is absent but the server advertised support.
     """
     expected = str(oauth_metadata.issuer) if oauth_metadata else None
 
@@ -260,8 +212,8 @@ def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMe
 def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str) -> None:
     """Validate that authorization server metadata `issuer` matches the discovery issuer.
 
-    Per RFC 8414 section 3.3 / SEP-2468, the `issuer` in the metadata must match the issuer
-    used to construct the well-known URL, compared as a simple string (RFC 3986 section 6.2.1).
+    RFC 8414 section 3.3 / SEP-2468: compared as a simple string (RFC 3986 section 6.2.1) against
+    the issuer used to construct the well-known URL.
 
     Raises:
         OAuthFlowError: If the metadata issuer does not match `expected_issuer`.
@@ -279,8 +231,6 @@ def create_oauth_metadata_request(url: str) -> Request:
 def create_client_registration_request(
     auth_server_metadata: OAuthMetadata | None, client_metadata: OAuthClientMetadata, auth_base_url: str
 ) -> Request:
-    """Build a client registration request."""
-
     if auth_server_metadata and auth_server_metadata.registration_endpoint:
         registration_url = str(auth_server_metadata.registration_endpoint)
     else:
@@ -292,7 +242,6 @@ def create_client_registration_request(
 
 
 async def handle_registration_response(response: Response) -> OAuthClientInformationFull:
-    """Handle registration response."""
     if response.status_code not in (200, 201):
         await response.aread()
         raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
@@ -306,16 +255,7 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:
-    """Validate that a URL is suitable for use as a client_id (CIMD).
-
-    The URL must be HTTPS with a non-root pathname.
-
-    Args:
-        url: The URL to validate
-
-    Returns:
-        True if the URL is a valid HTTPS URL with a non-root pathname
-    """
+    """Whether `url` is usable as a URL-based client ID (CIMD): HTTPS with a non-root path."""
     if not url:
         return False
     try:
@@ -330,13 +270,11 @@ def credentials_match_issuer(
 ) -> bool:
     """Whether stored client credentials may be reused against `issuer` (SEP-2352).
 
-    A URL-based client ID (CIMD) is portable across authorization servers — the same self-hosted
-    document is resolved by whichever server is in use — so it always matches; CIMD is identified
-    by the client ID being the configured `client_metadata_url`, not by URL shape (a registration
-    server may also issue URL-shaped IDs that are bound to it). Credentials with a recorded issuer
-    match only when it equals `issuer` (simple string comparison). Credentials with no recorded
-    issuer (pre-registered, or stored before issuer binding existed) carry no binding to enforce
-    and are left as-is.
+    A CIMD client ID is portable across authorization servers, so it always matches; CIMD is
+    identified by the client ID equalling the configured `client_metadata_url`, not by URL shape
+    (registration servers may also issue URL-shaped IDs bound to them). A recorded issuer must
+    equal `issuer` (simple string comparison); credentials with no recorded issuer (pre-registered,
+    or stored before issuer binding existed) carry no binding to enforce.
     """
     if client_metadata_url is not None and client_info.client_id == client_metadata_url:
         return True
@@ -349,19 +287,7 @@ def should_use_client_metadata_url(
     oauth_metadata: OAuthMetadata | None,
     client_metadata_url: str | None,
 ) -> bool:
-    """Determine if URL-based client ID (CIMD) should be used instead of DCR.
-
-    URL-based client IDs should be used when:
-    1. The server advertises client_id_metadata_document_supported=True
-    2. The client has a valid client_metadata_url configured
-
-    Args:
-        oauth_metadata: OAuth authorization server metadata
-        client_metadata_url: URL-based client ID (already validated)
-
-    Returns:
-        True if CIMD should be used, False if DCR should be used
-    """
+    """Whether to use a URL-based client ID (CIMD) instead of dynamic client registration."""
     if not client_metadata_url:
         return False
 
@@ -376,16 +302,8 @@ def create_client_info_from_metadata_url(
 ) -> OAuthClientInformationFull:
     """Create client information using a URL-based client ID (CIMD).
 
-    When using URL-based client IDs, the URL itself becomes the client_id
-    and no client_secret is used (token_endpoint_auth_method="none").
-
-    Args:
-        client_metadata_url: The URL to use as the client_id
-        redirect_uris: The redirect URIs from the client metadata (passed through for
-            compatibility with OAuthClientInformationFull which inherits from OAuthClientMetadata)
-
-    Returns:
-        OAuthClientInformationFull with the URL as client_id
+    The URL itself becomes the client_id and no client_secret is used
+    (`token_endpoint_auth_method="none"`).
     """
     return OAuthClientInformationFull(
         client_id=client_metadata_url,
@@ -397,18 +315,10 @@ def create_client_info_from_metadata_url(
 async def handle_token_response_scopes(
     response: Response,
 ) -> OAuthToken:
-    """Parse and validate a token response.
-
-    Parses token response JSON. Callers should check response.status_code before calling.
-
-    Args:
-        response: HTTP response from token endpoint (status already checked by caller)
-
-    Returns:
-        Validated OAuthToken model
+    """Parse and validate a token response; callers must check `response.status_code` first.
 
     Raises:
-        OAuthTokenError: If response JSON is invalid
+        OAuthTokenError: If the response JSON is invalid.
     """
     try:
         content = await response.aread()

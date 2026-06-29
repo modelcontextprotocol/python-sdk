@@ -1,11 +1,7 @@
-"""stdio client transport.
+"""stdio client transport: runs an MCP server as a subprocess, speaking newline-delimited JSON-RPC.
 
-Runs an MCP server as a subprocess and exchanges newline-delimited JSON-RPC
-messages with it over stdin/stdout. Two pipe tasks bridge the server's pipes
-to the session's in-memory streams; shutdown follows the MCP spec sequence
-(close stdin, wait, then kill the process tree) inside a cancellation shield
-with every wait bounded, so a cancelled caller can neither leak a live server
-process nor hang on one.
+Shutdown (close stdin, wait, then kill the process tree) runs inside a cancellation shield with
+every wait bounded, so a cancelled caller can neither leak a live server process nor hang on one.
 """
 
 import logging
@@ -36,7 +32,6 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
-# Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
     [
         "APPDATA",
@@ -130,8 +125,7 @@ async def stdio_client(
         cwd=server.cwd,
     )
 
-    # The spawn succeeded; no awaits until the task group is entered, or a
-    # cancellation delivered in the gap would leak the live process.
+    # No awaits between spawn and task-group entry: a cancellation in the gap would leak the live process.
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
@@ -182,11 +176,9 @@ async def stdio_client(
             writer_done.set()
 
     async def shutdown() -> None:
-        """Winds the transport down: stop traffic, flush, stop the server, release the streams."""
         # Unblock the reader into its drain: a server stuck writing stdout cannot
         # read its stdin, so draining is what lets the flush below complete.
         read_stream.close()
-        # Bounded window for the writer to flush already-accepted messages.
         write_stream.close()
         with anyio.move_on_after(_WRITER_FLUSH_TIMEOUT) as flush_scope:
             await writer_done.wait()
@@ -226,11 +218,10 @@ def _parse_line(line: str) -> SessionMessage | Exception:
 
 
 async def _drain_stdout(process: ServerProcess) -> None:
-    """Consumes and discards the server's remaining stdout.
+    """Discards the server's remaining stdout.
 
-    Keeps a server flushing buffered output from blocking on a full pipe and
-    missing its chance to exit; shielded, raw bytes, ends when shutdown closes
-    the pipe.
+    A server flushing buffered output would otherwise block on a full pipe and miss its
+    chance to exit; runs shielded until shutdown closes the pipe.
     """
     assert process.stdout
     with anyio.CancelScope(shield=True):
@@ -268,7 +259,6 @@ async def _stop_server_process(process: ServerProcess) -> None:
 
 
 async def _close_pipe(stream: AsyncResource) -> None:
-    """Closes a pipe stream, tolerating one already closed, broken, or contended."""
     with suppress(OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
         await stream.aclose()
 
@@ -276,8 +266,8 @@ async def _close_pipe(stream: AsyncResource) -> None:
 async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool:
     """Returns whether the process died within the timeout, by polling returncode.
 
-    Not process.wait(): on asyncio 3.11+ it also waits for pipe EOF, and a
-    child that inherited the pipes makes an exited server look hung.
+    Not process.wait(): on asyncio 3.11+ it also waits for pipe EOF, and a child that
+    inherited the pipes makes an exited server look hung.
     """
     deadline = anyio.current_time() + timeout
     while process.returncode is None:
@@ -288,11 +278,7 @@ async def _wait_for_process_exit(process: ServerProcess, timeout: float) -> bool
 
 
 async def _terminate_process_tree(process: ServerProcess) -> None:
-    """Kills the process and all its descendants.
-
-    POSIX: SIGTERM to the process group, SIGKILL after FORCE_KILL_TIMEOUT.
-    Windows: immediate Job Object termination (already a hard kill).
-    """
+    """Kills the process and all its descendants."""
     if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process)
     else:  # pragma: lax no cover
@@ -304,9 +290,9 @@ async def _terminate_process_tree(process: ServerProcess) -> None:
 def _close_subprocess_transport(process: ServerProcess) -> None:
     """Closes the asyncio subprocess transport, if there is one.
 
-    The transport otherwise stays open (and warns at GC) while a surviving
-    descendant holds a pipe end; nothing public exposes it, hence the attribute
-    walk. No-op on trio and the Windows fallback.
+    The transport otherwise stays open (and warns at GC) while a surviving descendant
+    holds a pipe end; nothing public exposes it, hence the attribute walk. No-op on trio
+    and the Windows fallback.
     """
     transport = getattr(getattr(process, "_process", None), "_transport", None)
     # Duck-typed: uvloop's UVProcessTransport is not an asyncio.SubprocessTransport.
@@ -318,7 +304,6 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
 
 
 def _get_executable_command(command: str) -> str:
-    """Normalizes the command for the current platform."""
     if sys.platform == "win32":  # pragma: no cover
         return get_windows_executable_command(command)
     else:  # pragma: lax no cover
@@ -332,10 +317,7 @@ async def _create_platform_compatible_process(
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
-    """Spawns the server in its own kill scope.
-
-    A new session/process group on POSIX, a Job Object on Windows.
-    """
+    """Spawns the server in its own kill scope: a new session on POSIX, a Job Object on Windows."""
     if sys.platform == "win32":  # pragma: no cover
         return await create_windows_process(command, args, env, errlog, cwd)
     else:  # pragma: lax no cover
@@ -349,6 +331,5 @@ async def _create_platform_compatible_process(
 
 
 async def _aclose_all(*streams: AsyncResource) -> None:
-    """Closes every given stream."""
     for stream in streams:
         await stream.aclose()

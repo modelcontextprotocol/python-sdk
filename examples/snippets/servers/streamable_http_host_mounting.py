@@ -11,7 +11,6 @@ from starlette.routing import Host
 
 from mcp.server.mcpserver import MCPServer
 
-# Create MCP server
 mcp = MCPServer("MCP Host App")
 
 
@@ -21,14 +20,13 @@ def domain_info() -> str:
     return "This is served from mcp.acme.corp"
 
 
-# Create a lifespan context manager to run the session manager
+# The session manager must be running for the server to handle requests
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     async with mcp.session_manager.run():
         yield
 
 
-# Mount using Host-based routing
 # Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[

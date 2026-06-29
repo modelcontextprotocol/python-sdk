@@ -5,10 +5,8 @@ from mcp.server import Server, ServerRequestContext
 
 
 def create_messages(context: str | None = None, topic: str | None = None) -> list[types.PromptMessage]:
-    """Create the messages for the prompt."""
     messages: list[types.PromptMessage] = []
 
-    # Add context if provided
     if context:
         messages.append(
             types.PromptMessage(
@@ -17,7 +15,6 @@ def create_messages(context: str | None = None, topic: str | None = None) -> lis
             )
         )
 
-    # Add the main prompt
     prompt = "Please help me with "
     if topic:
         prompt += f"the following topic: {topic}"

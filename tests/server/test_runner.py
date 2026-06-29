@@ -1,10 +1,8 @@
 """Tests for `ServerRunner` and the free-function drivers.
 
-The kernel tests run end-to-end over `JSONRPCDispatcher` with a real lowlevel
-`Server` as the registry. The `connected_runner` helper starts both sides and
-(by default) performs the initialize handshake, so each test exercises only the
-behaviour under test. Driver tests (`serve_connection`, `serve_one`,
-`aclose_shielded`) follow at the bottom.
+Kernel tests run end-to-end over `JSONRPCDispatcher` with a real lowlevel `Server`;
+`connected_runner` starts both sides and (by default) performs the initialize handshake.
+Driver tests (`serve_connection`, `serve_one`, `aclose_shielded`) follow at the bottom.
 """
 
 from collections.abc import AsyncIterator, Mapping
@@ -96,16 +94,9 @@ async def connected_runner(
 ) -> AsyncIterator[tuple[JSONRPCDispatcher[TransportContext], ServerRunner[dict[str, Any]]]]:
     """Yield `(client, runner)` running over an in-memory JSON-RPC dispatcher pair.
 
-    Starts the client (echo handlers) and the server-side dispatcher loop
-    (kernel `on_request`/`on_notify` + `aclose_shielded` teardown - the
-    `serve_connection` shape) in a task group, wraps the body in
-    `anyio.fail_after(5)`, and cancels on exit. When `initialized` is true the
-    helper performs the real `initialize` request before yielding, so tests
-    start past the init-gate via the public path.
-
-    `connection` defaults to `Connection.for_loop(server_dispatcher)`. Pass a
-    factory-built connection (e.g. `Connection.from_envelope(...)`) to exercise
-    the born-ready path; the kernel reads it as a fact and is mode-agnostic.
+    Mirrors the `serve_connection` shape (kernel handlers + `aclose_shielded` teardown). When
+    `initialized` is true, the real `initialize` request runs before yielding. `connection`
+    defaults to `Connection.for_loop`; pass `Connection.from_envelope(...)` for the born-ready path.
     """
     client, server_d, close = jsonrpc_pair()
     assert isinstance(client, JSONRPCDispatcher) and isinstance(server_d, JSONRPCDispatcher)
@@ -135,8 +126,7 @@ async def connected_runner(
                     await client.send_raw_request("initialize", _initialize_params())
                 yield client, runner
         except BaseException as e:
-            # Capture and re-raise outside the task group so test failures
-            # surface as the original exception, not an ExceptionGroup wrapper.
+            # Re-raise outside the task group so failures surface unwrapped, not as an ExceptionGroup.
             body_exc = e
         close()
     if body_exc is not None:
@@ -145,7 +135,6 @@ async def connected_runner(
 
 @pytest.mark.anyio
 async def test_connected_runner_propagates_body_exception_unwrapped(server: SrvT):
-    """The harness re-raises body exceptions as-is, not as `ExceptionGroup`."""
     with pytest.raises(RuntimeError, match="boom"):
         async with connected_runner(server):
             raise RuntimeError("boom")
@@ -165,9 +154,7 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_initialize_opens_gate_but_event_fires_only_after_initialized_notification(server: SrvT):
-    """`initialize` commits the gate flag and peer info, but the public
-    `connection.initialized` event waits for `notifications/initialized` (the
-    point from which the spec permits server-initiated requests)."""
+    """The event fires at `notifications/initialized`, the point the spec permits server-initiated requests."""
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.send_raw_request("initialize", _initialize_params())
         assert runner.connection.initialize_accepted is True
@@ -188,10 +175,7 @@ async def test_runner_gates_requests_before_initialize(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_unknown_method_before_initialize_raises_method_not_found(server: SrvT):
-    """An unknown method is METHOD_NOT_FOUND even before initialize: JSON-RPC
-    2.0 reserves -32601 for it, and clients probing a server before the
-    handshake key off that code. The init gate only applies to methods the
-    server actually serves."""
+    """JSON-RPC 2.0 reserves -32601 for unknown methods; the init gate only applies to methods the server serves."""
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("x/unknown", None)
@@ -200,10 +184,7 @@ async def test_runner_unknown_method_before_initialize_raises_method_not_found(s
 
 @pytest.mark.anyio
 async def test_runner_spec_method_without_handler_before_initialize_raises_method_not_found(server: SrvT):
-    """A spec method the server doesn't serve is METHOD_NOT_FOUND even before
-    initialize: -32601 means "not available on this server", so probing
-    clients get the same answer in every initialization state (the fixture
-    server registers no resources handlers)."""
+    """-32601 means "not available on this server", so probing clients get the same answer in every init state."""
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("resources/list", None)
@@ -212,9 +193,6 @@ async def test_runner_spec_method_without_handler_before_initialize_raises_metho
 
 @pytest.mark.anyio
 async def test_runner_custom_method_with_handler_is_still_gated_before_initialize(server: SrvT):
-    """A custom-registered method is a known method: before initialize it is
-    rejected by the init gate, not answered with METHOD_NOT_FOUND."""
-
     async def greet(ctx: Ctx, params: RequestParams | None) -> Any:
         raise NotImplementedError  # the gate rejects the request first
 
@@ -241,8 +219,6 @@ async def test_runner_routes_to_handler_and_builds_context(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_builds_a_fresh_session_per_request(server: SrvT):
-    """`ctx.session` is built per-request from the per-request `DispatchContext`
-    and the connection's standalone outbound; it is not connection-scoped."""
     async with connected_runner(server) as (client, _):
         await client.send_raw_request("tools/list", None)
         await client.send_raw_request("tools/list", None)
@@ -259,8 +235,7 @@ async def test_runner_spec_method_with_no_handler_raises_method_not_found(server
 
 @pytest.mark.anyio
 async def test_runner_non_spec_method_with_no_handler_raises_method_not_found(server: SrvT):
-    """Upfront validation is gated to spec methods, so a non-spec method
-    skips it and reaches handler lookup."""
+    """Upfront validation only covers spec methods; a non-spec method goes straight to handler lookup."""
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("nonexistent/method", None)
@@ -269,7 +244,6 @@ async def test_runner_non_spec_method_with_no_handler_raises_method_not_found(se
 
 @pytest.mark.anyio
 async def test_runner_malformed_params_for_unregistered_spec_method_raises_invalid_params(server: SrvT):
-    """A spec method with malformed params is INVALID_PARAMS even with no handler."""
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/call", {"name": 123})
@@ -278,8 +252,6 @@ async def test_runner_malformed_params_for_unregistered_spec_method_raises_inval
 
 @pytest.mark.anyio
 async def test_runner_rejects_snake_case_initialize_params(server: SrvT):
-    """Inbound wire payloads validate alias-only; Python field names are not
-    accepted (`protocol_version` must arrive as `protocolVersion`)."""
     snake = {
         "protocol_version": LATEST_HANDSHAKE_VERSION,
         "capabilities": {},
@@ -293,8 +265,7 @@ async def test_runner_rejects_snake_case_initialize_params(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_initialize_with_absent_params_returns_invalid_params_and_stays_alive(server: SrvT):
-    """Re-covers what the old `tests/issues/test_malformed_input.py` pinned: a
-    malformed `initialize` is rejected and the runner keeps serving."""
+    """Re-covers old `tests/issues/test_malformed_input.py`: the runner keeps serving after a malformed initialize."""
     async with connected_runner(server, initialized=False) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("initialize", None)
@@ -305,8 +276,7 @@ async def test_runner_initialize_with_absent_params_returns_invalid_params_and_s
 
 @pytest.mark.anyio
 async def test_runner_rejects_snake_case_params_for_custom_handler(server: SrvT):
-    """Custom-method handlers (which skip the spec-method gate) still validate
-    alias-only at the per-handler boundary."""
+    """Custom handlers skip the spec-method gate but still validate alias-only at the per-handler boundary."""
 
     async def handler(ctx: Ctx, params: ProgressNotificationParams) -> dict[str, Any]:
         return {"ok": True}
@@ -322,8 +292,6 @@ async def test_runner_rejects_snake_case_params_for_custom_handler(server: SrvT)
 
 @pytest.mark.anyio
 async def test_runner_on_notify_drops_snake_case_params(server: SrvT, caplog: pytest.LogCaptureFixture):
-    """Notification params validate alias-only; snake_case is dropped as malformed."""
-
     async def handler(ctx: Ctx, params: ProgressNotificationParams) -> None:
         raise NotImplementedError
 
@@ -338,8 +306,7 @@ async def test_runner_on_notify_drops_snake_case_params(server: SrvT, caplog: py
 async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiated_version(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ):
-    """`notifications/roots/list_changed` is a client notification but not at
-    2026-07-28; the version gate drops it before handler lookup."""
+    """`notifications/roots/list_changed` is a client notification but absent at 2026-07-28."""
     barrier = anyio.Event()
 
     async def dropped(ctx: Ctx, params: NotificationParams) -> None:
@@ -349,8 +316,7 @@ async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiat
         barrier.set()
 
     server.add_notification_handler("notifications/roots/list_changed", NotificationParams, dropped)
-    # A custom (non-spec) method bypasses the version gate, so it reaches its
-    # handler regardless of which spec notifications exist at the pinned version.
+    # Custom (non-spec) methods bypass the version gate, so the barrier handler still runs.
     server.add_notification_handler("custom/barrier", NotificationParams, on_barrier)
     with caplog.at_level("DEBUG", logger="mcp.server.runner"):
         async with connected_runner(server) as (client, runner):
@@ -363,9 +329,7 @@ async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiat
 
 @pytest.mark.anyio
 async def test_runner_on_notify_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
-    """`notifications/message` is a spec method but server-to-client only; on
-    a server it is a custom registration (proxy use) and must reach the
-    handler, not the client-direction version gate."""
+    """`notifications/message` is server-to-client; on a server it is a custom registration (proxy use)."""
     seen: list[NotificationParams] = []
 
     async def handler(ctx: Ctx, params: NotificationParams) -> None:
@@ -390,8 +354,6 @@ async def test_runner_on_notify_initialized_sets_flag_and_connection_event(serve
 async def test_runner_on_notify_malformed_initialized_does_not_initialize(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ):
-    """A malformed `notifications/initialized` drops like any other malformed
-    notification and leaves the connection uninitialized."""
     async with connected_runner(server, initialized=False) as (client, runner):
         await client.notify("notifications/initialized", {"_meta": 42})
         await anyio.wait_all_tasks_blocked()
@@ -402,8 +364,6 @@ async def test_runner_on_notify_malformed_initialized_does_not_initialize(
 
 @pytest.mark.anyio
 async def test_runner_on_notify_initialized_routes_to_registered_handler_after_state_set(server: SrvT):
-    """A handler registered for `notifications/initialized` fires after the
-    runner flips the init state, so it observes an initialized connection."""
     seen: list[bool] = []
     delivered = anyio.Event()
 
@@ -453,8 +413,6 @@ async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
 async def test_runner_on_notify_handler_exception_is_swallowed_and_logged(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ):
-    """A notification handler crashing must not tear down the connection."""
-
     async def boom(ctx: Ctx, params: NotificationParams | None) -> None:
         raise RuntimeError("notification handler boom")
 
@@ -469,8 +427,6 @@ async def test_runner_on_notify_handler_exception_is_swallowed_and_logged(
 
 @pytest.mark.anyio
 async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pytest.LogCaptureFixture):
-    """Malformed notification params are logged and dropped, not raised."""
-
     async def on_level(ctx: Ctx, params: SetLevelRequestParams) -> None:
         raise NotImplementedError
 
@@ -486,12 +442,7 @@ async def test_runner_on_notify_drops_malformed_params(server: SrvT, caplog: pyt
 async def test_runner_on_notify_drops_absent_params_when_model_requires_them(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ):
-    """A params-less progress notification is dropped, not delivered as None.
-
-    `on_progress` is typed to receive a non-Optional `ProgressNotificationParams`;
-    the previous server validated the full notification union and dropped this
-    as malformed before dispatch.
-    """
+    """Matches the previous server, which validated the full notification union and dropped this before dispatch."""
 
     async def on_progress(ctx: Ctx, params: ProgressNotificationParams) -> None:
         raise NotImplementedError
@@ -507,12 +458,7 @@ async def test_runner_on_notify_drops_absent_params_when_model_requires_them(
 
 @pytest.mark.anyio
 async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_model():
-    """A request with no `params` member on the wire reaches the handler as
-    the params model with its defaults, never `None`.
-
-    The in-SDK client always attaches `_meta`, so a middleware rewrites
-    `ctx.params` to `None` to model what an external client sends.
-    """
+    """The in-SDK client always attaches `_meta`, so a middleware models an external client's bare request."""
     seen: list[PaginatedRequestParams | None] = []
 
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -531,9 +477,6 @@ async def test_runner_absent_wire_params_reaches_request_handler_as_defaults_mod
 
 @pytest.mark.anyio
 async def test_runner_absent_wire_params_for_required_params_custom_method_is_invalid_params():
-    """A custom method whose `params_type` has required fields rejects absent
-    wire params as INVALID_PARAMS rather than invoking the handler with None."""
-
     class GreetParams(RequestParams):
         name: str
 
@@ -566,7 +509,7 @@ async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: Sr
         await client.notify("notifications/unknown", None)  # no handler: dropped
         await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
         await anyio.wait_all_tasks_blocked()
-    assert seen == [NotificationParams()]  # only the post-init one reached the handler
+    assert seen == [NotificationParams()]
 
 
 @pytest.mark.anyio
@@ -588,9 +531,7 @@ async def test_runner_server_middleware_wraps_every_request_including_initialize
 
 @pytest.mark.anyio
 async def test_runner_middleware_raise_after_call_next_on_initialize_leaves_connection_uninitialized(server: SrvT):
-    """A middleware failure after `call_next()` on `initialize` reaches the
-    client as an error and skips the state commit: the pre-init gate stays
-    closed and `connection.initialized` never fires."""
+    """The error reaches the client and the state commit is skipped: the pre-init gate stays closed."""
 
     async def reject_initialize(ctx: Ctx, call_next: Any) -> Any:
         result = await call_next(ctx)
@@ -634,9 +575,6 @@ async def test_runner_server_middleware_observes_method_not_found_via_call_next_
 
 @pytest.mark.anyio
 async def test_runner_server_middleware_wraps_notifications(server: SrvT):
-    """The same chain wraps `_on_notify`: it sees `notifications/initialized`,
-    pre-init drops, and registered notification handlers, with
-    `ctx.request_id is None`."""
     seen: list[tuple[str, bool]] = []
 
     async def observe(ctx: Ctx, call_next: Any) -> Any:
@@ -661,8 +599,7 @@ async def test_runner_server_middleware_wraps_notifications(server: SrvT):
 
 
 def test_extract_meta_returns_none_for_absent_or_malformed():
-    """Context construction is independent of `_meta` validity; the params
-    validation inside `call_next()` is what surfaces the error."""
+    """Malformed `_meta` yields None; the params validation inside `call_next()` is what surfaces the error."""
     assert _extract_meta(None) is None
     assert _extract_meta({}) is None
     assert _extract_meta({"_meta": "not-a-dict"}) is None
@@ -671,9 +608,7 @@ def test_extract_meta_returns_none_for_absent_or_malformed():
 
 
 def test_extract_meta_round_trips_through_dump_params():
-    """Forwarding an inbound `ctx.meta` outbound (`meta=ctx.meta`) re-emits the
-    wire key `progressToken`, not the Python field name `_extract_meta`
-    validation produced."""
+    """Forwarding inbound `ctx.meta` outbound re-emits the wire key `progressToken`, not the Python field name."""
     meta = _extract_meta({"_meta": {"progressToken": 7, "k": 1}})
     assert meta is not None
     assert dump_params(None, dict(meta)) == {"_meta": {"progressToken": 7, "k": 1}}
@@ -712,8 +647,7 @@ async def test_runner_handler_returning_none_yields_empty_result(server: SrvT):
 
 @pytest.mark.anyio
 async def test_runner_handler_returning_error_data_produces_jsonrpc_error(server: SrvT):
-    """A handler returning `ErrorData` reaches the client as a JSON-RPC error,
-    not a success result, matching `BaseSession._send_response`."""
+    """Matches `BaseSession._send_response`: an `ErrorData` return becomes a JSON-RPC error, not a result."""
 
     async def set_level(ctx: Ctx, params: SetLevelRequestParams) -> ErrorData:
         return ErrorData(code=INVALID_PARAMS, message="bad level", data={"got": params.level})
@@ -727,9 +661,6 @@ async def test_runner_handler_returning_error_data_produces_jsonrpc_error(server
 
 @pytest.mark.anyio
 async def test_runner_server_middleware_observes_handler_error_data_as_mcp_error(server: SrvT):
-    """A handler returning `ErrorData` raises `MCPError` inside `call_next()`,
-    so observation middleware records the failure instead of seeing a
-    successful-looking `ErrorData` return."""
     seen: list[MCPError] = []
 
     async def observe(ctx: Ctx, call_next: Any) -> Any:
@@ -753,9 +684,6 @@ async def test_runner_server_middleware_observes_handler_error_data_as_mcp_error
 
 @pytest.mark.anyio
 async def test_runner_middleware_returning_error_data_produces_jsonrpc_error(server: SrvT):
-    """A middleware that short-circuits with an `ErrorData` return gets the
-    same treatment as a handler return: the wire sees a JSON-RPC error."""
-
     async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
         return ErrorData(code=INVALID_PARAMS, message="denied")
 
@@ -771,8 +699,7 @@ async def test_runner_handler_returning_unsupported_type_surfaces_as_error(serve
     async def bad_return(ctx: Ctx, params: PaginatedRequestParams | None) -> int:
         return 42
 
-    # cast: deliberately registering a handler with a bad return type to
-    # exercise the runtime check; pyright would (correctly) reject it otherwise.
+    # cast: deliberately bad return type to exercise the runtime check; pyright would reject it otherwise.
     server.add_request_handler("tools/list", PaginatedRequestParams, cast(Any, bad_return))
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
@@ -783,9 +710,7 @@ async def test_runner_handler_returning_unsupported_type_surfaces_as_error(serve
 
 @pytest.mark.anyio
 async def test_runner_with_born_ready_connection_skips_init_gate(server: SrvT):
-    """A `Connection.from_envelope` connection is born ready: the kernel's
-    init-gate is open without any handshake. The kernel is mode-agnostic - the
-    same `on_request` reads `connection.initialize_accepted` as a fact."""
+    """The kernel is mode-agnostic: it reads `connection.initialize_accepted` as a fact, with no handshake."""
     born_ready = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
         assert runner.connection.initialize_accepted is True
@@ -796,9 +721,6 @@ async def test_runner_with_born_ready_connection_skips_init_gate(server: SrvT):
 
 @pytest.mark.anyio
 async def test_server_add_request_handler_routes_custom_method_with_validated_params(server: SrvT):
-    """Custom methods outside the spec `ClientRequest` union skip upfront
-    validation and route to the registered handler."""
-
     class GreetParams(RequestParams):
         name: str
 
@@ -849,9 +771,6 @@ async def test_runner_handler_returning_typed_monolith_result_passes_outbound_va
 
 @pytest.mark.anyio
 async def test_runner_outbound_sieve_drops_2026_only_result_keys_at_a_pre_2026_version(server: SrvT):
-    """The handler's `resultType`/`ttlMs`/`cacheScope` are sieved out so a 2025
-    client sees only schema fields."""
-
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})], ttl_ms=5, cache_scope="public")
 
@@ -864,9 +783,7 @@ async def test_runner_outbound_sieve_drops_2026_only_result_keys_at_a_pre_2026_v
 
 @pytest.mark.anyio
 async def test_runner_outbound_sieve_drops_configured_cache_hints_at_a_pre_2026_version():
-    """A `cache_hints` map fills the typed result before serialization, so the
-    same sieve that strips handler-set fields strips configured ones too - a
-    2025 client never sees `ttlMs`/`cacheScope`."""
+    """`cache_hints` fills the typed result before serialization, so the same sieve strips configured fields too."""
 
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
@@ -884,9 +801,7 @@ async def test_runner_outbound_sieve_drops_configured_cache_hints_at_a_pre_2026_
 
 @pytest.mark.anyio
 async def test_runner_server_direction_spec_method_routes_to_a_registered_handler(server: SrvT):
-    """`roots/list` is a spec method but server-to-client only; on a server it
-    is a custom registration (proxy use) and must reach the handler, not the
-    client-direction version gate."""
+    """`roots/list` is server-to-client; on a server it is a custom registration (proxy use)."""
 
     async def list_roots(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
         return {"roots": [{"uri": "file:///workspace"}]}
@@ -899,9 +814,7 @@ async def test_runner_server_direction_spec_method_routes_to_a_registered_handle
 
 @pytest.mark.anyio
 async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not_found(server: SrvT):
-    """`server/discover` is a spec method (in `MONOLITH_REQUESTS`) but only at
-    2026-07-28; on a 2025 session it must be METHOD_NOT_FOUND even with a
-    registered handler."""
+    """`server/discover` exists only at 2026-07-28, so a 2025 session rejects it even with a registered handler."""
 
     async def discover(ctx: Ctx, params: RequestParams) -> Any:
         raise NotImplementedError  # the version gate rejects the request first
@@ -916,8 +829,7 @@ async def test_runner_spec_method_absent_at_the_negotiated_version_is_method_not
 
 @pytest.mark.anyio
 async def test_on_request_rejects_initialize_at_modern_version_with_method_not_found(server: SrvT):
-    """Spec-mandated: `initialize` has no `CLIENT_REQUESTS` row at the modern
-    version; kernel dispatch (not the inbound classifier) rejects it."""
+    """Spec-mandated: `initialize` has no `CLIENT_REQUESTS` row; dispatch (not the classifier) rejects it."""
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, runner):
         assert runner.connection.protocol_version == LATEST_MODERN_VERSION
@@ -928,8 +840,7 @@ async def test_on_request_rejects_initialize_at_modern_version_with_method_not_f
 
 @pytest.mark.anyio
 async def test_on_request_dispatches_custom_method_registered_via_add_request_handler(server: SrvT):
-    """SDK-defined: a method outside `SPEC_CLIENT_METHODS` skips the version
-    gate and reaches its registered handler at any negotiated version."""
+    """SDK-defined: methods outside `SPEC_CLIENT_METHODS` skip the version gate at any negotiated version."""
 
     async def echo(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
         return {"echoed": True}
@@ -943,9 +854,7 @@ async def test_on_request_dispatches_custom_method_registered_via_add_request_ha
 
 @pytest.mark.anyio
 async def test_runner_middleware_short_circuit_on_a_wrong_version_spec_method_skips_the_sieve(server: SrvT):
-    """A server-tier middleware that returns without calling `call_next` for a
-    spec method absent at the negotiated version owns the result shape; the
-    outbound sieve has no `(method, version)` row and must not raise."""
+    """The middleware owns the result shape; the sieve has no `(method, version)` row and must not raise."""
 
     async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
         if ctx.method == "server/discover":
@@ -961,8 +870,6 @@ async def test_runner_middleware_short_circuit_on_a_wrong_version_spec_method_sk
 
 @pytest.mark.anyio
 async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT):
-    """No `SERVER_RESULTS` row for a custom method, so its result reaches the client as-is."""
-
     async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
         return {"anything": "goes"}
 
@@ -1002,7 +909,6 @@ async def test_runner_initialize_echoes_supported_version_and_falls_back_to_late
 
 @pytest.mark.anyio
 async def test_runner_connection_exit_stack_unwinds_after_run_returns(server: SrvT) -> None:
-    """`runner.connection.exit_stack` is closed when the dispatcher loop ends."""
     cleaned: list[int] = []
 
     async def _append(i: int) -> None:
@@ -1020,7 +926,6 @@ async def test_runner_connection_exit_stack_unwinds_after_run_returns(server: Sr
 async def test_runner_exit_stack_cleanup_exception_is_logged_not_propagated(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A raising cleanup callback is caught and logged; `run()` exits cleanly."""
     cleaned: list[str] = []
 
     async def _ok() -> None:
@@ -1041,19 +946,14 @@ async def test_runner_exit_stack_cleanup_exception_is_logged_not_propagated(
 async def test_runner_exit_stack_blocking_cleanup_abandoned_after_grace(
     server: SrvT, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A cleanup callback that never returns is abandoned once the grace period
-    elapses: `run()` exits, later callbacks in the unwind are cancelled at
-    their first checkpoint, and a warning is logged. Grace 0 means the deadline
-    is already expired on entry, so the abandonment is immediate."""
+    """With grace 0 the deadline is expired on entry, so later unwind callbacks cancel at their first checkpoint."""
     monkeypatch.setattr(mcp.server.runner, "_EXIT_STACK_CLOSE_TIMEOUT", 0)
     ran: list[str] = []
     release = anyio.Event()
 
     async def _abandoned() -> None:
-        # LIFO unwind: pushed first, so it runs after the blocker. By then the
-        # deadline has fired, so this checkpoint raises and the line below is
-        # unreachable (if abandonment broke, the missing warning fails the
-        # caplog assert).
+        # LIFO unwind runs this after the blocker, when the deadline has already
+        # fired: the checkpoint raises, so the raise below is unreachable.
         await anyio.sleep(0)
         raise NotImplementedError
 
@@ -1074,9 +974,7 @@ async def test_runner_exit_stack_blocking_cleanup_abandoned_after_grace(
 async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
     server: SrvT, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Well-behaved cleanup callbacks run to completion under the bounded
-    unwind and no abandonment warning is logged. Uses the production grace;
-    the deadline never delays a fast unwind, it only bounds a hung one."""
+    """Uses the production grace: the deadline never delays a fast unwind, it only bounds a hung one."""
     cleaned: list[int] = []
 
     async def _append(i: int) -> None:
@@ -1091,13 +989,8 @@ async def test_runner_exit_stack_fast_cleanup_completes_within_grace(
     assert "abandoning remaining callbacks" not in caplog.text
 
 
-# --- aclose_shielded -----------------------------------------------------------
-
-
 @pytest.mark.anyio
 async def test_aclose_shielded_runs_callbacks_under_outer_cancellation():
-    """The shield lets per-connection cleanup run even when the enclosing scope
-    is being cancelled."""
     cleaned: list[int] = []
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
 
@@ -1112,16 +1005,9 @@ async def test_aclose_shielded_runs_callbacks_under_outer_cancellation():
     assert cleaned == [1]
 
 
-# --- serve_one / serve_connection ---------------------------------------------
-
-
 @dataclass
 class _StubDispatchContext:
-    """Minimal `DispatchContext` for `serve_one` driver tests.
-
-    The modern entry hands a per-request context to `serve_one`; this stub
-    satisfies the protocol structurally with no real back-channel.
-    """
+    """Structurally satisfies the `DispatchContext` protocol for `serve_one` tests; no real back-channel."""
 
     request_id: int | str | None
     transport: TransportContext = field(default_factory=lambda: TransportContext(kind="direct", can_send_request=False))
@@ -1150,8 +1036,6 @@ _LIFESPAN: dict[str, Any] = {}
 
 @pytest.mark.anyio
 async def test_serve_one_runs_handler_and_returns_result_dict(server: SrvT):
-    """The single-exchange driver: builds the kernel, runs `on_request` once,
-    returns the agnostic result dict, and tears down `connection.exit_stack`."""
     conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
@@ -1166,9 +1050,7 @@ async def test_serve_one_runs_handler_and_returns_result_dict(server: SrvT):
 
 @pytest.mark.anyio
 async def test_serve_one_propagates_error_and_still_closes_exit_stack(server: SrvT):
-    """SDK-defined: a kernel-produced error (here `METHOD_NOT_FOUND` for an
-    unregistered method) propagates as `MCPError`, and the per-request exit
-    stack is closed on the error path too."""
+    """SDK-defined: a kernel-produced error propagates as `MCPError` and the exit stack still closes."""
     conn = Connection.from_envelope(LATEST_HANDSHAKE_VERSION, None, None)
     cleaned: list[int] = []
     conn.exit_stack.push_async_callback(_append_async, cleaned, 1)
@@ -1182,9 +1064,7 @@ async def test_serve_one_propagates_error_and_still_closes_exit_stack(server: Sr
 
 @pytest.mark.anyio
 async def test_serve_one_reads_connection_protocol_version_as_a_fact(server: SrvT):
-    """`serve_one` builds the kernel over the entry's `Connection`; the kernel
-    reads `connection.protocol_version` for the version gate. A `from_envelope`
-    connection at a modern version rejects a method absent there."""
+    """The version gate reads `connection.protocol_version`; `logging/setLevel` is absent at modern versions."""
     conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     with pytest.raises(MCPError) as exc_info:
         await serve_one(
@@ -1200,9 +1080,6 @@ async def test_serve_one_reads_connection_protocol_version_as_a_fact(server: Srv
 
 @pytest.mark.anyio
 async def test_serve_connection_drives_dispatcher_loop_and_tears_down(server: SrvT):
-    """The loop-mode driver: `serve_connection` builds the kernel, hands
-    `on_request`/`on_notify` to `dispatcher.run()`, and `aclose_shielded`s the
-    connection on the way out."""
     client, server_d, close = jsonrpc_pair()
     assert isinstance(client, JSONRPCDispatcher) and isinstance(server_d, JSONRPCDispatcher)
     conn = Connection.for_loop(server_d)

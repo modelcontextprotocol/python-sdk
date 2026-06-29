@@ -1,10 +1,6 @@
-"""Example showing direct execution of an MCP server.
+"""Simplest way to run an MCP server: execute the file directly.
 
-This is the simplest way to run an MCP server directly.
-cd to the `examples/snippets` directory and run:
-    uv run direct-execution-server
-    or
-    python servers/direct_execution.py
+From `examples/snippets`: `uv run direct-execution-server` or `python servers/direct_execution.py`.
 """
 
 from mcp.server.mcpserver import MCPServer
@@ -19,7 +15,6 @@ def hello(name: str = "World") -> str:
 
 
 def main():
-    """Entry point for the direct execution server."""
     mcp.run()
 
 

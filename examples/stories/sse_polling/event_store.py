@@ -1,7 +1,6 @@
 """Minimal in-memory `EventStore` for the SSE-resumability example.
 
-Sequential integer IDs so the wire is readable; a production server would back
-this interface with persistent storage so replay survives a process restart.
+Sequential integer IDs keep the wire readable; production would use persistent storage so replay survives restarts.
 """
 
 from mcp_types import JSONRPCMessage

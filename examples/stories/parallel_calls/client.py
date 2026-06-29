@@ -16,16 +16,14 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
         async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             received[tag].append(message)
 
-        # targets() yields a fresh connection target on every call; both land on the SAME
-        # server instance, so the two `meet` handlers can observe each other's arrival.
+        # Each targets() call is a fresh connection to the SAME server, so the two `meet` handlers can rendezvous.
         async with Client(targets(), mode=mode) as client:
             result = await client.call_tool("meet", {"tag": tag, "party": party}, progress_callback=on_progress)
             assert not result.is_error, result
             assert isinstance(result.content[0], TextContent)
             results[tag] = result.content[0].text
 
-    # Neither call can return until both handlers are running at once; a server that processed
-    # requests one-at-a-time would never set the second event and we'd time out here.
+    # Neither call returns until both handlers run concurrently — a serial server would never set the second event.
     with anyio.fail_after(5):
         async with anyio.create_task_group() as tg:
             tg.start_soon(attend, "a")

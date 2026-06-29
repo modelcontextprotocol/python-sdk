@@ -1,12 +1,7 @@
-"""Tests for the SEP-2133 extensions capability negotiation plumbing.
+"""SEP-2133 extensions capability advertisement and negotiation.
 
-The extension-map negotiation is independent of any concrete extension (Apps,
-Tasks): the lowlevel `Server` advertises `self.extensions` under
-`ServerCapabilities.extensions`, a client mirrors its own support under
-`ClientCapabilities.extensions`, and `Connection.check_capability` resolves the
-server-side query. These tests pin that plumbing end-to-end and at the unit
-level. Per-extension contribution wiring lives in `test_extension.py`; this file
-covers only the capability advertisement and negotiation.
+Covers only the extension-map plumbing, independent of any concrete extension;
+per-extension contribution wiring lives in `test_extension.py`.
 """
 
 import mcp_types as types
@@ -32,15 +27,11 @@ class _Extension(Extension):
 
 
 def test_get_capabilities_omits_extensions_when_none_registered() -> None:
-    """SDK-defined: a lowlevel `Server` with an empty `extensions` map advertises
-    `ServerCapabilities.extensions` as `None`, not an empty map."""
     server = Server("bare")
     assert server.get_capabilities().extensions is None
 
 
 def test_get_capabilities_advertises_populated_self_extensions() -> None:
-    """SDK-defined: `get_capabilities` reads `self.extensions` (the map higher
-    layers populate) and advertises it under `ServerCapabilities.extensions`."""
     server = Server("with-ext")
     settings = {"k": 1}
     server.extensions = {_EXTENSION_ID: settings}
@@ -48,26 +39,20 @@ def test_get_capabilities_advertises_populated_self_extensions() -> None:
 
 
 async def test_modern_connection_carries_the_advertised_extensions_map() -> None:
-    """SDK-defined: over a modern (`server/discover`) connection the client reads
-    the server's advertised extension map from `server_capabilities`."""
     server = MCPServer("host", extensions=[_Extension()])
     async with Client(server, mode="auto") as client:
         assert client.server_capabilities.extensions == snapshot({"com.example/x": {"k": 1}})
 
 
 async def test_legacy_handshake_drops_the_extensions_map() -> None:
-    """Pinned gap: the handshake-era `initialize` result is serialized against the
-    2025 wire schema, which has no `extensions` field, so a legacy handshake cannot
-    carry it; the client sees `None` even though the server advertised one."""
+    """Pinned gap: the 2025 wire schema's `initialize` result has no `extensions`
+    field, so a legacy handshake drops the map and the client sees `None`."""
     server = MCPServer("host", extensions=[_Extension()])
     async with Client(server, mode="legacy") as client:
         assert client.server_capabilities.extensions is None
 
 
 async def test_server_accepts_capability_for_client_advertised_extension() -> None:
-    """SDK-defined: a client advertising `extensions={id: ...}` makes the
-    server-side `check_client_capability` return True when queried for that id.
-    Observed inside a tool handler."""
     queried = types.ClientCapabilities(extensions={_EXTENSION_ID: {}})
     supported: list[bool] = []
 
@@ -89,8 +74,7 @@ async def test_server_accepts_capability_for_client_advertised_extension() -> No
 
 
 async def test_server_rejects_capability_for_undeclared_extension() -> None:
-    """SDK-defined: when the client advertises one extension, a server query for a
-    *different* identifier returns False - presence, not value, is the check."""
+    """Presence of the identifier, not its settings value, is what is checked."""
     queried = types.ClientCapabilities(extensions={_OTHER_EXTENSION_ID: {}})
     supported: list[bool] = []
 
@@ -112,8 +96,6 @@ async def test_server_rejects_capability_for_undeclared_extension() -> None:
 
 
 async def test_server_rejects_capability_when_client_advertises_no_extensions() -> None:
-    """SDK-defined: a client that declares no extensions makes any server
-    `check_client_capability` query for an extension return False."""
     queried = types.ClientCapabilities(extensions={_EXTENSION_ID: {}})
     supported: list[bool] = []
 

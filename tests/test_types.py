@@ -65,9 +65,6 @@ async def test_jsonrpc_request():
 
 @pytest.mark.anyio
 async def test_method_initialization():
-    """Test that the method is automatically set on object creation.
-    Testing just for InitializeRequest to keep the test simple, but should be set for other types as well.
-    """
     initialize_request = InitializeRequest(
         params=InitializeRequestParams(
             protocol_version=LATEST_PROTOCOL_VERSION,
@@ -100,7 +97,6 @@ async def test_tool_use_content():
     assert tool_use.id == "call_abc123"
     assert tool_use.input == {"location": "San Francisco", "unit": "celsius"}
 
-    # Test serialization
     serialized = tool_use.model_dump(by_alias=True, exclude_none=True)
     assert serialized["type"] == "tool_use"
     assert serialized["name"] == "get_weather"
@@ -122,7 +118,6 @@ async def test_tool_result_content():
     assert len(tool_result.content) == 1
     assert tool_result.is_error is False
 
-    # Test with empty content (should default to [])
     minimal_result_data = {"type": "tool_result", "toolUseId": "call_xyz"}
     minimal_result = ToolResultContent.model_validate(minimal_result_data)
     assert minimal_result.content == []
@@ -131,16 +126,13 @@ async def test_tool_result_content():
 @pytest.mark.anyio
 async def test_tool_choice():
     """Test ToolChoice type for SEP-1577."""
-    # Test with mode
     tool_choice_data = {"mode": "required"}
     tool_choice = ToolChoice.model_validate(tool_choice_data)
     assert tool_choice.mode == "required"
 
-    # Test with minimal data (all fields optional)
     minimal_choice = ToolChoice.model_validate({})
     assert minimal_choice.mode is None
 
-    # Test different modes
     auto_choice = ToolChoice.model_validate({"mode": "auto"})
     assert auto_choice.mode == "auto"
 
@@ -151,13 +143,11 @@ async def test_tool_choice():
 @pytest.mark.anyio
 async def test_sampling_message_with_user_role():
     """Test SamplingMessage with user role for SEP-1577."""
-    # Test with single content
     user_msg_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
     user_msg = SamplingMessage.model_validate(user_msg_data)
     assert user_msg.role == "user"
     assert isinstance(user_msg.content, TextContent)
 
-    # Test with array of content including tool result
     multi_content_data: dict[str, Any] = {
         "role": "user",
         "content": [
@@ -174,7 +164,6 @@ async def test_sampling_message_with_user_role():
 @pytest.mark.anyio
 async def test_sampling_message_with_assistant_role():
     """Test SamplingMessage with assistant role for SEP-1577."""
-    # Test with tool use content
     assistant_msg_data = {
         "role": "assistant",
         "content": {
@@ -188,7 +177,6 @@ async def test_sampling_message_with_assistant_role():
     assert assistant_msg.role == "assistant"
     assert isinstance(assistant_msg.content, ToolUseContent)
 
-    # Test with array of mixed content
     multi_content_data: dict[str, Any] = {
         "role": "assistant",
         "content": [
@@ -203,14 +191,11 @@ async def test_sampling_message_with_assistant_role():
 
 @pytest.mark.anyio
 async def test_sampling_message_backward_compatibility():
-    """Test that SamplingMessage maintains backward compatibility."""
-    # Old-style message (single content, no tools)
     old_style_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
     old_msg = SamplingMessage.model_validate(old_style_data)
     assert old_msg.role == "user"
     assert isinstance(old_msg.content, TextContent)
 
-    # New-style message with tool content
     new_style_data: dict[str, Any] = {
         "role": "assistant",
         "content": {"type": "tool_use", "name": "test", "id": "call_1", "input": {}},
@@ -219,7 +204,6 @@ async def test_sampling_message_backward_compatibility():
     assert new_msg.role == "assistant"
     assert isinstance(new_msg.content, ToolUseContent)
 
-    # Array content
     array_style_data: dict[str, Any] = {
         "role": "user",
         "content": [{"type": "text", "text": "Result:"}, {"type": "tool_result", "toolUseId": "call_1", "content": []}],
@@ -261,14 +245,12 @@ async def test_create_message_result_with_tool_use():
         "stopReason": "toolUse",
     }
 
-    # Tool use content uses CreateMessageResultWithTools
     result = CreateMessageResultWithTools.model_validate(result_data)
     assert result.role == "assistant"
     assert isinstance(result.content, ToolUseContent)
     assert result.stop_reason == "toolUse"
     assert result.model == "claude-3"
 
-    # Test content_as_list with single content (covers else branch)
     content_list = result.content_as_list
     assert len(content_list) == 1
     assert content_list[0] == result.content
@@ -276,7 +258,6 @@ async def test_create_message_result_with_tool_use():
 
 @pytest.mark.anyio
 async def test_create_message_result_basic():
-    """Test CreateMessageResult with basic text content (backwards compatible)."""
     result_data = {
         "role": "assistant",
         "content": {"type": "text", "text": "Hello!"},
@@ -284,7 +265,6 @@ async def test_create_message_result_basic():
         "stopReason": "endTurn",
     }
 
-    # Basic content uses CreateMessageResult (single content, no arrays)
     result = CreateMessageResult.model_validate(result_data)
     assert result.role == "assistant"
     assert isinstance(result.content, TextContent)
@@ -296,7 +276,6 @@ async def test_create_message_result_basic():
 @pytest.mark.anyio
 async def test_client_capabilities_with_sampling_tools():
     """Test ClientCapabilities with nested sampling capabilities for SEP-1577."""
-    # New structured format
     capabilities_data: dict[str, Any] = {
         "sampling": {"tools": {}},
     }
@@ -305,7 +284,6 @@ async def test_client_capabilities_with_sampling_tools():
     assert isinstance(capabilities.sampling, SamplingCapability)
     assert capabilities.sampling.tools is not None
 
-    # With both context and tools
     full_capabilities_data: dict[str, Any] = {"sampling": {"context": {}, "tools": {}}}
     full_caps = ClientCapabilities.model_validate(full_capabilities_data)
     assert isinstance(full_caps.sampling, SamplingCapability)
@@ -314,11 +292,7 @@ async def test_client_capabilities_with_sampling_tools():
 
 
 def test_tool_preserves_json_schema_2020_12_fields():
-    """Verify that JSON Schema 2020-12 keywords are preserved in Tool.inputSchema.
-
-    SEP-1613 establishes JSON Schema 2020-12 as the default dialect for MCP.
-    This test ensures the SDK doesn't strip $schema, $defs, or additionalProperties.
-    """
+    """SEP-1613 makes JSON Schema 2020-12 the default dialect; the SDK must not strip its keywords."""
     input_schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -337,13 +311,11 @@ def test_tool_preserves_json_schema_2020_12_fields():
 
     tool = Tool(name="test_tool", description="A test tool", input_schema=input_schema)
 
-    # Verify fields are preserved in the model
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert "address" in tool.input_schema["$defs"]
     assert tool.input_schema["additionalProperties"] is False
 
-    # Verify fields survive serialization round-trip
     serialized = tool.model_dump(mode="json", by_alias=True)
     assert serialized["inputSchema"]["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in serialized["inputSchema"]
@@ -351,7 +323,6 @@ def test_tool_preserves_json_schema_2020_12_fields():
 
 
 def test_list_tools_result_preserves_json_schema_2020_12_fields():
-    """Verify JSON Schema 2020-12 fields survive ListToolsResult deserialization."""
     raw_response = {
         "tools": [
             {
@@ -402,9 +373,7 @@ def test_concrete_wire_results_always_dump_result_type_complete():
 
 
 def test_cacheable_results_default_to_immediately_stale_private():
-    """`ttl_ms`/`cache_scope` default to 0/"private" so list-results validate at
-    2026-07-28 without the handler setting them, and never accidentally enable
-    shared caching."""
+    """Defaults of 0/"private" keep handler-untouched list-results valid at 2026-07-28, with shared caching opt-in."""
     cacheable: list[Result] = [
         ReadResourceResult(contents=[]),
         ListPromptsResult(prompts=[]),

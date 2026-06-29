@@ -4,8 +4,7 @@ import mcp_types as types
 
 from mcp.server import Server, ServerRequestContext
 
-# Sample data to paginate
-ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
+ITEMS = [f"Item {i}" for i in range(1, 101)]
 
 
 async def handle_list_resources(
@@ -14,20 +13,17 @@ async def handle_list_resources(
     """List resources with pagination support."""
     page_size = 10
 
-    # Extract cursor from request params
     cursor = params.cursor if params is not None else None
 
-    # Parse cursor to get offset
+    # The cursor is an opaque string; this server encodes the list offset in it
     start = 0 if cursor is None else int(cursor)
     end = start + page_size
 
-    # Get page of resources
     page_items = [
         types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 
-    # Determine next cursor
     next_cursor = str(end) if end < len(ITEMS) else None
 
     return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)

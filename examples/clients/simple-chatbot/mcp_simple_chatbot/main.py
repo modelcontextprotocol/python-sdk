@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
@@ -21,7 +20,6 @@ class Configuration:
     """Manages configuration and environment variables for the MCP client."""
 
     def __init__(self) -> None:
-        """Initialize configuration with environment variables."""
         self.load_env()
         self.api_key = os.getenv("LLM_API_KEY")
 
@@ -32,30 +30,21 @@ class Configuration:
 
     @staticmethod
     def load_config(file_path: str) -> dict[str, Any]:
-        """Load server configuration from JSON file.
-
-        Args:
-            file_path: Path to the JSON configuration file.
-
-        Returns:
-            Dict containing server configuration.
+        """Load server configuration from a JSON file.
 
         Raises:
-            FileNotFoundError: If configuration file doesn't exist.
-            JSONDecodeError: If configuration file is invalid JSON.
+            FileNotFoundError: If the file doesn't exist.
+            JSONDecodeError: If the file isn't valid JSON.
         """
         with open(file_path, "r") as f:
             return json.load(f)
 
     @property
     def llm_api_key(self) -> str:
-        """Get the LLM API key.
-
-        Returns:
-            The API key as a string.
+        """The LLM API key.
 
         Raises:
-            ValueError: If the API key is not found in environment variables.
+            ValueError: If LLM_API_KEY is not set in the environment.
         """
         if not self.api_key:
             raise ValueError("LLM_API_KEY not found in environment variables")
@@ -98,9 +87,6 @@ class Server:
     async def list_tools(self) -> list[Tool]:
         """List available tools from the server.
 
-        Returns:
-            A list of available tools.
-
         Raises:
             RuntimeError: If the server is not initialized.
         """
@@ -123,19 +109,10 @@ class Server:
         retries: int = 2,
         delay: float = 1.0,
     ) -> Any:
-        """Execute a tool with retry mechanism.
-
-        Args:
-            tool_name: Name of the tool to execute.
-            arguments: Tool arguments.
-            retries: Number of retry attempts.
-            delay: Delay between retries in seconds.
-
-        Returns:
-            Tool execution result.
+        """Execute a tool, making up to `retries` attempts with `delay` seconds between them.
 
         Raises:
-            RuntimeError: If server is not initialized.
+            RuntimeError: If the server is not initialized.
             Exception: If tool execution fails after all retries.
         """
         if not self.session:
@@ -186,11 +163,7 @@ class Tool:
         self.input_schema: dict[str, Any] = input_schema
 
     def format_for_llm(self) -> str:
-        """Format tool information for LLM.
-
-        Returns:
-            A formatted string describing the tool.
-        """
+        """Format tool information for inclusion in the LLM system prompt."""
         args_desc: list[str] = []
         if "properties" in self.input_schema:
             for param_name, param_info in self.input_schema["properties"].items():
@@ -199,10 +172,8 @@ class Tool:
                     arg_desc += " (required)"
                 args_desc.append(arg_desc)
 
-        # Build the formatted output with title as a separate field
         output = f"Tool: {self.name}\n"
 
-        # Add human-readable title if available
         if self.title:
             output += f"User-readable title: {self.title}\n"
 
@@ -222,12 +193,6 @@ class LLMClient:
 
     def get_response(self, messages: list[dict[str, str]]) -> str:
         """Get a response from the LLM.
-
-        Args:
-            messages: A list of message dictionaries.
-
-        Returns:
-            The LLM's response as a string.
 
         Raises:
             httpx.RequestError: If the request to the LLM fails.
@@ -283,14 +248,7 @@ class ChatSession:
                 logging.warning(f"Warning during final cleanup: {e}")
 
     async def process_llm_response(self, llm_response: str) -> str:
-        """Process the LLM response and execute tools if needed.
-
-        Args:
-            llm_response: The response from the LLM.
-
-        Returns:
-            The result of tool execution or the original response.
-        """
+        """Execute the requested tool if the response is a JSON tool call, otherwise return it unchanged."""
         import json
 
         def _clean_json_string(json_string: str) -> str:

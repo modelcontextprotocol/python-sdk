@@ -1,12 +1,8 @@
 """SEP-2322 client-side multi-round-trip driver.
 
-When a server returns `InputRequiredResult` instead of the normal result of a
-`tools/call` / `prompts/get` / `resources/read`, the client fulfils the
-embedded `input_requests` (sampling, elicitation, roots) and retries the
-original request carrying the responses and the echoed opaque `request_state`.
-This module implements that retry loop as a pure function so it can drive any
-of the three methods identically; `Client` builds the `dispatch` and `retry`
-closures, `ClientSession` stays mechanics-only.
+Fulfils the `input_requests` embedded in an `InputRequiredResult` (sampling,
+elicitation, roots) and retries the original `tools/call` / `prompts/get` /
+`resources/read` with the responses and the echoed opaque `request_state`.
 """
 
 from __future__ import annotations
@@ -21,11 +17,7 @@ from mcp_types import ErrorData, InputRequest, InputRequiredResult, InputRespons
 from mcp.shared.exceptions import MCPError
 
 DEFAULT_INPUT_REQUIRED_MAX_ROUNDS = 10
-"""Default cap on `InputRequiredResult` retry rounds before the driver gives up.
-
-Matches the typescript-sdk default; csharp-sdk and go-sdk use the same value
-as a hard constant.
-"""
+"""Default cap on retry rounds; matches the typescript-sdk default (csharp-sdk and go-sdk hardcode the same)."""
 
 _STATE_ONLY_BACKOFF_INITIAL_SECONDS = 0.05
 """First sleep when an `InputRequiredResult` carries only `request_state` (no input requests)."""
@@ -58,21 +50,15 @@ async def run_input_required_driver(
 ) -> ResultT:
     """Resolve an `InputRequiredResult` to its terminal result.
 
-    Loops until `retry` returns a non-`InputRequiredResult`, or `max_rounds` is
-    exhausted. Each round either dispatches all `input_requests` concurrently
-    and retries with the collected responses, or — when the server sent only
-    `request_state` — sleeps with exponential backoff (50ms doubling to a 250ms
-    cap, reset by any leg that carries input requests) and retries empty.
-    `request_state` is passed through byte-exact and never inspected.
+    Each round dispatches all `input_requests` concurrently and retries with the
+    responses; a state-only leg instead sleeps with exponential backoff (reset by
+    any leg carrying requests) and retries empty. `request_state` is echoed
+    byte-exact, never inspected.
 
     Args:
-        first: The `InputRequiredResult` the original call returned.
-        dispatch: Runs one embedded `InputRequest` through the client's
-            sampling / elicitation / roots callbacks. Called concurrently per
-            request key. An `ErrorData` return aborts the loop as an `MCPError`.
-        retry: Re-issues the original request with the collected responses and
-            the latest `request_state`. Each call mints a fresh JSON-RPC id.
-        max_rounds: Cap on retry rounds.
+        dispatch: Fulfils one `InputRequest` via the client's sampling/elicitation/
+            roots callbacks; an `ErrorData` return aborts the loop as `MCPError`.
+        retry: Re-issues the original request; each call mints a fresh JSON-RPC id.
 
     Raises:
         InputRequiredRoundsExceededError: `max_rounds` exhausted.
@@ -102,10 +88,8 @@ async def _dispatch_all(
 ) -> InputResponses:
     """Run `dispatch` concurrently for every key, raising `MCPError` on the first `ErrorData`.
 
-    The first task to return `ErrorData` cancels its siblings via the task
-    group's cancel scope, so a refused input does not wait on a slow peer.
-    A callback that *raises* propagates as an `ExceptionGroup` like any other
-    task-group failure.
+    The first `ErrorData` cancels its sibling tasks so a refused input does not wait
+    on a slow peer; a callback that raises propagates as an `ExceptionGroup`.
     """
     responses: InputResponses = {}
     refused: ErrorData | None = None

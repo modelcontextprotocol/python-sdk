@@ -13,13 +13,11 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         assert not result.is_error
         assert result.structured_content is not None, result
 
-        # Era-neutral: legacy adds initialize + notifications/initialized; modern HTTP
-        # adds server/discover; modern in-memory adds nothing. Filter to the methods
-        # this client drove.
+        # The log also holds era-dependent bookkeeping (legacy: initialize + notifications/initialized;
+        # modern HTTP: server/discover). Keep only the tools/* methods this client drove.
         seen = [m for m in result.structured_content["result"] if m.startswith("tools/")]
-        # The tail ends at tools/call with no :done — the handler ran inside the
-        # middleware frame. Assert the tail (not the whole list) so a re-run against
-        # a long-lived server, whose log accumulates across clients, still passes.
+        # No :done after tools/call — the handler ran inside the middleware frame. Assert
+        # only the tail: a long-lived server's log accumulates across clients.
         assert seen[-3:] == ["tools/list", "tools/list:done", "tools/call"], seen
 
 

@@ -1,32 +1,11 @@
-"""MCP unified conformance test client.
-
-This client is designed to work with the @modelcontextprotocol/conformance npm package.
-It handles all conformance test scenarios via environment variables and CLI arguments.
+"""MCP conformance test client for the @modelcontextprotocol/conformance harness.
 
 Contract:
-    - MCP_CONFORMANCE_SCENARIO env var -> scenario name
-    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
-    - MCP_CONFORMANCE_PROTOCOL_VERSION env var -> spec version the harness mock
-      server is speaking (e.g. "2025-11-25", "2026-07-28"). Always set; when
-      --spec-version is omitted the harness picks per-scenario (LATEST_SPEC_VERSION
-      for active scenarios, DRAFT_PROTOCOL_VERSION for draft-only ones).
+    - MCP_CONFORMANCE_SCENARIO env var -> scenario name (see HANDLERS; auth/* falls back to the auth code flow)
+    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (client-credentials scenarios)
+    - MCP_CONFORMANCE_PROTOCOL_VERSION env var -> spec version the harness mock server speaks
     - Server URL as last CLI argument (sys.argv[1])
     - Must exit 0 within 30 seconds
-
-Scenarios:
-    initialize                              - Connect, initialize, list tools, close
-    tools_call                              - Connect, call add_numbers(a=5, b=3), close
-    sse-retry                               - Connect, call test_reconnection, close
-    json-schema-ref-no-deref                - Connect, list tools (no $ref deref)
-    request-metadata                        - Connect with all callbacks; client stamps _meta
-    http-standard-headers                   - Connect, call a tool (Mcp-* headers checked)
-    http-invalid-tool-headers               - List tools, call every surfaced tool (x-mcp-header filter)
-    elicitation-sep1034-client-defaults     - Elicitation with default accept callback
-    sep-2322-client-request-state           - Drive the MRTR auto-loop (SEP-2322)
-    auth/client-credentials-jwt             - Client credentials with private_key_jwt
-    auth/client-credentials-basic           - Client credentials with client_secret_basic
-    auth/enterprise-managed-authorization   - SEP-990 ID-JAG (RFC 8693 + RFC 7523 jwt-bearer)
-    auth/*                                  - Authorization code flow (default for auth scenarios)
 """
 
 import asyncio
@@ -64,32 +43,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-#: Spec version the harness is running this scenario at (e.g. "2025-11-25",
-#: "2026-07-28"). The harness always sets this (when --spec-version is omitted
-#: it picks per-scenario: LATEST_SPEC_VERSION for active scenarios,
-#: DRAFT_PROTOCOL_VERSION for draft-only ones), so None means we were invoked
-#: outside the harness.
+#: Spec version the harness mock server speaks (e.g. "2025-11-25"). The harness
+#: always sets this, so None means we were invoked outside it.
 PROTOCOL_VERSION: str | None = os.environ.get("MCP_CONFORMANCE_PROTOCOL_VERSION")
 
 
 def client_mode() -> str:
     """Pick the Client(mode=) for the harness leg.
 
-    On a modern leg (2026-07-28+) -> 'auto' so Client.discover() runs and the
-    _meta envelope + MCP-Protocol-Version header are stamped on every request.
-    On a handshake-era leg -> 'legacy' so the initialize handshake runs exactly
-    as before (no server/discover probe is sent against a mock that would 400 it).
-    Outside the harness -> 'auto' (probe + fallback).
+    'auto' on modern legs (2026-07-28+) and outside the harness; 'legacy' on handshake-era
+    legs so no server/discover probe is sent against a mock that would 400 it.
     """
     if PROTOCOL_VERSION is None or PROTOCOL_VERSION in MODERN_PROTOCOL_VERSIONS:
         return "auto"
     return "legacy"
 
 
-# Type for async scenario handler functions
 ScenarioHandler = Callable[[str], Coroutine[Any, None, None]]
 
-# Registry of scenario handlers
 HANDLERS: dict[str, ScenarioHandler] = {}
 
 
@@ -138,9 +109,7 @@ class InMemoryTokenStorage(TokenStorage):
 
 
 class ConformanceOAuthCallbackHandler:
-    """OAuth callback handler that automatically fetches the authorization URL
-    and extracts the auth code, without requiring user interaction.
-    """
+    """Fetches the authorization URL and extracts the auth code without user interaction."""
 
     def __init__(self) -> None:
         self._auth_code: str | None = None
@@ -148,7 +117,6 @@ class ConformanceOAuthCallbackHandler:
         self._iss: str | None = None
 
     async def handle_redirect(self, authorization_url: str) -> None:
-        """Fetch the authorization URL and extract the auth code from the redirect."""
         logger.debug(f"Fetching authorization URL: {authorization_url}")
 
         async with httpx.AsyncClient() as client:
@@ -179,7 +147,6 @@ class ConformanceOAuthCallbackHandler:
                 raise RuntimeError(f"Expected redirect response, got {response.status_code} from {authorization_url}")
 
     async def handle_callback(self) -> AuthorizationCodeResult:
-        """Return the captured auth code, state, and iss."""
         if self._auth_code is None:
             raise RuntimeError("No authorization code available - was handle_redirect called?")
         result = AuthorizationCodeResult(code=self._auth_code, state=self._state, iss=self._iss)
@@ -187,9 +154,6 @@ class ConformanceOAuthCallbackHandler:
         self._state = None
         self._iss = None
         return result
-
-
-# --- Stub callbacks (declare capabilities in _meta without doing real work) ---
 
 
 async def stub_sampling_callback(
@@ -214,7 +178,6 @@ async def default_elicitation_callback(
     """Accept elicitation and apply defaults from the schema (SEP-1034)."""
     content: dict[str, str | int | float | bool | list[str] | None] = {}
 
-    # For form mode, extract defaults from the requested_schema
     if isinstance(params, types.ElicitRequestFormParams):
         schema = params.requested_schema
         logger.debug(f"Elicitation schema: {schema}")
@@ -227,12 +190,8 @@ async def default_elicitation_callback(
     return types.ElicitResult(action="accept", content=content)
 
 
-# --- Scenario Handlers ---
-
-
 @register("initialize")
 async def run_initialize(server_url: str) -> None:
-    """Connect, initialize, list tools, close."""
     async with Client(server_url, mode=client_mode()) as client:
         logger.debug("Initialized successfully")
         await client.list_tools()
@@ -241,12 +200,10 @@ async def run_initialize(server_url: str) -> None:
 
 @register("json-schema-ref-no-deref")
 async def run_json_schema_ref_no_deref(server_url: str) -> None:
-    """Initialize and list tools; the scenario fails only if the client fetches a network $ref.
+    """List tools; the scenario fails only if the client fetches a network $ref (SEP-2106).
 
-    The client never walks inputSchema or resolves $refs, so listing is enough (SEP-2106).
-    Pinned to mode='legacy': the harness reports PROTOCOL_VERSION=2026-07-28 for this
-    scenario but its mock server only speaks the handshake-era lifecycle and 400s a
-    modern-stamped tools/list. The check is lifecycle-agnostic so this is harmless.
+    Pinned to mode='legacy': the harness reports PROTOCOL_VERSION=2026-07-28 here, but its
+    mock only speaks the handshake-era lifecycle and 400s a modern-stamped tools/list.
     """
     async with Client(server_url, mode="legacy") as client:
         await client.list_tools()
@@ -254,7 +211,6 @@ async def run_json_schema_ref_no_deref(server_url: str) -> None:
 
 @register("tools_call")
 async def run_tools_call(server_url: str) -> None:
-    """Connect, list tools, call add_numbers(a=5, b=3), close."""
     async with Client(server_url, mode=client_mode()) as client:
         await client.list_tools()
         result = await client.call_tool("add_numbers", {"a": 5, "b": 3})
@@ -263,7 +219,6 @@ async def run_tools_call(server_url: str) -> None:
 
 @register("sse-retry")
 async def run_sse_retry(server_url: str) -> None:
-    """Connect, list tools, call test_reconnection, close."""
     async with Client(server_url, mode=client_mode()) as client:
         await client.list_tools()
         result = await client.call_tool("test_reconnection", {})
@@ -274,11 +229,9 @@ async def run_sse_retry(server_url: str) -> None:
 async def run_request_metadata(server_url: str) -> None:
     """Connect on the modern path with every client capability declared.
 
-    The scenario inspects every request's `_meta` envelope (SEP-2575) for
-    protocolVersion / clientInfo / clientCapabilities, and the matching
-    MCP-Protocol-Version header. mode='auto' makes the SDK send
-    server/discover (covering the unsupported-version retry check), then adopt
-    and stamp the envelope on the follow-up requests.
+    The scenario inspects each request's `_meta` envelope (SEP-2575) and MCP-Protocol-Version
+    header; mode='auto' sends server/discover (covering the unsupported-version retry check),
+    then stamps the envelope on follow-up requests.
     """
     async with Client(
         server_url,
@@ -320,13 +273,9 @@ def _stub_required_args(input_schema: dict[str, Any]) -> dict[str, Any]:
 async def run_http_invalid_tool_headers(server_url: str) -> None:
     """List tools, then call every tool the SDK surfaces (SEP-2243).
 
-    The harness mock advertises one valid tool plus several with malformed
-    x-mcp-header annotations (empty, non-primitive type, duplicate, invalid
-    chars). The scenario passes if valid_tool is called and the malformed
-    ones are not -- so a conforming client filters them out of the list_tools
-    result and the loop below never sees them. The scenario sets
-    allowClientError, so a per-call failure is logged and skipped rather
-    than aborting the whole run.
+    The mock advertises one valid tool plus several with malformed x-mcp-header annotations;
+    a conforming client filters those out of the list_tools result so the loop never sees
+    them. The scenario sets allowClientError, so per-call failures are logged, not fatal.
     """
     async with Client(server_url, mode=client_mode()) as client:
         listed = await client.list_tools()
@@ -340,13 +289,11 @@ async def run_http_invalid_tool_headers(server_url: str) -> None:
 
 @register("http-custom-headers")
 async def run_http_custom_headers(server_url: str) -> None:
-    """List tools, then replay the harness's `toolCalls` so x-mcp-header args mirror into headers (SEP-2243).
+    """Replay the harness's `toolCalls` verbatim so x-mcp-header args mirror into headers (SEP-2243).
 
-    The scenario supplies the exact arguments to send (including the null/edge-case values that
-    exercise omission and Base64 encoding) via the context `toolCalls`; using them verbatim is
-    what drives every per-parameter check. `list_tools` first so the SDK caches each tool's
-    annotations; a tool the SDK dropped (invalid annotations) is skipped. Per-call failures are
-    logged and skipped rather than aborting the run.
+    The context supplies the exact arguments (including null/edge-case values exercising omission
+    and Base64 encoding). `list_tools` first so the SDK caches each tool's annotations; tools the
+    SDK dropped (invalid annotations) are skipped, and per-call failures are logged, not fatal.
     """
     tool_calls: list[dict[str, Any]] = []
     if os.environ.get("MCP_CONFORMANCE_CONTEXT"):
@@ -368,7 +315,6 @@ async def run_http_custom_headers(server_url: str) -> None:
 
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
-    """Connect with elicitation callback that applies schema defaults."""
     async with Client(server_url, mode=client_mode(), elicitation_callback=default_elicitation_callback) as client:
         await client.list_tools()
         result = await client.call_tool("test_client_elicitation_defaults", {})
@@ -379,13 +325,10 @@ async def run_elicitation_defaults(server_url: str) -> None:
 async def run_mrtr_client(server_url: str) -> None:
     """Drive the SEP-2322 client mock through `Client.call_tool`'s auto-loop.
 
-    The mock inspects raw `tools/call` params, so registering an
-    `elicitation_callback` and letting the driver run is enough to satisfy
-    all five wire-shape checks: the driver echoes `request_state` byte-exact
-    and omits it when the server sent none, every retry mints a fresh
-    JSON-RPC id, the unrelated call between auto-loops carries no MRTR
-    params, and the no-`resultType` response parses as a terminal
-    `CallToolResult` so the driver never retries it.
+    The mock inspects raw `tools/call` params: the driver must echo `request_state`
+    byte-exact (omitting it when the server sent none), mint a fresh JSON-RPC id per
+    retry, keep MRTR params off unrelated calls, and treat a no-`resultType` response
+    as a terminal `CallToolResult`.
     """
 
     async def confirm(
@@ -459,9 +402,7 @@ async def run_client_credentials_basic(server_url: str) -> None:
 
 @register("auth/enterprise-managed-authorization")
 async def run_enterprise_managed_authorization(server_url: str) -> None:
-    """SEP-990 enterprise-managed authorization: RFC 8693 token-exchange at the
-    enterprise IdP for an ID-JAG, then RFC 7523 jwt-bearer at the MCP
-    authorization server."""
+    """SEP-990: RFC 8693 token-exchange at the IdP for an ID-JAG, then RFC 7523 jwt-bearer at the MCP AS."""
     context = get_conformance_context()
     client_id = context.get("client_id")
     client_secret = context.get("client_secret")
@@ -480,11 +421,9 @@ async def run_enterprise_managed_authorization(server_url: str) -> None:
     if not idp_token_endpoint:
         raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_token_endpoint'")
 
-    # IdentityAssertionOAuthProvider takes the AS issuer as configuration (the
-    # SEP-990 trust model: the resource server is never asked which AS to use).
-    # The harness does not put the issuer in context, so for conformance we
-    # learn it from the harness's PRM document (RFC 9728); production
-    # deployments would supply it as static configuration instead.
+    # SEP-990 trust model: the AS issuer is client configuration, never asked of the resource
+    # server. The harness omits it from context, so learn it from the PRM document (RFC 9728);
+    # production deployments would configure it statically.
     prm_url = build_protected_resource_metadata_discovery_urls(None, server_url)[0]
     async with httpx.AsyncClient(timeout=30.0) as http:
         prm = (await http.get(prm_url)).raise_for_status().json()
@@ -526,7 +465,6 @@ async def run_auth_code_client(server_url: str) -> None:
     callback_handler = ConformanceOAuthCallbackHandler()
     storage = InMemoryTokenStorage()
 
-    # Check for pre-registered client credentials from context
     context_json = os.environ.get("MCP_CONFORMANCE_CONTEXT")
     if context_json:
         try:
@@ -573,7 +511,7 @@ async def _run_auth_session(server_url: str, oauth_auth: httpx.Auth) -> None:
         tools_result = await client.list_tools()
         logger.debug(f"Listed tools: {[t.name for t in tools_result.tools]}")
 
-        # Call the first available tool (different tests have different tools)
+        # Different tests expose different tools; call the first one
         if tools_result.tools:
             tool_name = tools_result.tools[0].name
             try:
@@ -586,7 +524,6 @@ async def _run_auth_session(server_url: str, oauth_auth: httpx.Auth) -> None:
 
 
 def main() -> None:
-    """Main entry point for the conformance client."""
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <server-url>", file=sys.stderr)
         sys.exit(1)

@@ -52,8 +52,6 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture
 def simple_server() -> Server:
-    """Create a simple MCP server for testing."""
-
     async def handle_list_resources(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> ListResourcesResult:
@@ -87,7 +85,6 @@ def simple_server() -> Server:
 
 @pytest.fixture
 def app() -> MCPServer:
-    """Create an MCPServer server for testing."""
     server = MCPServer("test")
 
     @server.tool()
@@ -109,7 +106,6 @@ def app() -> MCPServer:
 
 
 async def test_client_is_initialized(app: MCPServer):
-    """Test that the client is initialized after entering context."""
     async with Client(app, mode="legacy") as client:
         assert client.server_capabilities == snapshot(
             ServerCapabilities(
@@ -123,13 +119,11 @@ async def test_client_is_initialized(app: MCPServer):
 
 
 async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
-    """The negotiated protocol version is readable after initialization."""
     async with Client(app, mode="legacy") as client:
         assert client.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
 async def test_client_with_simple_server(simple_server: Server):
-    """Test that from_server works with a basic Server instance."""
     async with Client(simple_server) as client:
         resources = await client.list_resources()
         assert resources == snapshot(
@@ -184,7 +178,6 @@ async def test_client_call_tool(app: MCPServer):
 
 
 async def test_read_resource(app: MCPServer):
-    """Test reading a resource."""
     async with Client(app) as client:
         result = await client.read_resource("test://resource")
         assert result == snapshot(
@@ -195,8 +188,6 @@ async def test_read_resource(app: MCPServer):
 
 
 async def test_read_resource_error_propagates():
-    """MCPError raised by a server handler propagates to the client with its code intact."""
-
     async def handle_read_resource(
         ctx: ServerRequestContext, params: types.ReadResourceRequestParams
     ) -> ReadResourceResult:
@@ -210,10 +201,6 @@ async def test_read_resource_error_propagates():
 
 
 async def test_raise_exceptions_propagates_handler_error_on_modern_inproc_path():
-    """`raise_exceptions=True` on the modern in-process path: an unmapped handler
-    exception reaches the client with its original type chained, instead of being
-    sanitized to an opaque `INTERNAL_ERROR`."""
-
     async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         raise ValueError("boom")
 
@@ -221,15 +208,12 @@ async def test_raise_exceptions_propagates_handler_error_on_modern_inproc_path()
     async with Client(server, mode="2026-07-28", raise_exceptions=True) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("explode", {})
-    # The original exception is chained — not swallowed into a generic "Internal server error".
     assert isinstance(exc_info.value.__cause__, ValueError)
     assert str(exc_info.value.__cause__) == "boom"
 
 
 async def test_raise_exceptions_false_sanitizes_handler_error_on_modern_inproc_path():
-    """`raise_exceptions=False` (the default) on the modern in-process path: an
-    unmapped handler exception is sanitized to an opaque `INTERNAL_ERROR` so the
-    in-process path matches the wire path's leak guard."""
+    """Sanitized to opaque `INTERNAL_ERROR` by default so the in-process path matches the wire path's leak guard."""
 
     async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         raise ValueError("boom")
@@ -244,7 +228,6 @@ async def test_raise_exceptions_false_sanitizes_handler_error_on_modern_inproc_p
 
 
 async def test_get_prompt(app: MCPServer):
-    """Test getting a prompt."""
     async with Client(app) as client:
         result = await client.get_prompt("greeting_prompt", {"name": "Alice"})
         assert result == snapshot(
@@ -256,21 +239,18 @@ async def test_get_prompt(app: MCPServer):
 
 
 def test_client_session_property_before_enter(app: MCPServer):
-    """Test that accessing session before context manager raises RuntimeError."""
     client = Client(app)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
 
 
 async def test_client_reentry_raises_runtime_error(app: MCPServer):
-    """Test that reentering a client raises RuntimeError."""
     async with Client(app) as client:
         with pytest.raises(RuntimeError, match="Client is already entered"):
             await client.__aenter__()
 
 
 async def test_client_send_progress_notification():
-    """Test sending progress notification."""
     received_from_client = None
     event = anyio.Event()
 
@@ -301,14 +281,12 @@ async def test_client_unsubscribe_resource(simple_server: Server):
 
 
 async def test_client_set_logging_level(simple_server: Server):
-    """Test setting logging level."""
     async with Client(simple_server, mode="legacy") as client:
         result = await client.set_logging_level("debug")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_list_resources_with_params(app: MCPServer):
-    """Test listing resources with params parameter."""
     async with Client(app) as client:
         result = await client.list_resources()
         assert result == snapshot(
@@ -326,14 +304,12 @@ async def test_client_list_resources_with_params(app: MCPServer):
 
 
 async def test_client_list_resource_templates(app: MCPServer):
-    """Test listing resource templates with params parameter."""
     async with Client(app) as client:
         result = await client.list_resource_templates()
         assert result == snapshot(ListResourceTemplatesResult(resource_templates=[]))
 
 
 async def test_list_prompts(app: MCPServer):
-    """Test listing prompts with params parameter."""
     async with Client(app) as client:
         result = await client.list_prompts()
         assert result == snapshot(
@@ -350,7 +326,6 @@ async def test_list_prompts(app: MCPServer):
 
 
 async def test_complete_with_prompt_reference(simple_server: Server):
-    """Test getting completions for a prompt argument."""
     async with Client(simple_server) as client:
         ref = types.PromptReference(type="ref/prompt", name="test_prompt")
         result = await client.complete(ref=ref, argument={"name": "arg", "value": "test"})
@@ -388,7 +363,6 @@ def _set_test_contextvar(value: str) -> Iterator[None]:
 
 
 async def test_context_propagation():
-    """Sender's contextvars.Context is propagated to the server handler."""
     server = MCPServer("test")
 
     @server.tool()
@@ -406,10 +380,7 @@ async def test_context_propagation():
 
 
 async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Server) -> None:
-    """`mode='auto'` over an in-process HTTP transport: the `server/discover` probe
-    reaches the modern entry and the negotiated protocol version is adopted without
-    an `initialize` handshake. Runs over HTTP because the in-memory runner gates
-    `server/discover` behind the init handshake."""
+    """Runs over HTTP because the in-memory runner gates `server/discover` behind the init handshake."""
     with anyio.fail_after(5):
         async with (
             mounted_app(simple_server) as (http, _),
@@ -421,12 +392,8 @@ async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Serve
 
 @pytest.mark.parametrize("code", [types.METHOD_NOT_FOUND, types.REQUEST_TIMEOUT, types.INTERNAL_ERROR])
 async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: int) -> None:
-    """`mode='auto'`: any JSON-RPC error from `server/discover` makes
-    `Client.__aenter__` run the legacy `initialize()` handshake and land at a
-    handshake-era protocol version. The denylist policy treats every server-sent
-    rpc-error as "not modern" — including INTERNAL_ERROR, since a legacy server
-    may crash on the unknown method before reaching its router. A real `Server`
-    always implements `server/discover`, so the server side is hand-played."""
+    """Any rpc-error from `server/discover` reads as "not modern" — even INTERNAL_ERROR, since a legacy server
+    may crash on the unknown method. A real `Server` always implements `server/discover`, so it's hand-played."""
     methods_seen: list[str] = []
 
     async def scripted_server(streams: MessageStream) -> None:
@@ -476,10 +443,7 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
 
 @pytest.mark.anyio
 async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legacy_does_not() -> None:
-    """At 2026-07-28 the spec requires clients to exclude tools whose `x-mcp-header`
-    annotation is malformed; handshake-era sessions surface them unchanged. Two
-    tools are advertised — one valid, one with a non-RFC-9110-token header name —
-    and the modern client sees only the valid one."""
+    """The 2026-07-28 spec requires excluding tools with a malformed `x-mcp-header`; handshake-era sessions don't."""
     valid = types.Tool(
         name="ok",
         input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}},
@@ -507,17 +471,11 @@ async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legac
 
 
 def test_client_rejects_handshake_era_mode_at_construction() -> None:
-    """A handshake-era protocol-version string passed as `mode=` is rejected by
-    `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is
-    modern-only."""
     server = MCPServer("test")
     with pytest.raises(ValueError, match=r"handshake-era version; use mode='legacy'"):
         Client(server, mode="2025-06-18")
     with pytest.raises(ValueError, match=r"mode must be 'legacy', 'auto', or one of"):
         Client(server, mode="not-a-version")
-
-
-# ── SEP-2322 multi-round-trip auto-loop ────────────────────────────────────────
 
 
 _NAME_SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
@@ -528,9 +486,7 @@ def _name_elicitation(message: str = "What is your name?") -> types.ElicitReques
 
 
 async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_result() -> None:
-    """When the server returns `InputRequiredResult` carrying an elicitation,
-    `Client.call_tool` routes it to `elicitation_callback` and retries
-    automatically — the caller sees only the terminal `CallToolResult`."""
+    """SEP-2322 auto-loop: `call_tool` routes the `InputRequiredResult` to `elicitation_callback` and retries."""
     server = MCPServer("test")
 
     @server.tool()
@@ -566,8 +522,6 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
 
 
 async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result() -> None:
-    """`InputRequiredResult` with an embedded `CreateMessageRequest` is routed
-    to `sampling_callback` and the call retried with the model's reply."""
     server = MCPServer("test")
 
     @server.tool()
@@ -611,8 +565,6 @@ async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result
 
 
 async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_result() -> None:
-    """`InputRequiredResult` with an embedded `ListRootsRequest` is routed to
-    `list_roots_callback` and the call retried with the returned roots."""
     server = MCPServer("test")
 
     @server.tool()
@@ -645,14 +597,11 @@ async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_resu
 
 
 async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_three_rounds() -> None:
-    """A three-round flow where each `InputRequiredResult.request_state`
-    encodes the round number: the driver echoes it back byte-exact, the server
-    advances per round, and the elicitation callback runs once per round."""
+    """The driver must echo each round's `request_state` back to the server byte-exact."""
     server = MCPServer("test")
 
     @server.tool()
     async def multi(ctx: Context) -> str | types.InputRequiredResult:
-        # Round number is the integer the server stashed in `request_state` last leg.
         round_num = int(ctx.request_state) if ctx.request_state else 0
         if round_num == 3:
             return "done after 3 rounds"
@@ -680,9 +629,7 @@ async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_thr
 
 
 async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered() -> None:
-    """SDK-defined: with no `elicitation_callback`, the default returns
-    `ErrorData(INVALID_REQUEST, ...)` and the driver raises it as `MCPError`
-    rather than retrying."""
+    """SDK-defined: the default callback returns `ErrorData(INVALID_REQUEST)`, raised as `MCPError`, no retry."""
     server = MCPServer("test")
 
     @server.tool()
@@ -698,9 +645,6 @@ async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered(
 
 
 async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> None:
-    """`Client.get_prompt` runs the same driver as `call_tool`: an
-    `InputRequiredResult` from `prompts/get` is fulfilled and retried."""
-
     async def handler(
         ctx: ServerRequestContext, params: types.GetPromptRequestParams
     ) -> types.GetPromptResult | types.InputRequiredResult:
@@ -724,9 +668,6 @@ async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> N
 
 
 async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -> None:
-    """`Client.read_resource` runs the same driver as `call_tool`: an
-    `InputRequiredResult` from `resources/read` is fulfilled and retried."""
-
     async def handler(
         ctx: ServerRequestContext, params: types.ReadResourceRequestParams
     ) -> types.ReadResourceResult | types.InputRequiredResult:

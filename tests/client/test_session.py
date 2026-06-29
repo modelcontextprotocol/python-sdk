@@ -54,10 +54,9 @@ _RecvFromClient = anyio.streams.memory.MemoryObjectReceiveStream[SessionMessage]
 async def raw_client_session(
     **kwargs: Any,
 ) -> AsyncIterator[tuple[ClientSession, _SendToClient, _RecvFromClient]]:
-    """Yield `(session, send_to_client, recv_from_client)` with the receive loop running.
+    """Yield `(session, send_to_client, recv_from_client)` with the receive loop running, no handshake.
 
-    `send_to_client` accepts `SessionMessage | Exception` so tests can inject
-    transport-level exceptions. No initialize handshake is performed.
+    `send_to_client` accepts `SessionMessage | Exception` so tests can inject transport-level exceptions.
     """
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](32)
@@ -119,7 +118,6 @@ async def test_client_session_initialize():
                 jsonrpc_notification.model_dump(by_alias=True, mode="json", exclude_none=True)
             )
 
-    # Create a message handler to catch exceptions
     async def message_handler(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
@@ -141,14 +139,12 @@ async def test_client_session_initialize():
         tg.start_soon(mock_server)
         result = await session.initialize()
 
-    # Assert the result
     assert isinstance(result, InitializeResult)
     assert result.protocol_version == LATEST_HANDSHAKE_VERSION
     assert isinstance(result.capabilities, ServerCapabilities)
     assert result.server_info == Implementation(name="mock-server", version="0.1.0")
     assert result.instructions == "The server instructions."
 
-    # Check that the client sent the initialized notification
     assert initialized_notification
     assert isinstance(initialized_notification, InitializedNotification)
 
@@ -207,7 +203,6 @@ async def test_client_session_custom_client_info():
         tg.start_soon(mock_server)
         await session.initialize()
 
-    # Assert that the custom client info was sent
     assert received_client_info == custom_client_info
 
 
@@ -260,13 +255,11 @@ async def test_client_session_default_client_info():
         tg.start_soon(mock_server)
         await session.initialize()
 
-    # Assert that the default client info was sent
     assert received_client_info == DEFAULT_CLIENT_INFO
 
 
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_success():
-    """Test successful version negotiation with supported version"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     result = None
@@ -280,10 +273,8 @@ async def test_client_session_version_negotiation_success():
         )
         assert isinstance(request, InitializeRequest)
 
-        # Verify client offers the newest handshake protocol version
         assert request.params.protocol_version == LATEST_HANDSHAKE_VERSION
 
-        # Server responds with a supported older version
         result = InitializeResult(
             protocol_version="2024-11-05",
             capabilities=ServerCapabilities(),
@@ -314,7 +305,6 @@ async def test_client_session_version_negotiation_success():
         tg.start_soon(mock_server)
         result = await session.initialize()
 
-    # Assert the result with negotiated version
     assert isinstance(result, InitializeResult)
     assert result.protocol_version == "2024-11-05"
     assert result.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
@@ -322,7 +312,6 @@ async def test_client_session_version_negotiation_success():
 
 @pytest.mark.anyio
 async def test_client_session_version_negotiation_failure():
-    """Test version negotiation failure with unsupported version"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -335,7 +324,6 @@ async def test_client_session_version_negotiation_failure():
         )
         assert isinstance(request, InitializeRequest)
 
-        # Server responds with an unsupported version
         result = InitializeResult(
             protocol_version="2020-01-01",  # Unsupported old version
             capabilities=ServerCapabilities(),
@@ -363,14 +351,12 @@ async def test_client_session_version_negotiation_failure():
     ):
         tg.start_soon(mock_server)
 
-        # Should raise RuntimeError for unsupported version
         with pytest.raises(RuntimeError, match="Unsupported protocol version"):
             await session.initialize()
 
 
 @pytest.mark.anyio
 async def test_client_capabilities_default():
-    """Test that client capabilities are properly set with default callbacks"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -418,7 +404,6 @@ async def test_client_capabilities_default():
         tg.start_soon(mock_server)
         await session.initialize()
 
-    # Assert that capabilities are properly set with defaults
     assert received_capabilities is not None
     assert received_capabilities.sampling is None  # No custom sampling callback
     assert received_capabilities.roots is None  # No custom list_roots callback
@@ -426,7 +411,6 @@ async def test_client_capabilities_default():
 
 @pytest.mark.anyio
 async def test_client_capabilities_with_custom_callbacks():
-    """Test that client capabilities are properly set with custom callbacks"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -494,23 +478,17 @@ async def test_client_capabilities_with_custom_callbacks():
         tg.start_soon(mock_server)
         await session.initialize()
 
-    # Assert that capabilities are properly set with custom callbacks
     assert received_capabilities is not None
-    # Custom sampling callback provided
     assert received_capabilities.sampling is not None
     assert isinstance(received_capabilities.sampling, types.SamplingCapability)
-    # Default sampling capabilities (no tools)
     assert received_capabilities.sampling.tools is None
-    # Custom list_roots callback provided
     assert received_capabilities.roots is not None
     assert isinstance(received_capabilities.roots, types.RootsCapability)
-    # Should be True for custom callback
     assert received_capabilities.roots.list_changed is True
 
 
 @pytest.mark.anyio
 async def test_client_capabilities_with_sampling_tools():
-    """Test that sampling capabilities with tools are properly advertised"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -573,11 +551,9 @@ async def test_client_capabilities_with_sampling_tools():
         tg.start_soon(mock_server)
         await session.initialize()
 
-    # Assert that sampling capabilities with tools are properly advertised
     assert received_capabilities is not None
     assert received_capabilities.sampling is not None
     assert isinstance(received_capabilities.sampling, types.SamplingCapability)
-    # Tools capability should be present
     assert received_capabilities.sampling.tools is not None
     assert isinstance(received_capabilities.sampling.tools, types.SamplingToolsCapability)
 
@@ -657,14 +633,12 @@ async def test_initialize_result():
 @pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
-    """Test that client tool call requests can include metadata"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     mocked_tool = types.Tool(name="sample_tool", input_schema={"type": "object"})
 
     async def mock_server():
-        # Receive initialization request from client
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -679,7 +653,6 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
             server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
-        # Answer initialization request
         await server_to_client_send.send(
             SessionMessage(
                 JSONRPCResponse(
@@ -693,7 +666,6 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         # Receive initialized notification
         await client_to_server_receive.receive()
 
-        # Wait for the client to send a 'tools/call' request
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -707,7 +679,6 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
 
         result = CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
 
-        # Send the tools/call result
         await server_to_client_send.send(
             SessionMessage(
                 JSONRPCResponse(
@@ -718,8 +689,7 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
             )
         )
 
-        # Wait for the tools/list request from the client
-        # The client requires this step to validate the tool output schema
+        # The client follows up with tools/list to validate the tool output schema.
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -757,7 +727,6 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
 
 @pytest.mark.anyio
 async def test_receive_loop_answers_malformed_inbound_request_with_invalid_params():
-    """A request that fails ServerRequest validation gets an INVALID_PARAMS error response."""
     async with raw_client_session() as (_session, to_client, from_client):
         await to_client.send(
             SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=7, method="sampling/createMessage", params={"broken": 1}))
@@ -804,8 +773,7 @@ def _set_negotiated_version(session: ClientSession, version: str) -> None:
 
 @pytest.mark.anyio
 async def test_on_request_rejects_a_server_request_absent_at_the_negotiated_version():
-    """`elicitation/create` does not exist at 2025-03-26: the version gate answers
-    METHOD_NOT_FOUND instead of reaching the elicitation callback."""
+    """`elicitation/create` does not exist at 2025-03-26, so the version gate answers METHOD_NOT_FOUND."""
     async with raw_client_session() as (session, to_client, from_client):
         _set_negotiated_version(session, "2025-03-26")
         await to_client.send(
@@ -843,9 +811,7 @@ async def test_on_request_validates_the_callback_result_against_the_surface_sche
 async def test_on_request_callback_returning_a_surface_invalid_result_is_internal_error(
     caplog: pytest.LogCaptureFixture,
 ):
-    """A callback result the surface schema rejects is answered with INTERNAL_ERROR.
-    `EmptyResult` is a `ClientResult` arm so the union accepts it, but `roots/list`
-    requires a `roots` array."""
+    """`EmptyResult` is a `ClientResult` arm so the union accepts it, but `roots/list` requires a `roots` array."""
 
     async def list_roots(ctx: ClientRequestContext) -> types.ListRootsResult | types.ErrorData:
         return cast("types.ListRootsResult", types.EmptyResult())
@@ -863,8 +829,7 @@ async def test_on_request_callback_returning_a_surface_invalid_result_is_interna
 async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_version(
     caplog: pytest.LogCaptureFixture,
 ):
-    """`notifications/elicitation/complete` does not exist at 2025-06-18: it is
-    debug-log-dropped without reaching `message_handler`."""
+    """`notifications/elicitation/complete` does not exist at 2025-06-18: dropped before `message_handler`."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -939,8 +904,7 @@ async def test_send_request_validates_the_server_result_against_the_surface_sche
 
 @pytest.mark.anyio
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
-    """Surface row absent for the negotiated version: gate is bypassed and only
-    `result_type` validates."""
+    """Surface row absent at the negotiated version: gate bypassed, only `result_type` validates."""
     async with raw_client_session() as (session, to_client, from_client):
         _set_negotiated_version(session, "2026-07-28")
         async with anyio.create_task_group() as tg:
@@ -1004,9 +968,8 @@ async def test_receive_loop_logs_and_drops_malformed_notification(caplog: pytest
 async def test_raising_message_handler_on_transport_exception_costs_the_delivery_not_the_connection(
     caplog: pytest.LogCaptureFixture,
 ):
-    """A `message_handler` that raises on a transport-level `Exception` item is contained: the
-    failure is logged and the receive loop keeps serving (SDK-defined). Raw streams because
-    only a transport can put an `Exception` item on the read stream."""
+    """SDK-defined containment: the failure is logged and the receive loop keeps serving. Raw streams
+    because only a transport can put an `Exception` item on the read stream."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -1030,8 +993,7 @@ async def test_raising_message_handler_on_transport_exception_costs_the_delivery
 
 @pytest.mark.anyio
 async def test_message_handler_awaiting_session_traffic_on_transport_exception_completes():
-    """A `message_handler` that awaits session traffic on a transport `Exception` item completes:
-    fault deliveries are spawned into the task group, not run inline in the read loop (SDK-defined).
+    """SDK-defined: fault deliveries are spawned into the task group, not run inline in the read loop.
     Raw streams because only a transport can put an `Exception` item on the read stream."""
     ponged = anyio.Event()
 
@@ -1053,13 +1015,9 @@ async def test_message_handler_awaiting_session_traffic_on_transport_exception_c
 
 @pytest.mark.anyio
 async def test_receive_loop_consumes_server_cancelled_without_reaching_message_handler():
-    """A server-sent notifications/cancelled is swallowed, matching the pre-swap contract.
-
-    The server dispatcher now emits this on sampling/elicitation timeout, but
-    ClientSession has no in-flight tracking to act on it, so surfacing it would
-    only break user handlers that exhaustively match ServerNotification.
-    Scripted peer: the typed server API cannot emit a bare `notifications/cancelled`.
-    """
+    """The server dispatcher emits this on sampling/elicitation timeout, but ClientSession has no
+    in-flight tracking to act on it, and surfacing it would break handlers that exhaustively match
+    ServerNotification. Scripted peer: the typed server API cannot emit it bare."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -1075,8 +1033,7 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
                 )
             )
         )
-        # Follow with a notification that does reach the handler so we can
-        # assert ordering deterministically.
+        # A follow-up that does reach the handler makes the ordering assertion deterministic.
         await to_client.send(
             SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
         )
@@ -1087,10 +1044,8 @@ async def test_receive_loop_consumes_server_cancelled_without_reaching_message_h
 
 @pytest.mark.anyio
 async def test_request_timeout_zero_overrides_session_timeout():
-    """`request_read_timeout_seconds=0` is a real per-request timeout (fail at the
-    first checkpoint, `anyio.fail_after(0)` semantics), not a fall-through to the
-    session-level timeout. The request is never answered, so falling back to the
-    30s session timeout would trip the harness's 5s guard instead."""
+    """Zero means `anyio.fail_after(0)` semantics, not a fall-through to the session timeout — the
+    request is never answered, so falling back to the 30s session timeout would trip the harness's 5s guard."""
     async with raw_client_session(read_timeout_seconds=30) as (session, _to_client, _from_client):
         with pytest.raises(MCPError) as exc_info:
             await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
@@ -1099,8 +1054,7 @@ async def test_request_timeout_zero_overrides_session_timeout():
 
 @pytest.mark.anyio
 async def test_progress_notification_reaches_request_callback_and_message_handler():
-    """A `notifications/progress` for an in-flight request reaches both the `progress_callback` and
-    `message_handler` (SDK-defined). Scripted peer: the progress token must echo the wire request id."""
+    """Scripted peer: the progress token must echo the wire request id."""
     updates: list[tuple[float, float | None, str | None]] = []
     teed: list[types.ProgressNotification] = []
     request_id: types.RequestId | None = None
@@ -1178,9 +1132,7 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
 
 @pytest.mark.anyio
 async def test_direct_dispatch_roots_list_reaches_callback_with_synthesized_request_id():
-    """A server-initiated roots/list over dispatcher= reaches the registered callback and round-trips
-    the result; the callback context carries an int request_id (SDK-defined: DirectDispatcher
-    synthesizes ids)."""
+    """SDK-defined: DirectDispatcher synthesizes int request ids for server-initiated requests."""
     client_side, server_side = create_direct_dispatcher_pair()
     contexts: list[ClientRequestContext] = []
 
@@ -1215,10 +1167,8 @@ async def test_direct_dispatch_roots_list_reaches_callback_with_synthesized_requ
 async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_that_delivery(
     caplog: pytest.LogCaptureFixture,
 ):
-    """A raising `logging_callback` or `message_handler` is contained in the session, so the
-    in-process peer's notify() returns normally and the session keeps serving requests
-    (SDK-defined: DirectDispatcher awaits notification handlers inline in the peer's call).
-    A raising `logging_callback` skips the `message_handler` tee for that notification."""
+    """DirectDispatcher awaits notification handlers inline in the peer's notify(), so containment is
+    what lets notify() return. A raising `logging_callback` skips the `message_handler` tee."""
     client_side, server_side = create_direct_dispatcher_pair()
     teed: list[types.ServerNotification] = []
 
@@ -1252,7 +1202,6 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
                 await server_side.notify("notifications/message", {"level": "info", "data": "hello"})
                 # message_handler raises: notify() must return.
                 await server_side.notify("notifications/tools/list_changed", None)
-                # The session still serves requests afterwards.
                 assert await session.send_ping() == types.EmptyResult()
             server_side.close()
     assert [type(n) for n in teed] == [types.ToolListChangedNotification]
@@ -1263,7 +1212,6 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
 
 @pytest.mark.anyio
 async def test_dispatcher_keyword_send_request_before_enter_raises_runtimeerror():
-    """The documented pre-enter RuntimeError holds for dispatcher= sessions too."""
     client_side, _server_side = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_side)
     with anyio.fail_after(5), pytest.raises(RuntimeError) as exc:
@@ -1273,7 +1221,6 @@ async def test_dispatcher_keyword_send_request_before_enter_raises_runtimeerror(
 
 @pytest.mark.anyio
 async def test_dispatcher_keyword_send_request_after_exit_raises_connection_closed():
-    """After __aexit__ a dispatcher= session raises MCPError(CONNECTION_CLOSED), matching the JSONRPC path."""
     client_side, server_side = create_direct_dispatcher_pair()
 
     async def server_on_request(
@@ -1301,7 +1248,6 @@ async def test_dispatcher_keyword_send_request_after_exit_raises_connection_clos
 
 @pytest.mark.anyio
 async def test_dispatcher_keyword_request_timeout_bounds_wait_for_never_run_peer():
-    """request_read_timeout_seconds fires even when the peer dispatcher never started running."""
     client_side, _server_side = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_side)
     with anyio.fail_after(5):
@@ -1312,8 +1258,7 @@ async def test_dispatcher_keyword_request_timeout_bounds_wait_for_never_run_peer
 
 
 def test_adopt_raises_when_no_mutual_modern_version_is_supported() -> None:
-    """SDK-defined: ``adopt(DiscoverResult)`` picks the newest version both sides support; an
-    empty intersection is unrecoverable and raises rather than installing a stamp."""
+    """SDK-defined: `adopt` picks the newest mutual version; an empty intersection raises, no stamp installed."""
     client_d, _ = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_d)
     with pytest.raises(RuntimeError, match="No mutually supported modern protocol version"):
@@ -1336,8 +1281,6 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
     cancelling it — and leaves the option unset for every other method."""
 
     class RecordingDispatcher:
-        """Records `send_raw_request` opts and answers with canned results."""
-
         def __init__(self) -> None:
             self.calls: list[tuple[str, CallOptions]] = []
 
@@ -1397,8 +1340,7 @@ def test_constructor_requires_both_streams_without_dispatcher():
 
 @pytest.mark.anyio
 async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
-    """Cancellation while `__aenter__` waits for the dispatcher to start unwinds the half-entered
-    task group cleanly, not via anyio's "exited non-innermost cancel scope" RuntimeError (SDK-defined)."""
+    """Must not die via anyio's "exited non-innermost cancel scope" RuntimeError on the half-entered task group."""
 
     class NeverStartsDispatcher:
         """`run()` parks without ever signalling `task_status.started()`."""
@@ -1448,13 +1390,8 @@ async def test_send_notification_after_close_is_dropped_silently():
             s.close()
 
 
-# --- discover() ladder ---
-
-
 class _ScriptedDispatcher:
-    """Records every `send_raw_request` and plays back scripted answers in order.
-
-    A script entry that is an `Exception` is raised; a dict is returned."""
+    """Plays back scripted answers in order: an `Exception` entry is raised, a dict entry is returned."""
 
     def __init__(self, *script: dict[str, Any] | Exception) -> None:
         self.calls: list[tuple[str, Mapping[str, Any] | None]] = []
@@ -1494,8 +1431,6 @@ def _discover_result_dict() -> dict[str, Any]:
 
 @pytest.mark.anyio
 async def test_initialize_is_idempotent_and_returns_the_cached_result() -> None:
-    """A second `initialize()` returns the first call's result by identity and sends nothing
-    over the wire — the early-return guard short-circuits before the dispatcher is touched."""
     init_result = InitializeResult(
         protocol_version=LATEST_HANDSHAKE_VERSION,
         capabilities=ServerCapabilities(),
@@ -1513,8 +1448,7 @@ async def test_initialize_is_idempotent_and_returns_the_cached_result() -> None:
 
 @pytest.mark.anyio
 async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp() -> None:
-    """SDK-defined: a successful `server/discover` is adopted and subsequent requests
-    carry the modern `_meta` envelope (protocol version + client info + capabilities)."""
+    """The "modern stamp" is the `_meta` envelope (protocol version + client info + capabilities)."""
     dispatcher = _ScriptedDispatcher(_discover_result_dict(), {})
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -1549,9 +1483,8 @@ async def test_discover_retries_once_on_unsupported_version_then_adopts() -> Non
 
 @pytest.mark.anyio
 async def test_discover_raises_when_retry_intersection_is_empty() -> None:
-    """Spec SHOULD: a -32022 reply whose `supported` list shares nothing with the
-    client's modern versions is unrecoverable — the original error is re-raised
-    without a second probe."""
+    """Spec SHOULD: a -32022 reply whose `supported` list shares nothing with the client's versions
+    re-raises the original error without a second probe."""
     dispatcher = _ScriptedDispatcher(
         MCPError(
             UNSUPPORTED_PROTOCOL_VERSION,
@@ -1570,9 +1503,8 @@ async def test_discover_raises_when_retry_intersection_is_empty() -> None:
 @pytest.mark.anyio
 @pytest.mark.parametrize("code", [METHOD_NOT_FOUND, REQUEST_TIMEOUT, INTERNAL_ERROR])
 async def test_discover_reraises_non_retry_errors_without_falling_back(code: int) -> None:
-    """SDK-defined: any error outside the -32022 retry rung propagates verbatim
-    — `discover()` does not fall back to `initialize()` itself; that is the
-    caller's policy (`Client.__aenter__`)."""
+    """SDK-defined: `discover()` does not fall back to `initialize()` itself — that is the caller's
+    policy (`Client.__aenter__`)."""
     dispatcher = _ScriptedDispatcher(MCPError(code, "nope"))
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -1586,9 +1518,6 @@ async def test_discover_reraises_non_retry_errors_without_falling_back(code: int
 
 @pytest.mark.anyio
 async def test_discover_validates_the_response_shape_before_adopting() -> None:
-    """SDK-defined: the raw response is run through `DiscoverResult` validation
-    before any state is installed, so a malformed reply leaves the session
-    un-adopted rather than half-configured."""
     dispatcher = _ScriptedDispatcher({"supportedVersions": ["2026-07-28"]})
     session = ClientSession(dispatcher=dispatcher)
     with anyio.fail_after(5):
@@ -1600,9 +1529,7 @@ async def test_discover_validates_the_response_shape_before_adopting() -> None:
 
 @pytest.mark.anyio
 async def test_discover_is_idempotent_and_returns_the_cached_result() -> None:
-    """SDK-defined: a second `discover()` returns the already-adopted result without
-    re-probing — the script holds exactly one entry, so a second wire call would
-    `IndexError` on the empty script."""
+    """The script holds exactly one entry, so a second wire call would `IndexError`."""
     dispatcher = _ScriptedDispatcher(_discover_result_dict())
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -1614,7 +1541,6 @@ async def test_discover_is_idempotent_and_returns_the_cached_result() -> None:
 
 
 def test_era_neutral_properties_are_none_before_any_handshake() -> None:
-    """SDK-defined: the era-neutral accessors all read as None on a fresh session."""
     client_d, _ = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_d)
     assert session.protocol_version is None
@@ -1627,8 +1553,6 @@ def test_era_neutral_properties_are_none_before_any_handshake() -> None:
 
 @pytest.mark.anyio
 async def test_era_neutral_properties_after_discover() -> None:
-    """SDK-defined: after `discover()` the era-neutral accessors read from the
-    DiscoverResult; `initialize_result` stays None."""
     raw = types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=ServerCapabilities(tools=types.ToolsCapability(list_changed=True)),
@@ -1649,9 +1573,6 @@ async def test_era_neutral_properties_after_discover() -> None:
 
 @pytest.mark.anyio
 async def test_discover_reraises_unsupported_version_with_malformed_error_data() -> None:
-    """SDK-defined: a -32022 reply whose `data` is not a valid
-    `UnsupportedProtocolVersionErrorData` payload is unrecoverable — the original
-    error is re-raised without a retry probe."""
     dispatcher = _ScriptedDispatcher(MCPError(UNSUPPORTED_PROTOCOL_VERSION, "unsupported", data="not-an-object"))
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -1663,9 +1584,6 @@ async def test_discover_reraises_unsupported_version_with_malformed_error_data()
 
 @pytest.mark.anyio
 async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
-    """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the
-    raw `InputRequiredResult` so the caller can drive the loop manually."""
-
     # `on_call_tool` is still typed `-> CallToolResult` on this branch (#2967 widens it later);
     # `add_request_handler` is `HandlerResult`-typed and accepts `InputRequiredResult` cleanly.
     async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
@@ -1707,9 +1625,7 @@ async def test_call_tool_threads_input_responses_and_request_state_into_params()
 
 @pytest.mark.anyio
 async def test_session_call_tool_raises_on_input_required_without_opt_in() -> None:
-    """SDK-defined: `ClientSession.call_tool` is mechanics-only; an
-    `InputRequiredResult` with the default `allow_input_required=False` raises
-    `RuntimeError` (the auto-loop policy lives on `Client`, not here)."""
+    """`ClientSession.call_tool` is mechanics-only: the auto-loop policy lives on `Client`, not here."""
 
     async def handler(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.InputRequiredResult:
         return types.InputRequiredResult(request_state="s")
@@ -1726,9 +1642,6 @@ async def test_session_call_tool_raises_on_input_required_without_opt_in() -> No
 
 @pytest.mark.anyio
 async def test_session_get_prompt_returns_input_required_result_when_opted_in() -> None:
-    """`ClientSession.get_prompt` mirrors `call_tool`: opting in returns the
-    raw `InputRequiredResult`; the default raises `RuntimeError`."""
-
     async def handler(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> types.InputRequiredResult:
         return types.InputRequiredResult(request_state="prompt-state")
 
@@ -1745,9 +1658,6 @@ async def test_session_get_prompt_returns_input_required_result_when_opted_in() 
 
 @pytest.mark.anyio
 async def test_session_read_resource_returns_input_required_result_when_opted_in() -> None:
-    """`ClientSession.read_resource` mirrors `call_tool`: opting in returns the
-    raw `InputRequiredResult`; the default raises `RuntimeError`."""
-
     async def handler(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> types.InputRequiredResult:
         return types.InputRequiredResult(request_state="resource-state")
 

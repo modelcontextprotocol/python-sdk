@@ -23,19 +23,16 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 def _is_timing_record(record: logging.LogRecord) -> bool:
-    """A record emitted by tutorial001's `log_timing` middleware (and nothing else caplog caught)."""
     return record.name == tutorial001.logger.name
 
 
 def test_timing_record_predicate() -> None:
-    """The caplog filter keeps the middleware's own records and drops everyone else's."""
     args = (logging.INFO, __file__, 1, "msg", None, None)
     assert _is_timing_record(logging.LogRecord(tutorial001.logger.name, *args))
     assert not _is_timing_record(logging.LogRecord("somebody.elses.logger", *args))
 
 
 async def test_middleware_observes_every_inbound_message(caplog: pytest.LogCaptureFixture) -> None:
-    """tutorial001: two client calls produce three timed lines. `server/discover` is wrapped too."""
     with caplog.at_level(logging.INFO, logger=tutorial001.logger.name):
         async with Client(tutorial001.server) as client:
             await client.list_tools()
@@ -46,7 +43,6 @@ async def test_middleware_observes_every_inbound_message(caplog: pytest.LogCaptu
 
 
 async def test_the_result_passes_through_unchanged() -> None:
-    """tutorial001: `log_timing` returns what `call_next` returned, so the client sees the real result."""
     async with Client(tutorial001.server) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
         assert not result.is_error
@@ -54,7 +50,6 @@ async def test_the_result_passes_through_unchanged() -> None:
 
 
 async def test_a_notification_has_no_request_id() -> None:
-    """`ctx.request_id is None` is how middleware tells a notification from a request."""
     seen: list[tuple[str, RequestId | None]] = []
 
     async def spy(ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
@@ -69,8 +64,6 @@ async def test_a_notification_has_no_request_id() -> None:
 
 
 async def test_raising_before_call_next_refuses_the_message() -> None:
-    """A middleware that raises instead of calling `call_next` answers with a JSON-RPC error."""
-
     async def gate(ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
         if ctx.method == "tools/call":
             raise MCPError(code=INVALID_REQUEST, message="No calls on Sundays.")
@@ -87,7 +80,6 @@ async def test_raising_before_call_next_refuses_the_message() -> None:
 
 
 async def test_an_unhandled_method_raises_through_the_middleware() -> None:
-    """A method without a handler raises `METHOD_NOT_FOUND` out of `call_next`, through the middleware."""
     seen: list[tuple[str, int]] = []
 
     async def spy(ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
@@ -107,7 +99,6 @@ async def test_an_unhandled_method_raises_through_the_middleware() -> None:
 
 
 async def test_initialize_cannot_be_replaced_only_wrapped() -> None:
-    """`add_request_handler("initialize", ...)` is rejected: middleware is the sanctioned hook."""
     expected = (
         "'initialize' is handled by the server runner and cannot be overridden; "
         "use Server.middleware to observe or wrap initialization"

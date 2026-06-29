@@ -16,10 +16,9 @@ class SimpleTokenVerifier(TokenVerifier):
         pass  # This is where you would implement actual token validation
 
 
-# Create MCPServer instance as a Resource Server
+# This server acts as a Resource Server: it validates tokens but does not issue them
 mcp = MCPServer(
     "Weather Service",
-    # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(

@@ -1,9 +1,6 @@
-"""Before running, specify running MCP RS server URL.
-To spin up RS server locally, see
-    examples/servers/simple-auth/README.md
+"""Run from the `examples/snippets` directory: uv run oauth-client
 
-cd to the `examples/snippets` directory and run:
-    uv run oauth-client
+Requires a running MCP resource server; see examples/servers/simple-auth/README.md.
 """
 
 import asyncio
@@ -19,26 +16,22 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAu
 
 
 class InMemoryTokenStorage(TokenStorage):
-    """Demo In-memory token storage implementation."""
+    """Demo-only storage; production clients should persist tokens securely."""
 
     def __init__(self):
         self.tokens: OAuthToken | None = None
         self.client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        """Get stored tokens."""
         return self.tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        """Store tokens."""
         self.tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
-        """Get stored client information."""
         return self.client_info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        """Store client information."""
         self.client_info = client_info
 
 
@@ -57,7 +50,6 @@ async def handle_callback() -> AuthorizationCodeResult:
 
 
 async def main():
-    """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
         server_url="http://localhost:8001",
         client_metadata=OAuthClientMetadata(

@@ -12,7 +12,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_signature_becomes_the_schema() -> None:
-    """tutorial001: the function name, the docstring and the type hints are the whole tool definition."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.name == "search_books"
@@ -31,7 +30,6 @@ async def test_signature_becomes_the_schema() -> None:
 
 
 async def test_call_returns_text_and_structured_content() -> None:
-    """tutorial001: the return value reaches the model as text and the client as typed data."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         assert not result.is_error
@@ -40,10 +38,7 @@ async def test_call_returns_text_and_structured_content() -> None:
 
 
 async def test_default_value_makes_the_argument_optional() -> None:
-    """tutorial002: a plain Python default drops the argument from `required` and lands in the schema.
-
-    The whole schema is pinned because the page quotes it verbatim.
-    """
+    """The whole schema is pinned because the page quotes it verbatim."""
     async with Client(tutorial002.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.input_schema == snapshot(
@@ -62,7 +57,6 @@ async def test_default_value_makes_the_argument_optional() -> None:
 
 
 async def test_field_constraints_land_in_the_schema() -> None:
-    """tutorial003: `Field(...)` metadata and `Literal` choices become JSON Schema the model can see."""
     async with Client(tutorial003.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         props = tool.input_schema["properties"]
@@ -81,7 +75,6 @@ async def test_field_constraints_land_in_the_schema() -> None:
 
 
 async def test_constraint_violation_is_an_error_the_model_can_read() -> None:
-    """tutorial003: an out-of-range argument is rejected by the schema, not by your code."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 999})
         assert result.is_error
@@ -90,7 +83,6 @@ async def test_constraint_violation_is_an_error_the_model_can_read() -> None:
 
 
 async def test_pydantic_model_parameter() -> None:
-    """tutorial004: a `BaseModel` parameter nests its own schema and arrives as a real instance."""
     async with Client(tutorial004.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.input_schema["$defs"]["Book"]["required"] == ["title", "author", "year"]
@@ -100,7 +92,6 @@ async def test_pydantic_model_parameter() -> None:
 
 
 async def test_title_and_annotations() -> None:
-    """tutorial005: `title` and `ToolAnnotations` are display and behaviour metadata for the client."""
     async with Client(tutorial005.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.title == "Search the catalog"

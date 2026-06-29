@@ -7,7 +7,6 @@ from stories._harness import Target, run_client
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # Scripted answers + per-topic counters; topics in `declines` are refused.
     counts = {"scope": 0, "restock": 0}
     answers: dict[str, dict[str, str | int | float | bool | list[str] | None]] = {
         "scope": {"full": True},
@@ -40,10 +39,8 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         }, receipt.structured_content
         assert counts == {"scope": 0, "restock": 0}, counts
 
-        # Full refund of a three-line order. The scope question fires exactly ONCE even though
-        # both refund_amount and ask_restock consume it — asked at most once per call on either
-        # era. ask_restock needs the scope ANSWER, so at 2026 the two questions land in
-        # successive rounds, never one concurrent batch: counts and order are era-independent.
+        # Scope fires exactly ONCE per call even though refund_amount and ask_restock both consume it.
+        # ask_restock needs scope's ANSWER, so at 2026 the two land in successive rounds — era-independent.
         receipt = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "arrived broken"})
         assert receipt.structured_content == {
             "order_id": "ORD-7002",
@@ -53,9 +50,8 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         }, receipt.structured_content
         assert counts == {"scope": 1, "restock": 1}, counts
 
-        # Declining restock still refunds: the tool keeps the ElicitationResult union for
-        # `restock`, sees the decline, and just skips the restock. The scope counter moves
-        # again — questions are deduped per call, not per connection.
+        # Declining restock still refunds: the tool takes `restock` as an ElicitationResult union and
+        # skips the restock on decline. Scope is asked again — deduped per call, not per connection.
         declines.add("restock")
         answers["scope"] = {"full": False, "sku": "canvas-tote"}
         receipt = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "wrong colour"})
@@ -68,17 +64,15 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         assert counts == {"scope": 2, "restock": 2}, counts
         declines.clear()
 
-        # An elicited SKU is human-typed: the server validates it against the order before
-        # any money is computed.
+        # An elicited SKU is human-typed, so the server validates it against the order before computing money.
         answers["scope"] = {"full": False, "sku": "mystery-hat"}
         result = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "lost parcel"})
         assert result.is_error, result
         assert isinstance(result.content[0], types.TextContent)
         assert "order has no item 'mystery-hat'" in result.content[0].text, result.content[0].text
 
-        # Declining scope aborts the whole call: refund_amount and ask_restock both consume scope
-        # unwrapped, so whichever resolves first (`cents`, in signature order) aborts, and
-        # ask_restock never runs under any order.
+        # Declining scope aborts the whole call: both resolvers consume scope unwrapped, so whichever
+        # resolves first aborts and ask_restock never runs.
         declines.add("scope")
         restock_before = counts["restock"]
         result = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "changed mind"})
@@ -96,8 +90,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         assert isinstance(result.content[0], types.TextContent)
         assert "unknown order 'ORD-9999'" in result.content[0].text, result.content[0].text
 
-        # Full elicitation trajectory: scope fired in legs 2-5 (memoized within each call),
-        # restock only in the two calls that reached it.
+        # Final tally: scope fired in legs 2-5, restock only in the two calls that reached it.
         assert counts == {"scope": 4, "restock": 2}, counts
 
 

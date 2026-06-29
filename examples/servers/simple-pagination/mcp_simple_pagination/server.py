@@ -1,8 +1,4 @@
-"""Simple MCP server demonstrating pagination for tools, resources, and prompts.
-
-This example shows how to implement pagination with the low-level server API
-to handle large lists of items that need to be split across multiple pages.
-"""
+"""Low-level server example demonstrating cursor pagination for tools, resources, and prompts."""
 
 from typing import TypeVar
 
@@ -13,7 +9,6 @@ from mcp.server import Server, ServerRequestContext
 
 T = TypeVar("T")
 
-# Sample data - in real scenarios, this might come from a database
 SAMPLE_TOOLS = [
     types.Tool(
         name=f"tool_{i}",
@@ -46,7 +41,7 @@ SAMPLE_PROMPTS = [
 
 
 def _paginate(cursor: str | None, items: list[T], page_size: int) -> tuple[list[T], str | None]:
-    """Helper to paginate a list of items given a cursor."""
+    """Slice one page from items; the cursor is a stringified start index, invalid cursors yield an empty page."""
     if cursor is not None:
         try:
             start_idx = int(cursor)
@@ -60,7 +55,6 @@ def _paginate(cursor: str | None, items: list[T], page_size: int) -> tuple[list[
     return page, next_cursor
 
 
-# Paginated list_tools - returns 5 tools per page
 async def handle_list_tools(
     ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
@@ -69,7 +63,6 @@ async def handle_list_tools(
     return types.ListToolsResult(tools=page, next_cursor=next_cursor)
 
 
-# Paginated list_resources - returns 10 resources per page
 async def handle_list_resources(
     ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
 ) -> types.ListResourcesResult:
@@ -78,7 +71,6 @@ async def handle_list_resources(
     return types.ListResourcesResult(resources=page, next_cursor=next_cursor)
 
 
-# Paginated list_prompts - returns 7 prompts per page
 async def handle_list_prompts(
     ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
 ) -> types.ListPromptsResult:
@@ -88,7 +80,6 @@ async def handle_list_prompts(
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
-    # Find the tool in our sample data
     tool = next((t for t in SAMPLE_TOOLS if t.name == params.name), None)
     if not tool:
         raise ValueError(f"Unknown tool: {params.name}")

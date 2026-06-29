@@ -1,7 +1,4 @@
-"""OAuth2 Authentication implementation for HTTPX.
-
-Implements authorization code flow with PKCE and automatic token refresh.
-"""
+"""OAuth2 authentication for HTTPX: authorization code flow with PKCE and automatic token refresh."""
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.oauth2 import (

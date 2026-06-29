@@ -20,10 +20,8 @@ def build_app() -> Starlette:
         """Return a greeting."""
         return f"Hello, {name}! (served from a Starlette sub-mount)"
 
-    # streamable_http_path="/" so Mount("/api", ...) serves the MCP endpoint at
-    # /api itself, not /api/mcp. The returned sub-app has its own lifespan, but
-    # Starlette does not run nested lifespans under Mount — the parent app below
-    # must enter mcp.session_manager.run() itself.
+    # streamable_http_path="/" puts the MCP endpoint at /api itself, not /api/mcp. Starlette does not run
+    # nested lifespans under Mount, so the parent app's lifespan below must enter mcp.session_manager.run().
     mcp_app = mcp.streamable_http_app(streamable_http_path="/", transport_security=NO_DNS_REBIND)
 
     async def health(_request: Request) -> JSONResponse:

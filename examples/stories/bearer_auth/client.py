@@ -1,4 +1,4 @@
-"""Call the bearer-gated server through an already-authed (``build_auth``, HTTP-only) transport; assert ``whoami``."""
+"""Call the bearer-gated server through a pre-authed transport (`build_auth`, HTTP-only) and check `whoami`."""
 
 from collections.abc import Generator
 
@@ -11,7 +11,7 @@ from .server import DEMO_TOKEN, REQUIRED_SCOPE
 
 
 class StaticBearerAuth(httpx.Auth):
-    """``httpx.Auth`` that attaches a fixed ``Authorization: Bearer <token>`` to every request."""
+    """Attach a fixed `Authorization: Bearer <token>` header to every request."""
 
     def __init__(self, token: str) -> None:
         self.token = token
@@ -22,10 +22,9 @@ class StaticBearerAuth(httpx.Auth):
 
 
 def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
-    """The demo bearer token as an ``httpx.Auth``.
+    """The demo bearer token as an `httpx.Auth`.
 
-    ``Client(url, auth=...)`` doesn't exist yet, so the harness threads this onto the underlying
-    ``httpx.AsyncClient`` and the target ``main`` receives is already routed through it.
+    `Client(url, auth=...)` doesn't exist yet, so the harness threads this onto the underlying `httpx.AsyncClient`.
     """
     return StaticBearerAuth(DEMO_TOKEN)
 

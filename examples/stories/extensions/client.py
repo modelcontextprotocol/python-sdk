@@ -29,8 +29,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     # Declare the extension client-side so the server's `require_client_extension`
     # gate on `com.example/search` passes.
     async with Client(target, mode=mode, extensions={EXTENSION_ID: {}}) as client:
-        # The extensions capability map rides `server/discover` (modern only). On a
-        # legacy connection it is absent, so assert it only when present.
+        # The extensions capability map rides `server/discover` (modern only); absent on legacy connections.
         if client.server_capabilities.extensions is not None:
             assert client.server_capabilities.extensions == {EXTENSION_ID: {"suggest": True}}, (
                 client.server_capabilities.extensions

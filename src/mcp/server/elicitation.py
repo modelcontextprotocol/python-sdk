@@ -56,9 +56,8 @@ UrlElicitationResult = AcceptedUrlElicitation | DeclinedElicitation | CancelledE
 class _ElicitationJsonSchema(GenerateJsonSchema):
     """JSON-Schema generator that flattens `T | None` to `T` and drops `None` defaults.
 
-    The spec's `PrimitiveSchemaDefinition` admits no `anyOf` or null type; an
-    optional field is expressed by leaving it out of `required`, which pydantic
-    already does for any field with a default.
+    The spec's `PrimitiveSchemaDefinition` admits no `anyOf` or null type; optionality is
+    expressed by omission from `required`, which pydantic already does for defaulted fields.
     """
 
     def nullable_schema(self, schema: core_schema.NullableSchema) -> JsonSchemaValue:
@@ -74,8 +73,7 @@ class _ElicitationJsonSchema(GenerateJsonSchema):
 def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     """Reject any `properties` entry the spec's `PrimitiveSchemaDefinition` won't accept.
 
-    Catches whatever the renderer let through that isn't spec-valid: bare
-    `list[str]` (no enum), multi-primitive unions, nested models.
+    Catches non-spec-valid renderings: bare `list[str]` (no enum), multi-primitive unions, nested models.
     """
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
@@ -91,8 +89,7 @@ def render_elicitation_schema(schema: type[BaseModel]) -> dict[str, Any]:
     """Render a model as the spec-valid `requested_schema` for an elicitation.
 
     Raises:
-        TypeError: If a field renders as something the spec's
-            `PrimitiveSchemaDefinition` does not accept.
+        TypeError: If a field renders as something the spec's `PrimitiveSchemaDefinition` does not accept.
     """
     json_schema = schema.model_json_schema(schema_generator=_ElicitationJsonSchema)
     _validate_rendered_properties(json_schema)
@@ -107,17 +104,11 @@ async def elicit_with_validation(
 ) -> ElicitationResult[ElicitSchemaModelT]:
     """Elicit information from the client/user with schema validation (form mode).
 
-    This method can be used to interactively ask for additional information from the
-    client within a tool's execution. The client might display the message to the
-    user and collect a response according to the provided schema. If the client
-    is an agent, it might decide how to handle the elicitation -- either by asking
-    the user or automatically generating a response.
-
-    For sensitive data like credentials or OAuth flows, use elicit_url() instead.
+    The client may show `message` to the user or, if an agent, generate the response itself.
+    For sensitive data like credentials or OAuth flows, use `elicit_url` instead.
 
     Raises:
-        ValueError: If the client accepted the elicitation without supplying
-            content, or with content that does not match the requested schema.
+        ValueError: If the client accepted with no content, or content not matching the requested schema.
     """
     json_schema = render_elicitation_schema(schema)
 
@@ -151,26 +142,10 @@ async def elicit_url(
 ) -> UrlElicitationResult:
     """Elicit information from the user via out-of-band URL navigation (URL mode).
 
-    This method directs the user to an external URL where sensitive interactions can
-    occur without passing data through the MCP client. Use this for:
-    - Collecting sensitive credentials (API keys, passwords)
-    - OAuth authorization flows with third-party services
-    - Payment and subscription flows
-    - Any interaction where data should not pass through the LLM context
-
-    The response indicates whether the user consented to navigate to the URL.
-    The actual interaction happens out-of-band. When the elicitation completes,
-    the server should send an ElicitCompleteNotification to notify the client.
-
-    Args:
-        session: The server session
-        message: Human-readable explanation of why the interaction is needed
-        url: The URL the user should navigate to
-        elicitation_id: Unique identifier for tracking this elicitation
-        related_request_id: Optional ID of the request that triggered this elicitation
-
-    Returns:
-        UrlElicitationResult indicating accept, decline, or cancel
+    Directs the user to an external URL where sensitive interactions (credentials, OAuth,
+    payments) happen without passing data through the MCP client or LLM context. The result
+    only indicates whether the user consented to navigate; when the out-of-band interaction
+    completes, the server should send an ElicitCompleteNotification.
     """
     result = await session.elicit_url(
         message=message,
@@ -186,5 +161,4 @@ async def elicit_url(
     elif result.action == "cancel":
         return CancelledElicitation()
     else:  # pragma: no cover
-        # This should never happen, but handle it just in case
         raise ValueError(f"Unexpected elicitation action: {result.action}")

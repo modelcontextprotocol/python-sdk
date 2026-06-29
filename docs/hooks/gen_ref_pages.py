@@ -9,9 +9,8 @@ nav = mkdocs_gen_files.Nav()
 root = Path(__file__).parent.parent.parent
 src = root / "src"
 
-# `src/mcp-types` is a distribution directory, not an import package, so each
-# package's dotted module path is taken relative to its own parent: deriving it
-# from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
+# `src/mcp-types` is a distribution directory, not an import package, so each package's dotted module path
+# is taken relative to its own parent; deriving it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 for package in (src / "mcp", src / "mcp-types" / "mcp_types"):
     base = package.parent
     for path in sorted(package.rglob("*.py")):

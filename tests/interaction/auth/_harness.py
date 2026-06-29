@@ -1,12 +1,8 @@
 """In-process harness for the auth interaction tests.
 
-Co-hosts the SDK's authorization-server routes, protected-resource metadata route, and the
-bearer-gated MCP endpoint on one Starlette app via `Server.streamable_http_app(auth=...,
-token_verifier=..., auth_server_provider=...)`, drives that app through the streaming bridge
-on a single `httpx.AsyncClient` carrying `auth=OAuthClientProvider(...)`, and completes the
-authorize redirect headlessly by GETing the URL through the same bridge and parsing the code
-from the 302 `Location`. The whole authorization-code flow runs in one event loop with no
-sockets, no threads, and no real time.
+Co-hosts the SDK's authorization-server routes, protected-resource metadata, and bearer-gated MCP
+endpoint on one Starlette app, drives it through the streaming bridge, and completes the authorize
+redirect headlessly by parsing the code from the 302 `Location` — no sockets, threads, or real time.
 """
 
 import json
@@ -40,9 +36,7 @@ AppShim = Callable[[ASGIApp], ASGIApp]
 class RecordedRequest:
     """A snapshot of an `httpx.Request` at the moment it was sent.
 
-    The auth flow re-yields the same `httpx.Request` object after mutating its headers in
-    place for the retry, so tests that need to assert on the first attempt's headers must
-    capture a copy rather than a live reference. `record_requests` produces these.
+    The auth flow mutates the request in place for the retry; first-attempt assertions need a copy.
     """
 
     method: str
@@ -75,10 +69,8 @@ def record_requests() -> tuple[list[RecordedRequest], Callable[[httpx.Request], 
 def metadata_body(model: BaseModel, **extra: object) -> bytes:
     """Serialize a metadata model to a JSON body for `shimmed_app(serve=...)`.
 
-    `extra` keys are merged into the serialized object so a test can inject fields the model
-    does not declare (e.g. an unknown extension field, to prove the client's parser tolerates
-    unrecognized members per RFC 8414/9728 §3.2). The model itself would silently drop such
-    fields at construction, so they have to be added after serialization.
+    `extra` is merged after serialization (the model would drop unknown fields at construction), so
+    tests can inject undeclared members, e.g. to prove parser tolerance per RFC 8414/9728 §3.2.
     """
     document = model.model_dump(by_alias=True, mode="json", exclude_none=True)
     document.update(extra)
@@ -86,12 +78,10 @@ def metadata_body(model: BaseModel, **extra: object) -> bytes:
 
 
 class StaticTokenVerifier:
-    """A `TokenVerifier` backed by a fixed token→`AccessToken` mapping.
+    """A `TokenVerifier` backed by a fixed token→`AccessToken` mapping; unknown tokens verify to `None`.
 
-    Any token string not in the mapping verifies to `None`, which the bearer middleware treats
-    as an unrecognized token. Tests seed the mapping with the exact token shapes (valid, expired,
-    wrong scope, wrong audience) they need so the resource-server gate's behaviour is asserted in
-    isolation from the authorization-server provider.
+    Tests seed exact token shapes (expired, wrong scope/audience) to assert the resource-server
+    gate in isolation from the authorization-server provider.
     """
 
     def __init__(self, tokens: Mapping[str, AccessToken]) -> None:
@@ -104,9 +94,8 @@ class StaticTokenVerifier:
 class InMemoryTokenStorage:
     """A `TokenStorage` that holds tokens and client info as instance attributes.
 
-    Tests pre-seed `client_info` (via the constructor or by assignment) to drive the
-    pre-registered path, and read both attributes after the flow to assert what the SDK
-    persisted.
+    Pre-seed `client_info` for the pre-registered path; read the attributes after the flow to
+    assert what the SDK persisted.
     """
 
     def __init__(self, *, client_info: OAuthClientInformationFull | None = None) -> None:
@@ -129,16 +118,9 @@ class InMemoryTokenStorage:
 class HeadlessOAuth:
     """Completes the authorize step in-process by following the redirect through the bridge.
 
-    `redirect_handler` GETs the authorize URL on the bound client (with `auth=None` so the
-    request does not re-enter the locked auth flow), parses `code` and `state` from the 302
-    `Location`, and stashes them; `callback_handler` returns the stashed pair. Tests inspect
-    `authorize_url` to assert what the SDK put on the authorize request.
-
-    `state_override`: when set, `callback_handler` returns this value as the state instead of
-    the one parsed from the redirect, so tests can drive the state-mismatch path.
-
-    `iss_override`: when set, `callback_handler` returns this value as the RFC 9207 issuer
-    instead of the one parsed from the redirect, so tests can drive the iss-mismatch path.
+    `redirect_handler` GETs the authorize URL and parses `code`/`state`/`iss` from the 302
+    `Location`; `callback_handler` returns them. `state_override`/`iss_override` replace the
+    parsed values to drive the state-mismatch and RFC 9207 iss-mismatch paths.
     """
 
     def __init__(self, *, state_override: str | None = None, iss_override: str | None = None) -> None:
@@ -159,8 +141,7 @@ class HeadlessOAuth:
         assert self._http is not None
         self.authorize_url = authorization_url
         self.authorize_urls.append(authorization_url)
-        # auth=None is load-bearing: without it the GET re-enters OAuthClientProvider.async_auth_flow
-        # through its context lock and the flow deadlocks.
+        # auth=None is load-bearing: re-entering OAuthClientProvider.async_auth_flow through its lock deadlocks.
         response = await self._http.get(authorization_url, follow_redirects=False, auth=None)
         assert response.status_code == 302, f"authorize endpoint returned {response.status_code}: {response.text}"
         params = parse_qs(urlsplit(response.headers["location"]).query)
@@ -185,16 +166,12 @@ def auth_settings(
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
-    The issuer and resource URLs use the suite's loopback origin, which `validate_issuer_url`
-    accepts in lieu of HTTPS. Dynamic client registration is enabled. `valid_scopes` defaults
-    to `required_scopes` so a client requesting exactly those passes registration scope
-    validation; tests pass a wider set when they need the protected-resource metadata's
-    `scopes_supported` (which mirrors `required_scopes`) to differ from what the client may
-    register or when AS metadata should advertise additional scopes such as `offline_access`.
-
-    `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
-    jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
-    issue tokens.
+    Issuer/resource URLs use the suite's loopback origin, which `validate_issuer_url` accepts in
+    lieu of HTTPS; dynamic client registration is enabled. `valid_scopes` defaults to
+    `required_scopes`; pass a wider set when registrable scopes must differ from the metadata's
+    `scopes_supported` or the AS should advertise extras like `offline_access`.
+    `identity_assertion_enabled` advertises the SEP-990 ID-JAG grant (RFC 7523 jwt-bearer); the
+    provider must implement `exchange_identity_assertion`.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -211,11 +188,7 @@ def auth_settings(
 
 
 def oauth_client_metadata() -> OAuthClientMetadata:
-    """Build the client's registration metadata.
-
-    `scope` is left unset so the SDK's scope-selection strategy chooses one from the server's
-    metadata before registration.
-    """
+    """Build registration metadata with `scope` unset so the SDK picks a scope from server metadata."""
     return OAuthClientMetadata(
         client_name="interaction-suite",
         redirect_uris=[AnyUrl(REDIRECT_URI)],
@@ -231,11 +204,8 @@ def shimmed_app(
 ) -> ASGIApp:
     """Wrap an ASGI app so specific paths return canned responses before reaching the real app.
 
-    Paths in `serve` return the given body as `application/json` (status 200, or the supplied
-    status when the value is a `(status, body)` pair); paths in `not_found` return 404;
-    everything else reaches the wrapped app unchanged. Used by the discovery tests to make a
-    well-known endpoint 404 or return alternate metadata while keeping the real authorization
-    and MCP endpoints behind it.
+    Paths in `serve` return the body as `application/json` (200, or a `(status, body)` pair);
+    paths in `not_found` return 404. Lets discovery tests 404 or rewrite a well-known endpoint.
     """
     overrides: dict[str, tuple[int, bytes]] = {
         path: value if isinstance(value, tuple) else (200, value) for path, value in (serve or {}).items()
@@ -275,12 +245,10 @@ def shim(
 
 @dataclass
 class _FirstChallenge:
-    """ASGI shim that answers the first request to a path with 401 + a given WWW-Authenticate.
+    """ASGI shim that answers the first request to `path` with 401 + the given `WWW-Authenticate`.
 
-    Subsequent requests pass through to the wrapped app. Used to make the initial 401 carry
-    parameters (such as `scope=`) that the SDK's own bearer middleware cannot be configured
-    to emit, so client behaviour driven by those parameters is reachable end to end. Reserve
-    this pattern for behaviour the real server cannot be made to produce.
+    Lets the initial 401 carry parameters (such as `scope=`) the SDK's bearer middleware cannot be
+    configured to emit; reserve this pattern for behaviour the real server cannot produce.
     """
 
     app: ASGIApp
@@ -311,15 +279,11 @@ def first_challenge_shim(www_authenticate: str, *, path: str = "/mcp") -> Callab
 def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -> AppShim:
     """Build an `app_shim` that 403s the Nth authenticated POST to `/mcp` with the given challenge.
 
-    Subsequent requests pass through. Used to drive the client's `insufficient_scope` step-up
-    handling: the SDK's bearer middleware never emits `scope=` in its 403 challenge (see the
-    divergence on `hosting:auth:scope-403`), so the test supplies the 403 itself. Reserve this
-    pattern for behaviour the real server cannot be made to produce.
-
-    The default `on_nth_authenticated_post=2` targets the `notifications/initialized` POST: the
-    first authenticated POST is the auth flow's retry of the original initialize request (yielded
-    after the 401 branch, where the generator ends without inspecting the response), so a 403
-    there would not reach the step-up handler.
+    Drives the client's `insufficient_scope` step-up: the SDK's bearer middleware never emits
+    `scope=` in its 403 (divergence `hosting:auth:scope-403`), so the test supplies it. The default
+    of 2 targets the `notifications/initialized` POST — the first authenticated POST is the auth
+    flow's retry, whose response the generator never inspects, so a 403 there would miss the
+    step-up handler.
     """
     seen = 0
     fired = False
@@ -358,20 +322,15 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
 def m2m_token_shim(provider: InMemoryAuthorizationServerProvider, *, scopes: list[str]) -> AppShim:
     """Build an `app_shim` that handles `grant_type=client_credentials` at `/token`.
 
-    The SDK server's `TokenHandler` only routes `authorization_code` and `refresh_token`, so a
-    `client_credentials` request would fail discriminator validation. This shim mints a token via
-    `provider.mint_access_token` so the M2M client providers can complete e2e against the real
-    bearer middleware. The shim is harness; the SDK-under-test is the client provider, whose
-    outbound `/token` body the test asserts. The shim does not authenticate the client (no
-    credential check) because the test asserts the credentials on the recorded request, not on
-    the server's acceptance.
+    The SDK server's `TokenHandler` only routes `authorization_code` and `refresh_token`, so the
+    shim mints the token via `provider.mint_access_token`. The SDK-under-test is the M2M client
+    provider; the test asserts credentials on the recorded request, so the shim skips client auth.
     """
 
     def factory(app: ASGIApp) -> ASGIApp:
         async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
             if scope["type"] == "http" and scope["path"] == "/token" and scope["method"] == "POST":
-                # The streaming bridge buffers the request body and delivers it in a single
-                # http.request event, so one receive is sufficient.
+                # The streaming bridge delivers the whole body in one http.request event; one receive suffices.
                 message = await receive()
                 assert not message.get("more_body", False)
                 form = dict(parse_qsl(message.get("body", b"").decode()))
@@ -418,20 +377,12 @@ async def connect_with_oauth(
 ) -> AsyncIterator[tuple[Client, HeadlessOAuth]]:
     """Connect a `Client` to a server's bearer-gated streamable-HTTP app, completing OAuth in process.
 
-    Yields the connected `Client` and the `HeadlessOAuth` whose `authorize_url` records what the
-    SDK put on the authorize request. `on_request` records every HTTP request the underlying
-    `httpx.AsyncClient` issues, including those yielded from inside the auth flow.
-
-    `headless`: supply a pre-configured `HeadlessOAuth` to override the callback behaviour
-    (state mismatch, error redirects). `verify_tokens=False` mounts the MCP endpoint without
-    the bearer middleware so a flow driven by a shimmed 401 completes regardless of the granted
-    scopes. `app_shim` wraps the built Starlette app before it reaches the bridge transport,
-    for tests that need to intercept or rewrite specific server responses.
-
-    `auth`: supply a pre-built `httpx.Auth` (such as `ClientCredentialsOAuthProvider`) to use
-    instead of constructing the default `OAuthClientProvider`; in that case `storage`,
-    `client_metadata`, `client_metadata_url`, and `headless` are unused (the yielded
-    `HeadlessOAuth` is never invoked and its `authorize_url` stays None).
+    The yielded `HeadlessOAuth.authorize_url` records what the SDK put on the authorize request.
+    `on_request` sees every HTTP request, including those yielded inside the auth flow.
+    `verify_tokens=False` mounts the MCP endpoint without the bearer middleware; `app_shim` wraps
+    the built app before it reaches the bridge transport. Passing `auth` replaces the default
+    `OAuthClientProvider`; `storage`, `client_metadata`, `client_metadata_url`, and `headless` are
+    then unused.
     """
     settings = settings if settings is not None else auth_settings()
     storage = storage if storage is not None else InMemoryTokenStorage()

@@ -1,10 +1,4 @@
-"""Shared fixtures for the interaction suite.
-
-The ``connect`` fixture is parametrized per-test from the ``@requirement`` marks the test
-carries: ``pytest_generate_tests`` looks up each cited requirement in the manifest and computes
-the (transport, spec_version) cells via :func:`compute_cells`, applying arm exclusions, version
-bounds, and known-failure xfails declaratively.
-"""
+"""Shared fixtures for the interaction suite."""
 
 from functools import partial
 
@@ -28,7 +22,7 @@ _FACTORIES: dict[str, Connect] = {
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Parametrize ``connect`` from the test's stacked ``@requirement`` marks."""
+    """Parametrize `connect` from the test's stacked `@requirement` marks (see `compute_cells`)."""
     if "connect" not in metafunc.fixturenames:
         return
     requirements = [REQUIREMENTS[mark.args[0]] for mark in metafunc.definition.iter_markers("requirement")]
@@ -37,10 +31,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
 @pytest.fixture
 def connect(request: pytest.FixtureRequest) -> Connect:
-    """The transport-parametrized connection factory: a test using it runs once per matrix cell.
+    """Transport-parametrized connection factory: a test using it runs once per matrix cell.
 
-    Tests that are tied to one transport (the wire-recording tests, the bare-ClientSession tests,
-    the transport-specific tests under transports/) do not use this fixture and connect directly.
+    Transport-tied tests (wire recording, bare ClientSession, transports/) connect directly instead.
     """
     transport, spec_version = request.param
     assert isinstance(transport, str)

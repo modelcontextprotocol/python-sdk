@@ -1,9 +1,7 @@
 """Unit tests for the streamable-HTTP client transport.
 
-The full client<->server round trip is pinned by the interaction suite under
-tests/interaction/transports/; these tests cover the transport's header encoding and the
-per-message metadata-headers merge directly because the headers are an HTTP-seam observation
-the public client never exposes.
+Covers header encoding and the per-message metadata-headers merge — HTTP-seam observations the
+public client never exposes. The full round trip is pinned by tests/interaction/transports/.
 """
 
 import base64
@@ -36,13 +34,9 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field(
     raw: str, expected: str, wrapped: bool
 ) -> None:
-    """Printable-ASCII names pass verbatim; CR/LF, non-ASCII, edge-whitespace, and sentinel-shaped names are wrapped.
-
-    The ``=?base64?...?=`` sentinel is the spec's RFC 7230 safety gate for the ``Mcp-Name`` header.
-    Wrapped values round-trip through base64 so the server can recover the original name. A leading
-    or trailing space is wrapped because RFC 7230 forbids it in field-values (h11 rejects on real
-    transports); an empty value is allowed and passes verbatim.
-    """
+    """The `=?base64?...?=` sentinel is the spec's RFC 7230 safety gate for `Mcp-Name`: CR/LF, non-ASCII,
+    edge whitespace (forbidden in field-values; h11 rejects it), and sentinel-shaped names are wrapped so
+    the server can base64-decode the original; other printable ASCII (including empty) passes verbatim."""
     encoded = encode_header_value(raw)
     assert encoded == expected
     if wrapped:
@@ -54,8 +48,6 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
 
 @pytest.mark.anyio
 async def test_post_request_merges_per_message_metadata_headers() -> None:
-    """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
-    (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
     recorded: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -82,11 +74,8 @@ async def test_post_request_merges_per_message_metadata_headers() -> None:
 
 @pytest.mark.anyio
 async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
-    """A bare HTTP 404 (no JSON-RPC body) before any session-id is held maps to METHOD_NOT_FOUND.
-
-    Gateways and legacy servers 404 at the HTTP layer for unknown methods; with no session yet,
-    "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601.
-    """
+    """Gateways and legacy servers 404 at the HTTP layer for unknown methods; with no session-id held,
+    "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404)
@@ -105,17 +94,9 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
 
 @pytest.mark.anyio
 async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_it() -> None:
-    """``initialize`` discards the cached protocol-version header; every other POST reads it.
-
-    Steps:
-    1. A stamped probe POST caches its ``MCP-Protocol-Version`` header.
-    2. An ``initialize`` POST clears that cache before building headers, so the fallback
-       handshake never carries a probe-stamped value.
-    3. A subsequent stamped POST re-seeds the cache with the negotiated version.
-    4. An unstamped POST (a JSON-RPC response written by the dispatcher, which never
-       passes through the session's stamp) then reads the cache and carries the
-       negotiated version — the spec MUST for all post-initialization HTTP requests.
-    """
+    """`initialize` clears the cached header so the fallback handshake never carries a probe-stamped
+    value; stamped POSTs (re-)seed the cache; unstamped POSTs read it — the spec MUST for carrying
+    the negotiated version on every post-initialization HTTP request."""
     recorded: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -145,8 +126,7 @@ async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_
                     metadata=ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: "2025-11-25"}),
                 )
             )
-            # An unstamped JSON-RPC response — what the dispatcher writes when answering
-            # a server-initiated request (sampling/elicitation/roots).
+            # Unstamped JSON-RPC response — what the dispatcher writes when answering a server-initiated request.
             await write.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=99, result={})))
 
     assert [r.method for r in recorded] == ["POST", "POST", "POST", "POST"]

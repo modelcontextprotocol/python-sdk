@@ -24,9 +24,6 @@ from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 def validate_issuer_url(url: AnyHttpUrl):
     """Validate that the issuer URL meets OAuth 2.0 requirements.
 
-    Args:
-        url: The issuer URL to validate.
-
     Raises:
         ValueError: If the issuer URL is invalid.
     """
@@ -35,7 +32,6 @@ def validate_issuer_url(url: AnyHttpUrl):
     if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
         raise ValueError("Issuer URL must be HTTPS")
 
-    # No fragments or query parameters allowed
     if url.fragment:
         raise ValueError("Issuer URL must not have a fragment")
     if url.query:
@@ -85,10 +81,7 @@ def create_auth_routes(
     )
     client_authenticator = ClientAuthenticator(provider)
 
-    # Create routes
-    # Allow CORS requests for endpoints meant to be hit by the OAuth client
-    # (with the client secret). This is intended to support things like MCP Inspector,
-    # where the client runs in a web browser.
+    # Allow CORS on endpoints the OAuth client calls directly, so browser-based clients (e.g. MCP Inspector) work.
     routes = [
         Route(
             "/.well-known/oauth-authorization-server",
@@ -100,8 +93,7 @@ def create_auth_routes(
         ),
         Route(
             AUTHORIZATION_PATH,
-            # do not allow CORS for authorization endpoint;
-            # clients should just redirect to this
+            # No CORS: clients redirect users to the authorization endpoint rather than calling it
             endpoint=AuthorizationHandler(provider).handle,
             methods=["GET", "POST"],
         ),
@@ -167,7 +159,6 @@ def build_metadata(
         grant_types_supported.append(JWT_BEARER_GRANT_TYPE)
         authorization_grant_profiles_supported = [ID_JAG_GRANT_PROFILE]
 
-    # Create metadata
     metadata = OAuthMetadata(
         issuer=issuer_url,
         authorization_endpoint=authorization_url,
@@ -187,11 +178,9 @@ def build_metadata(
         authorization_grant_profiles_supported=authorization_grant_profiles_supported,
     )
 
-    # Add registration endpoint if supported
     if client_registration_options.enabled:  # pragma: no branch
         metadata.registration_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REGISTRATION_PATH)
 
-    # Add revocation endpoint if supported
     if revocation_options.enabled:  # pragma: no branch
         metadata.revocation_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REVOCATION_PATH)
         metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post", "client_secret_basic"]
@@ -200,19 +189,13 @@ def build_metadata(
 
 
 def build_resource_metadata_url(resource_server_url: AnyHttpUrl) -> AnyHttpUrl:
-    """Build RFC 9728 compliant protected resource metadata URL.
+    """Build the RFC 9728 §3.1 protected resource metadata URL.
 
-    Inserts /.well-known/oauth-protected-resource between host and resource path
-    as specified in RFC 9728 §3.1.
-
-    Args:
-        resource_server_url: The resource server URL (e.g., https://example.com/mcp)
-
-    Returns:
-        The metadata URL (e.g., https://example.com/.well-known/oauth-protected-resource/mcp)
+    Inserts /.well-known/oauth-protected-resource between host and resource path:
+    https://example.com/mcp -> https://example.com/.well-known/oauth-protected-resource/mcp
     """
     parsed = urlparse(str(resource_server_url))
-    # Handle trailing slash: if path is just "/", treat as empty
+    # A bare "/" path would otherwise leave a trailing slash on the metadata URL
     resource_path = parsed.path if parsed.path != "/" else ""
     return AnyHttpUrl(f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-protected-resource{resource_path}")
 
@@ -224,18 +207,7 @@ def create_protected_resource_routes(
     resource_name: str | None = None,
     resource_documentation: AnyHttpUrl | None = None,
 ) -> list[Route]:
-    """Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
-
-    Args:
-        resource_url: The URL of this resource server
-        authorization_servers: List of authorization servers that can issue tokens
-        scopes_supported: Optional list of scopes supported by this resource
-        resource_name: Optional human-readable name for this resource
-        resource_documentation: Optional URL to documentation for this resource
-
-    Returns:
-        List of Starlette routes for protected resource metadata
-    """
+    """Create routes serving OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
     metadata = ProtectedResourceMetadata(
         resource=resource_url,
         authorization_servers=authorization_servers,
@@ -247,9 +219,7 @@ def create_protected_resource_routes(
 
     handler = ProtectedResourceMetadataHandler(metadata)
 
-    # RFC 9728 §3.1: Register route at /.well-known/oauth-protected-resource + resource path
     metadata_url = build_resource_metadata_url(resource_url)
-    # Extract just the path part for route registration
     parsed = urlparse(str(metadata_url))
     well_known_path = parsed.path
 

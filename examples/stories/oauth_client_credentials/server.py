@@ -1,4 +1,4 @@
-"""Bearer-gated resource server + a minimal in-process ``client_credentials`` AS, one app; exports ``build_app()``."""
+"""Bearer-gated resource server + a minimal in-process `client_credentials` AS, one app; exports `build_app()`."""
 
 import base64
 import secrets

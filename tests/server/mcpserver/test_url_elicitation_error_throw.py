@@ -1,5 +1,3 @@
-"""Test that UrlElicitationRequiredError is properly propagated as MCP error."""
-
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -11,12 +9,10 @@ from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 @pytest.mark.anyio
 async def test_url_elicitation_error_thrown_from_tool():
-    """Test that UrlElicitationRequiredError raised from a tool is received as MCPError by client."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError")
     async def connect_service(service_name: str, ctx: Context) -> str:
-        # This tool cannot proceed without authorization
         raise UrlElicitationRequiredError(
             [
                 types.ElicitRequestURLParams(
@@ -52,7 +48,6 @@ async def test_url_elicitation_error_thrown_from_tool():
 
 @pytest.mark.anyio
 async def test_url_elicitation_error_from_error():
-    """Test that client can reconstruct UrlElicitationRequiredError from MCPError."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError with multiple elicitations")
@@ -75,17 +70,14 @@ async def test_url_elicitation_error_from_error():
         )
 
     async with Client(mcp) as client:
-        # Call the tool and catch the error
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("multi_auth", {})
 
-        # Reconstruct the typed error
         mcp_error = exc_info.value
         assert mcp_error.code == types.URL_ELICITATION_REQUIRED
 
         url_error = UrlElicitationRequiredError.from_error(mcp_error.error)
 
-        # Verify the reconstructed error has both elicitations
         assert len(url_error.elicitations) == 2
         assert url_error.elicitations[0].elicitation_id == "github-auth"
         assert url_error.elicitations[1].elicitation_id == "gdrive-auth"
@@ -93,7 +85,6 @@ async def test_url_elicitation_error_from_error():
 
 @pytest.mark.anyio
 async def test_normal_exceptions_still_return_error_result():
-    """Test that normal exceptions still return CallToolResult with is_error=True."""
     mcp = MCPServer(name="NormalErrorServer")
 
     @mcp.tool(description="A tool that raises a normal exception")
@@ -101,7 +92,6 @@ async def test_normal_exceptions_still_return_error_result():
         raise ValueError("Something went wrong")
 
     async with Client(mcp) as client:
-        # Normal exceptions should be returned as error results, not MCPError
         result = await client.call_tool("failing_tool", {})
         assert result.is_error is True
         assert len(result.content) == 1

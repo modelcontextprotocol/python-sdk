@@ -9,8 +9,7 @@ from stories.serve_one.server import build_server, handle_one
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # ── direct: the namesake recipe — Connection.from_envelope + serve_one → raw result dict.
-    # The entry enters lifespan once and threads it to every per-request handle_one().
+    # Direct: Connection.from_envelope + serve_one → raw result dict; lifespan entered once, threaded to handle_one().
     server = build_server()
     params = {
         "name": "add",
@@ -26,7 +25,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     assert raw["structuredContent"] == {"result": 5}, raw
     assert raw["content"][0] == {"type": "text", "text": "5"}, raw
 
-    # ── over the wire: the loop-mode driver behind the connected client.
+    # Over the wire: the loop-mode driver behind the connected client.
     async with Client(target, mode=mode) as client:
         listed = await client.list_tools()
         assert [t.name for t in listed.tools] == ["add"]

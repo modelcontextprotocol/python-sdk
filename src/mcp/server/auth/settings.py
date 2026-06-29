@@ -13,10 +13,9 @@ class RevocationOptions(BaseModel):
 
 
 class AuthSettings(BaseModel):
-    # Preserve empty URL paths so a path-less issuer/resource passed as a string keeps its
-    # canonical form (no trailing slash). RFC 8414/9207 issuer comparison is exact string
-    # comparison, so a spurious trailing slash would break it. See PR #2925 for the metadata
-    # models; this applies the same to the server's own configured URLs.
+    # Preserve empty URL paths: RFC 8414/9207 issuer comparison is exact-string, so a spurious trailing
+    # slash on a path-less issuer/resource passed as a string would break it. Same as the metadata
+    # models (PR #2925).
     model_config = ConfigDict(url_preserve_empty_path=True)
 
     issuer_url: AnyHttpUrl = Field(
@@ -34,7 +33,6 @@ class AuthSettings(BaseModel):
         "IdP flows. The provider must implement `exchange_identity_assertion`.",
     )
 
-    # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(
         ...,
         description="The URL of the MCP server to be used as the resource identifier "

@@ -16,8 +16,6 @@ from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetad
 
 class TestAddTools:
     def test_basic_function(self):
-        """Test registering and running a basic function."""
-
         def sum(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
@@ -58,15 +56,12 @@ class TestAddTools:
         saved_tool = manager.get_tool("sum")
         assert saved_tool == original_tool
 
-        # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
             manager = ToolManager(True, tools=[original_tool, original_tool])
             assert "Tool already exists: sum" in caplog.text
 
     @pytest.mark.anyio
     async def test_async_function(self):
-        """Test registering and running an async function."""
-
         async def fetch_data(url: str) -> str:  # pragma: no cover
             """Fetch data from URL."""
             return f"Data from {url}"
@@ -82,8 +77,6 @@ class TestAddTools:
         assert tool.parameters["properties"]["url"]["type"] == "string"
 
     def test_pydantic_model_function(self):
-        """Test registering a function that takes a Pydantic model."""
-
         class UserInput(BaseModel):
             name: str
             age: int
@@ -105,8 +98,6 @@ class TestAddTools:
         assert "flag" in tool.parameters["properties"]
 
     def test_add_callable_object(self):
-        """Test registering a callable object."""
-
         class MyTool:
             def __init__(self):
                 self.__name__ = "MyTool"
@@ -122,8 +113,6 @@ class TestAddTools:
 
     @pytest.mark.anyio
     async def test_add_async_callable_object(self):
-        """Test registering an async callable object."""
-
         class MyAsyncTool:
             def __init__(self):
                 self.__name__ = "MyAsyncTool"
@@ -153,8 +142,6 @@ class TestAddTools:
             manager.add_tool(lambda x: x)  # type: ignore[reportUnknownLambdaType]
 
     def test_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
-        """Test warning on duplicate tools."""
-
         def f(x: int) -> int:  # pragma: no cover
             return x
 
@@ -165,8 +152,6 @@ class TestAddTools:
             assert "Tool already exists: f" in caplog.text
 
     def test_disable_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
-        """Test disabling warning on duplicate tools."""
-
         def f(x: int) -> int:  # pragma: no cover
             return x
 
@@ -264,7 +249,6 @@ class TestCallTools:
 
         manager = ToolManager()
         manager.add_tool(sum_vals)
-        # Try both with plain list and with JSON list
         result = await manager.call_tool("sum_vals", {"vals": "[1, 2, 3]"}, Context())
         assert result == 6
         result = await manager.call_tool("sum_vals", {"vals": [1, 2, 3]}, Context())
@@ -277,7 +261,6 @@ class TestCallTools:
 
         manager = ToolManager()
         manager.add_tool(concat_strs)
-        # Try both with plain python object and with JSON list
         result = await manager.call_tool("concat_strs", {"vals": ["a", "b", "c"]}, Context())
         assert result == "abc"
         result = await manager.call_tool("concat_strs", {"vals": '["a", "b", "c"]'}, Context())
@@ -329,12 +312,7 @@ class TestToolSchema:
 
 
 class TestContextHandling:
-    """Test context handling in the tool manager."""
-
     def test_context_parameter_detection(self):
-        """Test that context parameters are properly detected in
-        Tool.from_function()."""
-
         def tool_with_context(x: int, ctx: Context) -> str:  # pragma: no cover
             return str(x)
 
@@ -356,8 +334,6 @@ class TestContextHandling:
 
     @pytest.mark.anyio
     async def test_context_injection(self):
-        """Test that context is properly injected during tool execution."""
-
         def tool_with_context(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
             return str(x)
@@ -370,8 +346,6 @@ class TestContextHandling:
 
     @pytest.mark.anyio
     async def test_context_injection_async(self):
-        """Test that context is properly injected in async tools."""
-
         async def async_tool(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
             return str(x)
@@ -384,8 +358,6 @@ class TestContextHandling:
 
     @pytest.mark.anyio
     async def test_context_error_handling(self):
-        """Test error handling when context injection fails."""
-
         def tool_with_context(x: int, ctx: Context) -> str:
             raise ValueError("Test error")
 
@@ -398,8 +370,6 @@ class TestContextHandling:
 
 class TestToolAnnotations:
     def test_tool_annotations(self):
-        """Test that tool annotations are correctly added to tools."""
-
         def read_data(path: str) -> str:  # pragma: no cover
             """Read data from a file."""
             return f"Data from {path}"
@@ -420,8 +390,6 @@ class TestToolAnnotations:
 
     @pytest.mark.anyio
     async def test_tool_annotations_in_mcpserver(self):
-        """Test that tool annotations are included in MCPTool conversion."""
-
         app = MCPServer()
 
         @app.tool(annotations=ToolAnnotations(title="Echo Tool", read_only_hint=True))
@@ -437,12 +405,8 @@ class TestToolAnnotations:
 
 
 class TestStructuredOutput:
-    """Test structured output functionality in tools."""
-
     @pytest.mark.anyio
     async def test_tool_with_basemodel_output(self):
-        """Test tool with BaseModel return type."""
-
         class UserOutput(BaseModel):
             name: str
             age: int
@@ -454,14 +418,11 @@ class TestStructuredOutput:
         manager = ToolManager()
         manager.add_tool(get_user)
         result = await manager.call_tool("get_user", {"user_id": 1}, Context(), convert_result=True)
-        # don't test unstructured output here, just the structured conversion
         assert isinstance(result, CallToolResult)
         assert result.structured_content == {"name": "John", "age": 30}
 
     @pytest.mark.anyio
     async def test_tool_with_primitive_output(self):
-        """Test tool with primitive return type."""
-
         def double_number(n: int) -> int:
             """Double a number."""
             return 10
@@ -476,8 +437,6 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_with_typeddict_output(self):
-        """Test tool with TypedDict return type."""
-
         class UserDict(TypedDict):
             name: str
             age: int
@@ -495,8 +454,6 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_with_dataclass_output(self):
-        """Test tool with dataclass return type."""
-
         @dataclass
         class Person:
             name: str
@@ -511,14 +468,11 @@ class TestStructuredOutput:
         manager = ToolManager()
         manager.add_tool(get_person)
         result = await manager.call_tool("get_person", {}, Context(), convert_result=True)
-        # don't test unstructured output here, just the structured conversion
         assert isinstance(result, CallToolResult)
         assert result.structured_content == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_list_output(self):
-        """Test tool with list return type."""
-
         expected_list = [1, 2, 3, 4, 5]
         expected_output = {"result": expected_list}
 
@@ -536,8 +490,6 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_without_structured_output(self):
-        """Test that tools work normally when structured_output=False."""
-
         def get_dict() -> dict[str, Any]:
             """Get a dict."""
             return {"key": "value"}
@@ -549,8 +501,6 @@ class TestStructuredOutput:
         assert result == {"key": "value"}
 
     def test_tool_output_schema_property(self):
-        """Test that Tool.output_schema property works correctly."""
-
         class UserOutput(BaseModel):
             name: str
             age: int
@@ -561,7 +511,6 @@ class TestStructuredOutput:
         manager = ToolManager()
         tool = manager.add_tool(get_user)
 
-        # Test that output_schema is populated
         expected_schema = {
             "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
             "required": ["name", "age"],
@@ -572,8 +521,6 @@ class TestStructuredOutput:
 
     @pytest.mark.anyio
     async def test_tool_with_dict_str_any_output(self):
-        """Test tool with dict[str, Any] return type."""
-
         def get_config() -> dict[str, Any]:
             """Get configuration"""
             return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
@@ -581,24 +528,19 @@ class TestStructuredOutput:
         manager = ToolManager()
         tool = manager.add_tool(get_config)
 
-        # Check output schema
         assert tool.output_schema is not None
         assert tool.output_schema["type"] == "object"
         assert "properties" not in tool.output_schema  # dict[str, Any] has no constraints
 
-        # Test raw result
         result = await manager.call_tool("get_config", {}, Context())
         expected = {"debug": True, "port": 8080, "features": ["auth", "logging"]}
         assert result == expected
 
-        # Test converted result
         result = await manager.call_tool("get_config", {}, Context())
         assert result == expected
 
     @pytest.mark.anyio
     async def test_tool_with_dict_str_typed_output(self):
-        """Test tool with dict[str, T] return type for specific T."""
-
         def get_scores() -> dict[str, int]:
             """Get player scores"""
             return {"alice": 100, "bob": 85, "charlie": 92}
@@ -606,27 +548,20 @@ class TestStructuredOutput:
         manager = ToolManager()
         tool = manager.add_tool(get_scores)
 
-        # Check output schema
         assert tool.output_schema is not None
         assert tool.output_schema["type"] == "object"
         assert tool.output_schema["additionalProperties"]["type"] == "integer"
 
-        # Test raw result
         result = await manager.call_tool("get_scores", {}, Context())
         expected = {"alice": 100, "bob": 85, "charlie": 92}
         assert result == expected
 
-        # Test converted result
         result = await manager.call_tool("get_scores", {}, Context())
         assert result == expected
 
 
 class TestToolMetadata:
-    """Test tool metadata functionality."""
-
     def test_add_tool_with_metadata(self):
-        """Test adding a tool with metadata via ToolManager."""
-
         def process_data(input_data: str) -> str:  # pragma: no cover
             """Process some data."""
             return f"Processed: {input_data}"
@@ -642,8 +577,6 @@ class TestToolMetadata:
         assert tool.meta["version"] == "1.0"
 
     def test_add_tool_without_metadata(self):
-        """Test that tools without metadata have None as meta value."""
-
         def simple_tool(x: int) -> int:  # pragma: no cover
             """Simple tool."""
             return x * 2
@@ -655,8 +588,6 @@ class TestToolMetadata:
 
     @pytest.mark.anyio
     async def test_metadata_in_mcpserver_decorator(self):
-        """Test that metadata is correctly added via MCPServer.tool decorator."""
-
         app = MCPServer()
 
         metadata = {"client": {"ui_component": "file_picker"}, "priority": "high"}
@@ -666,7 +597,6 @@ class TestToolMetadata:
             """Upload a file."""
             return f"Uploaded: {filename}"
 
-        # Get the tool from the tool manager
         tool = app._tool_manager.get_tool("upload_file")
         assert tool is not None
         assert tool.meta is not None
@@ -676,8 +606,6 @@ class TestToolMetadata:
 
     @pytest.mark.anyio
     async def test_metadata_in_list_tools(self):
-        """Test that metadata is included in MCPTool when listing tools."""
-
         app = MCPServer()
 
         metadata = {
@@ -697,8 +625,6 @@ class TestToolMetadata:
 
     @pytest.mark.anyio
     async def test_multiple_tools_with_different_metadata(self):
-        """Test multiple tools with different metadata values."""
-
         app = MCPServer()
 
         metadata1 = {"ui": "form", "version": 1}
@@ -722,7 +648,6 @@ class TestToolMetadata:
         tools = await app.list_tools()
         assert len(tools) == 3
 
-        # Find tools by name and check metadata
         tools_by_name = {t.name: t for t in tools}
 
         assert tools_by_name["tool1"].meta == metadata1
@@ -730,8 +655,6 @@ class TestToolMetadata:
         assert tools_by_name["tool3"].meta is None
 
     def test_metadata_with_complex_structure(self):
-        """Test metadata with complex nested structures."""
-
         def complex_tool(data: str) -> str:  # pragma: no cover
             """Tool with complex metadata."""
             return data
@@ -759,8 +682,6 @@ class TestToolMetadata:
         assert "data-processing" in tool.meta["tags"]
 
     def test_metadata_empty_dict(self):
-        """Test that empty dict metadata is preserved."""
-
         def tool_with_empty_meta(x: int) -> int:  # pragma: no cover
             """Tool with empty metadata."""
             return x
@@ -773,8 +694,6 @@ class TestToolMetadata:
 
     @pytest.mark.anyio
     async def test_metadata_with_annotations(self):
-        """Test that metadata and annotations can coexist."""
-
         app = MCPServer()
 
         metadata = {"custom": "value"}
@@ -794,11 +713,7 @@ class TestToolMetadata:
 
 
 class TestRemoveTools:
-    """Test tool removal functionality in the tool manager."""
-
     def test_remove_existing_tool(self):
-        """Test removing an existing tool."""
-
         def add(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
@@ -806,27 +721,21 @@ class TestRemoveTools:
         manager = ToolManager()
         manager.add_tool(add)
 
-        # Verify tool exists
         assert manager.get_tool("add") is not None
         assert len(manager.list_tools()) == 1
 
-        # Remove the tool - should not raise any exception
         manager.remove_tool("add")
 
-        # Verify tool is removed
         assert manager.get_tool("add") is None
         assert len(manager.list_tools()) == 0
 
     def test_remove_nonexistent_tool(self):
-        """Test removing a non-existent tool raises ToolError."""
         manager = ToolManager()
 
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
             manager.remove_tool("nonexistent")
 
     def test_remove_tool_from_multiple_tools(self):
-        """Test removing one tool when multiple tools exist."""
-
         def add(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
@@ -844,16 +753,13 @@ class TestRemoveTools:
         manager.add_tool(multiply)
         manager.add_tool(divide)
 
-        # Verify all tools exist
         assert len(manager.list_tools()) == 3
         assert manager.get_tool("add") is not None
         assert manager.get_tool("multiply") is not None
         assert manager.get_tool("divide") is not None
 
-        # Remove middle tool
         manager.remove_tool("multiply")
 
-        # Verify only multiply is removed
         assert len(manager.list_tools()) == 2
         assert manager.get_tool("add") is not None
         assert manager.get_tool("multiply") is None
@@ -861,8 +767,6 @@ class TestRemoveTools:
 
     @pytest.mark.anyio
     async def test_call_removed_tool_raises_error(self):
-        """Test that calling a removed tool raises ToolError."""
-
         def greet(name: str) -> str:
             """Greet someone."""
             return f"Hello, {name}!"
@@ -870,20 +774,15 @@ class TestRemoveTools:
         manager = ToolManager()
         manager.add_tool(greet)
 
-        # Verify tool works before removal
         result = await manager.call_tool("greet", {"name": "World"}, Context())
         assert result == "Hello, World!"
 
-        # Remove the tool
         manager.remove_tool("greet")
 
-        # Verify calling removed tool raises error
         with pytest.raises(ToolError, match="Unknown tool: greet"):
             await manager.call_tool("greet", {"name": "World"}, Context())
 
     def test_remove_tool_case_sensitive(self):
-        """Test that tool removal is case-sensitive."""
-
         def test_func() -> str:  # pragma: no cover
             """Test function."""
             return "test"
@@ -891,16 +790,12 @@ class TestRemoveTools:
         manager = ToolManager()
         manager.add_tool(test_func)
 
-        # Verify tool exists
         assert manager.get_tool("test_func") is not None
 
-        # Try to remove with different case - should raise ToolError
         with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
             manager.remove_tool("Test_Func")
 
-        # Verify original tool still exists
         assert manager.get_tool("test_func") is not None
 
-        # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None

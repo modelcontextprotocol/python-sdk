@@ -23,7 +23,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_first_call_returns_an_input_required_result() -> None:
-    """tutorial001: a tool that is missing input returns `InputRequiredResult` instead of calling back."""
     async with Client(tutorial001.server) as client:
         result = await client.session.call_tool("provision", {"name": "orders"}, allow_input_required=True)
         assert result == snapshot(
@@ -49,7 +48,6 @@ async def test_first_call_returns_an_input_required_result() -> None:
 
 
 async def test_the_auto_loop_drives_the_call_to_completion() -> None:
-    """tutorial003: register `elicitation_callback`, call the tool, get a plain `CallToolResult` back."""
     async with Client(tutorial001.server, elicitation_callback=tutorial003.handle_elicitation) as client:
         result = await client.call_tool("provision", {"name": "orders"})
         assert result == snapshot(
@@ -81,7 +79,6 @@ async def test_retry_with_input_responses_and_request_state_completes_the_call()
 
 
 async def test_the_manual_loop_drives_the_call_to_completion() -> None:
-    """tutorial002: `client.session.call_tool(..., allow_input_required=True)` for callers who own the loop."""
     async with Client(tutorial001.server) as client:
         result = await tutorial002.provision(client, "billing")
         assert result == snapshot(
@@ -105,7 +102,6 @@ async def test_a_pre_2026_session_has_nowhere_to_put_the_result() -> None:
 
 
 def test_fulfil_refuses_a_request_it_cannot_answer() -> None:
-    """tutorial002: `fulfil` is the dispatch point. This client only knows how to answer an `ElicitRequest`."""
     request = CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=64))
     with pytest.raises(NotImplementedError, match="sampling/createMessage"):
         tutorial002.fulfil(request)

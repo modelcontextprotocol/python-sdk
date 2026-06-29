@@ -6,15 +6,10 @@ from mcp.server.mcpserver.resources import FunctionResource, Resource
 
 
 class TestResourceValidation:
-    """Test base Resource validation."""
-
     def test_resource_uri_accepts_any_string(self):
-        """Test that URI field accepts any string per MCP spec."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
-        # Valid URI
         resource = FunctionResource(
             uri="http://example.com/data",
             name="test",
@@ -22,7 +17,7 @@ class TestResourceValidation:
         )
         assert resource.uri == "http://example.com/data"
 
-        # Relative path - now accepted per MCP spec
+        # Relative paths are valid per MCP spec
         resource = FunctionResource(
             uri="users/me",
             name="test",
@@ -30,7 +25,6 @@ class TestResourceValidation:
         )
         assert resource.uri == "users/me"
 
-        # Custom scheme
         resource = FunctionResource(
             uri="custom://resource",
             name="test",
@@ -39,8 +33,6 @@ class TestResourceValidation:
         assert resource.uri == "custom://resource"
 
     def test_resource_name_from_uri(self):
-        """Test name is extracted from URI if not provided."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
@@ -51,12 +43,9 @@ class TestResourceValidation:
         assert resource.name == "resource://my-resource"
 
     def test_resource_name_validation(self):
-        """Test name validation."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
-        # Must provide either name or URI
         with pytest.raises(ValueError, match="Either name or uri must be provided"):
             FunctionResource(
                 fn=dummy_func,
@@ -71,19 +60,15 @@ class TestResourceValidation:
         assert resource.name == "explicit-name"
 
     def test_resource_mime_type(self):
-        """Test mime type handling."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
-        # Default mime type
         resource = FunctionResource(
             uri="resource://test",
             fn=dummy_func,
         )
         assert resource.mime_type == "text/plain"
 
-        # Custom mime type
         resource = FunctionResource(
             uri="resource://test",
             fn=dummy_func,
@@ -101,8 +86,6 @@ class TestResourceValidation:
 
     @pytest.mark.anyio
     async def test_resource_read_abstract(self):
-        """Test that Resource.read() is abstract."""
-
         class ConcreteResource(Resource):
             pass
 
@@ -111,11 +94,7 @@ class TestResourceValidation:
 
 
 class TestResourceAnnotations:
-    """Test annotations on resources."""
-
     def test_resource_with_annotations(self):
-        """Test creating a resource with annotations."""
-
         def get_data() -> str:  # pragma: no cover
             return "data"
 
@@ -128,8 +107,6 @@ class TestResourceAnnotations:
         assert resource.annotations.priority == 0.8
 
     def test_resource_without_annotations(self):
-        """Test that annotations are optional."""
-
         def get_data() -> str:  # pragma: no cover
             return "data"
 
@@ -139,8 +116,6 @@ class TestResourceAnnotations:
 
     @pytest.mark.anyio
     async def test_resource_annotations_in_mcpserver(self):
-        """Test resource annotations via MCPServer decorator."""
-
         mcp = MCPServer()
 
         @mcp.resource("resource://annotated", annotations=Annotations(audience=["assistant"], priority=0.5))
@@ -156,8 +131,6 @@ class TestResourceAnnotations:
 
     @pytest.mark.anyio
     async def test_resource_annotations_with_both_audiences(self):
-        """Test resource with both user and assistant audience."""
-
         mcp = MCPServer()
 
         @mcp.resource("resource://both", annotations=Annotations(audience=["user", "assistant"], priority=1.0))
@@ -171,17 +144,11 @@ class TestResourceAnnotations:
 
 
 class TestAnnotationsValidation:
-    """Test validation of annotation values."""
-
     def test_priority_validation(self):
-        """Test that priority is validated to be between 0.0 and 1.0."""
-
-        # Valid priorities
         Annotations(priority=0.0)
         Annotations(priority=0.5)
         Annotations(priority=1.0)
 
-        # Invalid priorities should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(priority=-0.1)
 
@@ -189,25 +156,17 @@ class TestAnnotationsValidation:
             Annotations(priority=1.1)
 
     def test_audience_validation(self):
-        """Test that audience only accepts valid roles."""
-
-        # Valid audiences
         Annotations(audience=["user"])
         Annotations(audience=["assistant"])
         Annotations(audience=["user", "assistant"])
         Annotations(audience=[])
 
-        # Invalid roles should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(audience=["invalid_role"])  # type: ignore
 
 
 class TestResourceMetadata:
-    """Test metadata field on base Resource class."""
-
     def test_resource_with_metadata(self):
-        """Test that Resource base class accepts meta parameter."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
@@ -226,8 +185,6 @@ class TestResourceMetadata:
         assert resource.meta["category"] == "test"
 
     def test_resource_without_metadata(self):
-        """Test that meta field defaults to None."""
-
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 

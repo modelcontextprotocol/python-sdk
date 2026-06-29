@@ -1,6 +1,5 @@
-"""Callable inspection utilities.
+"""Callable inspection, adapted from Starlette's `is_async_callable`.
 
-Adapted from Starlette's `is_async_callable` implementation.
 https://github.com/encode/starlette/blob/main/starlette/_utils.py
 """
 

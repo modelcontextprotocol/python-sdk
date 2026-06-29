@@ -41,17 +41,14 @@ async def test_sampling_callback():
         assert value == callback_return
         return True
 
-    # Test with sampling callback
     async with Client(server, sampling_callback=sampling_callback, mode="legacy") as client:
-        # Make a request to trigger sampling callback
         result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
-    # Without a sampling callback the client responds with an MCPError, which the
-    # tool body doesn't catch — the wrapper re-raises it as a top-level JSON-RPC
-    # error rather than wrapping it as an isError result.
+    # Without a sampling callback the client responds with an MCPError the tool body
+    # doesn't catch, so it surfaces as a top-level JSON-RPC error, not an isError result.
     async with Client(server, mode="legacy") as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("test_sampling", {"message": "Test message for sampling"})
@@ -60,10 +57,8 @@ async def test_sampling_callback():
 
 @pytest.mark.anyio
 async def test_create_message_backwards_compat_single_content():
-    """Test backwards compatibility: create_message without tools returns single content."""
     server = MCPServer("test")
 
-    # Callback returns single content (text)
     callback_return = CreateMessageResult(
         role="assistant",
         content=TextContent(type="text", text="Hello from LLM"),
@@ -79,17 +74,14 @@ async def test_create_message_backwards_compat_single_content():
 
     @server.tool("test_backwards_compat")
     async def test_tool(message: str, ctx: Context) -> bool:
-        # Call create_message WITHOUT tools
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )
-        # Backwards compat: result should be CreateMessageResult
         assert isinstance(result, CreateMessageResult)
-        # Content should be single (not a list) - this is the key backwards compat check
         assert isinstance(result.content, TextContent)
         assert result.content.text == "Hello from LLM"
-        # CreateMessageResult should NOT have content_as_list (that's on WithTools)
+        # content_as_list exists only on CreateMessageResultWithTools
         assert not hasattr(result, "content_as_list") or not callable(getattr(result, "content_as_list", None))
         return True
 
@@ -102,8 +94,7 @@ async def test_create_message_backwards_compat_single_content():
 
 @pytest.mark.anyio
 async def test_create_message_result_with_tools_type():
-    """Test that CreateMessageResultWithTools supports content_as_list."""
-    # Test the type itself, not the overload (overload requires client capability setup)
+    # Tests the type directly, not the create_message overload (which requires client capability setup)
     result = CreateMessageResultWithTools(
         role="assistant",
         content=ToolUseContent(type="tool_use", id="call_123", name="get_weather", input={"city": "SF"}),
@@ -111,12 +102,10 @@ async def test_create_message_result_with_tools_type():
         stop_reason="toolUse",
     )
 
-    # CreateMessageResultWithTools should have content_as_list
     content_list = result.content_as_list
     assert len(content_list) == 1
     assert content_list[0].type == "tool_use"
 
-    # It should also work with array content
     result_array = CreateMessageResultWithTools(
         role="assistant",
         content=[

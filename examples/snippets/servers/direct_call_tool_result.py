@@ -11,8 +11,6 @@ mcp = MCPServer("CallToolResult Example")
 
 
 class ValidationModel(BaseModel):
-    """Model for validating structured output."""
-
     status: str
     data: dict[str, int]
 

@@ -25,7 +25,6 @@ async def parse_tool_results():
             # Example 2: Parsing structured content from JSON tools
             result = await session.call_tool("get_user", {"id": "123"})
             if hasattr(result, "structured_content") and result.structured_content:
-                # Access structured data directly
                 user_data = result.structured_content
                 print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
 

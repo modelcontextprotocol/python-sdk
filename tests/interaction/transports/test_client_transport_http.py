@@ -1,9 +1,7 @@
-"""Behaviour of the streamable-HTTP client transport itself, observed at the wire.
+"""Behaviour of the streamable-HTTP client transport, observed at the wire.
 
-These tests connect a real `Client` to a real server over the in-process bridge, recording every
-HTTP request the SDK client issues, so the assertions are about what the transport sends (headers,
-methods, ordering) rather than what the protocol layer on top of it returns. The recording is the
-wire-level instrument; the SDK client never exposes these details.
+A real `Client` talks to a real server over the in-process bridge, recording every HTTP request,
+so assertions are about what the transport sends rather than what the protocol layer returns.
 """
 
 from collections.abc import AsyncIterator
@@ -29,8 +27,6 @@ pytestmark = pytest.mark.anyio
 
 
 def _tooled_server() -> Server:
-    """A low-level server with one echo tool, used by every test in this file."""
-
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[Tool(name="echo", description="Echo text.", input_schema={"type": "object"})])
 
@@ -46,9 +42,8 @@ def _tooled_server() -> Server:
 async def recorded() -> AsyncIterator[list[httpx.Request]]:
     """Connect a `Client` over a recording HTTP client, list tools, exit, and yield every request sent.
 
-    The HTTP client carries one caller-supplied header (`x-trace`) so its propagation can be
-    asserted; the recording captures the closing DELETE because it is read after the `Client` has
-    fully exited.
+    The caller-supplied `x-trace` header lets tests assert header propagation; reading after exit
+    captures the closing DELETE.
     """
     requests: list[httpx.Request] = []
 
@@ -75,20 +70,13 @@ def _after_initialize(recorded: list[httpx.Request]) -> list[httpx.Request]:
 async def test_the_client_uses_the_supplied_http_client_and_propagates_its_headers(
     recorded: list[httpx.Request],
 ) -> None:
-    """A caller-supplied `httpx.AsyncClient` is used for every request and carries its own headers.
-
-    The recording itself proves the supplied client is the one in use; the propagated header
-    proves the SDK transport does not replace the caller's client configuration.
-    """
-    # Exact ordering past the first request is not guaranteed (the standalone GET stream is
-    # scheduled concurrently with later POSTs), so methods are asserted as a multiset.
+    # The standalone GET stream is scheduled concurrently with later POSTs, so methods are a multiset.
     assert sorted(request.method for request in recorded) == snapshot(["DELETE", "GET", "POST", "POST", "POST"])
     assert all(request.headers["x-trace"] == "abc" for request in recorded)
 
 
 @requirement("client-transport:http:session-stored")
 async def test_every_request_after_initialize_carries_the_issued_session_id(recorded: list[httpx.Request]) -> None:
-    """The session id from the initialize response is sent on every subsequent request."""
     session_ids = {request.headers["mcp-session-id"] for request in _after_initialize(recorded)}
     assert len(session_ids) == 1
     (session_id,) = session_ids
@@ -100,7 +88,6 @@ async def test_every_request_after_initialize_carries_the_issued_session_id(reco
 async def test_every_request_after_initialize_carries_the_negotiated_protocol_version(
     recorded: list[httpx.Request],
 ) -> None:
-    """The negotiated protocol version is sent on every subsequent request (and not on initialize)."""
     assert "mcp-protocol-version" not in recorded[0].headers
     versions = {request.headers["mcp-protocol-version"] for request in _after_initialize(recorded)}
     assert versions == snapshot({"2025-11-25"})
@@ -111,7 +98,6 @@ async def test_every_request_after_initialize_carries_the_negotiated_protocol_ve
 async def test_accept_headers_cover_the_response_representations_the_transport_handles(
     recorded: list[httpx.Request],
 ) -> None:
-    """POSTs accept both JSON and SSE; the standalone GET stream accepts SSE."""
     for request in recorded:
         if request.method == "POST":
             assert "application/json" in request.headers["accept"]
@@ -122,14 +108,12 @@ async def test_accept_headers_cover_the_response_representations_the_transport_h
 
 @requirement("client-transport:http:no-reconnect-after-close")
 async def test_closing_the_client_sends_delete_and_does_not_reconnect(recorded: list[httpx.Request]) -> None:
-    """Client teardown sends DELETE and issues no further requests (no resumption GET)."""
     assert recorded[-1].method == "DELETE"
     assert all("last-event-id" not in request.headers for request in recorded)
 
 
 @requirement("client-transport:http:concurrent-streams")
 async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_own_response() -> None:
-    """Three tool calls issued at once each open their own POST stream and get the right answer."""
     requests: list[httpx.Request] = []
     results: dict[int, CallToolResult] = {}
 
@@ -160,11 +144,10 @@ async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_o
 @requirement("client-transport:http:sse-405-tolerated")
 @requirement("client-transport:http:terminate-405-ok")
 async def test_client_tolerates_405_on_get_and_delete() -> None:
-    """A 405 on the standalone GET stream or the closing DELETE does not fail the connection.
+    """Neither 405 surfaces to the caller.
 
     The GET-stream task swallows the failure and schedules a reconnect that the closing cancel
-    interrupts before it ever sleeps the full default delay; the DELETE 405 is logged and ignored.
-    Neither surfaces to the caller.
+    interrupts before its delay elapses; the DELETE 405 is logged and ignored.
     """
     server = _tooled_server()
     real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
@@ -190,11 +173,9 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
 
 @requirement("client-transport:http:no-reconnect-after-response")
 async def test_a_completed_post_stream_is_not_reconnected() -> None:
-    """A POST stream that delivered its response closes without a resumption GET.
+    """The event store gives the client a Last-Event-ID it could resume from; it must not.
 
-    With an event store the server stamps every SSE event with an ID, so the client transport has a
-    Last-Event-ID it could resume from -- the test proves it does not, because the response arrived
-    and the stream completed normally.
+    The response arrived and the stream completed normally, so no resumption GET may follow.
     """
     requests: list[httpx.Request] = []
 
@@ -216,11 +197,9 @@ async def test_a_completed_post_stream_is_not_reconnected() -> None:
 
 @requirement("client-transport:http:404-surfaces")
 async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> None:
-    """A 404 in response to a request after initialization is reported to the caller as an MCP error.
+    """The spec says the client MUST start a new session here; the SDK surfaces an error instead.
 
-    The spec says the client MUST start a new session in this situation; the SDK instead surfaces a
-    `Session terminated` error to the caller. The spec's MUST is tracked at
-    client-transport:http:session-404-reinitialize; this test pins the SDK's current behaviour.
+    The MUST is tracked at client-transport:http:session-404-reinitialize; this pins current behaviour.
     """
     server = _tooled_server()
     real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)

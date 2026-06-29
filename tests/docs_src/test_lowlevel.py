@@ -13,7 +13,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_input_schema_on_the_wire_is_the_dict_you_wrote() -> None:
-    """tutorial001: nothing is derived. `tools/list` returns the literal `input_schema` dict."""
     async with Client(tutorial001.server) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.name == "search_books"
@@ -29,7 +28,6 @@ async def test_the_input_schema_on_the_wire_is_the_dict_you_wrote() -> None:
 
 
 async def test_the_client_does_not_care_which_server_class_it_connects_to() -> None:
-    """tutorial001: `Client(server)` accepts a low-level `Server` and the call answers like **Tools**."""
     async with Client(tutorial001.server) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         assert not result.is_error
@@ -38,13 +36,11 @@ async def test_the_client_does_not_care_which_server_class_it_connects_to() -> N
 
 
 async def test_only_the_handlers_you_passed_become_capabilities() -> None:
-    """tutorial001: two tool handlers advertise `tools` and nothing else."""
     async with Client(tutorial001.server) as client:
         assert client.server_capabilities.model_dump(exclude_none=True) == snapshot({"tools": {"list_changed": False}})
 
 
 async def test_arguments_are_not_validated_against_your_schema() -> None:
-    """tutorial001: a call missing a `required` argument still reaches the handler and blows up there."""
     async with Client(tutorial001.server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("search_books", {"query": "dune"})
@@ -52,7 +48,6 @@ async def test_arguments_are_not_validated_against_your_schema() -> None:
 
 
 async def test_one_handler_routes_every_tool() -> None:
-    """tutorial002: `on_call_tool` is the single entry point; it dispatches on `params.name`."""
     async with Client(tutorial002.server) as client:
         assert [tool.name for tool in (await client.list_tools()).tools] == ["search_books", "add_book"]
         result = await client.call_tool("add_book", {"title": "Dune", "author": "Frank Herbert", "year": 1965})
@@ -60,7 +55,6 @@ async def test_one_handler_routes_every_tool() -> None:
 
 
 async def test_an_unknown_tool_name_becomes_a_protocol_error_not_a_tool_error() -> None:
-    """tutorial002: raising from a handler is a `-32603` JSON-RPC error, never an `is_error` result."""
     async with Client(tutorial002.server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("does_not_exist", {})
@@ -68,7 +62,6 @@ async def test_an_unknown_tool_name_becomes_a_protocol_error_not_a_tool_error() 
 
 
 async def test_output_schema_and_structured_content_are_both_yours_to_build() -> None:
-    """tutorial003: you declare the schema on the `Tool` and you build the matching payload."""
     async with Client(tutorial003.server) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -84,8 +77,6 @@ async def test_output_schema_and_structured_content_are_both_yours_to_build() ->
 
 
 async def test_the_client_checks_the_schema_you_promised() -> None:
-    """The page's warning: a `structured_content` that violates your `output_schema` fails in `call_tool`."""
-
     async def promise_breaker(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text="oops")], structured_content={"matches": "three"})
 
@@ -96,7 +87,6 @@ async def test_the_client_checks_the_schema_you_promised() -> None:
 
 
 async def test_meta_reaches_the_client_application() -> None:
-    """tutorial004: `_meta=` on the result comes back as `result.meta` and serialises under `_meta`."""
     async with Client(tutorial004.server) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         assert result.meta == {"bookshop/record_ids": ["bk_17", "bk_42", "bk_99"]}
@@ -112,14 +102,12 @@ async def test_meta_reaches_the_client_application() -> None:
 
 
 async def test_the_lifespan_object_reaches_every_handler_with_its_type() -> None:
-    """tutorial005: what the lifespan yields is `ctx.lifespan_context`, typed by `Server[Catalog]`."""
     async with Client(tutorial005.server) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
         assert result.content == [TextContent(type="text", text="Found 3 books: Dune, Dune Messiah, Children of Dune.")]
 
 
 async def test_add_request_handler_registers_a_method_the_constructor_does_not_know() -> None:
-    """tutorial006: the registry holds the handler and the params model it validates against."""
     entry = tutorial006.server.get_request_handler("bookshop/reindex")
     assert entry is not None
     assert entry.params_type is tutorial006.ReindexParams
@@ -127,13 +115,11 @@ async def test_add_request_handler_registers_a_method_the_constructor_does_not_k
 
 
 async def test_a_custom_method_never_changes_the_advertised_capabilities() -> None:
-    """tutorial006: only the spec's method families map to capabilities. `bookshop/reindex` is invisible."""
     async with Client(tutorial006.server) as client:
         assert client.server_capabilities.model_dump(exclude_none=True) == snapshot({"tools": {"list_changed": False}})
 
 
 def test_initialize_is_reserved() -> None:
-    """The page's `ValueError`: the handshake belongs to the runner, not to `add_request_handler`."""
     server = Server("Bookshop")
 
     async def grab_the_handshake(ctx: ServerRequestContext, params: RequestParams) -> None:

@@ -26,12 +26,11 @@ from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOption
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
-# Mock OAuth provider for testing
 class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
     def __init__(self):
         self.clients: dict[str, OAuthClientInformationFull] = {}
-        self.auth_codes: dict[str, AuthorizationCode] = {}  # code -> {client_id, code_challenge, redirect_uri}
-        self.tokens: dict[str, AccessToken] = {}  # token -> {client_id, scopes, expires_at}
+        self.auth_codes: dict[str, AuthorizationCode] = {}
+        self.tokens: dict[str, AccessToken] = {}
         self.refresh_tokens: dict[str, str] = {}  # refresh_token -> access_token
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
@@ -42,8 +41,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         self.clients[client_info.client_id] = client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        # toy authorize implementation which just immediately generates an authorization
-        # code and completes the redirect
+        # Toy implementation: skips user interaction, immediately issues a code and redirects.
         assert client.client_id is not None
         code = AuthorizationCode(
             code=f"code_{int(time.time())}",
@@ -69,11 +67,9 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
     ) -> OAuthToken:
         assert authorization_code.code in self.auth_codes
 
-        # Generate an access token and refresh token
         access_token = f"access_{secrets.token_hex(32)}"
         refresh_token = f"refresh_{secrets.token_hex(32)}"
 
-        # Store the tokens
         assert client.client_id is not None
         self.tokens[access_token] = AccessToken(
             token=access_token,
@@ -85,7 +81,6 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
 
         self.refresh_tokens[refresh_token] = access_token
 
-        # Remove the used code
         del self.auth_codes[authorization_code.code]
 
         return OAuthToken(
@@ -104,7 +99,6 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         if token_info is None:  # pragma: no cover
             return None
 
-        # Create a RefreshToken object that matches what is expected in later code
         refresh_obj = RefreshToken(
             token=refresh_token,
             client_id=token_info.client_id,
@@ -121,23 +115,18 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
-        # Check if refresh token exists
         assert refresh_token.token in self.refresh_tokens
 
         old_access_token = self.refresh_tokens[refresh_token.token]
 
-        # Check if the access token exists
         assert old_access_token in self.tokens
 
-        # Check if the token was issued to this client
         token_info = self.tokens[old_access_token]
         assert token_info.client_id == client.client_id
 
-        # Generate a new access token and refresh token
         new_access_token = f"access_{secrets.token_hex(32)}"
         new_refresh_token = f"refresh_{secrets.token_hex(32)}"
 
-        # Store the new tokens
         assert client.client_id is not None
         self.tokens[new_access_token] = AccessToken(
             token=new_access_token,
@@ -149,7 +138,6 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
 
         self.refresh_tokens[new_refresh_token] = new_access_token
 
-        # Remove the old tokens
         del self.refresh_tokens[refresh_token.token]
         del self.tokens[old_access_token]
 
@@ -164,10 +152,6 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
     async def load_access_token(self, token: str) -> AccessToken | None:
         token_info = self.tokens.get(token)
 
-        # Check if token is expired
-        # if token_info.expires_at < int(time.time()):
-        #     raise InvalidTokenError("Access token has expired")
-
         return token_info and AccessToken(
             token=token,
             client_id=token_info.client_id,
@@ -179,14 +163,11 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         match token:
             case RefreshToken():  # pragma: lax no cover
-                # Remove the refresh token
                 del self.refresh_tokens[token.token]
 
             case AccessToken():  # pragma: no branch
-                # Remove the access token
                 del self.tokens[token.token]
 
-                # Also remove any refresh tokens that point to this access token
                 for refresh_token, access_token in list(self.refresh_tokens.items()):
                     if access_token == token.token:  # pragma: no branch
                         del self.refresh_tokens[refresh_token]
@@ -199,7 +180,6 @@ def mock_oauth_provider():
 
 @pytest.fixture
 def auth_app(mock_oauth_provider: MockOAuthProvider):
-    # Create auth router
     auth_routes = create_auth_routes(
         mock_oauth_provider,
         AnyHttpUrl("https://auth.example.com"),
@@ -212,7 +192,6 @@ def auth_app(mock_oauth_provider: MockOAuthProvider):
         revocation_options=RevocationOptions(enabled=True),
     )
 
-    # Create Starlette app
     app = Starlette(routes=auth_routes)
 
     return app
@@ -228,21 +207,13 @@ async def test_client(auth_app: Starlette):
 async def registered_client(
     test_client: httpx.AsyncClient, request: pytest.FixtureRequest
 ) -> OAuthClientInformationFull:
-    """Create and register a test client.
-
-    Parameters can be customized via indirect parameterization:
-    @pytest.mark.parametrize("registered_client",
-                            [{"grant_types": ["authorization_code"]}],
-                            indirect=True)
-    """
-    # Default client metadata
+    """Register a test client; override metadata via indirect parameterization."""
     client_metadata = {
         "redirect_uris": ["https://client.example.com/callback"],
         "client_name": "Test Client",
         "grant_types": ["authorization_code", "refresh_token"],
     }
 
-    # Override with any parameters from the test
     if hasattr(request, "param") and request.param:
         client_metadata.update(request.param)
 
@@ -255,7 +226,6 @@ async def registered_client(
 
 @pytest.fixture
 def pkce_challenge():
-    """Create a PKCE challenge with code_verifier and code_challenge."""
     code_verifier = "some_random_verifier_string"
     code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).decode().rstrip("=")
 
@@ -269,14 +239,7 @@ async def auth_code(
     pkce_challenge: dict[str, str],
     request: pytest.FixtureRequest,
 ):
-    """Get an authorization code.
-
-    Parameters can be customized via indirect parameterization:
-    @pytest.mark.parametrize("auth_code",
-                            [{"redirect_uri": "https://client.example.com/other-callback"}],
-                            indirect=True)
-    """
-    # Default authorize params
+    """Obtain an authorization code; override authorize params via indirect parameterization."""
     auth_params = {
         "response_type": "code",
         "client_id": registered_client["client_id"],
@@ -286,14 +249,12 @@ async def auth_code(
         "state": "test_state",
     }
 
-    # Override with any parameters from the test
     if hasattr(request, "param") and request.param:  # pragma: no cover
         auth_params.update(request.param)
 
     response = await test_client.get("/authorize", params=auth_params)
     assert response.status_code == 302, f"Failed to get auth code: {response.content}"
 
-    # Extract the authorization code
     redirect_url = response.headers["location"]
     parsed_url = urlparse(redirect_url)
     query_params = parse_qs(parsed_url.query)
@@ -311,8 +272,6 @@ async def auth_code(
 class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
-        """Test the OAuth 2.0 metadata endpoint."""
-
         response = await test_client.get("/.well-known/oauth-authorization-server")
         assert response.status_code == 200
 
@@ -333,8 +292,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_token_validation_error(self, test_client: httpx.AsyncClient):
-        """Test token endpoint error - validation error."""
-        # Missing required fields
         response = await test_client.post(
             "/token",
             data={
@@ -343,10 +300,9 @@ class TestAuthEndpoints:
             },
         )
         error_response = response.json()
-        # Per RFC 6749 Section 5.2, authentication failures (missing client_id)
-        # must return "invalid_client", not "unauthorized_client"
+        # RFC 6749 section 5.2: missing client_id is "invalid_client", not "unauthorized_client"
         assert error_response["error"] == "invalid_client"
-        assert "error_description" in error_response  # Contains error message
+        assert "error_description" in error_response
 
     @pytest.mark.anyio
     async def test_token_invalid_client_secret_returns_invalid_client(
@@ -356,16 +312,7 @@ class TestAuthEndpoints:
         pkce_challenge: dict[str, str],
         mock_oauth_provider: MockOAuthProvider,
     ):
-        """Test token endpoint returns 'invalid_client' for wrong client_secret per RFC 6749.
-
-        RFC 6749 Section 5.2 defines:
-        - invalid_client: Client authentication failed (wrong credentials, unknown client)
-        - unauthorized_client: Authenticated client not authorized for grant type
-
-        When client_secret is wrong, this is an authentication failure, so the
-        error code MUST be 'invalid_client'.
-        """
-        # Create an auth code for the registered client
+        """RFC 6749 section 5.2: a wrong client_secret is an authentication failure (`invalid_client`)."""
         auth_code = f"code_{int(time.time())}"
         mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
             code=auth_code,
@@ -377,7 +324,6 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Try to exchange the auth code with a WRONG client_secret
         response = await test_client.post(
             "/token",
             data={
@@ -392,7 +338,6 @@ class TestAuthEndpoints:
 
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749 Section 5.2: authentication failures MUST return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Invalid client_secret" in error_response["error_description"]
 
@@ -403,8 +348,6 @@ class TestAuthEndpoints:
         registered_client: dict[str, Any],
         pkce_challenge: dict[str, str],
     ):
-        """Test token endpoint error - authorization code does not exist."""
-        # Try to use a non-existent authorization code
         response = await test_client.post(
             "/token",
             data={
@@ -431,11 +374,8 @@ class TestAuthEndpoints:
         pkce_challenge: dict[str, str],
         mock_oauth_provider: MockOAuthProvider,
     ):
-        """Test token endpoint error - authorization code has expired."""
-        # Get the current time for our time mocking
         current_time = time.time()
 
-        # Find the auth code object
         code_value = auth_code["code"]
         found_code = None
         for code_obj in mock_oauth_provider.auth_codes.values():  # pragma: no branch
@@ -445,10 +385,8 @@ class TestAuthEndpoints:
 
         assert found_code is not None
 
-        # Authorization codes are typically short-lived (5 minutes = 300 seconds)
-        # So we'll mock time to be 10 minutes (600 seconds) in the future
+        # Codes expire after 300s; mock time 600s ahead.
         with unittest.mock.patch("time.time", return_value=current_time + 600):
-            # Try to use the expired authorization code
             response = await test_client.post(
                 "/token",
                 data={
@@ -485,8 +423,6 @@ class TestAuthEndpoints:
         auth_code: dict[str, str],
         pkce_challenge: dict[str, str],
     ):
-        """Test token endpoint error - redirect URI mismatch."""
-        # Try to use the code with a different redirect URI
         response = await test_client.post(
             "/token",
             data={
@@ -508,8 +444,6 @@ class TestAuthEndpoints:
     async def test_token_code_verifier_mismatch(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], auth_code: dict[str, str]
     ):
-        """Test token endpoint error - PKCE code verifier mismatch."""
-        # Try to use the code with an incorrect code verifier
         response = await test_client.post(
             "/token",
             data={
@@ -517,7 +451,6 @@ class TestAuthEndpoints:
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "code": auth_code["code"],
-                # Different from the one used to create challenge
                 "code_verifier": "incorrect_code_verifier",
                 "redirect_uri": auth_code["redirect_uri"],
             },
@@ -529,8 +462,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_token_invalid_refresh_token(self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]):
-        """Test token endpoint error - refresh token does not exist."""
-        # Try to use a non-existent refresh token
         response = await test_client.post(
             "/token",
             data={
@@ -553,11 +484,8 @@ class TestAuthEndpoints:
         auth_code: dict[str, str],
         pkce_challenge: dict[str, str],
     ):
-        """Test token endpoint error - refresh token has expired."""
-        # Step 1: First, let's create a token and refresh token at the current time
         current_time = time.time()
 
-        # Exchange authorization code for tokens normally
         token_response = await test_client.post(
             "/token",
             data={
@@ -573,10 +501,8 @@ class TestAuthEndpoints:
         tokens = token_response.json()
         refresh_token = tokens["refresh_token"]
 
-        # Step 2: Time travel forward 4 hours (tokens expire in 1 hour by default)
-        # Mock the time.time() function to return a value 4 hours in the future
-        with unittest.mock.patch("time.time", return_value=current_time + 14400):  # 4 hours = 14400 seconds
-            # Try to use the refresh token which should now be considered expired
+        # Tokens expire in 1 hour; mock time 4 hours ahead.
+        with unittest.mock.patch("time.time", return_value=current_time + 14400):
             response = await test_client.post(
                 "/token",
                 data={
@@ -587,7 +513,6 @@ class TestAuthEndpoints:
                 },
             )
 
-            # In the "future", the token should be considered expired
             assert response.status_code == 400
             error_response = response.json()
             assert error_response["error"] == "invalid_grant"
@@ -601,8 +526,6 @@ class TestAuthEndpoints:
         auth_code: dict[str, str],
         pkce_challenge: dict[str, str],
     ):
-        """Test token endpoint error - invalid scope in refresh token request."""
-        # Exchange authorization code for tokens
         token_response = await test_client.post(
             "/token",
             data={
@@ -619,7 +542,6 @@ class TestAuthEndpoints:
         tokens = token_response.json()
         refresh_token = tokens["refresh_token"]
 
-        # Try to use refresh token with an invalid scope
         response = await test_client.post(
             "/token",
             data={
@@ -627,7 +549,7 @@ class TestAuthEndpoints:
                 "client_id": registered_client["client_id"],
                 "client_secret": registered_client["client_secret"],
                 "refresh_token": refresh_token,
-                "scope": "read write invalid_scope",  # Adding an invalid scope
+                "scope": "read write invalid_scope",
             },
         )
         assert response.status_code == 400
@@ -637,7 +559,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration(self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider):
-        """Test client registration."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -656,15 +577,9 @@ class TestAuthEndpoints:
         assert client_info["client_name"] == "Test Client"
         assert client_info["redirect_uris"] == ["https://client.example.com/callback"]
 
-        # Verify that the client was registered
-        # assert await mock_oauth_provider.clients_store.get_client(
-        #     client_info["client_id"]
-        # ) is not None
-
     @pytest.mark.anyio
     async def test_client_registration_missing_required_fields(self, test_client: httpx.AsyncClient):
-        """Test client registration with missing required fields."""
-        # Missing redirect_uris which is a required field
+        # Missing redirect_uris, which is required
         client_metadata = {
             "client_name": "Test Client",
             "client_uri": "https://client.example.com",
@@ -682,8 +597,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration_invalid_uri(self, test_client: httpx.AsyncClient):
-        """Test client registration with invalid URIs."""
-        # Invalid redirect_uri format
         client_metadata = {
             "redirect_uris": ["not-a-valid-uri"],
             "client_name": "Test Client",
@@ -703,10 +616,9 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration_empty_redirect_uris(self, test_client: httpx.AsyncClient):
-        """Test client registration with empty redirect_uris array."""
         redirect_uris: list[str] = []
         client_metadata = {
-            "redirect_uris": redirect_uris,  # Empty array
+            "redirect_uris": redirect_uris,
             "client_name": "Test Client",
         }
 
@@ -724,8 +636,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_authorize_form_post(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
-        """Test the authorization endpoint using POST with form-encoded data."""
-        # Register a client
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -739,7 +649,6 @@ class TestAuthEndpoints:
         assert response.status_code == 201
         client_info = response.json()
 
-        # Use POST with form-encoded data for authorization
         response = await test_client.post(
             "/authorize",
             data={
@@ -753,7 +662,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 302
 
-        # Extract the authorization code from the redirect URL
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
         query_params = parse_qs(parsed_url.query)
@@ -768,8 +676,7 @@ class TestAuthEndpoints:
         mock_oauth_provider: MockOAuthProvider,
         pkce_challenge: dict[str, str],
     ):
-        """Test the full authorization flow."""
-        # 1. Register a client
+        """Full flow: register, authorize via GET, exchange code, verify, refresh, revoke."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -783,7 +690,6 @@ class TestAuthEndpoints:
         assert response.status_code == 201
         client_info = response.json()
 
-        # 2. Request authorization using GET with query params
         response = await test_client.get(
             "/authorize",
             params={
@@ -797,7 +703,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 302
 
-        # 3. Extract the authorization code from the redirect URL
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
         query_params = parse_qs(parsed_url.query)
@@ -806,7 +711,6 @@ class TestAuthEndpoints:
         assert query_params["state"][0] == "test_state"
         auth_code = query_params["code"][0]
 
-        # 4. Exchange the authorization code for tokens
         response = await test_client.post(
             "/token",
             data={
@@ -827,11 +731,9 @@ class TestAuthEndpoints:
         assert "expires_in" in token_response
         assert token_response["token_type"] == "Bearer"
 
-        # 5. Verify the access token
         access_token = token_response["access_token"]
         refresh_token = token_response["refresh_token"]
 
-        # Create a test client with the token
         auth_info = await mock_oauth_provider.load_access_token(access_token)
         assert auth_info
         assert auth_info.client_id == client_info["client_id"]
@@ -839,7 +741,6 @@ class TestAuthEndpoints:
         assert "write" in auth_info.scopes
         assert auth_info.subject == "test-user"
 
-        # 6. Refresh the token
         response = await test_client.post(
             "/token",
             data={
@@ -862,7 +763,6 @@ class TestAuthEndpoints:
         assert refreshed_auth_info
         assert refreshed_auth_info.subject == "test-user"
 
-        # 7. Revoke the token
         response = await test_client.post(
             "/revoke",
             data={
@@ -873,12 +773,10 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 200
 
-        # Verify that the token was revoked
         assert await mock_oauth_provider.load_access_token(new_token_response["access_token"]) is None
 
     @pytest.mark.anyio
     async def test_revoke_invalid_token(self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]):
-        """Test revoking an invalid token."""
         response = await test_client.post(
             "/revoke",
             data={
@@ -887,7 +785,7 @@ class TestAuthEndpoints:
                 "token": "invalid_token",
             },
         )
-        # per RFC, this should return 200 even if the token is invalid
+        # Per RFC 7009, revocation returns 200 even if the token is invalid.
         assert response.status_code == 200
 
     @pytest.mark.anyio
@@ -908,7 +806,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration_disallowed_scopes(self, test_client: httpx.AsyncClient):
-        """Test client registration with scopes that are not allowed."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -937,19 +834,16 @@ class TestAuthEndpoints:
         assert response.status_code == 201
         client_info = response.json()
 
-        # Verify client was registered successfully
         assert client_info["scope"] == "read write"
 
-        # Retrieve the client from the store to verify default scopes
         registered_client = await mock_oauth_provider.get_client(client_info["client_id"])
         assert registered_client is not None
 
-        # Check that default scopes were applied
         assert registered_client.scope == "read write"
 
     @pytest.mark.anyio
     async def test_client_registration_with_authorization_code_only(self, test_client: httpx.AsyncClient):
-        """Test that registration succeeds with only authorization_code (refresh_token is optional per RFC 7591)."""
+        """The refresh_token grant type is optional per RFC 7591."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -964,7 +858,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration_missing_authorization_code(self, test_client: httpx.AsyncClient):
-        """Test that registration fails when authorization_code grant type is missing."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -990,7 +883,6 @@ class TestAuthEndpoints:
         assert response.status_code == 201
         client_info = response.json()
 
-        # Verify client was registered successfully
         assert "client_id" in client_info
         assert "client_secret" in client_info
         assert client_info["client_name"] == "Test Client"
@@ -999,7 +891,6 @@ class TestAuthEndpoints:
     async def test_client_registration_with_additional_response_types(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider
     ):
-        """Test that registration accepts additional response_types values alongside 'code'."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -1017,7 +908,6 @@ class TestAuthEndpoints:
 
     @pytest.mark.anyio
     async def test_client_registration_response_types_without_code(self, test_client: httpx.AsyncClient):
-        """Test that registration rejects response_types that don't include 'code'."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -1036,12 +926,10 @@ class TestAuthEndpoints:
     async def test_client_registration_default_response_types(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider
     ):
-        """Test that registration uses default response_types of ['code'] when not specified."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
             "grant_types": ["authorization_code", "refresh_token"],
-            # response_types not specified, should default to ["code"]
         }
 
         response = await test_client.post("/register", json=client_metadata)
@@ -1055,7 +943,6 @@ class TestAuthEndpoints:
     async def test_client_secret_basic_authentication(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that client_secret_basic authentication works correctly."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1101,7 +988,6 @@ class TestAuthEndpoints:
     async def test_wrong_auth_method_without_valid_credentials_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that using the wrong authentication method fails when credentials are missing."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Post Auth Client",
@@ -1125,9 +1011,7 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Try to use Basic auth when client_secret_post is registered (without secret in body)
-        # This should fail because the secret is missing from the expected location
-
+        # Client registered client_secret_post but authenticates via Basic, so the secret is missing from the body.
         credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
 
@@ -1137,7 +1021,6 @@ class TestAuthEndpoints:
             data={
                 "grant_type": "authorization_code",
                 "client_id": client_info["client_id"],
-                # client_secret NOT in body where it should be
                 "code": auth_code,
                 "code_verifier": pkce_challenge["code_verifier"],
                 "redirect_uri": "https://client.example.com/callback",
@@ -1145,7 +1028,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Client secret is required" in error_response["error_description"]
 
@@ -1153,7 +1035,6 @@ class TestAuthEndpoints:
     async def test_basic_auth_without_header_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that omitting Basic auth when client_secret_basic is registered fails."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1190,7 +1071,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Missing or invalid Basic authentication" in error_response["error_description"]
 
@@ -1198,7 +1078,6 @@ class TestAuthEndpoints:
     async def test_basic_auth_invalid_base64_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that invalid base64 in Basic auth header fails."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1221,7 +1100,6 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Send invalid base64
         response = await test_client.post(
             "/token",
             headers={"Authorization": "Basic !!!invalid-base64!!!"},
@@ -1235,7 +1113,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Invalid Basic authentication header" in error_response["error_description"]
 
@@ -1243,7 +1120,6 @@ class TestAuthEndpoints:
     async def test_basic_auth_no_colon_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that Basic auth without colon separator fails."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1266,7 +1142,6 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Send base64 without colon (invalid format)
         invalid_creds = base64.b64encode(b"no-colon-here").decode()
         response = await test_client.post(
             "/token",
@@ -1281,7 +1156,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Invalid Basic authentication header" in error_response["error_description"]
 
@@ -1289,7 +1163,6 @@ class TestAuthEndpoints:
     async def test_basic_auth_client_id_mismatch_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that client_id mismatch between body and Basic auth fails."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1312,7 +1185,6 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Send different client_id in Basic auth header
         wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
         response = await test_client.post(
             "/token",
@@ -1327,7 +1199,6 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
         assert "Client ID mismatch" in error_response["error_description"]
 
@@ -1335,7 +1206,6 @@ class TestAuthEndpoints:
     async def test_none_auth_method_public_client(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that 'none' authentication method works for public clients."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Public Client",
@@ -1347,7 +1217,6 @@ class TestAuthEndpoints:
         assert response.status_code == 201
         client_info = response.json()
         assert client_info["token_endpoint_auth_method"] == "none"
-        # Public clients should not have a client_secret
         assert "client_secret" not in client_info or client_info.get("client_secret") is None
 
         auth_code = f"code_{int(time.time())}"
@@ -1361,7 +1230,6 @@ class TestAuthEndpoints:
             expires_at=time.time() + 600,
         )
 
-        # Token request without any client secret
         response = await test_client.post(
             "/token",
             data={
@@ -1378,15 +1246,9 @@ class TestAuthEndpoints:
 
 
 class TestAuthorizeEndpointErrors:
-    """Test error handling in the OAuth authorization endpoint."""
-
     @pytest.mark.anyio
     async def test_authorize_missing_client_id(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
-        """Test authorization endpoint with missing client_id.
-
-        According to the OAuth2.0 spec, if client_id is missing, the server should
-        inform the resource owner and NOT redirect.
-        """
+        """Per OAuth 2.0, a missing client_id shows an error page and does not redirect."""
         response = await test_client.get(
             "/authorize",
             params={
@@ -1399,18 +1261,12 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should NOT redirect, should show an error page
         assert response.status_code == 400
-        # The response should include an error message about missing client_id
         assert "client_id" in response.text.lower()
 
     @pytest.mark.anyio
     async def test_authorize_invalid_client_id(self, test_client: httpx.AsyncClient, pkce_challenge: dict[str, str]):
-        """Test authorization endpoint with invalid client_id.
-
-        According to the OAuth2.0 spec, if client_id is invalid, the server should
-        inform the resource owner and NOT redirect.
-        """
+        """Per OAuth 2.0, an unknown client_id shows an error page and does not redirect."""
         response = await test_client.get(
             "/authorize",
             params={
@@ -1423,20 +1279,14 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should NOT redirect, should show an error page
         assert response.status_code == 400
-        # The response should include an error message about invalid client_id
         assert "client" in response.text.lower()
 
     @pytest.mark.anyio
     async def test_authorize_missing_redirect_uri(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with missing redirect_uri.
-
-        If client has only one registered redirect_uri, it can be omitted.
-        """
-
+        """redirect_uri may be omitted when the client has exactly one registered."""
         response = await test_client.get(
             "/authorize",
             params={
@@ -1449,7 +1299,6 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should redirect to the registered redirect_uri
         assert response.status_code == 302, response.content
         redirect_url = response.headers["location"]
         assert redirect_url.startswith("https://client.example.com/callback")
@@ -1458,18 +1307,12 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_invalid_redirect_uri(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with invalid redirect_uri.
-
-        According to the OAuth2.0 spec, if redirect_uri is invalid or doesn't match,
-        the server should inform the resource owner and NOT redirect.
-        """
-
+        """Per OAuth 2.0, a non-matching redirect_uri shows an error page and does not redirect."""
         response = await test_client.get(
             "/authorize",
             params={
                 "response_type": "code",
                 "client_id": registered_client["client_id"],
-                # Non-matching URI
                 "redirect_uri": "https://attacker.example.com/callback",
                 "code_challenge": pkce_challenge["code_challenge"],
                 "code_challenge_method": "S256",
@@ -1477,9 +1320,7 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should NOT redirect, should show an error page
         assert response.status_code == 400, response.content
-        # The response should include an error message about redirect_uri mismatch
         assert "redirect" in response.text.lower()
 
     @pytest.mark.anyio
@@ -1498,11 +1339,7 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_missing_redirect_uri_multiple_registered(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test endpoint with missing redirect_uri with multiple registered URIs.
-
-        If client has multiple registered redirect_uris, redirect_uri must be provided.
-        """
-
+        """redirect_uri is required when the client has multiple registered."""
         response = await test_client.get(
             "/authorize",
             params={
@@ -1515,25 +1352,18 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should NOT redirect, should return a 400 error
         assert response.status_code == 400
-        # The response should include an error message about missing redirect_uri
         assert "redirect_uri" in response.text.lower()
 
     @pytest.mark.anyio
     async def test_authorize_unsupported_response_type(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with unsupported response_type.
-
-        According to the OAuth2.0 spec, for other errors like unsupported_response_type,
-        the server should redirect with error parameters.
-        """
-
+        """Per OAuth 2.0, unsupported_response_type errors redirect back with error parameters."""
         response = await test_client.get(
             "/authorize",
             params={
-                "response_type": "token",  # Unsupported (we only support "code")
+                "response_type": "token",  # Only "code" is supported
                 "client_id": registered_client["client_id"],
                 "redirect_uri": "https://client.example.com/callback",
                 "code_challenge": pkce_challenge["code_challenge"],
@@ -1542,7 +1372,6 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should redirect with error parameters
         assert response.status_code == 302
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
@@ -1550,7 +1379,6 @@ class TestAuthorizeEndpointErrors:
 
         assert "error" in query_params
         assert query_params["error"][0] == "unsupported_response_type"
-        # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
 
@@ -1558,11 +1386,6 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_missing_response_type(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with missing response_type.
-
-        Missing required parameter should result in invalid_request error.
-        """
-
         response = await test_client.get(
             "/authorize",
             params={
@@ -1575,7 +1398,6 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should redirect with error parameters
         assert response.status_code == 302
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
@@ -1583,7 +1405,6 @@ class TestAuthorizeEndpointErrors:
 
         assert "error" in query_params
         assert query_params["error"][0] == "invalid_request"
-        # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
 
@@ -1591,10 +1412,6 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_missing_pkce_challenge(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any]
     ):
-        """Test authorization endpoint with missing PKCE code_challenge.
-
-        Missing PKCE parameters should result in invalid_request error.
-        """
         response = await test_client.get(
             "/authorize",
             params={
@@ -1602,11 +1419,9 @@ class TestAuthorizeEndpointErrors:
                 "client_id": registered_client["client_id"],
                 # Missing code_challenge
                 "state": "test_state",
-                # using default URL
             },
         )
 
-        # Should redirect with error parameters
         assert response.status_code == 302
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
@@ -1614,7 +1429,6 @@ class TestAuthorizeEndpointErrors:
 
         assert "error" in query_params
         assert query_params["error"][0] == "invalid_request"
-        # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
 
@@ -1622,11 +1436,6 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_invalid_scope(
         self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with invalid scope.
-
-        Invalid scope should redirect with invalid_scope error.
-        """
-
         response = await test_client.get(
             "/authorize",
             params={
@@ -1640,7 +1449,6 @@ class TestAuthorizeEndpointErrors:
             },
         )
 
-        # Should redirect with error parameters
         assert response.status_code == 302
         redirect_url = response.headers["location"]
         parsed_url = urlparse(redirect_url)
@@ -1648,6 +1456,5 @@ class TestAuthorizeEndpointErrors:
 
         assert "error" in query_params
         assert query_params["error"][0] == "invalid_scope"
-        # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"

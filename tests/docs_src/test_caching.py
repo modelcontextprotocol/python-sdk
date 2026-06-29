@@ -14,7 +14,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_a_mapped_method_carries_the_configured_hint() -> None:
-    """tutorial001: `tools/list` is in the map, so clients see one minute, public."""
     async with Client(tutorial001.mcp) as client:
         tools = await client.list_tools()
     assert tools.ttl_ms == 60_000
@@ -22,7 +21,6 @@ async def test_a_mapped_method_carries_the_configured_hint() -> None:
 
 
 async def test_a_hint_without_a_scope_stays_private() -> None:
-    """tutorial001: `resources/read` set only `ttl_ms`; scope keeps the conservative default."""
     async with Client(tutorial001.mcp) as client:
         result = await client.read_resource("config://units")
     assert result.ttl_ms == 5_000
@@ -30,7 +28,6 @@ async def test_a_hint_without_a_scope_stays_private() -> None:
 
 
 async def test_an_unmapped_method_stays_immediately_stale_and_private() -> None:
-    """tutorial001: `resources/list` is not in the map - the defaults hold."""
     async with Client(tutorial001.mcp) as client:
         resources = await client.list_resources()
     assert resources.ttl_ms == 0
@@ -38,7 +35,6 @@ async def test_an_unmapped_method_stays_immediately_stale_and_private() -> None:
 
 
 async def test_a_non_cacheable_method_is_rejected_at_construction() -> None:
-    """The page's claim: anything but the six cacheable methods raises at construction."""
     with pytest.raises(ValueError) as exc:
         MCPServer("Weather", cache_hints=cast(Any, {"tools/call": CacheHint(ttl_ms=1_000)}))
     assert str(exc.value) == snapshot(
@@ -47,8 +43,7 @@ async def test_a_non_cacheable_method_is_rejected_at_construction() -> None:
 
 
 async def test_the_handler_value_wins_over_the_map_per_field() -> None:
-    """tutorial002: the handler's `ttl_ms=1_000` beats the map's `60_000`; the scope
-    the handler left unset takes the map's `"public"`."""
+    """tutorial002's map sets `ttl_ms=60_000, scope="public"`; the handler overrides only `ttl_ms`."""
     async with Client(tutorial002.server) as client:
         tools = await client.list_tools()
     assert tools.ttl_ms == 1_000
@@ -56,15 +51,12 @@ async def test_the_handler_value_wins_over_the_map_per_field() -> None:
 
 
 async def test_the_client_program_on_the_page_reads_the_hints(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial003: `main()` is the literal client program on the page - the hints
-    arrive as parsed fields on the result."""
     await tutorial003.main()
     assert capsys.readouterr().out == "1 tools, fresh for 60s, scope=public\n"
 
 
 async def test_the_wire_presence_check_the_page_recommends_works() -> None:
-    """The page's claim: `"ttl_ms" in result.model_fields_set` distinguishes a
-    server that sent the field from one that said nothing (model defaults)."""
+    """Presence in `model_fields_set` proves the server sent the field rather than the model defaulting it."""
     async with Client(tutorial003.mcp) as client:
         tools = await client.list_tools()
     assert "ttl_ms" in tools.model_fields_set

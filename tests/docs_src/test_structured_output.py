@@ -24,7 +24,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_scalar_return_is_wrapped() -> None:
-    """tutorial001: `-> int` becomes a `{"result": ...}` output schema and fills both channels."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -42,7 +41,6 @@ async def test_scalar_return_is_wrapped() -> None:
 
 
 async def test_basemodel_is_the_schema() -> None:
-    """tutorial002: a `BaseModel` return type is the output schema itself: no wrapper."""
     async with Client(tutorial002.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -64,7 +62,6 @@ async def test_basemodel_is_the_schema() -> None:
 
 
 async def test_typeddict_produces_the_same_schema() -> None:
-    """tutorial003: a `TypedDict` return type produces the same object schema as the `BaseModel`."""
     async with Client(tutorial003.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -84,7 +81,6 @@ async def test_typeddict_produces_the_same_schema() -> None:
 
 
 async def test_dataclass_produces_the_same_schema() -> None:
-    """tutorial004: a dataclass (an annotated class) produces the same object schema again."""
     async with Client(tutorial004.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -104,7 +100,7 @@ async def test_dataclass_produces_the_same_schema() -> None:
 
 
 async def test_list_return_is_wrapped() -> None:
-    """tutorial005: `-> list[WeatherData]` is wrapped in `{"result": ...}` and flattened into one block per item."""
+    """`list[WeatherData]` is wrapped in `result` and flattened into one content block per item."""
     async with Client(tutorial005.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -140,7 +136,6 @@ async def test_list_return_is_wrapped() -> None:
 
 
 async def test_dict_str_return_is_not_wrapped() -> None:
-    """tutorial006: `dict[str, float]` is already a JSON object, so there is no `result` wrapper."""
     async with Client(tutorial006.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema == snapshot(
@@ -151,7 +146,6 @@ async def test_dict_str_return_is_not_wrapped() -> None:
 
 
 async def test_return_value_is_validated_against_the_schema() -> None:
-    """tutorial007: a return value that does not match the output schema is a tool error, not a result."""
     async with Client(tutorial007.mcp) as client:
         result = await client.call_tool("get_weather", {"city": "London"})
         assert result.is_error
@@ -162,7 +156,6 @@ async def test_return_value_is_validated_against_the_schema() -> None:
 
 
 async def test_structured_output_false_opts_out() -> None:
-    """tutorial008: `structured_output=False` drops the schema and the structured channel entirely."""
     async with Client(tutorial008.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema is None
@@ -174,7 +167,6 @@ async def test_structured_output_false_opts_out() -> None:
 
 
 async def test_class_without_type_hints_is_silently_unstructured() -> None:
-    """tutorial009: a class with no annotations on its body gets no schema, and the model gets a `repr`."""
     async with Client(tutorial009.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.output_schema is None
@@ -186,7 +178,6 @@ async def test_class_without_type_hints_is_silently_unstructured() -> None:
 
 
 def test_structured_output_true_makes_the_silence_an_error() -> None:
-    """tutorial009: `structured_output=True` refuses a return type it cannot build a schema for."""
     mcp = MCPServer("Weather")
     with pytest.raises(InvalidSignature, match="is not serializable for structured output"):
         mcp.add_tool(tutorial009.get_station, structured_output=True)

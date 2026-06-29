@@ -47,7 +47,7 @@ async def test_each_decorator_registers_one_primitive() -> None:
 
 
 async def test_call_the_tool() -> None:
-    """tutorial001: the Inspector walkthrough. `add` with 1 and 2 answers 3."""
+    """tutorial001: the Inspector walkthrough."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("add", {"a": 1, "b": 2})
         assert not result.is_error
@@ -79,14 +79,10 @@ async def test_get_the_prompt() -> None:
 
 
 async def test_the_three_primitive_capabilities_are_always_declared() -> None:
-    """tutorial001: `MCPServer` always declares tools/resources/prompts; only `completions` follows your code.
-
-    An `MCPServer` with nothing registered declares the same three, which is why the
-    page ties registration to the *optional* capabilities only.
-    """
+    """tutorial001: `MCPServer` always declares tools/resources/prompts; only `completions` follows your code."""
     async with Client(tutorial001.mcp) as client:
         declared = client.server_capabilities
-        # The exact dictionary the page prints from `model_dump(exclude_none=True)`.
+        # The exact dictionary the page prints.
         assert declared.model_dump(exclude_none=True) == snapshot(
             {
                 "prompts": {"list_changed": False},

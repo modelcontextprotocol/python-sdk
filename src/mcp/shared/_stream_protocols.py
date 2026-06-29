@@ -1,8 +1,4 @@
-"""Stream protocols for MCP transports.
-
-These are general-purpose protocols satisfied by both ``MemoryObjectSendStream``/
-``MemoryObjectReceiveStream`` and the context-aware wrappers in ``_context_streams``.
-"""
+"""Stream protocols satisfied by both anyio memory object streams and the `_context_streams` wrappers."""
 
 from __future__ import annotations
 
@@ -18,8 +14,7 @@ T_contra = TypeVar("T_contra", contravariant=True)
 class ReadStream(Protocol[T_co]):
     """Protocol for reading items from a stream.
 
-    Consumers that need the sender's context should use
-    ``getattr(stream, 'last_context', None)``.
+    `getattr(stream, 'last_context', None)` gives the sender's context.
     """
 
     async def receive(self) -> T_co: ...

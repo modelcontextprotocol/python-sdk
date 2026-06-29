@@ -1,4 +1,4 @@
-"""HTTP-only: ``build_auth`` returns a ``ClientCredentialsOAuthProvider``; ``whoami`` round-trips client_id + scopes."""
+"""HTTP-only: `build_auth` returns a `ClientCredentialsOAuthProvider`; `whoami` round-trips client_id + scopes."""
 
 import httpx
 
@@ -6,20 +6,17 @@ from mcp.client import Client
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
 from stories._harness import Target, run_client
 
-# MCP_URL pins the resource to :8000, and the server side builds its PRM/AS metadata from
-# the same constant — run the server on 8000 or the discovery chain points at the wrong origin.
+# The server builds PRM/AS metadata from this same MCP_URL — run it on :8000 or discovery points at the wrong origin.
 from stories._shared.auth import MCP_URL, InMemoryTokenStorage
 
 from .server import DEMO_CLIENT_ID, DEMO_CLIENT_SECRET, DEMO_SCOPE
 
 
 def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
-    """The ``httpx.Auth`` for the ``client_credentials`` grant — five lines of provider config.
+    """Build the `httpx.Auth` for the `client_credentials` grant.
 
-    The SDK then handles 401 → RFC 9728 PRM → RFC 8414 AS-metadata discovery → token POST →
-    Bearer attachment automatically. ``Client(url)`` has no ``auth=`` passthrough yet, so the
-    harness threads this onto the transport's ``httpx.AsyncClient`` and hands ``main`` the
-    already-authed ``target``.
+    The SDK drives 401 → RFC 9728 PRM → RFC 8414 AS metadata → token POST → Bearer. `Client(url)` has
+    no `auth=` passthrough yet, so the harness threads this onto the transport's `httpx.AsyncClient`.
     """
     return ClientCredentialsOAuthProvider(
         server_url=MCP_URL,

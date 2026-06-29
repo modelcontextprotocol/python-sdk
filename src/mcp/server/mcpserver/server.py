@@ -97,11 +97,7 @@ _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
-    """MCPServer settings.
-
-    All settings can be configured via environment variables with the prefix MCP_.
-    For example, MCP_DEBUG=true will set debug=True.
-    """
+    """MCPServer settings, configurable via environment variables with the `MCP_` prefix (e.g. `MCP_DEBUG=true`)."""
 
     model_config = SettingsConfigDict(
         env_prefix="MCP_",
@@ -111,17 +107,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
         extra="ignore",
     )
 
-    # Server settings
     debug: bool
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-    # resource settings
     warn_on_duplicate_resources: bool
-
-    # tool settings
     warn_on_duplicate_tools: bool
-
-    # prompt settings
     warn_on_duplicate_prompts: bool
 
     dependencies: list[str]
@@ -206,11 +195,10 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
-            # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
-            # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
+            # TODO(Marcelo): MCPServer/Server lifespan types mismatch; needs a Lifespan generic over the
+            # server type, like Starlette's.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
@@ -222,12 +210,11 @@ class MCPServer(Generic[LifespanResultT]):
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
-        # Create token verifier from provider if needed (backwards compatibility)
+        # Backwards compatibility: derive a token verifier from the auth server provider.
         if auth_server_provider and not token_verifier:
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
-        # Configure logging
         configure_logging(self.settings.log_level)
 
         self._extensions: list[Extension] = []
@@ -265,23 +252,18 @@ class MCPServer(Generic[LifespanResultT]):
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
-        """Get the StreamableHTTP session manager.
-
-        This is exposed to enable advanced use cases like mounting multiple
-        MCPServer instances in a single FastAPI application.
+        """The StreamableHTTP session manager, exposed for advanced uses like mounting multiple MCPServer instances.
 
         Raises:
-            RuntimeError: If called before streamable_http_app() has been called.
+            RuntimeError: If called before `streamable_http_app()`.
         """
         return self._lowlevel_server.session_manager
 
     def _apply_extension(self, extension: Extension) -> None:
-        """Apply one opt-in extension's contributions through the public surface.
+        """Register an extension's tools/resources/methods and advertise its settings in capabilities.
 
-        Registers its tools/resources/methods and advertises its settings under
-        `ServerCapabilities.extensions[extension.identifier]`. Extensions are fixed
-        at construction, so this is private; the `tools/call` interceptor is
-        composed once afterwards by `_install_extension_interceptor`.
+        Extensions are fixed at construction, so this is private; the `tools/call`
+        interceptor is composed once afterwards by `_install_extension_interceptor`.
         """
         identifier = getattr(extension, "identifier", None)
         validate_extension_identifier(identifier, owner=type(extension).__name__)
@@ -305,11 +287,7 @@ class MCPServer(Generic[LifespanResultT]):
         self._lowlevel_server.extensions[extension.identifier] = extension.settings()
 
     def _install_extension_interceptor(self) -> None:
-        """Compose every extension's `tools/call` interceptor into one middleware.
-
-        Installed only when at least one extension overrides `intercept_tool_call`,
-        so a server with purely additive extensions adds no middleware.
-        """
+        """Compose extension `tools/call` interceptors into one middleware; no-op when none override it."""
         if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
             self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
 
@@ -348,12 +326,7 @@ class MCPServer(Generic[LifespanResultT]):
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
         **kwargs: Any,
     ) -> None:
-        """Run the MCP server. Note this is a synchronous function.
-
-        Args:
-            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
-            **kwargs: Transport-specific options (see overloads for details)
-        """
+        """Run the MCP server (synchronously); transport-specific options are documented on the overloads."""
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
@@ -479,6 +452,7 @@ class MCPServer(Generic[LifespanResultT]):
         ]
 
     async def list_resource_templates(self) -> list[MCPResourceTemplate]:
+        """List all available resource templates."""
         templates = self._resource_manager.list_templates()
         return [
             MCPResourceTemplate(
@@ -512,7 +486,7 @@ class MCPServer(Generic[LifespanResultT]):
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
-            # If an exception happens when reading the resource, we should not leak the exception to the client.
+            # Don't leak the underlying exception to the client.
             raise ResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
@@ -528,21 +502,13 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> None:
         """Add a tool to the server.
 
-        The tool function can optionally request a Context object by adding a parameter
-        with the Context type annotation. See the @tool decorator for examples.
+        The function may request a `Context` object by annotating a parameter with the
+        Context type; see the `tool` decorator for examples.
 
         Args:
-            fn: The function to register as a tool
-            name: Optional name for the tool (defaults to function name)
-            title: Optional human-readable title for the tool
-            description: Optional description of what the tool does
-            annotations: Optional ToolAnnotations providing additional tool information
-            icons: Optional list of icons for the tool
-            meta: Optional metadata dictionary for the tool
-            structured_output: Controls whether the tool's output is structured or unstructured
-                - If None, auto-detects based on the function's return type annotation
-                - If True, creates a structured tool (return type annotation permitting)
-                - If False, unconditionally creates an unstructured tool
+            name: Defaults to the function name.
+            structured_output: None auto-detects from the return annotation; True forces a
+                structured tool (annotation permitting); False forces an unstructured tool.
         """
         self._tool_manager.add_tool(
             fn,
@@ -558,11 +524,8 @@ class MCPServer(Generic[LifespanResultT]):
     def remove_tool(self, name: str) -> None:
         """Remove a tool from the server by name.
 
-        Args:
-            name: The name of the tool to remove
-
         Raises:
-            ToolError: If the tool does not exist
+            ToolError: If the tool does not exist.
         """
         self._tool_manager.remove_tool(name)
 
@@ -578,44 +541,26 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a tool.
 
-        Tools can optionally request a Context object by adding a parameter with the
-        Context type annotation. The context provides access to MCP capabilities like
-        logging, progress reporting, and resource access.
+        Tools may request a `Context` object by annotating a parameter with the Context
+        type; it provides MCP capabilities like logging, progress reporting, and resource access.
 
         Args:
-            name: Optional name for the tool (defaults to function name)
-            title: Optional human-readable title for the tool
-            description: Optional description of what the tool does
-            annotations: Optional ToolAnnotations providing additional tool information
-            icons: Optional list of icons for the tool
-            meta: Optional metadata dictionary for the tool
-            structured_output: Controls whether the tool's output is structured or unstructured
-                - If None, auto-detects based on the function's return type annotation
-                - If True, creates a structured tool (return type annotation permitting)
-                - If False, unconditionally creates an unstructured tool
+            name: Defaults to the function name.
+            structured_output: None auto-detects from the return annotation; True forces a
+                structured tool (annotation permitting); False forces an unstructured tool.
 
         Example:
             ```python
             @server.tool()
             def my_tool(x: int) -> str:
                 return str(x)
-            ```
 
-            ```python
             @server.tool()
             async def tool_with_context(x: int, ctx: Context) -> str:
                 await ctx.info(f"Processing {x}")
                 return str(x)
             ```
-
-            ```python
-            @server.tool()
-            async def async_tool(x: int, context: Context) -> str:
-                await context.report_progress(50, 100)
-                return str(x)
-            ```
         """
-        # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
                 "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
@@ -639,20 +584,9 @@ class MCPServer(Generic[LifespanResultT]):
     def completion(self):
         """Decorator to register a completion handler.
 
-        The completion handler receives:
-        - ref: PromptReference or ResourceTemplateReference
-        - argument: CompletionArgument with name and partial value
-        - context: Optional CompletionContext with previously resolved arguments
-
-        Example:
-            ```python
-            @mcp.completion()
-            async def handle_completion(ref, argument, context):
-                if isinstance(ref, ResourceTemplateReference):
-                    # Return completions based on ref, argument, and context
-                    return Completion(values=["option1", "option2"])
-                return None
-            ```
+        The handler receives the reference (`PromptReference` or `ResourceTemplateReference`),
+        the `CompletionArgument` with name and partial value, and an optional
+        `CompletionContext` with previously resolved arguments; it returns a `Completion` or None.
         """
 
         def decorator(func: _CallableT) -> _CallableT:
@@ -670,11 +604,7 @@ class MCPServer(Generic[LifespanResultT]):
         return decorator
 
     def add_resource(self, resource: Resource) -> None:
-        """Add a resource to the server.
-
-        Args:
-            resource: A Resource instance to add
-        """
+        """Add a resource to the server."""
         self._resource_manager.add_resource(resource)
 
     def resource(
@@ -692,43 +622,21 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
-        The function will be called when the resource is read to generate its content.
-        The function can return:
-        - str for text content
-        - bytes for binary content
-        - other types will be converted to JSON
+        The function is called when the resource is read; it may return str (text),
+        bytes (binary), or any other type, which is converted to JSON.
 
-        If the URI contains parameters (e.g. "resource://{param}"), it is
-        registered as a template resource. Otherwise it is registered as a
-        static resource; function parameters on a static URI raise an error.
+        A URI containing parameters (e.g. "resource://{param}") registers a template
+        resource; otherwise the resource is static and the function must take no parameters.
 
         Args:
-            uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
-            name: Optional name for the resource
-            title: Optional human-readable title for the resource
-            description: Optional description of the resource
-            mime_type: Optional MIME type for the resource
-            icons: Optional list of icons for the resource
-            annotations: Optional annotations for the resource
-            meta: Optional metadata dictionary for the resource
-            security: Path-safety policy for extracted template parameters.
-                Defaults to the server's ``resource_security`` setting.
-                Only applies to template resources.
+            security: Path-safety policy for extracted template parameters. Defaults to
+                the server's `resource_security` setting. Template resources only.
 
         Example:
             ```python
             @server.resource("resource://my-resource")
             def get_data() -> str:
                 return "Hello, world!"
-
-            @server.resource("resource://my-resource")
-            async def get_data() -> str:
-                data = await fetch_data()
-                return f"Hello, world! {data}"
-
-            @server.resource("resource://{city}/weather")
-            def get_weather(city: str) -> str:
-                return f"Weather for {city}"
 
             @server.resource("resource://{city}/weather")
             async def get_weather(city: str) -> str:
@@ -737,24 +645,18 @@ class MCPServer(Generic[LifespanResultT]):
             ```
 
         Raises:
-            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
-            ValueError: If URI template parameters don't match the
-                function's parameters, or if a parameter bound to a
-                ``{?...}``/``{&...}`` query variable has no default
-                (the client may omit it).
-            TypeError: If the decorator is applied without being called
-                (``@resource`` instead of ``@resource("uri")``).
+            InvalidUriTemplate: If `uri` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the function's parameters,
+                or a parameter bound to a `{?...}`/`{&...}` query variable has no default.
+            TypeError: If the decorator is applied without being called.
         """
-        # Check if user passed function directly instead of calling decorator
         if callable(uri):
             raise TypeError(
                 "The @resource decorator was used incorrectly. "
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
-        # Parse once, early — surfaces malformed-template errors at
-        # decoration time with a clear position, and gives us correct
-        # variable names for all RFC 6570 operators.
+        # Parse at decoration time: malformed templates fail early, and variable names cover all RFC 6570 operators.
         parsed = UriTemplate.parse(uri)
         uri_params = set(parsed.variable_names)
 
@@ -763,20 +665,15 @@ class MCPServer(Generic[LifespanResultT]):
             context_param = find_context_parameter(fn)
             func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            # Template/static is decided purely by the URI: variables
-            # present means template, none means static.
             if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
                     )
 
-                # A {?...}/{&...} query variable is optional on the wire:
-                # match() omits it from the extracted parameters when the
-                # client leaves it out of the URI. The handler parameter
-                # bound to it must therefore have a Python default; without
-                # one, the author only finds out on the first request that
-                # omits it, as an opaque internal error.
+                # A {?...}/{&...} query variable may be omitted by the client, so the bound handler
+                # parameter needs a Python default; without one, the author only finds out via an
+                # opaque internal error on the first request that omits it.
                 missing_defaults = sorted(
                     name
                     for name in parsed.query_variable_names
@@ -790,7 +687,6 @@ class MCPServer(Generic[LifespanResultT]):
                         f"default."
                     )
 
-                # Register as template
                 self._resource_manager.add_template(
                     fn=fn,
                     uri_template=uri,
@@ -818,7 +714,6 @@ class MCPServer(Generic[LifespanResultT]):
                         f"Add a template variable to the URI or remove the "
                         f"Context parameter."
                     )
-                # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,
                     uri=uri,
@@ -836,11 +731,7 @@ class MCPServer(Generic[LifespanResultT]):
         return decorator
 
     def add_prompt(self, prompt: Prompt) -> None:
-        """Add a prompt to the server.
-
-        Args:
-            prompt: A Prompt instance to add
-        """
+        """Add a prompt to the server."""
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(
@@ -853,10 +744,7 @@ class MCPServer(Generic[LifespanResultT]):
         """Decorator to register a prompt.
 
         Args:
-            name: Optional name for the prompt (defaults to function name)
-            title: Optional human-readable title for the prompt
-            description: Optional description of what the prompt does
-            icons: Optional list of icons for the prompt
+            name: Defaults to the function name.
 
         Example:
             ```python
@@ -869,25 +757,8 @@ class MCPServer(Generic[LifespanResultT]):
                         "content": f"Analyze this schema:\n{schema}"
                     }
                 ]
-
-            @server.prompt()
-            async def analyze_file(path: str) -> list[Message]:
-                content = await read_file(path)
-                return [
-                    {
-                        "role": "user",
-                        "content": {
-                            "type": "resource",
-                            "resource": {
-                                "uri": f"file://{path}",
-                                "text": content
-                            }
-                        }
-                    }
-                ]
             ```
         """
-        # Check if user passed function directly instead of calling decorator
         if callable(name):
             raise TypeError(
                 "The @prompt decorator was used incorrectly. "
@@ -908,23 +779,14 @@ class MCPServer(Generic[LifespanResultT]):
         name: str | None = None,
         include_in_schema: bool = True,
     ):
-        """Decorator to register a custom HTTP route on the MCP server.
+        """Decorator to register a custom HTTP route (an async `Request -> Response` handler).
 
-        Allows adding arbitrary HTTP endpoints outside the standard MCP protocol,
-        which can be useful for OAuth callbacks, health checks, or admin APIs.
-        The handler function must be an async function that accepts a Starlette
-        Request and returns a Response.
-
-        Routes using this decorator will not require authorization. It is intended
-        for uses that are either a part of authorization flows or intended to be
-        public such as health check endpoints.
+        Useful for endpoints outside the MCP protocol such as OAuth callbacks, health checks,
+        or admin APIs. These routes do NOT require authorization — they are intended for
+        endpoints that are part of auth flows or deliberately public.
 
         Args:
-            path: URL path for the route (e.g., "/oauth/callback")
-            methods: List of HTTP methods to support (e.g., ["GET", "POST"])
-            name: Optional name for the route (to reference this route with
-                  Starlette's reverse URL lookup feature)
-            include_in_schema: Whether to include in OpenAPI schema, defaults to True
+            name: Optional route name for Starlette's reverse URL lookup.
 
         Example:
             ```python
@@ -1035,37 +897,30 @@ class MCPServer(Generic[LifespanResultT]):
         sse = SseServerTransport(message_path, security_settings=transport_security)
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
-            # Add client ID from auth context into request context if available
-
             async with sse.connect_sse(scope, receive, send) as streams:
                 await self._lowlevel_server.run(
                     streams[0], streams[1], self._lowlevel_server.create_initialization_options()
                 )
             return Response()
 
-        # Create routes
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes: list[str] = []
 
-        # Set up auth if configured
         if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
-            # Add auth middleware if token verifier is available
             if self._token_verifier:
                 middleware = [
-                    # extract auth info from request (but do not require it)
+                    # Extracts auth info from the request but does not require it.
                     Middleware(
                         AuthenticationMiddleware,
                         backend=BearerAuthBackend(self._token_verifier),
                     ),
-                    # Add the auth context middleware to store
-                    # authenticated user in a contextvar
+                    # Stores the authenticated user in a contextvar.
                     Middleware(AuthContextMiddleware),
                 ]
 
-            # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
                 from mcp.server.auth.routes import create_auth_routes
 
@@ -1080,17 +935,14 @@ class MCPServer(Generic[LifespanResultT]):
                     )
                 )
 
-        # When auth is configured, require authentication
         if self._token_verifier:  # pragma: no cover
-            # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
                 from mcp.server.auth.routes import build_resource_metadata_url
 
-                # Build compliant metadata URL for WWW-Authenticate header
+                # Metadata URL for the WWW-Authenticate header.
                 resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
-            # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
                     sse_path,
@@ -1105,10 +957,8 @@ class MCPServer(Generic[LifespanResultT]):
                 )
             )
         else:
-            # Auth is disabled, no need for RequireAuthMiddleware
-            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
+            # handle_sse is an ASGI app, so wrap it in a request/response endpoint.
             async def sse_endpoint(request: Request) -> Response:  # pragma: no cover
-                # Convert the Starlette request to ASGI parameters
                 return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
 
             routes.append(
@@ -1124,7 +974,6 @@ class MCPServer(Generic[LifespanResultT]):
                     app=sse.handle_post_message,
                 )
             )
-        # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
@@ -1136,10 +985,9 @@ class MCPServer(Generic[LifespanResultT]):
                 )
             )
 
-        # mount these routes last, so they have the lowest route matching precedence
+        # Mounted last so custom routes have the lowest matching precedence.
         routes.extend(self._custom_starlette_routes)
 
-        # Create Starlette app with routes and middleware
         return Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
 
     def streamable_http_app(
@@ -1213,7 +1061,7 @@ class MCPServer(Generic[LifespanResultT]):
 
 
 def _version_gated(method: MethodBinding) -> RequestHandler:
-    """Wrap a method handler so a request at a disallowed protocol version is rejected.
+    """Wrap a method handler to reject requests at disallowed protocol versions.
 
     The low-level `_request_handlers` dict is keyed by method only, so per-version
     scoping is enforced here rather than at the runner's boundary table.
@@ -1230,21 +1078,14 @@ def _version_gated(method: MethodBinding) -> RequestHandler:
 
 
 def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
-    """Assert the connected client declared support for `identifier`.
+    """Assert the connected client declared support for extension `identifier`.
 
-    Call this from an extension's handler or `intercept_tool_call` before
-    offering extension-specific behaviour. Raises `MCPError` with the
-    `-32021` (missing required client capability) code and a
-    `requiredCapabilities` payload when the client did not declare the
-    extension, per SEP-2133.
-
-    Args:
-        ctx: The current request context.
-        identifier: The extension identifier the client must have declared.
+    Call from an extension's handler or `intercept_tool_call` before offering
+    extension-specific behaviour (SEP-2133).
 
     Raises:
-        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
-            did not advertise `identifier`.
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` (-32021) and a
+            `requiredCapabilities` payload if the client did not declare the extension.
     """
     client_params = ctx.session.client_params
     declared = client_params.capabilities.extensions if client_params else None

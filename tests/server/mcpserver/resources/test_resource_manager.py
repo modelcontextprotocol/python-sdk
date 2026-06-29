@@ -11,10 +11,6 @@ from mcp.server.mcpserver.resources import FileResource, FunctionResource, Resou
 
 @pytest.fixture()
 def temp_file(tmp_path: Path):
-    """Create a temporary file for testing.
-
-    File is automatically cleaned up after the test if it still exists.
-    """
     tmp_file = tmp_path / "file"
     tmp_file.touch()
     yield tmp_file
@@ -35,7 +31,6 @@ def test_init_with_resources(temp_file: Path, caplog: pytest.LogCaptureFixture):
 
 
 def test_add_resource(temp_file: Path):
-    """Test adding a resource."""
     manager = ResourceManager()
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     added = manager.add_resource(resource)
@@ -44,7 +39,6 @@ def test_add_resource(temp_file: Path):
 
 
 def test_add_duplicate_resource(temp_file: Path):
-    """Test adding the same resource twice."""
     manager = ResourceManager()
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     first = manager.add_resource(resource)
@@ -54,7 +48,6 @@ def test_add_duplicate_resource(temp_file: Path):
 
 
 def test_warn_on_duplicate_resources(temp_file: Path, caplog: pytest.LogCaptureFixture):
-    """Test warning on duplicate resources."""
     manager = ResourceManager()
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     manager.add_resource(resource)
@@ -63,7 +56,6 @@ def test_warn_on_duplicate_resources(temp_file: Path, caplog: pytest.LogCaptureF
 
 
 def test_disable_warn_on_duplicate_resources(temp_file: Path, caplog: pytest.LogCaptureFixture):
-    """Test disabling warning on duplicate resources."""
     manager = ResourceManager(warn_on_duplicate_resources=False)
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     manager.add_resource(resource)
@@ -73,7 +65,6 @@ def test_disable_warn_on_duplicate_resources(temp_file: Path, caplog: pytest.Log
 
 @pytest.mark.anyio
 async def test_get_resource(temp_file: Path):
-    """Test getting a resource by URI."""
     manager = ResourceManager()
     resource = FileResource(uri=f"file://{temp_file}", name="test", path=temp_file)
     manager.add_resource(resource)
@@ -83,7 +74,6 @@ async def test_get_resource(temp_file: Path):
 
 @pytest.mark.anyio
 async def test_get_resource_from_template():
-    """Test getting a resource through a template."""
     manager = ResourceManager()
 
     def greet(name: str) -> str:
@@ -100,14 +90,12 @@ async def test_get_resource_from_template():
 
 @pytest.mark.anyio
 async def test_get_unknown_resource():
-    """Test getting a non-existent resource."""
     manager = ResourceManager()
     with pytest.raises(ResourceNotFoundError, match="Unknown resource"):
         await manager.get_resource(AnyUrl("unknown://test"), Context())
 
 
 def test_list_resources(temp_file: Path):
-    """Test listing all resources."""
     manager = ResourceManager()
     resource1 = FileResource(uri=f"file://{temp_file}", name="test1", path=temp_file)
     resource2 = FileResource(uri=f"file://{temp_file}2", name="test2", path=temp_file)
@@ -124,7 +112,6 @@ def get_item(id: str) -> str: ...
 
 
 def test_add_template_with_metadata():
-    """Test that ResourceManager.add_template() accepts and passes meta parameter."""
     manager = ResourceManager()
     metadata = {"source": "database", "cached": True}
     template = manager.add_template(fn=get_item, uri_template="resource://items/{id}", meta=metadata)
@@ -136,7 +123,6 @@ def test_add_template_with_metadata():
 
 
 def test_add_template_without_metadata():
-    """Test that ResourceManager.add_template() works without meta parameter."""
     manager = ResourceManager()
     template = manager.add_template(fn=get_item, uri_template="resource://items/{id}")
     assert template.meta is None

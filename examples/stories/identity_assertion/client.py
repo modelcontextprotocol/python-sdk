@@ -15,12 +15,12 @@ DEMO_SUBJECT = "alice@example.com"
 
 
 async def fetch_id_jag(audience: str, resource: str) -> str:
-    """Step one, the part the SDK does not do: obtain a fresh ID-JAG from the enterprise IdP.
+    """Obtain a fresh ID-JAG from the enterprise IdP — the one step the SDK does not do.
 
-    A real implementation makes an RFC 8693 token-exchange request to the IdP, presenting the
-    signed-in user's ID token; `audience` (the authorization server's issuer) and `resource` (the
-    MCP server's identifier) pass straight through into the ID-JAG's `aud` and `resource` claims.
-    Here the stand-in IdP signs one in-process instead.
+    A real implementation makes an RFC 8693 token-exchange request with the signed-in user's ID
+    token; `audience` (the authorization server's issuer) and `resource` (the MCP server's
+    identifier) become the ID-JAG's `aud` and `resource` claims. The stand-in IdP signs one
+    in-process instead.
     """
     return issue_id_jag(
         subject=DEMO_SUBJECT, client_id=DEMO_CLIENT_ID, audience=audience, resource=resource, scope=DEMO_SCOPE
@@ -30,11 +30,10 @@ async def fetch_id_jag(audience: str, resource: str) -> str:
 def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
     """An `IdentityAssertionOAuthProvider` for the pre-registered confidential client.
 
-    `issuer` is configuration, not discovery: the provider fetches metadata from this issuer's
-    well-known and never asks the MCP server which authorization server to use. The string must
-    equal the `issuer` its metadata serves byte for byte (note the trailing slash).
+    `issuer` is configuration, not discovery — metadata comes from its well-known, never from the
+    MCP server — and must match the served `issuer` byte for byte (note the trailing slash).
     `Client(url, auth=...)` doesn't exist yet, so the harness threads this onto the underlying
-    `httpx.AsyncClient` and hands `main` a target that is already routed through it.
+    `httpx.AsyncClient` and hands `main` a target already routed through it.
     """
     return IdentityAssertionOAuthProvider(
         server_url=MCP_URL,
@@ -48,10 +47,9 @@ def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # The target is already routed through `build_auth`'s provider. The first request 401s; the
-    # provider fetches the authorization server's metadata from the configured issuer (never from
-    # the MCP server), mints a fresh ID-JAG through `fetch_id_jag`, exchanges it at `/token` under
-    # the jwt-bearer grant, and retries with the bearer. No `/authorize`, no `/register`, no browser.
+    # The first request 401s; the provider fetches the authorization server's metadata from the
+    # configured issuer, mints an ID-JAG via `fetch_id_jag`, exchanges it at `/token` under the
+    # jwt-bearer grant, and retries with the bearer. No `/authorize`, no `/register`, no browser.
     async with Client(target, mode=mode) as client:
         listed = await client.list_tools()
         assert [t.name for t in listed.tools] == ["whoami"]

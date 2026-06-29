@@ -1,10 +1,7 @@
-"""MCP Resource Server with Token Introspection.
+"""MCP Resource Server that validates tokens via Authorization Server introspection.
 
-This server validates tokens via Authorization Server introspection and serves MCP resources.
 Demonstrates RFC 9728 Protected Resource Metadata for AS/RS separation.
-
-NOTE: this is a simplified example for demonstration purposes.
-This is not a production-ready implementation.
+Simplified for demonstration; not production-ready.
 """
 
 import datetime
@@ -28,17 +25,14 @@ class ResourceServerSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="MCP_RESOURCE_")
 
-    # Server settings
     host: str = "localhost"
     port: int = 8001
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001/mcp")
 
-    # Authorization Server settings
+    # No user endpoint needed - user data comes from token introspection
     auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
     auth_server_introspection_endpoint: str = "http://localhost:9000/introspect"
-    # No user endpoint needed - we get user data from token introspection
 
-    # MCP settings
     mcp_scope: str = "user"
 
     # RFC 8707 resource validation
@@ -46,26 +40,17 @@ class ResourceServerSettings(BaseSettings):
 
 
 def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
-    """Create MCP Resource Server with token introspection.
-
-    This server:
-    1. Provides protected resource metadata (RFC 9728)
-    2. Validates tokens via Authorization Server introspection
-    3. Serves MCP tools and resources
-    """
-    # Create token verifier for introspection with RFC 8707 resource validation
+    """Create a Resource Server that serves RFC 9728 metadata and validates tokens via AS introspection."""
     token_verifier = IntrospectionTokenVerifier(
         introspection_endpoint=settings.auth_server_introspection_endpoint,
         server_url=str(settings.server_url),
-        validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
+        validate_resource=settings.oauth_strict,  # RFC 8707 validation, only when --oauth-strict is set
     )
 
-    # Create MCPServer server as a Resource Server
     app = MCPServer(
         name="MCP Resource Server",
         instructions="Resource Server that validates tokens via Authorization Server introspection",
         debug=True,
-        # Auth configuration for RS mode
         token_verifier=token_verifier,
         auth=AuthSettings(
             issuer_url=settings.auth_server_url,
@@ -78,12 +63,7 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """Get the current server time.
-
-        This tool demonstrates that system information can be protected
-        by OAuth authentication. User must be authenticated to access it.
-        """
-
+        """Get the current server time (requires OAuth authentication)."""
         now = datetime.datetime.now()
 
         return {
@@ -113,20 +93,13 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
 def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
     """Run the MCP Resource Server.
 
-    This server:
-    - Provides RFC 9728 Protected Resource Metadata
-    - Validates tokens via Authorization Server introspection
-    - Serves MCP tools requiring authentication
-
     Must be used with a running Authorization Server.
     """
     logging.basicConfig(level=logging.INFO)
 
     try:
-        # Parse auth server URL
         auth_server_url = AnyHttpUrl(auth_server)
 
-        # Create settings
         host = "localhost"
         server_url = f"http://{host}:{port}/mcp"
         settings = ResourceServerSettings(
@@ -148,7 +121,6 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🚀 MCP Resource Server running on {settings.server_url}")
         logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
-        # Run the server - this should block and keep running
         mcp_server.run(transport=transport, host=host, port=port)
         logger.info("Server stopped")
         return 0

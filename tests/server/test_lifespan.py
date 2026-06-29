@@ -28,11 +28,8 @@ from mcp.shared.message import SessionMessage
 
 @pytest.mark.anyio
 async def test_lowlevel_server_lifespan():
-    """Test that lifespan works in low-level server."""
-
     @asynccontextmanager
     async def test_lifespan(server: Server) -> AsyncIterator[dict[str, bool]]:
-        """Test lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
             context["started"] = True
@@ -40,7 +37,6 @@ async def test_lowlevel_server_lifespan():
         finally:
             context["shutdown"] = True
 
-    # Create a tool that accesses lifespan context
     async def check_lifespan(
         ctx: ServerRequestContext[dict[str, bool]], params: CallToolRequestParams
     ) -> CallToolResult:
@@ -51,11 +47,9 @@ async def test_lowlevel_server_lifespan():
 
     server = Server[dict[str, bool]]("test", lifespan=test_lifespan, on_call_tool=check_lifespan)
 
-    # Create memory streams for testing
     send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
     send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
 
-    # Run server in background task
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
         async def run_server():
@@ -75,7 +69,6 @@ async def test_lowlevel_server_lifespan():
 
         tg.start_soon(run_server)
 
-        # Initialize the server
         params = InitializeRequestParams(
             protocol_version="2024-11-05",
             capabilities=ClientCapabilities(),
@@ -94,10 +87,8 @@ async def test_lowlevel_server_lifespan():
         response = await receive_stream2.receive()
         response = response.message
 
-        # Send initialized notification
         await send_stream1.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
 
-        # Call the tool to verify lifespan context
         await send_stream1.send(
             SessionMessage(
                 JSONRPCRequest(
@@ -109,24 +100,19 @@ async def test_lowlevel_server_lifespan():
             )
         )
 
-        # Get response and verify
         response = await receive_stream2.receive()
         response = response.message
         assert isinstance(response, JSONRPCMessage)
         assert isinstance(response, JSONRPCResponse)
         assert response.result["content"][0]["text"] == "true"
 
-        # Cancel server task
         tg.cancel_scope.cancel()
 
 
 @pytest.mark.anyio
 async def test_mcpserver_server_lifespan():
-    """Test that lifespan works in MCPServer server."""
-
     @asynccontextmanager
     async def test_lifespan(server: MCPServer) -> AsyncIterator[dict[str, bool]]:
-        """Test lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
             context["started"] = True
@@ -136,11 +122,9 @@ async def test_mcpserver_server_lifespan():
 
     server = MCPServer("test", lifespan=test_lifespan)
 
-    # Create memory streams for testing
     send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
     send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
 
-    # Add a tool that checks lifespan context
     @server.tool()
     def check_lifespan(ctx: Context) -> bool:
         """Tool that checks lifespan context."""
@@ -149,7 +133,6 @@ async def test_mcpserver_server_lifespan():
         assert not ctx.request_context.lifespan_context["shutdown"]
         return True
 
-    # Run server in background task
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
         async def run_server():
@@ -162,7 +145,6 @@ async def test_mcpserver_server_lifespan():
 
         tg.start_soon(run_server)
 
-        # Initialize the server
         params = InitializeRequestParams(
             protocol_version="2024-11-05",
             capabilities=ClientCapabilities(),
@@ -181,10 +163,8 @@ async def test_mcpserver_server_lifespan():
         response = await receive_stream2.receive()
         response = response.message
 
-        # Send initialized notification
         await send_stream1.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
 
-        # Call the tool to verify lifespan context
         await send_stream1.send(
             SessionMessage(
                 JSONRPCRequest(
@@ -196,12 +176,10 @@ async def test_mcpserver_server_lifespan():
             )
         )
 
-        # Get response and verify
         response = await receive_stream2.receive()
         response = response.message
         assert isinstance(response, JSONRPCMessage)
         assert isinstance(response, JSONRPCResponse)
         assert response.result["content"][0]["text"] == "true"
 
-        # Cancel server task
         tg.cancel_scope.cancel()

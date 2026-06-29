@@ -1,21 +1,4 @@
-"""Stdio Server Transport Module
-
-This module provides functionality for creating an stdio-based transport layer
-that can be used to communicate with an MCP client through standard input/output
-streams.
-
-Example:
-    ```python
-    async def run_server():
-        async with stdio_server() as (read_stream, write_stream):
-            # read_stream contains incoming JSONRPCMessages from stdin
-            # write_stream allows sending JSONRPCMessages to stdout
-            server = await create_my_server()
-            await server.run(read_stream, write_stream, init_options)
-
-    anyio.run(run_server)
-    ```
-"""
+"""Stdio-based server transport for communicating with an MCP client over stdin/stdout."""
 
 import sys
 from contextlib import asynccontextmanager
@@ -31,13 +14,9 @@ from mcp.shared.message import SessionMessage
 
 @asynccontextmanager
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
-    """Server transport for stdio: this communicates with an MCP client by reading
-    from the current process' stdin and writing to stdout.
-    """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    """Yield (read_stream, write_stream) for JSON-RPC messages over the current process' stdin/stdout."""
+    # Deliberately no context managers here — standard process handles must not be closed. Re-wrap the
+    # binary streams to force UTF-8, since text-mode encoding is platform-dependent (notably Windows).
     if not stdin:
         stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:

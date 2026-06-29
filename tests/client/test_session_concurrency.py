@@ -19,14 +19,8 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers() -> None:
-    """Three tool calls in flight at once on one session each receive their own result, even though
-    the responses come back in the reverse of the order the requests were sent.
-
-    SDK-defined contract: pins the client request machinery's support for concurrent in-flight
-    calls with out-of-order response correlation. Each handler parks on its own release event
-    after signalling it started; a session that serialized requests would never start the later
-    handlers and the test would time out instead.
-    """
+    """Pins concurrent in-flight calls with out-of-order response correlation; a serializing session
+    would never start the later handlers, so the test would time out instead."""
     send_order = ["a", "b", "c"]
     started = {tag: anyio.Event() for tag in send_order}
     release = {tag: anyio.Event() for tag in send_order}
@@ -51,8 +45,7 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
 
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:  # pragma: no branch
-                # Waiting for each handler to start before issuing the next call fixes the send
-                # order, and leaves all three parked in flight together once the loop finishes.
+                # Awaiting each handler's start fixes the send order and leaves all three parked in flight.
                 for tag in send_order:
                     task_group.start_soon(call_and_record, tag)
                     await started[tag].wait()
@@ -60,7 +53,7 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
                 # Nothing completed yet: all three calls are genuinely concurrent.
                 assert completion_order == []
 
-                # Release in reverse, awaiting each completion so the finish order is forced.
+                # Awaiting each completion forces the finish order.
                 for tag in reversed(send_order):
                     release[tag].set()
                     await done[tag].wait()
@@ -76,14 +69,9 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
 
 
 async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_client() -> None:
-    """A server tool that fans out two sampling requests at once gets both echoes back: the client
-    runs overlapping inbound `create_message` requests concurrently instead of serializing them in
-    its receive loop.
-
-    Regression pin for https://github.com/modelcontextprotocol/python-sdk/issues/2489 -- v1's
-    `BaseSession` awaited each inbound request handler inline, so the second sampling callback
-    could not start until the first returned; here both rendezvous before either is released.
-    """
+    """Regression pin for https://github.com/modelcontextprotocol/python-sdk/issues/2489: v1's `BaseSession`
+    awaited each inbound request handler inline, so the second sampling callback could not
+    start until the first returned."""
     sampling_started = {"x": anyio.Event(), "y": anyio.Event()}
     sampling_release = anyio.Event()
     tool_results: list[CallToolResult] = []
@@ -130,8 +118,7 @@ async def test_overlapping_sampling_requests_are_serviced_concurrently_by_the_cl
 
                 task_group.start_soon(invoke_fan_out)
 
-                # Both sampling callbacks are mid-flight before either may answer -- a client that
-                # serialized inbound requests would never start the second one.
+                # Both callbacks are mid-flight before either answers; a serializing client never starts the second.
                 await sampling_started["x"].wait()
                 await sampling_started["y"].wait()
                 sampling_release.set()

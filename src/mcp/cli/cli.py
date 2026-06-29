@@ -35,14 +35,13 @@ app = typer.Typer(
     name="mcp",
     help="MCP development tools",
     add_completion=False,
-    no_args_is_help=True,  # Show help if no args provided
+    no_args_is_help=True,
 )
 
 
 def _get_npx_command():
     """Get the correct npx command for the current platform."""
     if sys.platform == "win32":
-        # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
                 subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
@@ -50,7 +49,7 @@ def _get_npx_command():
             except subprocess.CalledProcessError:
                 continue
         return None
-    return "npx"  # On Unix-like systems, just use npx
+    return "npx"
 
 
 def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
@@ -80,31 +79,20 @@ def _build_uv_command(
             if pkg:  # pragma: no branch
                 cmd.extend(["--with", pkg])
 
-    # Add mcp run command
     cmd.extend(["mcp", "run", file_spec])
     return cmd
 
 
 def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
-    """Parse a file path that may include a server object specification.
-
-    Args:
-        file_spec: Path to file, optionally with :object suffix
-
-    Returns:
-        Tuple of (file_path, server_object)
-    """
-    # First check if we have a Windows path (e.g., C:\...)
+    """Parse a `path` or `path:object` spec into a resolved file path and optional server object name."""
+    # Split on the last colon, ignoring a Windows drive-letter colon (e.g. C:\...)
     has_windows_drive = len(file_spec) > 1 and file_spec[1] == ":"
 
-    # Split on the last colon, but only if it's not part of the Windows drive letter
-    # and there's actually another colon in the string after the drive letter
     if ":" in (file_spec[2:] if has_windows_drive else file_spec):
         file_str, server_object = file_spec.rsplit(":", 1)
     else:
         file_str, server_object = file_spec, None
 
-    # Resolve the file path
     file_path = Path(file_str).expanduser().resolve()
     if not file_path.exists():
         logger.error(f"File not found: {file_path}")
@@ -117,21 +105,12 @@ def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
 
 
 def _import_server(file: Path, server_object: str | None = None):  # pragma: no cover
-    """Import an MCP server from a file.
-
-    Args:
-        file: Path to the file
-        server_object: Optional object name in format "module:object" or just "object"
-
-    Returns:
-        The server object
-    """
+    """Import an MCP server from a file; server_object may be `object` or `module:object`."""
     # Add parent directory to Python path so imports can be resolved
     file_dir = str(file.parent)
     if file_dir not in sys.path:
         sys.path.insert(0, file_dir)
 
-    # Import the module
     spec = importlib.util.spec_from_file_location("server_module", file)
     if not spec or not spec.loader:
         logger.error("Could not load module", extra={"file": str(file)})
@@ -141,14 +120,7 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
     spec.loader.exec_module(module)
 
     def _check_server_object(server_object: Any, object_name: str):
-        """Helper function to check that the server object is supported
-
-        Args:
-            server_object: The server object to check.
-
-        Returns:
-            True if it's supported.
-        """
+        """Check that the object is a supported MCPServer instance."""
         if not isinstance(server_object, MCPServer):
             logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {MCPServer}).")
             if isinstance(server_object, LowLevelServer):
@@ -156,9 +128,7 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
             return False
         return True
 
-    # If no object specified, try common server names
     if not server_object:
-        # Look for the most common server object names
         for name in ["mcp", "server", "app"]:
             if hasattr(module, name):
                 if not _check_server_object(getattr(module, name), f"{file}:{name}"):
@@ -177,7 +147,6 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
         )
         sys.exit(1)
 
-    # Handle module:object syntax
     if ":" in server_object:
         module_name, object_name = server_object.split(":", 1)
         try:
@@ -190,7 +159,6 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
             )
             sys.exit(1)
     else:
-        # Just object name
         server = getattr(module, server_object, None)
 
     if server is None:
@@ -256,14 +224,12 @@ def dev(
     )
 
     try:
-        # Import server to get dependencies
         server = _import_server(file, server_object)
         if hasattr(server, "dependencies"):
             with_packages = list(set(with_packages + server.dependencies))
 
         uv_cmd = _build_uv_command(file_spec, with_editable, with_packages)
 
-        # Get the correct npx command
         npx_cmd = _get_npx_command()
         if not npx_cmd:
             logger.error(
@@ -271,13 +237,12 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Copy the environment for subprocess launch
+            env=dict(os.environ.items()),
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:
@@ -337,10 +302,8 @@ def run(
     )
 
     try:
-        # Import and get server object
         server = _import_server(file, server_object)
 
-        # Run the server
         kwargs = {}
         if transport:
             kwargs["transport"] = transport
@@ -432,8 +395,6 @@ def install(
         logger.error("Claude app not found")
         sys.exit(1)
 
-    # Try to import server to get its name, but fall back to file name if dependencies
-    # missing
     name = server_name
     server = None
     if not name:
@@ -447,16 +408,13 @@ def install(
             )
             name = file.stem
 
-    # Get server dependencies if available
     server_dependencies = getattr(server, "dependencies", []) if server else []
     if server_dependencies:
         with_packages = list(set(with_packages + server_dependencies))
 
-    # Process environment variables if provided
     env_dict: dict[str, str] | None = None
     if env_file or env_vars:
         env_dict = {}
-        # Load from .env file if specified
         if env_file:
             if dotenv:
                 try:
@@ -468,7 +426,6 @@ def install(
                 logger.error("python-dotenv is not installed. Cannot load .env file.")
                 sys.exit(1)
 
-        # Add command line environment variables
         for env_var in env_vars:
             key, value = _parse_env_var(env_var)
             env_dict[key] = value

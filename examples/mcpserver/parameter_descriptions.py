@@ -4,7 +4,6 @@ from pydantic import Field
 
 from mcp.server.mcpserver import MCPServer
 
-# Create server
 mcp = MCPServer("Parameter Descriptions Server")
 
 

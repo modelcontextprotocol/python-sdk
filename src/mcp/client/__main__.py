@@ -52,11 +52,9 @@ async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]])
     env_dict = dict(env)
 
     if urlparse(command_or_url).scheme in ("http", "https"):
-        # Use SSE client for HTTP(S) URLs
         async with sse_client(command_or_url) as streams:
             await run_session(*streams)
     else:
-        # Use stdio client for commands
         server_parameters = StdioServerParameters(command=command_or_url, args=args, env=env_dict)
         async with stdio_client(server_parameters) as streams:
             await run_session(*streams)

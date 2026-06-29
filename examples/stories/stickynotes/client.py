@@ -25,7 +25,6 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     async with Client(target, mode=mode, elicitation_callback=on_elicit, message_handler=on_message) as client:
         legacy = client.protocol_version in HANDSHAKE_PROTOCOL_VERSIONS
 
-        # Add two notes.
         first = await client.call_tool("add_note", {"text": "Buy milk"})
         assert first.structured_content is not None
         first_id, first_uri = first.structured_content["id"], first.structured_content["uri"]
@@ -35,7 +34,6 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         second_id, second_uri = second.structured_content["id"], second.structured_content["uri"]
         assert first_id != second_id
 
-        # List + read — both notes appear as resources; first reads back its text.
         listed = await client.list_resources()
         uris = {str(r.uri) for r in listed.resources}
         assert first_uri in uris and second_uri in uris, uris
@@ -48,7 +46,6 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             with anyio.fail_after(5):
                 await list_changed.wait()
 
-        # Remove one.
         removed = await client.call_tool("remove_note", {"note_id": first_id})
         assert removed.structured_content == {"result": True}
         after = await client.list_resources()

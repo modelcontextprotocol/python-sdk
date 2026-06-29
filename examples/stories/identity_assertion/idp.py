@@ -1,9 +1,7 @@
 """A stand-in enterprise identity provider: it signs the ID-JAGs the demo authorization server trusts.
 
-In production the IdP is a separate service (Okta, Microsoft Entra ID, ...) and the client obtains
-the ID-JAG from it with an RFC 8693 token-exchange request, presenting the signed-in user's ID
-token. `issue_id_jag` collapses that whole step into one in-process signing call so the story runs
-unattended; the README's caveats spell out what a real deployment changes.
+A real IdP (Okta, Microsoft Entra ID, ...) issues the ID-JAG via an RFC 8693 token exchange;
+`issue_id_jag` collapses that step into one in-process signing call so the story runs unattended.
 """
 
 import time
@@ -12,17 +10,15 @@ import uuid
 import jwt
 
 IDP_ISSUER = "https://idp.example.com"
-# Demo only: a real IdP signs with its private key and the authorization server verifies the
-# signature against the IdP's published JWKS. A shared HMAC secret keeps this story self-contained.
+# Demo only: a real IdP signs with its private key, verified against its published JWKS.
 IDP_SIGNING_KEY = "demo-idp-signing-key"
 
 
 def issue_id_jag(*, subject: str, client_id: str, audience: str, resource: str, scope: str) -> str:
     """The IdP's short-lived, signed statement that `subject`, via `client_id`, may reach `resource`.
 
-    This is where the enterprise enforces policy: an IdP that does not authorize the combination
-    simply never issues the ID-JAG, and there is nothing for the client to present. The `typ`
-    header and the claim set are fixed by the Identity Assertion JWT Authorization Grant profile.
+    Enterprise policy is enforced here: an unauthorized combination never gets an ID-JAG. The `typ`
+    header and claim set are fixed by the Identity Assertion JWT Authorization Grant profile.
     """
     now = int(time.time())
     return jwt.encode(

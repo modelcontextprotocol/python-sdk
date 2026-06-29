@@ -1,10 +1,9 @@
 """Initialization handshake against the low-level Server, driven through the public Client API.
 
-The later tests drive a bare ClientSession over an InMemoryTransport instead: Client always
-performs the full handshake with the latest protocol version, so skipping initialization or
-requesting a different version can only be expressed one level down. The final test goes one step
-further and plays the server's side of the wire by hand, because no real Server can be made to
-answer initialize with an unsupported protocol version.
+Client always performs the full handshake at the latest protocol version, so tests that skip
+initialization or vary the requested version drive a bare ClientSession over an InMemoryTransport.
+The last two tests script the server's side of the wire by hand — a pattern reserved for behaviour
+no real Server can be made to produce.
 """
 
 import anyio
@@ -50,7 +49,6 @@ pytestmark = pytest.mark.anyio
 @requirement("lifecycle:initialize:basic")
 @requirement("lifecycle:initialize:server-info")
 async def test_initialize_returns_server_info(connect: Connect) -> None:
-    """Every identity field the server declares is returned to the client in server_info."""
     server = Server(
         "greeter",
         version="1.2.3",
@@ -77,7 +75,6 @@ async def test_initialize_returns_server_info(connect: Connect) -> None:
 
 @requirement("lifecycle:initialize:instructions")
 async def test_initialize_returns_instructions(connect: Connect) -> None:
-    """Instructions are returned when the server declares them and omitted when it does not."""
     async with connect(Server("guided", instructions="Call the add tool.")) as client:
         assert client.instructions == snapshot("Call the add tool.")
 
@@ -91,40 +88,30 @@ async def test_initialize_returns_instructions(connect: Connect) -> None:
 @requirement("prompts:capability:declared")
 @requirement("completion:capability:declared")
 async def test_initialize_capabilities_reflect_registered_handlers(connect: Connect) -> None:
-    """Each feature area with a registered handler is advertised as a capability.
-
-    The in-memory transport connects with default initialization options, so the
-    list_changed flags are always False regardless of the server's notification behaviour.
-    """
+    """The in-memory transport connects with default initialization options, so list_changed is always False."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        """Registered only so the tools capability is advertised; never called."""
         raise NotImplementedError
 
     async def list_resources(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListResourcesResult:
-        """Registered only so the resources capability is advertised; never called."""
         raise NotImplementedError
 
     async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> types.EmptyResult:
-        """Registered only so the subscribe sub-capability is advertised; never called."""
         raise NotImplementedError
 
     async def list_prompts(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListPromptsResult:
-        """Registered only so the prompts capability is advertised; never called."""
         raise NotImplementedError
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> types.EmptyResult:
-        """Registered only so the logging capability is advertised; never called."""
         raise NotImplementedError
 
     async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
-        """Registered only so the completions capability is advertised; never called."""
         raise NotImplementedError
 
     server = Server(  # pyright: ignore[reportDeprecated]
@@ -154,7 +141,6 @@ async def test_initialize_capabilities_reflect_registered_handlers(connect: Conn
 
 @requirement("lifecycle:initialize:capabilities:minimal")
 async def test_initialize_minimal_server_advertises_no_capabilities(connect: Connect) -> None:
-    """A server with no feature handlers advertises no feature capabilities."""
     async with connect(Server("bare")) as client:
         capabilities = client.server_capabilities
 
@@ -163,8 +149,6 @@ async def test_initialize_minimal_server_advertises_no_capabilities(connect: Con
 
 @requirement("lifecycle:initialize:client-info")
 async def test_initialize_server_sees_client_info(connect: Connect) -> None:
-    """The client identity supplied to Client is visible to server handlers after initialization."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -187,8 +171,6 @@ async def test_initialize_server_sees_client_info(connect: Connect) -> None:
 
 @requirement("lifecycle:initialize:client-capabilities")
 async def test_initialize_server_sees_client_capabilities(connect: Connect) -> None:
-    """The client capabilities visible to the server reflect which callbacks the client configured."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -213,7 +195,6 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
         return CallToolResult(content=[TextContent(text=",".join(declared) or "none")])
 
     async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
-        """Registered only so the client declares the roots capability; never called."""
         raise NotImplementedError
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -229,12 +210,7 @@ async def test_initialize_server_sees_client_capabilities(connect: Connect) -> N
 
 @requirement("lifecycle:requests-before-initialized")
 async def test_request_before_initialization_is_rejected() -> None:
-    """A feature request sent before the handshake completes is rejected; ping is exempt.
-
-    Client always initializes on entry, so this drives a bare ClientSession that never sends
-    initialize. The server's stated reason for the rejection never reaches the client: the error
-    is reported as a generic invalid-params failure.
-    """
+    """The server's rejection reason never reaches the client; it surfaces as a generic invalid-params error."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         """Registered so the request is routed to a real handler; never reached."""
@@ -262,11 +238,6 @@ async def test_request_before_initialization_is_rejected() -> None:
 @requirement("lifecycle:version:match")
 @requirement("lifecycle:version:server-fallback-latest")
 async def test_initialize_negotiates_protocol_version() -> None:
-    """The server echoes a supported requested version and answers an unsupported one with its latest.
-
-    Client always requests the latest version, so each half hand-builds an InitializeRequest on a
-    bare ClientSession to control the requested version.
-    """
     server = Server("negotiator")
 
     def initialize_request(protocol_version: str) -> InitializeRequest:
@@ -297,13 +268,7 @@ async def test_initialize_negotiates_protocol_version() -> None:
 
 @requirement("lifecycle:version:reject-unsupported")
 async def test_unsupported_server_protocol_version_fails_initialization() -> None:
-    """An initialize response carrying a protocol version the client does not support fails initialization.
-
-    A real Server only ever answers with a version it supports, so this test alone plays the
-    server's side of the wire by hand: it reads the initialize request off the raw stream and
-    answers it with a hand-built result. Reserve this pattern for behaviour no real server can
-    be made to produce.
-    """
+    """No real Server answers initialize with an unsupported version, so the server side is scripted by hand."""
 
     async def scripted_server(streams: MessageStream) -> None:
         server_read, server_write = streams
@@ -343,12 +308,7 @@ async def test_unsupported_server_protocol_version_fails_initialization() -> Non
 
 @requirement("lifecycle:version:downgrade")
 async def test_an_older_supported_protocol_version_from_the_server_is_accepted() -> None:
-    """An initialize response carrying an older supported protocol version completes the handshake at that version.
-
-    A real Server answers with the version the client requested (or its own latest), so this test
-    plays the server's side of the wire by hand to return a fixed older version regardless of what
-    was requested. Reserve this pattern for behaviour no real server can be made to produce.
-    """
+    """A real Server echoes the requested version or its own latest, so the server side is scripted by hand."""
 
     async def scripted_server(streams: MessageStream) -> None:
         server_read, server_write = streams

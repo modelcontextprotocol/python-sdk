@@ -9,7 +9,6 @@ from starlette.middleware.cors import CORSMiddleware
 
 from .event_store import InMemoryEventStore
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
@@ -50,27 +49,21 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
     count = arguments.get("count", 5)
     caller = arguments.get("caller", "unknown")
 
-    # Send the specified number of notifications with the given interval
     for i in range(count):
-        # Include more detailed message for resumability demonstration
         notification_msg = f"[{i + 1}/{count}] Event from '{caller}' - Use Last-Event-ID to resume if disconnected"
         await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data=notification_msg,
             logger="notification_stream",
-            # Associates this notification with the original request
-            # Ensures notifications are sent to the correct response stream
-            # Without this, notifications will either go to:
-            # - a standalone SSE stream (if GET request is supported)
-            # - nowhere (if GET request isn't supported)
+            # Routes the notification to this request's response stream; without it,
+            # notifications go to the standalone SSE stream (or nowhere if GET is unsupported).
             related_request_id=ctx.request_id,
         )
         logger.debug(f"Sent notification {i + 1}/{count} for caller: {caller}")
-        if i < count - 1:  # Don't wait after the last notification
+        if i < count - 1:
             await anyio.sleep(interval)
 
-    # This will send a resource notification through standalone SSE
-    # established by GET request
+    # No related_request_id, so this goes out over the standalone SSE stream (GET request)
     await ctx.session.send_resource_updated(uri="http:///test_resource")
     return types.CallToolResult(
         content=[
@@ -100,7 +93,6 @@ def main(
     log_level: str,
     json_response: bool,
 ) -> int:
-    # Configure logging
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -112,14 +104,8 @@ def main(
         on_call_tool=handle_call_tool,
     )
 
-    # Create event store for resumability
-    # The InMemoryEventStore enables resumability support for StreamableHTTP transport.
-    # It stores SSE events with unique IDs, allowing clients to:
-    #   1. Receive event IDs for each SSE message
-    #   2. Resume streams by sending Last-Event-ID in GET requests
-    #   3. Replay missed events after reconnection
-    # Note: This in-memory implementation is for demonstration ONLY.
-    # For production, use a persistent storage solution.
+    # Event store enables resumability: clients replay missed SSE events by sending
+    # Last-Event-ID on reconnect. In-memory is for demos; use persistent storage in production.
     event_store = InMemoryEventStore()
 
     starlette_app = app.streamable_http_app(
@@ -128,12 +114,11 @@ def main(
         debug=True,
     )
 
-    # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
-    # for browser-based clients (ensures 500 errors get proper CORS headers)
+    # CORS so browser clients can read Mcp-Session-Id; wrapping the ASGI app keeps headers on error responses
     starlette_app = CORSMiddleware(
         starlette_app,
-        allow_origins=["*"],  # Note: streamable_http_app() enforces localhost-only Origin by default
-        allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+        allow_origins=["*"],  # streamable_http_app() enforces localhost-only Origin by default
+        allow_methods=["GET", "POST", "DELETE"],
         expose_headers=["Mcp-Session-Id"],
     )
 

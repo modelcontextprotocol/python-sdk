@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from mcp.server.mcpserver import Context, MCPServer
 
 
-class Database:  # Replace with your actual DB type
+class Database:
     @classmethod
     async def connect(cls):  # pragma: no cover
         return cls()
@@ -17,7 +17,6 @@ class Database:  # Replace with your actual DB type
         return "Hello, World!"
 
 
-# Create a named server
 mcp = MCPServer("My App")
 
 
@@ -28,21 +27,16 @@ class AppContext:
 
 @asynccontextmanager
 async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:  # pragma: no cover
-    """Manage application lifecycle with type-safe context"""
-    # Initialize on startup
     db = await Database.connect()
     try:
         yield AppContext(db=db)
     finally:
-        # Cleanup on shutdown
         await db.disconnect()
 
 
-# Pass lifespan to server
 mcp = MCPServer("My App", lifespan=app_lifespan)
 
 
-# Access type-safe lifespan context in tools
 @mcp.tool()
 def query_db(ctx: Context[AppContext]) -> str:  # pragma: no cover
     """Tool that uses initialized resources"""

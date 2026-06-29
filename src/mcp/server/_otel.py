@@ -59,10 +59,9 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
                 span.set_status(StatusCode.ERROR, str(e))
                 raise
             if ctx.method == "tools/call":
-                # Tool errors are detected pre-serialization, so only shapes that reach the wire as an error
-                # count: the model, or the camelCase alias (`is_error` is dropped by the alias-only wire
-                # validation). A raw-dict `isError` is matched as a literal bool only - non-bool coercible
-                # values (1, "true") would serialize to an error but are rare enough to leave undetected.
+                # Detection runs pre-serialization, so only shapes that reach the wire as an error count: the
+                # model, or the camelCase alias (alias-only wire validation drops `is_error`). A raw-dict
+                # `isError` is matched as a literal bool; coercible non-bools (1, "true") are rare enough to ignore.
                 match result:
                     case CallToolResult(is_error=True) | {"isError": True}:
                         span.set_attribute("error.type", "tool_error")

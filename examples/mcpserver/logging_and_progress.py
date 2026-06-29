@@ -4,7 +4,6 @@ import asyncio
 
 from mcp.server.mcpserver import Context, MCPServer
 
-# Create server
 mcp = MCPServer("Echo Server with logging and progress updates")
 
 
@@ -24,8 +23,7 @@ async def echo(text: str, ctx: Context) -> str:
     await ctx.info("Finished processing echo for input: " + text)
     await ctx.report_progress(progress=100, total=100)
 
-    # Progress notifications are process asynchronously by the client.
-    # A small delay here helps ensure the last notification is processed by the client.
+    # Clients process progress notifications asynchronously; a short delay lets the last one arrive.
     await asyncio.sleep(0.1)
 
     return text

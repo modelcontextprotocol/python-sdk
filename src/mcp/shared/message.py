@@ -1,8 +1,4 @@
-"""Message wrapper with metadata support.
-
-This module defines a wrapper type that combines JSONRPCMessage with metadata
-to support transport-specific features like resumability.
-"""
+"""Wrapper pairing JSONRPCMessage with metadata for transport-specific features like resumability."""
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -14,7 +10,6 @@ ResumptionToken = str
 
 ResumptionTokenUpdateCallback = Callable[[ResumptionToken], Awaitable[None]]
 
-# Callback type for closing SSE streams without terminating
 CloseSSEStreamCallback = Callable[[], Awaitable[None]]
 
 
@@ -33,13 +28,12 @@ class ServerMessageMetadata:
     """Metadata specific to server messages."""
 
     related_request_id: RequestId | None = None
-    # Transport-specific request context (e.g. starlette Request for HTTP
-    # transports, None for stdio). Typed as Any because the server layer is
-    # transport-agnostic.
+    # Transport-specific request context (e.g. starlette Request for HTTP, None for stdio).
+    # Typed as Any because the server layer is transport-agnostic.
     request_context: Any = None
-    # Callback to close SSE stream for the current request without terminating
+    # Closes the current request's SSE connection without terminating its stream (client resumes via Last-Event-ID).
     close_sse_stream: CloseSSEStreamCallback | None = None
-    # Callback to close the standalone GET SSE stream (for unsolicited notifications)
+    # Closes the standalone GET SSE stream (unsolicited notifications).
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
 
 
@@ -48,7 +42,7 @@ MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None
 
 @dataclass
 class SessionMessage:
-    """A message with specific metadata for transport-specific features."""
+    """A JSON-RPC message paired with transport metadata."""
 
     message: JSONRPCMessage
     metadata: MessageMetadata = None

@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""MCP Everything Server - Conformance Test Server
-
-Server implementing all MCP features for conformance testing based on Conformance Server Specification.
-"""
+"""MCP Everything Server: implements all MCP features per the Conformance Server Specification."""
 
 import asyncio
 import base64
@@ -52,7 +49,6 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Type aliases for event store
 StreamId = str
 EventId = str
 
@@ -65,14 +61,12 @@ class InMemoryEventStore(EventStore):
         self._event_id_counter = 0
 
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
         self._events.append((stream_id, event_id, message))
         return event_id
 
     async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
-        """Replay events after the specified ID."""
         target_stream_id = None
         for stream_id, event_id, _ in self._events:
             if event_id == last_event_id:
@@ -89,15 +83,13 @@ class InMemoryEventStore(EventStore):
         return target_stream_id
 
 
-# Test data
 TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 TEST_AUDIO_BASE64 = "UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA="
 
-# Server state
 resource_subscriptions: set[str] = set()
 watched_resource_content = "Watched resource content"
 
-# Create event store for SSE resumability (SEP-1699)
+# Event store for SSE resumability (SEP-1699)
 event_store = InMemoryEventStore()
 
 mcp = MCPServer(
@@ -105,7 +97,6 @@ mcp = MCPServer(
 )
 
 
-# Tools
 @mcp.tool()
 def test_simple_text() -> str:
     """Tests simple text content response"""
@@ -180,7 +171,6 @@ async def test_tool_with_progress(ctx: Context) -> str:
 
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
-    # Return progress token as string
     progress_token = (
         ctx.request_context.meta.get("progress_token") if ctx.request_context and ctx.request_context.meta else 0
     )
@@ -191,7 +181,6 @@ async def test_tool_with_progress(ctx: Context) -> str:
 async def test_sampling(prompt: str, ctx: Context) -> str:
     """Tests server-initiated sampling (LLM completion request)"""
     try:
-        # Request sampling from client
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
             max_tokens=100,
@@ -216,7 +205,6 @@ class UserResponse(BaseModel):
 async def test_elicitation(message: str, ctx: Context) -> str:
     """Tests server-initiated elicitation (user input request)"""
     try:
-        # Request user input from client
         result = await ctx.elicit(message=message, schema=UserResponse)
 
         # Type-safe discriminated union narrowing using action field
@@ -248,10 +236,8 @@ class SEP1034DefaultsSchema(BaseModel):
 async def test_elicitation_sep1034_defaults(ctx: Context) -> str:
     """Tests elicitation with default values for all primitive types (SEP-1034)"""
     try:
-        # Request user input with defaults for all primitive types
         result = await ctx.elicit(message="Please provide user information", schema=SEP1034DefaultsSchema)
 
-        # Type-safe discriminated union narrowing using action field
         if result.action == "accept":
             content = result.data.model_dump_json()
         else:  # decline or cancel
@@ -327,15 +313,11 @@ def test_error_handling() -> str:
     raise RuntimeError("This tool intentionally returns an error for testing")
 
 
+# Tool dispatch re-raises MCPError as a protocol-level error rather than wrapping it in
+# `CallToolResult.isError`, so the harness observes a JSON-RPC error with `data.requiredCapabilities`.
 @mcp.tool()
 async def test_missing_capability(ctx: Context) -> str:
-    """Tests that a handler-raised MISSING_REQUIRED_CLIENT_CAPABILITY surfaces as a top-level JSON-RPC error.
-
-    Requires the client to declare the ``sampling`` capability. When absent, raises
-    `MCPError` (which the tool dispatch re-raises rather than wrapping in
-    ``CallToolResult.isError``) so the conformance harness observes a protocol-level
-    error response with ``data.requiredCapabilities``.
-    """
+    """Tests that a handler-raised MISSING_REQUIRED_CLIENT_CAPABILITY surfaces as a top-level JSON-RPC error."""
     client_params = ctx.session.client_params
     sampling_declared = client_params is not None and client_params.capabilities.sampling is not None
     if not sampling_declared:
@@ -532,8 +514,7 @@ async def test_input_required_result_capabilities(ctx: Context) -> InputRequired
     return InputRequiredResult(input_requests=requests, request_state="capability-gated")
 
 
-# SEP-1613 / SEP-2106 JSON Schema 2020-12 fixture: a tool whose inputSchema carries
-# the full set of 2020-12 keywords the conformance scenario asserts on.
+# SEP-1613 / SEP-2106 fixture: inputSchema carries the JSON Schema 2020-12 keywords the scenario asserts on.
 
 JSON_SCHEMA_2020_12_INPUT_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -585,7 +566,6 @@ async def test_reconnection(ctx: Context) -> str:
     return "Reconnection test completed"
 
 
-# Resources
 @mcp.resource("test://static-text")
 def static_text_resource() -> str:
     """A static text resource for testing"""
@@ -610,7 +590,6 @@ def watched_resource() -> str:
     return watched_resource_content
 
 
-# Prompts
 @mcp.prompt()
 def test_simple_prompt() -> list[UserMessage]:
     """A simple prompt without arguments"""
@@ -655,24 +634,20 @@ def test_prompt_with_image() -> list[UserMessage]:
     ]
 
 
-# Custom request handlers
 # TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
 # and set_logging_level to avoid accessing protected _lowlevel_server attribute.
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
-    """Handle logging level changes"""
     logger.info(f"Log level set to: {params.level}")
     return EmptyResult()
 
 
 async def handle_subscribe(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
-    """Handle resource subscription"""
     resource_subscriptions.add(str(params.uri))
     logger.info(f"Subscribed to resource: {params.uri}")
     return EmptyResult()
 
 
 async def handle_unsubscribe(ctx: ServerRequestContext, params: UnsubscribeRequestParams) -> EmptyResult:
-    """Handle resource unsubscription"""
     resource_subscriptions.discard(str(params.uri))
     logger.info(f"Unsubscribed from resource: {params.uri}")
     return EmptyResult()
@@ -695,13 +670,10 @@ async def _handle_completion(
     argument: CompletionArgument,
     context: CompletionContext | None,
 ) -> Completion:
-    """Handle completion requests"""
-    # Basic completion support - returns empty array for conformance
-    # Real implementations would provide contextual suggestions
+    # Empty values satisfy conformance; a real server would return contextual suggestions.
     return Completion(values=[], total=0, has_more=False)
 
 
-# CLI
 @click.command()
 @click.option("--port", default=3001, help="Port to listen on for HTTP")
 @click.option(

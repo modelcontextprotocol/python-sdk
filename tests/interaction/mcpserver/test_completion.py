@@ -19,7 +19,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("mcpserver:completion:capability-auto")
 async def test_completion_capability_is_advertised_only_when_a_handler_is_registered(connect: Connect) -> None:
-    """An MCPServer with a registered completion handler advertises the completions capability; one without does not."""
     with_handler = MCPServer("completer")
 
     @with_handler.completion()

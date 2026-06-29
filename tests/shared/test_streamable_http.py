@@ -1,8 +1,4 @@
-"""Tests for the StreamableHTTP server and client transport.
-
-Contains tests for both server and client sides of the StreamableHTTP transport, driven
-entirely in process.
-"""
+"""Tests for the StreamableHTTP server and client transport, driven entirely in process."""
 
 from __future__ import annotations as _annotations
 
@@ -67,7 +63,6 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
 
-# Test constants
 SERVER_NAME = "test_streamable_http_server"
 INIT_REQUEST = {
     "jsonrpc": "2.0",
@@ -84,7 +79,6 @@ INIT_REQUEST = {
 BASE_URL = "http://127.0.0.1:8000"
 
 
-# Helper functions
 def first_sse_data(response: httpx.Response) -> dict[str, Any]:
     """Return the first SSE `data:` payload of a response, parsed as JSON."""
     assert response.headers.get("Content-Type") == "text/event-stream"
@@ -95,11 +89,9 @@ def first_sse_data(response: httpx.Response) -> dict[str, Any]:
 
 
 def extract_protocol_version_from_sse(response: httpx.Response) -> str:
-    """Extract the negotiated protocol version from an SSE initialization response."""
     return first_sse_data(response)["result"]["protocolVersion"]
 
 
-# Simple in-memory event store for testing
 class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""
 
@@ -108,7 +100,6 @@ class SimpleEventStore(EventStore):
         self._event_id_counter = 0
 
     async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
-        """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
         self._events.append((stream_id, event_id, message))
@@ -119,15 +110,12 @@ class SimpleEventStore(EventStore):
         last_event_id: EventId,
         send_callback: EventCallback,
     ) -> StreamId | None:
-        """Replay events after the specified ID."""
         # Find the stream ID of the last event; clients always resume from a stored event.
         target_stream_id = next(stream_id for stream_id, event_id, _ in self._events if event_id == last_event_id)
 
-        # Convert last_event_id to int for comparison
         last_event_id_int = int(last_event_id)
 
-        # Replay only events from the same stream with ID > last_event_id, skipping priming
-        # events (None message).
+        # Replay later events from the same stream, skipping priming events (None message).
         for stream_id, event_id, message in self._events:
             if stream_id == target_stream_id and message is not None and int(event_id) > last_event_id_int:
                 await send_callback(EventMessage(message, event_id))
@@ -209,7 +197,6 @@ async def _handle_list_tools(
 async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: CallToolRequestParams) -> CallToolResult:
     name = params.name
 
-    # When the tool is called, send a notification to test GET stream
     if name == "test_tool_with_standalone_notification":
         await ctx.session.send_resource_updated(uri="http://test_resource")
         return CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
@@ -335,14 +322,9 @@ async def running_app(
 ) -> AsyncIterator[Starlette]:
     """Serve the test server's streamable HTTP app in process for the duration.
 
-    Args:
-        is_json_response_enabled: If True, use JSON responses instead of SSE streams.
-        event_store: Optional event store for testing resumability.
-        retry_interval: Retry interval in milliseconds for SSE polling.
-        server: Server to mount; defaults to the file's shared test server.
+    `retry_interval` is in milliseconds; `server` defaults to the file's shared test server.
     """
-    # DNS-rebinding protection validates Host/Origin headers against a network attack that cannot
-    # exist for an in-process app; the protection itself is pinned by
+    # DNS rebinding cannot affect an in-process app; the protection itself is pinned by
     # tests/server/test_streamable_http_security.py.
     session_manager = StreamableHTTPSessionManager(
         app=server if server is not None else _create_server(),
@@ -357,17 +339,13 @@ async def running_app(
 
 
 def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx.AsyncClient:
-    """An httpx client served in process by `app`, with create_mcp_http_client's redirect default.
-
-    (Starlette's Mount 307-redirects the bare /mcp path to /mcp/, which the SDK's own client
-    factory follows.)
-    """
+    """An in-process httpx client for `app`, following redirects like `create_mcp_http_client`
+    (Starlette's Mount 307-redirects the bare /mcp path to /mcp/)."""
     return httpx.AsyncClient(
         transport=StreamingASGITransport(app), base_url=BASE_URL, headers=headers, follow_redirects=True
     )
 
 
-# Test fixtures
 @pytest.fixture
 async def basic_app() -> AsyncIterator[Starlette]:
     """The test server's app with SSE response mode."""
@@ -384,21 +362,17 @@ async def json_app() -> AsyncIterator[Starlette]:
 
 @pytest.fixture
 def event_store() -> SimpleEventStore:
-    """Create a test event store."""
     return SimpleEventStore()
 
 
 @pytest.fixture
 async def event_app(event_store: SimpleEventStore) -> AsyncIterator[tuple[SimpleEventStore, Starlette]]:
-    """The test server's app with an event store and retry_interval enabled."""
     async with running_app(event_store=event_store, retry_interval=500) as app:
         yield event_store, app
 
 
-# Basic request validation tests
 @pytest.mark.anyio
 async def test_accept_header_validation(basic_app: Starlette) -> None:
-    """A POST without an Accept header is rejected with 406."""
     async with make_client(basic_app) as client:
         # Suppress the httpx client default Accept: */* header
         del client.headers["accept"]
@@ -463,7 +437,6 @@ async def test_accept_header_incompatible(basic_app: Starlette, accept_header: s
 
 @pytest.mark.anyio
 async def test_content_type_validation(basic_app: Starlette) -> None:
-    """A POST whose Content-Type is not application/json is rejected with 400."""
     async with make_client(basic_app) as client:
         response = await client.post(
             "/mcp",
@@ -480,7 +453,6 @@ async def test_content_type_validation(basic_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_json_validation(basic_app: Starlette) -> None:
-    """A POST body that is not valid JSON is rejected with a parse error."""
     async with make_client(basic_app) as client:
         response = await client.post(
             "/mcp",
@@ -512,7 +484,6 @@ async def test_json_parsing(basic_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_method_not_allowed(basic_app: Starlette) -> None:
-    """Unsupported HTTP methods are rejected with 405."""
     async with make_client(basic_app) as client:
         response = await client.put(
             "/mcp",
@@ -544,7 +515,6 @@ async def test_session_validation(basic_app: Starlette) -> None:
 
 def test_session_id_pattern() -> None:
     """SESSION_ID_PATTERN accepts visible ASCII (0x21-0x7E) and rejects everything else."""
-    # Valid session IDs (visible ASCII characters from 0x21 to 0x7E)
     valid_session_ids = [
         "test-session-id",
         "1234567890",
@@ -554,45 +524,38 @@ def test_session_id_pattern() -> None:
 
     for session_id in valid_session_ids:
         assert SESSION_ID_PATTERN.match(session_id) is not None
-        # Ensure fullmatch matches too (whole string)
         assert SESSION_ID_PATTERN.fullmatch(session_id) is not None
 
-    # Invalid session IDs
     invalid_session_ids = [
-        "",  # Empty string
-        " test",  # Space (0x20)
-        "test\t",  # Tab
-        "test\n",  # Newline
-        "test\r",  # Carriage return
-        "test" + chr(0x7F),  # DEL character
-        "test" + chr(0x80),  # Extended ASCII
-        "test" + chr(0x00),  # Null character
-        "test" + chr(0x20),  # Space (0x20)
+        "",
+        " test",  # leading space (0x20)
+        "test\t",
+        "test\n",
+        "test\r",
+        "test" + chr(0x7F),  # DEL
+        "test" + chr(0x80),  # extended ASCII
+        "test" + chr(0x00),
+        "test" + chr(0x20),  # trailing space
     ]
 
     for session_id in invalid_session_ids:
-        # For invalid IDs, either match will fail or fullmatch will fail
+        # match() may succeed on a partial match; fullmatch must always fail.
         if SESSION_ID_PATTERN.match(session_id) is not None:
-            # If match succeeds, fullmatch should fail (partial match case)
             assert SESSION_ID_PATTERN.fullmatch(session_id) is None
 
 
 def test_streamable_http_transport_init_validation() -> None:
     """StreamableHTTPServerTransport accepts valid or absent session IDs and rejects invalid ones."""
-    # Valid session ID should initialize without errors
     valid_transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
     assert valid_transport.mcp_session_id == "valid-id"
 
-    # None should be accepted
     none_transport = StreamableHTTPServerTransport(mcp_session_id=None)
     assert none_transport.mcp_session_id is None
 
-    # Invalid session ID should raise ValueError
     with pytest.raises(ValueError) as excinfo:
         StreamableHTTPServerTransport(mcp_session_id="invalid id with space")
     assert "Session ID must only contain visible ASCII characters" in str(excinfo.value)
 
-    # Test with control characters
     with pytest.raises(ValueError):
         StreamableHTTPServerTransport(mcp_session_id="test\nid")
 
@@ -614,10 +577,8 @@ async def test_session_termination(basic_app: Starlette) -> None:
         )
         assert response.status_code == 200
 
-        # Extract negotiated protocol version from SSE response
         negotiated_version = extract_protocol_version_from_sse(response)
 
-        # Now terminate the session
         session_id = response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
         response = await client.delete(
@@ -629,7 +590,6 @@ async def test_session_termination(basic_app: Starlette) -> None:
         )
         assert response.status_code == 200
 
-        # Try to use the terminated session
         response = await client.post(
             "/mcp",
             headers={
@@ -657,21 +617,18 @@ async def test_response(basic_app: Starlette) -> None:
         )
         assert response.status_code == 200
 
-        # Extract negotiated protocol version from SSE response
         negotiated_version = extract_protocol_version_from_sse(response)
 
-        # Now get the session ID
         session_id = response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
 
-        # Try to use the session with proper headers
         async with client.stream(
             "POST",
             "/mcp",
             headers={
                 "Accept": "application/json, text/event-stream",
                 "Content-Type": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,  # Use the session ID we got earlier
+                MCP_SESSION_ID_HEADER: session_id,
                 MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
             },
             json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-1"},
@@ -682,7 +639,6 @@ async def test_response(basic_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_json_response(json_app: Starlette) -> None:
-    """With JSON response mode enabled, requests are answered with application/json bodies."""
     async with make_client(json_app) as client:
         response = await client.post(
             "/mcp",
@@ -698,7 +654,6 @@ async def test_json_response(json_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_json_response_accept_json_only(json_app: Starlette) -> None:
-    """JSON response mode only requires application/json in the Accept header."""
     async with make_client(json_app) as client:
         response = await client.post(
             "/mcp",
@@ -714,7 +669,6 @@ async def test_json_response_accept_json_only(json_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_json_response_missing_accept_header(json_app: Starlette) -> None:
-    """JSON response mode still rejects requests without an Accept header."""
     async with make_client(json_app) as client:
         # Suppress the httpx client default Accept: */* header
         del client.headers["accept"]
@@ -731,9 +685,7 @@ async def test_json_response_missing_accept_header(json_app: Starlette) -> None:
 
 @pytest.mark.anyio
 async def test_json_response_incorrect_accept_header(json_app: Starlette) -> None:
-    """JSON response mode rejects an Accept header that does not cover application/json."""
     async with make_client(json_app) as client:
-        # Test with only text/event-stream (wrong for JSON server)
         response = await client.post(
             "/mcp",
             headers={
@@ -774,7 +726,6 @@ async def test_json_response_wildcard_accept_header(json_app: Starlette, accept_
 async def test_get_sse_stream(basic_app: Starlette) -> None:
     """GET establishes the standalone SSE stream, and a second GET is rejected with 409."""
     async with make_client(basic_app) as client:
-        # First, we need to initialize a session
         init_response = await client.post(
             "/mcp",
             headers={
@@ -785,12 +736,10 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
         )
         assert init_response.status_code == 200
 
-        # Get the session ID
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
         negotiated_version = extract_protocol_version_from_sse(init_response)
 
-        # Now attempt to establish an SSE stream via GET
         get_headers = {
             "Accept": "text/event-stream",
             MCP_SESSION_ID_HEADER: session_id,
@@ -801,11 +750,10 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
             client.stream("GET", "/mcp", headers=get_headers) as get_response,
             client.stream("GET", "/mcp", headers=get_headers) as second_get,
         ):
-            # Verify we got a successful response with the right content type
             assert get_response.status_code == 200
             assert get_response.headers.get("Content-Type") == "text/event-stream"
 
-            # The second GET gets CONFLICT (409): only one standalone stream is allowed per session.
+            # Only one standalone stream is allowed per session.
             assert second_get.status_code == 409
 
 
@@ -813,7 +761,6 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 async def test_get_validation(basic_app: Starlette) -> None:
     """A GET without an Accept header covering text/event-stream is rejected with 406."""
     async with make_client(basic_app) as client:
-        # First, we need to initialize a session
         init_response = await client.post(
             "/mcp",
             headers={
@@ -824,12 +771,11 @@ async def test_get_validation(basic_app: Starlette) -> None:
         )
         assert init_response.status_code == 200
 
-        # Get the session ID
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
         negotiated_version = extract_protocol_version_from_sse(init_response)
 
-        # Test without Accept header (suppress the httpx client default Accept: */*)
+        # Suppress the httpx client default Accept: */* header
         del client.headers["accept"]
         response = await client.get(
             "/mcp",
@@ -841,7 +787,6 @@ async def test_get_validation(basic_app: Starlette) -> None:
         assert response.status_code == 406
         assert "Not Acceptable" in response.text
 
-        # Test with wrong Accept header
         response = await client.get(
             "/mcp",
             headers={
@@ -854,10 +799,8 @@ async def test_get_validation(basic_app: Starlette) -> None:
         assert "Not Acceptable" in response.text
 
 
-# Client-specific fixtures
 @pytest.fixture
 async def initialized_client_session(basic_app: Starlette) -> AsyncIterator[ClientSession]:
-    """Create initialized StreamableHTTP client session."""
     async with (
         make_client(basic_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
@@ -869,7 +812,6 @@ async def initialized_client_session(basic_app: Starlette) -> AsyncIterator[Clie
 
 @pytest.mark.anyio
 async def test_streamable_http_client_basic_connection(basic_app: Starlette) -> None:
-    """A client initializes against a server over the StreamableHTTP transport."""
     async with (
         make_client(basic_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
@@ -882,7 +824,6 @@ async def test_streamable_http_client_basic_connection(basic_app: Starlette) -> 
 
 @pytest.mark.anyio
 async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession) -> None:
-    """A resource read round-trips its arguments and the handler's content."""
     response = await initialized_client_session.read_resource(uri="foobar://test-resource")
     assert len(response.contents) == 1
     assert response.contents[0].uri == "foobar://test-resource"
@@ -892,13 +833,10 @@ async def test_streamable_http_client_resource_read(initialized_client_session: 
 
 @pytest.mark.anyio
 async def test_streamable_http_client_tool_invocation(initialized_client_session: ClientSession) -> None:
-    """A tool call reaches the handler and returns its content."""
-    # First list tools
     tools = await initialized_client_session.list_tools()
     assert len(tools.tools) == 8
     assert tools.tools[0].name == "test_tool"
 
-    # Call the tool
     result = await initialized_client_session.call_tool("test_tool", {})
     assert len(result.content) == 1
     assert result.content[0].type == "text"
@@ -907,7 +845,6 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 
 @pytest.mark.anyio
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession) -> None:
-    """A server-side error reaches the client as an MCPError with the handler's message."""
     with pytest.raises(MCPError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
@@ -916,21 +853,17 @@ async def test_streamable_http_client_error_handling(initialized_client_session:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_session_persistence(basic_app: Starlette) -> None:
-    """The session persists across multiple requests on one connection."""
     async with (
         make_client(basic_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):
-        # Initialize the session
         result = await session.initialize()
         assert isinstance(result, InitializeResult)
 
-        # Make multiple requests to verify session persistence
         tools = await session.list_tools()
         assert len(tools.tools) == 8
 
-        # Read a resource
         resource = await session.read_resource(uri="foobar://test-persist")
         assert isinstance(resource.contents[0], TextResourceContents) is True
         content = resource.contents[0]
@@ -940,22 +873,18 @@ async def test_streamable_http_client_session_persistence(basic_app: Starlette) 
 
 @pytest.mark.anyio
 async def test_streamable_http_client_json_response(json_app: Starlette) -> None:
-    """The client works identically against a server in JSON response mode."""
     async with (
         make_client(json_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):
-        # Initialize the session
         result = await session.initialize()
         assert isinstance(result, InitializeResult)
         assert result.server_info.name == SERVER_NAME
 
-        # Check tool listing
         tools = await session.list_tools()
         assert len(tools.tools) == 8
 
-        # Call a tool and verify JSON response handling
         result = await session.call_tool("test_tool", {})
         assert len(result.content) == 1
         assert result.content[0].type == "text"
@@ -964,10 +893,8 @@ async def test_streamable_http_client_json_response(json_app: Starlette) -> None
 
 @pytest.mark.anyio
 async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
-    """A server-initiated notification reaches the client on the standalone GET stream."""
     notifications_received: list[types.ServerNotification] = []
 
-    # Define message handler to capture notifications
     async def message_handler(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
@@ -979,17 +906,14 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream, message_handler=message_handler) as session,
     ):
-        # Initialize the session - this triggers the GET stream setup
+        # Initialization triggers the standalone GET stream setup.
         result = await session.initialize()
         assert isinstance(result, InitializeResult)
 
-        # Call the special tool that sends a notification
         await session.call_tool("test_tool_with_standalone_notification", {})
 
-        # Verify we received the notification
         assert len(notifications_received) > 0
 
-        # Verify the notification is a ResourceUpdatedNotification
         resource_update_found = False
         for notif in notifications_received:
             if isinstance(notif, types.ResourceUpdatedNotification):  # pragma: no branch
@@ -1000,7 +924,6 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
 
 
 def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClient, list[str]]:
-    """Create an in-process httpx client that captures the session ID from responses."""
     captured_ids: list[str] = []
 
     async def capture_session_id(response: httpx.Response) -> None:
@@ -1020,7 +943,6 @@ def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClien
 @pytest.mark.anyio
 async def test_streamable_http_client_session_termination(basic_app: Starlette) -> None:
     """After the client terminates its session on close, a new connection with that session ID fails."""
-    # Use httpx client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1029,7 +951,6 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
                 assert len(captured_ids) > 0
@@ -1037,7 +958,6 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
                 assert captured_session_id is not None
                 headers = {MCP_SESSION_ID_HEADER: captured_session_id}
 
-                # Make a request to confirm session is working
                 tools = await session.list_tools()
                 assert len(tools.tools) == 8
 
@@ -1047,7 +967,6 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                # Attempt to make a request after termination
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
@@ -1058,20 +977,12 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
 async def test_streamable_http_client_session_termination_204(
     basic_app: Starlette, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Session termination also succeeds when the server answers the DELETE with 204.
-
-    This test patches the httpx client to return a 204 response for DELETEs.
-    """
-
-    # Save the original delete method to restore later
+    """Session termination also succeeds when the server answers the DELETE with 204."""
     original_delete = httpx.AsyncClient.delete
 
-    # Mock the client's delete method to return a 204
     async def mock_delete(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> httpx.Response:
-        # Call the original method to get the real response
         response = await original_delete(self, *args, **kwargs)
 
-        # Create a new response with 204 status code but same headers
         mocked_response = httpx.Response(
             204,
             headers=response.headers,
@@ -1080,10 +991,8 @@ async def test_streamable_http_client_session_termination_204(
         )
         return mocked_response
 
-    # Apply the patch to the httpx client
     monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
 
-    # Use httpx client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1092,7 +1001,6 @@ async def test_streamable_http_client_session_termination_204(
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
                 assert len(captured_ids) > 0
@@ -1100,7 +1008,6 @@ async def test_streamable_http_client_session_termination_204(
                 assert captured_session_id is not None
                 headers = {MCP_SESSION_ID_HEADER: captured_session_id}
 
-                # Make a request to confirm session is working
                 tools = await session.list_tools()
                 assert len(tools.tools) == 8
 
@@ -1110,7 +1017,6 @@ async def test_streamable_http_client_session_termination_204(
             write_stream,
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                # Attempt to make a request after termination
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
@@ -1122,7 +1028,6 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
     """A second client resumes an interrupted request with a resumption token and receives the rest."""
     _, app = event_app
 
-    # Variables to track the state
     captured_resumption_token: str | None = None
     captured_notifications: list[types.ServerNotification] = []
     first_notification_received = anyio.Event()
@@ -1133,7 +1038,6 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
     ) -> None:
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
-            # Look for our first notification
             if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
                 if message.params.data == "First notification before lock":
                     first_notification_received.set()
@@ -1143,10 +1047,8 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
         captured_resumption_token = token
         resumption_token_received.set()
 
-    # Use httpx client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(app)
 
-    # First, start the client session and begin the tool that waits on lock
     async with httpx_client:
         async with streamable_http_client(f"{BASE_URL}/mcp", terminate_on_close=False, http_client=httpx_client) as (
             read_stream,
@@ -1155,7 +1057,6 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
             async with ClientSession(  # pragma: no branch
                 read_stream, write_stream, message_handler=message_handler
             ) as session:
-                # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
                 assert len(captured_ids) > 0
@@ -1167,7 +1068,6 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
                     MCP_PROTOCOL_VERSION_HEADER: result.protocol_version,
                 }
 
-                # Start the tool that will wait on lock in a task
                 async with anyio.create_task_group() as tg:  # pragma: no branch
 
                     async def run_tool():
@@ -1186,14 +1086,12 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
 
                     tg.start_soon(run_tool)
 
-                    # Wait for the first notification and resumption token
                     with anyio.fail_after(5):
                         await first_notification_received.wait()
                         await resumption_token_received.wait()
 
-                    # first_notification_received is set by message_handler immediately
-                    # after appending to captured_notifications. The server tool is
-                    # blocked on its lock, so nothing else can arrive before we cancel.
+                    # message_handler appends before setting the event, and the server tool is
+                    # blocked on its lock, so exactly one notification can have arrived.
                     assert len(captured_notifications) == 1
                     assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
                     assert captured_notifications[0].params.data == "First notification before lock"
@@ -1232,7 +1130,6 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
                 assert result.content[0].type == "text"
                 assert result.content[0].text == "Completed"
 
-                # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
                 assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
                 assert captured_notifications[0].params.data == "Second notification after lock"
@@ -1241,11 +1138,9 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
 @pytest.mark.anyio
 async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
     """A server-initiated sampling request reaches the client callback and its result the tool."""
-    # Variable to track if sampling callback was invoked
     sampling_callback_invoked = False
     captured_message_params = None
 
-    # Define sampling callback that returns a mock response
     async def sampling_callback(
         context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
@@ -1266,32 +1161,26 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
             stop_reason="endTurn",
         )
 
-    # Create client with sampling callback
     async with (
         make_client(basic_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session,
     ):
-        # Initialize the session
         result = await session.initialize()
         assert isinstance(result, InitializeResult)
 
-        # Call the tool that triggers server-side sampling
         tool_result = await session.call_tool("test_sampling_tool", {})
 
-        # Verify the tool result contains the expected content
         assert len(tool_result.content) == 1
         assert tool_result.content[0].type == "text"
         assert "Response from sampling: Received message from server" in tool_result.content[0].text
 
-        # Verify sampling callback was invoked
         assert sampling_callback_invoked
         assert captured_message_params is not None
         assert len(captured_message_params.messages) == 1
         assert captured_message_params.messages[0].content.text == "Server needs client sampling"
 
 
-# Context-aware server implementation for testing request context propagation
 async def _handle_context_list_tools(
     ctx: ServerRequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
@@ -1355,7 +1244,6 @@ async def _run_context_app(*, stateless: bool) -> AsyncIterator[Starlette]:
 
 @pytest.fixture
 async def context_app() -> AsyncIterator[Starlette]:
-    """An app whose server echoes request context, served in process."""
     async with _run_context_app(stateless=False) as app:
         yield app
 
@@ -1417,15 +1305,12 @@ async def test_streamablehttp_request_context_propagation(context_app: Starlette
                 assert isinstance(result, InitializeResult)
                 assert result.server_info.name == "ContextAwareServer"
 
-                # Call the tool that echoes headers back
                 tool_result = await session.call_tool("echo_headers", {})
 
-                # Parse the JSON response
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
 
-                # Verify headers were propagated
                 assert headers_data.get("authorization") == "Bearer test-token"
                 assert headers_data.get("x-custom-header") == "test-value"
                 assert headers_data.get("x-trace-id") == "trace-123"
@@ -1436,7 +1321,6 @@ async def test_streamablehttp_request_context_isolation(context_app: Starlette) 
     """Each connection's handlers see only that connection's request headers."""
     contexts: list[dict[str, Any]] = []
 
-    # Connect three clients in turn, each with its own headers.
     for i in range(3):
         headers = {
             "X-Request-Id": f"request-{i}",
@@ -1452,7 +1336,6 @@ async def test_streamablehttp_request_context_isolation(context_app: Starlette) 
                 async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                     await session.initialize()
 
-                    # Call the tool that echoes context
                     tool_result = await session.call_tool("echo_context", {"request_id": f"request-{i}"})
 
                     assert len(tool_result.content) == 1
@@ -1460,7 +1343,6 @@ async def test_streamablehttp_request_context_isolation(context_app: Starlette) 
                     context_data = json.loads(tool_result.content[0].text)
                     contexts.append(context_data)
 
-    # Verify each request had its own context
     assert len(contexts) == 3
     for i, ctx in enumerate(contexts):
         assert ctx["request_id"] == f"request-{i}"
@@ -1471,24 +1353,20 @@ async def test_streamablehttp_request_context_isolation(context_app: Starlette) 
 
 @pytest.mark.anyio
 async def test_client_includes_protocol_version_header_after_init(context_app: Starlette) -> None:
-    """After initialization, every client request carries the negotiated protocol version header."""
     async with (
         make_client(context_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):
-        # Initialize and get the negotiated version
         init_result = await session.initialize()
         negotiated_version = init_result.protocol_version
 
-        # Call a tool that echoes headers to verify the header is present
         tool_result = await session.call_tool("echo_headers", {})
 
         assert len(tool_result.content) == 1
         assert isinstance(tool_result.content[0], TextContent)
         headers_data = json.loads(tool_result.content[0].text)
 
-        # Verify protocol version header is present
         assert "mcp-protocol-version" in headers_data
         assert headers_data[MCP_PROTOCOL_VERSION_HEADER] == negotiated_version
 
@@ -1497,7 +1375,6 @@ async def test_client_includes_protocol_version_header_after_init(context_app: S
 async def test_server_validates_protocol_version_header(basic_app: Starlette) -> None:
     """An invalid or unsupported protocol version header is rejected with 400; the negotiated one passes."""
     async with make_client(basic_app) as client:
-        # First initialize a session to get a valid session ID
         init_response = await client.post(
             "/mcp",
             headers={
@@ -1525,7 +1402,6 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
         assert response.status_code == 400
         assert response.json()["error"]["code"] == INVALID_PARAMS
 
-        # Test request with valid protocol version (should succeed)
         negotiated_version = extract_protocol_version_from_sse(init_response)
 
         response = await client.post(
@@ -1543,9 +1419,7 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
 
 @pytest.mark.anyio
 async def test_server_backwards_compatibility_no_protocol_version(basic_app: Starlette) -> None:
-    """A request without a protocol version header is accepted for backwards compatibility."""
     async with make_client(basic_app) as client:
-        # First initialize a session to get a valid session ID
         init_response = await client.post(
             "/mcp",
             headers={
@@ -1558,7 +1432,6 @@ async def test_server_backwards_compatibility_no_protocol_version(basic_app: Sta
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
 
-        # Test request without mcp-protocol-version header (backwards compatibility)
         async with client.stream(
             "POST",
             "/mcp",
@@ -1569,7 +1442,7 @@ async def test_server_backwards_compatibility_no_protocol_version(basic_app: Sta
             },
             json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-backwards-compat"},
         ) as response:
-            assert response.status_code == 200  # Should succeed for backwards compatibility
+            assert response.status_code == 200
             assert response.headers.get("Content-Type") == "text/event-stream"
 
 
@@ -1577,9 +1450,7 @@ async def test_server_backwards_compatibility_no_protocol_version(basic_app: Sta
 async def test_client_crash_handled(basic_app: Starlette) -> None:
     """A client crashing mid-session does not prevent later clients from connecting."""
 
-    # Simulate bad client that crashes after init
     async def bad_client():
-        """Client that triggers ClosedResourceError"""
         async with (
             make_client(basic_app) as http_client,
             streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
@@ -1596,7 +1467,6 @@ async def test_client_crash_handled(basic_app: Starlette) -> None:
         except Exception:
             pass
 
-    # Try a good client, it should still be able to connect and list tools
     async with (
         make_client(basic_app) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
@@ -1613,17 +1483,13 @@ async def test_handle_sse_event_skips_empty_data() -> None:
     """_handle_sse_event skips empty SSE data (keep-alive pings) without writing to the stream."""
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
-    # Create a mock SSE event with empty data (keep-alive ping)
     mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
 
-    # Create a context-aware stream writer (matches StreamWriter type alias)
     write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
 
     try:
-        # Call _handle_sse_event with empty data - should return False and not raise
         result = await transport._handle_sse_event(mock_sse, write_stream)
 
-        # Should return False (not complete) for empty data
         assert result is False
 
         # Nothing should have been written to the stream
@@ -1638,29 +1504,23 @@ async def test_handle_sse_event_skips_empty_data() -> None:
 @pytest.mark.anyio
 async def test_close_sse_stream_callback_not_provided_for_old_protocol_version() -> None:
     """close_sse_stream callbacks are only provided for protocol versions that support polling."""
-    # Create a transport with an event store
     transport = StreamableHTTPServerTransport(
         "/mcp",
         event_store=SimpleEventStore(),
     )
 
-    # Create a mock message and request
     mock_message = JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list")
     mock_request = MagicMock()
 
-    # Call _create_session_message with OLD protocol version
     session_msg = transport._create_session_message(mock_message, mock_request, "test-request-id", "2025-06-18")
 
-    # Callbacks should NOT be provided for old protocol version
     assert session_msg.metadata is not None
     assert isinstance(session_msg.metadata, ServerMessageMetadata)
     assert session_msg.metadata.close_sse_stream is None
     assert session_msg.metadata.close_standalone_sse_stream is None
 
-    # Now test with NEW protocol version - should provide callbacks
     session_msg_new = transport._create_session_message(mock_message, mock_request, "test-request-id-2", "2025-11-25")
 
-    # Callbacks SHOULD be provided for new protocol version
     assert session_msg_new.metadata is not None
     assert isinstance(session_msg_new.metadata, ServerMessageMetadata)
     assert session_msg_new.metadata.close_sse_stream is not None
@@ -1743,7 +1603,6 @@ async def test_streamable_http_client_receives_priming_event(
     ):
         await session.initialize()
 
-        # Call tool with resumption token callback via send_request
         metadata = ClientMessageMetadata(
             on_resumption_token_update=on_resumption_token_update,
         )
@@ -1754,10 +1613,6 @@ async def test_streamable_http_client_receives_priming_event(
         )
         assert result is not None
 
-        # Should have received priming event token BEFORE response data
-        # Priming event = 1 token (empty data, id only)
-        # Response = 1 token (actual JSON-RPC response)
-        # Total = 2 tokens minimum
         assert len(captured_resumption_tokens) >= 2, (
             f"Server must send priming event before response. "
             f"Expected >= 2 tokens (priming + response), got {len(captured_resumption_tokens)}"
@@ -1769,7 +1624,6 @@ async def test_streamable_http_client_receives_priming_event(
 async def test_server_close_sse_stream_via_context(
     event_app: tuple[SimpleEventStore, Starlette],
 ) -> None:
-    """Server tool can call ctx.close_sse_stream() to close connection."""
     _, app = event_app
 
     async with (
@@ -1779,10 +1633,9 @@ async def test_server_close_sse_stream_via_context(
     ):
         await session.initialize()
 
-        # Call tool that closes stream mid-operation
         result = await session.call_tool("tool_with_stream_close", {})
 
-        # Client should still receive complete response (via auto-reconnect)
+        # The client still receives the complete response via auto-reconnect.
         assert result is not None
         assert len(result.content) > 0
         assert result.content[0].type == "text"
@@ -1814,14 +1667,8 @@ async def test_streamable_http_client_auto_reconnects(
     ):
         await session.initialize()
 
-        # Call tool that:
-        # 1. Sends notification
-        # 2. Closes SSE stream
-        # 3. Sends more notifications (stored in event_store)
-        # 4. Returns response
         result = await session.call_tool("tool_with_stream_close", {})
 
-        # Client should have auto-reconnected and received ALL notifications
         assert len(captured_notifications) >= 2, (
             "Client should auto-reconnect and receive notifications sent both before and after stream close"
         )
@@ -1848,7 +1695,6 @@ async def test_streamable_http_client_respects_retry_interval(
         result = await session.call_tool("tool_with_stream_close", {})
         elapsed = time.monotonic() - start_time
 
-        # Verify result was received
         assert result.content[0].type == "text"
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Done"
@@ -1862,7 +1708,6 @@ async def test_streamable_http_client_respects_retry_interval(
 async def test_streamable_http_sse_polling_full_cycle(
     event_app: tuple[SimpleEventStore, Starlette],
 ) -> None:
-    """End-to-end test: server closes stream, client reconnects, receives all events."""
     _, app = event_app
     all_notifications: list[str] = []
 
@@ -1882,16 +1727,8 @@ async def test_streamable_http_sse_polling_full_cycle(
     ):
         await session.initialize()
 
-        # Call tool that simulates polling pattern:
-        # 1. Server sends priming event
-        # 2. Server sends "Before close" notification
-        # 3. Server closes stream (calls close_sse_stream)
-        # 4. (client reconnects automatically)
-        # 5. Server sends "After close" notification
-        # 6. Server sends final response
         result = await session.call_tool("tool_with_stream_close", {})
 
-        # Verify all notifications received in order
         assert "Before close" in all_notifications, "Should receive notification sent before stream close"
         assert "After close" in all_notifications, (
             "Should receive notification sent after stream close (via auto-reconnect)"
@@ -1925,15 +1762,13 @@ async def test_streamable_http_events_replayed_after_disconnect(
     ):
         await session.initialize()
 
-        # Tool sends: notification1, close_stream, notification2, notification3, response
-        # Client should receive all notifications even though 2&3 were sent during disconnect
+        # The tool sends notification1, closes the stream, then notification2 and notification3.
         result = await session.call_tool("tool_with_multiple_notifications_and_close", {})
 
         assert "notification1" in notification_data, "Should receive notification1 (sent before close)"
         assert "notification2" in notification_data, "Should receive notification2 (sent after close, replayed)"
         assert "notification3" in notification_data, "Should receive notification3 (sent after close, replayed)"
 
-        # Verify order: notification1 should come before notification2 and notification3
         idx1 = notification_data.index("notification1")
         idx2 = notification_data.index("notification2")
         idx3 = notification_data.index("notification3")
@@ -1948,24 +1783,16 @@ async def test_streamable_http_events_replayed_after_disconnect(
 async def test_streamable_http_multiple_reconnections() -> None:
     """Every close_sse_stream() severs a live connection and triggers its own client reconnect.
 
-    The tool closes its SSE stream three times; before each next cycle it waits until the
-    client has observed the previous cycle's two new resumption tokens (the checkpoint and the
-    new connection's priming event). The priming event is sent only after the server has
-    re-registered the resumed stream, so once the client holds its token the next close is
-    guaranteed to sever a live connection rather than silently no-op — making the exact token
-    count below a consequence of causality, not timing margins. This pins reconnect-per-close
-    accounting; reconnect *latency* is pinned by test_streamable_http_client_respects_retry_interval.
-
-    With 3 checkpoints, we expect 8 resumption tokens:
-    - 1 priming (initial POST connection)
-    - 3 notifications (checkpoint_0, checkpoint_1, checkpoint_2)
-    - 3 priming (one per reconnect after each close)
-    - 1 response
+    The tool closes its SSE stream three times, waiting before each next close until the client
+    has observed the previous cycle's two new resumption tokens (checkpoint + the reconnect's
+    priming event). The priming event is sent only after the server has re-registered the resumed
+    stream, so each close is guaranteed to sever a live connection rather than silently no-op —
+    the exact token count is a consequence of causality, not timing margins. Reconnect latency is
+    pinned by test_streamable_http_client_respects_retry_interval.
     """
     resumption_tokens: list[str] = []
-    # milestones[n] fires when the client has observed n tokens. After the initial priming
-    # (token 1), each completed cycle i contributes exactly two tokens — checkpoint_i and the
-    # reconnect's priming, in either order — so cycle i is complete at 3 + 2i tokens.
+    # After the initial priming token, each completed cycle i adds two tokens — checkpoint_i and
+    # the reconnect's priming, in either order — so cycle i is complete at 3 + 2i tokens.
     milestones = {3: anyio.Event(), 5: anyio.Event(), 7: anyio.Event()}
 
     async def on_resumption_token(token: str) -> None:
@@ -2003,7 +1830,6 @@ async def test_streamable_http_multiple_reconnections() -> None:
     ):
         await session.initialize()
 
-        # Use send_request with metadata to track resumption tokens
         metadata = ClientMessageMetadata(on_resumption_token_update=on_resumption_token)
         result = await session.send_request(
             types.CallToolRequest(
@@ -2028,16 +1854,10 @@ async def test_streamable_http_multiple_reconnections() -> None:
 
 @pytest.mark.anyio
 async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventStore, Starlette]) -> None:
-    """Test that standalone GET stream automatically reconnects after server closes it.
+    """The standalone GET stream reconnects with Last-Event-ID after the server closes it.
 
-    Verifies:
-    1. Client receives notification 1 via GET stream
-    2. Server closes GET stream
-    3. Client reconnects with Last-Event-ID
-    4. Client receives notification 2 on new connection
-
-    Note: Requires the event store app because close_standalone_sse_stream
-    callback is only provided when event_store is configured and protocol version >= 2025-11-25.
+    Needs the event-store app: the close_standalone_sse_stream callback is only provided when an
+    event store is configured and the protocol version is >= 2025-11-25.
     """
     _, app = event_app
     received_notifications: list[str] = []
@@ -2058,19 +1878,12 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
     ):
         await session.initialize()
 
-        # Call tool that:
-        # 1. Sends notification_1 via GET stream
-        # 2. Closes standalone GET stream
-        # 3. Sends notification_2 (stored in event_store)
-        # 4. Returns response
         result = await session.call_tool("tool_with_standalone_stream_close", {})
 
-        # Verify the tool completed
         assert result.content[0].type == "text"
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Standalone stream close test done"
 
-        # Verify both notifications were received
         assert "http://notification_1" in received_notifications, (
             f"Should receive notification 1 (sent before GET stream close), got: {received_notifications}"
         )
@@ -2081,15 +1894,12 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
 
 @pytest.mark.anyio
 async def test_streamable_http_client_does_not_mutate_provided_client(basic_app: Starlette) -> None:
-    """streamable_http_client does not mutate the provided httpx client's headers."""
-    # Create a client with custom headers
     original_headers = {
         "X-Custom-Header": "custom-value",
         "Authorization": "Bearer test-token",
     }
 
     async with make_client(basic_app, headers=original_headers) as custom_client:
-        # Use the client with streamable_http_client
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=custom_client) as (
             read_stream,
             write_stream,
@@ -2098,14 +1908,11 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
 
-        # Verify client headers were not mutated with MCP protocol headers
-        # If accept header exists, it should still be httpx default, not MCP's
+        # If an accept header survives, it must still be the httpx default, not MCP's.
         if "accept" in custom_client.headers:  # pragma: no branch
             assert custom_client.headers.get("accept") == "*/*"
-        # MCP content-type should not have been added
         assert custom_client.headers.get("content-type") != "application/json"
 
-        # Verify custom headers are still present and unchanged
         assert custom_client.headers.get("X-Custom-Header") == "custom-value"
         assert custom_client.headers.get("Authorization") == "Bearer test-token"
 
@@ -2113,24 +1920,18 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
 @pytest.mark.anyio
 async def test_streamable_http_client_mcp_headers_override_defaults(context_app: Starlette) -> None:
     """MCP protocol headers override the httpx client's default headers in actual requests."""
-    # httpx.AsyncClient has default "accept: */*" header
-    # We need to verify that our MCP accept header overrides it in actual requests
-
     async with make_client(context_app) as client:
-        # Verify client has default accept header
         assert client.headers.get("accept") == "*/*"
 
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                # Use echo_headers tool to see what headers the server actually received
                 tool_result = await session.call_tool("echo_headers", {})
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
 
-                # Verify MCP protocol headers were sent (not httpx defaults)
                 assert "accept" in headers_data
                 assert "application/json" in headers_data["accept"]
                 assert "text/event-stream" in headers_data["accept"]
@@ -2141,7 +1942,6 @@ async def test_streamable_http_client_mcp_headers_override_defaults(context_app:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_app: Starlette) -> None:
-    """Custom client headers and MCP protocol headers are both sent in requests."""
     custom_headers = {
         "X-Custom-Header": "custom-value",
         "X-Request-Id": "req-123",
@@ -2153,18 +1953,15 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                # Use echo_headers tool to verify both custom and MCP headers are present
                 tool_result = await session.call_tool("echo_headers", {})
                 assert len(tool_result.content) == 1
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
 
-                # Verify custom headers are present
                 assert headers_data.get("x-custom-header") == "custom-value"
                 assert headers_data.get("x-request-id") == "req-123"
                 assert headers_data.get("authorization") == "Bearer test-token"
 
-                # Verify MCP protocol headers are also present
                 assert "accept" in headers_data
                 assert "application/json" in headers_data["accept"]
                 assert "text/event-stream" in headers_data["accept"]

@@ -1,10 +1,9 @@
 """Transport-parametrized connection factories for the interaction suite.
 
-The `connect` fixture (see conftest.py) hands tests one of these factories so the same test body
-runs over each transport without naming any of them: the factory is a drop-in replacement for
-constructing `Client(server, ...)` and yields the connected client. The HTTP factories drive the
-server's real Starlette app through the in-process streaming bridge, so the full transport layer
-(session ids, SSE encoding, session management) runs with no sockets, threads, or subprocesses.
+The `connect` fixture (conftest.py) hands tests one of these factories as a drop-in for
+`Client(server, ...)`, so one test body runs over every transport. The HTTP factories drive the
+server's real Starlette app through the in-process streaming bridge -- no sockets, threads, or
+subprocesses.
 """
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
@@ -46,18 +45,13 @@ from tests.interaction.transports._bridge import StreamingASGITransport
 # The in-process app is mounted at this origin purely so URLs are well-formed; nothing listens here.
 BASE_URL = "http://127.0.0.1:8000"
 
-# DNS-rebinding protection validates Host/Origin headers against a real network attack that cannot
-# exist for an in-process ASGI app, so the in-process factories disable it; tests that exercise the
-# protection itself pass explicit settings (or transport_security=None to get the localhost
-# auto-enable behaviour).
+# DNS rebinding cannot reach an in-process ASGI app, so the factories disable the Host/Origin checks;
+# tests of the protection itself pass explicit settings (or None for the localhost auto-enable).
 NO_DNS_REBINDING_PROTECTION = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
 class Connect(Protocol):
-    """Connect a Client to a server over the transport selected by the `connect` fixture.
-
-    Accepts the same keyword arguments as `Client` and yields the connected client.
-    """
+    """Connect a Client over the fixture-selected transport; accepts `Client` kwargs, yields the client."""
 
     def __call__(
         self,
@@ -89,9 +83,8 @@ async def connect_in_memory(
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport.
 
-    When `spec_version` is a modern (2026-07-28+) revision the Client is opened with
-    `mode=<version>`, which drives the server through the DirectDispatcher peer-pair
-    (per-request `serve_one`, no initialize handshake) instead of the legacy stream pair.
+    Modern (2026-07-28+) `spec_version`s open with `mode=<version>`: the DirectDispatcher
+    peer-pair (per-request `serve_one`, no initialize handshake) instead of the legacy streams.
     """
     async with Client(
         server,
@@ -126,15 +119,9 @@ async def connect_over_streamable_http(
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
 
-    With the defaults this is the matrix leg (stateful sessions, SSE responses); the stateless
-    matrix arm binds `stateless_http=True` (see `connect_over_streamable_http_stateless`);
-    transport-specific tests pass `json_response` to select the other server mode, and the
-    resumability tests pass an `event_store` (with `retry_interval=0` so the client's
-    reconnection wait is a no-op).
-
-    When `spec_version` is a modern (2026-07-28+) revision the Client is opened with
-    `mode=<version>`, which adopts a synthesized DiscoverResult instead of running the legacy
-    initialize handshake.
+    Resumability tests pass an `event_store` with `retry_interval=0` so the client's reconnection
+    wait is a no-op. Modern (2026-07-28+) `spec_version`s open with `mode=<version>`, adopting a
+    synthesized DiscoverResult instead of running the legacy initialize handshake.
     """
     app = server.streamable_http_app(
         stateless_http=stateless_http,
@@ -162,9 +149,8 @@ async def connect_over_streamable_http(
 
 
 connect_over_streamable_http_stateless: Connect = partial(connect_over_streamable_http, stateless_http=True)
-"""The streamable-http matrix arm with the server in stateless mode (fresh transport per request,
-no session id, no standalone GET stream). The same shared Server instance backs every request --
-stateless mode does not require a server factory."""
+"""The streamable-http matrix arm with the server stateless: fresh transport per request, no
+session id, no standalone GET stream. The one shared Server instance backs every request."""
 
 
 @asynccontextmanager
@@ -185,16 +171,9 @@ async def mounted_app(
 ) -> AsyncIterator[tuple[httpx.AsyncClient, StreamableHTTPSessionManager]]:
     """Mount the server's streamable HTTP app on the in-process bridge and yield an httpx client.
 
-    Yields the httpx client (rooted at the in-process origin) and the live session manager. Tests
-    use this in two ways: for raw-httpx assertions (status codes, headers, SSE bytes) the test
-    speaks HTTP through the yielded client directly; for client-driven assertions the test wraps
-    that client in `client_via_http(http)`, which lets several `Client`s share the one mounted
-    session manager. `on_request` observes every outgoing HTTP request before it leaves the
-    yielded client; `on_response` observes every HTTP response as its headers arrive (response
-    bodies of SSE streams are not yet read at that point).
-
-    DNS-rebinding protection is disabled by default; pass explicit settings (or `None` for the
-    localhost auto-enable behaviour) to test the protection itself.
+    Tests speak raw HTTP through the yielded client (status codes, headers, SSE bytes) or wrap it
+    in `client_via_http(http)` so several `Client`s share the one mounted session manager.
+    `on_response` fires as each response's headers arrive -- SSE bodies are not yet read then.
     """
     lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
     app = lowlevel.streamable_http_app(
@@ -229,11 +208,10 @@ async def client_via_http(
     message_handler: MessageHandlerFnT | None = None,
     elicitation_callback: ElicitationFnT | None = None,
 ) -> AsyncIterator[Client]:
-    """Connect a `Client` over an already-mounted streamable HTTP app.
+    """Connect a `Client` over an already-mounted streamable HTTP app (see `mounted_app`).
 
-    Use with `mounted_app(...)` so several `Client`s share the one session manager, or so a
-    client-driven assertion can sit alongside raw-httpx assertions in the same test. The
-    underlying `httpx.AsyncClient` is left open when the `Client` exits.
+    The underlying `httpx.AsyncClient` is left open when the `Client` exits, so several `Client`s
+    can sit alongside raw-httpx assertions in the same test.
     """
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
     async with Client(
@@ -258,10 +236,8 @@ async def post_jsonrpc(
 ) -> tuple[httpx.Response, list[JSONRPCMessage]]:
     """POST a JSON-RPC body and read its SSE response stream to completion.
 
-    Returns the HTTP response (for header/status assertions) and the parsed JSON-RPC messages
-    that arrived on the response's SSE stream. Only meaningful for requests the server answers
-    with `text/event-stream`; for error responses or 202 notification acknowledgements, use
-    `httpx.AsyncClient.post` directly and assert on the response.
+    Returns the response plus the parsed messages from its SSE stream. Only meaningful when the
+    server answers with `text/event-stream`; for errors or 202 acks use `httpx.AsyncClient.post`.
     """
     async with aconnect_sse(http, "POST", "/mcp", json=body, headers=base_headers(session_id=session_id)) as source:
         events = [event async for event in source.aiter_sse()]
@@ -269,13 +245,7 @@ async def post_jsonrpc(
 
 
 def base_headers(*, session_id: str | None = None) -> dict[str, str]:
-    """Standard request headers for raw-httpx streamable-HTTP tests.
-
-    Every well-formed request carries these (Accept covering both response representations,
-    Content-Type for POST bodies, MCP-Protocol-Version at the newest handshake revision, and the session
-    ID once one exists), so a test that wants to assert a specific rejection only varies the one
-    header under test.
-    """
+    """Standard headers for raw-httpx streamable-HTTP requests; rejection tests vary only the header under test."""
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
@@ -299,11 +269,7 @@ def initialize_body(request_id: int = 1) -> dict[str, object]:
 
 
 async def initialize_via_http(http: httpx.AsyncClient) -> str:
-    """Perform the initialize handshake over a raw `httpx.AsyncClient` and return the session ID.
-
-    Validates the SSE response and sends the `notifications/initialized` follow-up, so the server
-    is fully ready for subsequent feature requests when this returns.
-    """
+    """Initialize over raw httpx, send `notifications/initialized`, and return the session ID."""
     async with aconnect_sse(http, "POST", "/mcp", json=initialize_body(), headers=base_headers()) as source:
         assert source.response.status_code == 200
         # An event-store-backed server opens the stream with a priming event (empty data); skip it.
@@ -323,9 +289,7 @@ async def initialize_via_http(http: httpx.AsyncClient) -> str:
 def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTransport]:
     """Mount a server on a Starlette app exposing the legacy SSE transport at /sse and /messages/.
 
-    `MCPServer.sse_app()` exists but does not expose the underlying `SseServerTransport`, which
-    the SSE-specific tests need; building the app explicitly here gives both server flavours the
-    same routing while keeping that handle.
+    Built by hand because `MCPServer.sse_app()` hides the `SseServerTransport` handle SSE tests need.
     """
     sse = SseServerTransport(
         "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
@@ -367,9 +331,8 @@ async def connect_over_sse(
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
-        # The SSE server transport's connect_sse runs the entire MCP session inside the GET
-        # request and only releases its streams after that request observes a disconnect, so the
-        # bridge must let the application drain rather than cancelling at close.
+        # connect_sse runs the entire MCP session inside the GET request and releases its streams
+        # only after that request observes a disconnect, so the bridge must drain, not cancel.
         return httpx.AsyncClient(
             transport=StreamingASGITransport(app, cancel_on_close=False),
             base_url=BASE_URL,

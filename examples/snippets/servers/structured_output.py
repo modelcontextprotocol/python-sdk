@@ -22,7 +22,6 @@ class WeatherData(BaseModel):
 @mcp.tool()
 def get_weather(city: str) -> WeatherData:
     """Get weather for a city - returns structured data."""
-    # Simulated weather data
     return WeatherData(
         temperature=22.5,
         humidity=45.0,

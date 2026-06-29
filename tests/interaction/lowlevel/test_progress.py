@@ -1,12 +1,9 @@
 """Progress interactions against the low-level Server, driven through the public Client API.
 
-Server-to-client progress emitted during a request follows the same ordering guarantee as
-logging notifications (see test_logging.py) -- on the in-memory transport unconditionally, and
-over streamable HTTP only when sent with ``related_request_id`` so the notification rides the
-originating request's POST stream rather than the standalone GET stream. These tests pass
-``related_request_id`` so no synchronisation is needed. The client-to-server direction is a
-standalone notification with no response to await, so that test waits on an event set by the
-server's handler.
+Server-to-client progress follows the logging-notification ordering guarantee (see test_logging.py):
+unconditional in-memory, and over streamable HTTP only with `related_request_id` (which these tests
+pass) so it rides the originating request's POST stream — hence no synchronisation is needed. The
+client-to-server test waits on a server-set event since its notification has no response to await.
 """
 
 import anyio
@@ -28,7 +25,6 @@ pytestmark = pytest.mark.anyio
 @requirement("protocol:progress:callback")
 @requirement("tools:call:progress")
 async def test_progress_during_tool_call_reaches_callback_in_order(connect: Connect) -> None:
-    """Progress notifications emitted by a tool handler reach the caller's progress callback in order."""
     received: list[tuple[float, float | None, str | None]] = []
 
     async def collect(progress: float, total: float | None, message: str | None) -> None:
@@ -57,8 +53,6 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
 
 @requirement("protocol:progress:token-injected")
 async def test_progress_token_visible_to_handler(connect: Connect) -> None:
-    """Supplying a progress callback attaches a progress token that the handler can read from the request meta."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -84,12 +78,6 @@ async def test_progress_token_visible_to_handler(connect: Connect) -> None:
 
 @requirement("protocol:progress:no-token")
 async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
-    """Without a progress callback the request carries no progress token.
-
-    The low-level API has no way to report request-scoped progress without a token, so a handler
-    that sees no token has nothing to send progress against.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -110,7 +98,6 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
 
 @requirement("protocol:progress:client-to-server")
 async def test_client_progress_notification_reaches_server_handler(connect: Connect) -> None:
-    """A progress notification sent by the client is delivered to the server's progress handler."""
     received: list[ProgressNotificationParams] = []
     delivered = anyio.Event()
 
@@ -132,15 +119,12 @@ async def test_client_progress_notification_reaches_server_handler(connect: Conn
 
 @requirement("protocol:progress:token-unique")
 async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Connect) -> None:
-    """Two concurrent requests carry distinct progress tokens, and each callback sees only its own progress.
+    """Each concurrent request's callback sees only its own progress values.
 
-    Without the barrier the first call could run to completion before the second starts, so only one
-    token would be live at a time and the demultiplexing would never be exercised. The handlers each
-    block until both have started and then hand control back and forth so the four progress
-    notifications are emitted in strict a, b, a, b order on the wire. The two handlers send different
-    progress values so a stream swap (request A's progress delivered to callback B and vice versa)
-    would fail: each callback receiving exactly its own values proves notifications are routed
-    per-request, not by arrival order or by chance.
+    The barrier keeps both requests in flight at once (otherwise one could finish before the other
+    starts and only one token would be live), the turn events force a strict a, b, a, b emission
+    order on the wire, and the distinct per-handler values mean a stream swap between callbacks
+    would fail — proving routing is per-request, not by arrival order or chance.
     """
     progress_values = {"a": (1.0, 2.0), "b": (10.0, 20.0)}
     entered = {"a": anyio.Event(), "b": anyio.Event()}
@@ -199,13 +183,11 @@ async def test_concurrent_requests_carry_distinct_progress_tokens(connect: Conne
 @requirement("protocol:progress:stops-after-completion")
 @requirement("protocol:progress:late-dropped-by-client")
 async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback(connect: Connect) -> None:
-    """A progress notification sent after the response is emitted, and the client drops it from the callback.
+    """Late progress for a completed request is sent by the server but not delivered to the callback.
 
-    This single body proves both halves: the server's `send_progress_notification` happily sends for
-    a token whose request has already completed (the spec MUST that progress stops is not enforced;
-    see the divergence on `stops-after-completion`), and the client, having removed the callback when
-    the call returned, does not deliver the late notification to it. The message handler observes the
-    late notification arriving so the test knows when to assert without polling.
+    The server does not enforce the spec MUST that progress stops after completion (see the
+    divergence on `stops-after-completion`); the client dropped its callback when the call returned.
+    The message handler observes the late notification so the test can assert without polling.
     """
     captured: list[tuple[ServerSession, ProgressToken]] = []
 
@@ -249,11 +231,7 @@ async def test_progress_sent_after_the_response_is_not_delivered_to_the_callback
 
 @requirement("protocol:progress:monotonic")
 async def test_non_increasing_progress_values_are_forwarded_unchanged(connect: Connect) -> None:
-    """A handler that emits non-increasing progress values has them forwarded to the callback unchanged.
-
-    The spec says progress MUST increase with each notification; the SDK does not enforce that on
-    either side. See the divergence note on the requirement.
-    """
+    """The spec's MUST-increase rule is unenforced on either side; see the requirement's divergence note."""
     received: list[float] = []
 
     async def collect(progress: float, total: float | None, message: str | None) -> None:

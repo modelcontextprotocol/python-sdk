@@ -1,10 +1,7 @@
 """A predictable event store for resumability tests.
 
-The SDK's `EventStore` interface lets a streamable-HTTP server stamp every SSE event with an ID
-and replay missed events when a client reconnects with `Last-Event-ID`. This implementation
-issues sequential integer IDs starting at "1" so tests can assert exact IDs (the example store
-uses uuid4, which cannot be snapshotted) and is small enough that every line is exercised by the
-resumability tests themselves.
+Issues sequential integer IDs starting at "1" so tests can assert exact IDs (the example store
+uses uuid4, which cannot be snapshotted).
 """
 
 import anyio
@@ -29,12 +26,7 @@ class SequencedEventStore(EventStore):
         return str(count)
 
     async def wait_until_stored(self, count: int) -> None:
-        """Block until at least `count` events have been stored.
-
-        Tests use this to wait for the server's message router (which runs in another task) to
-        finish storing a known set of events before issuing a replay, so the replay's content is
-        deterministic rather than depending on task scheduling order.
-        """
+        """Block until at least `count` events are stored, so replays don't race the server's message router."""
         if len(self._events) >= count:
             return
         milestone = self._milestones.setdefault(count, anyio.Event())

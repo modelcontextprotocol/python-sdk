@@ -1,10 +1,7 @@
-"""Contract tests for the suite's streaming ASGI bridge.
+"""Harness self-tests pinning what `StreamingASGITransport` itself guarantees.
 
-These pin what `StreamingASGITransport` itself guarantees — chunk-by-chunk delivery, disconnect
-propagation, and failure handling — against minimal hand-written ASGI applications, so the MCP
-transport tests built on top of it never have to wonder what the harness provides. They are
-harness self-tests, not interaction-model tests, and are exempted from the requirement-coverage
-contract in `test_coverage.py`.
+They cover chunk-by-chunk delivery, disconnect propagation, and failure handling. Not
+interaction-model tests; exempted from the requirement-coverage contract in `test_coverage.py`.
 """
 
 import anyio
@@ -18,8 +15,6 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_response_chunks_arrive_as_the_application_sends_them() -> None:
-    """Each body chunk is delivered as sent, empty chunks are skipped, and the stream ends with the application."""
-
     async def chunked_app(scope: Scope, receive: Receive, send: Send) -> None:
         assert scope["type"] == "http"
         assert (await receive())["type"] == "http.request"
@@ -41,7 +36,6 @@ async def test_response_chunks_arrive_as_the_application_sends_them() -> None:
 
 
 async def test_closing_the_response_delivers_a_disconnect_to_the_application() -> None:
-    """A client that closes the response early is seen by the application as an http.disconnect."""
     seen_after_request: list[Message] = []
     disconnect_seen = anyio.Event()
 
@@ -63,8 +57,6 @@ async def test_closing_the_response_delivers_a_disconnect_to_the_application() -
 
 
 async def test_an_application_failure_before_the_response_starts_fails_the_request() -> None:
-    """An exception raised before http.response.start reaches the caller as that same exception."""
-
     async def broken_app(scope: Scope, receive: Receive, send: Send) -> None:
         raise RuntimeError("the demo application is broken")
 
@@ -74,8 +66,6 @@ async def test_an_application_failure_before_the_response_starts_fails_the_reque
 
 
 async def test_disabling_cancel_on_close_lets_the_application_finish_after_disconnect() -> None:
-    """With cancel_on_close=False, an application that runs cleanup after seeing http.disconnect
-    completes that cleanup before the transport finishes closing."""
     cleanup_ran = anyio.Event()
 
     async def lingering_app(scope: Scope, receive: Receive, send: Send) -> None:

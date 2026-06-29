@@ -14,15 +14,12 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_tool_carries_the_ui_resource_reference() -> None:
-    """tutorial001: `@apps.tool(resource_uri=...)` stamps `_meta.ui.resourceUri` on the tool."""
     async with Client(tutorial001.mcp) as client:
         listed = await client.list_tools()
     assert listed.tools[0].meta == {"ui": {"resourceUri": "ui://clock/app.html"}}
 
 
 async def test_the_ui_resource_is_served_as_the_app_mime_type() -> None:
-    """tutorial001: `add_html_resource` serves the HTML at `text/html;profile=mcp-app`,
-    the MIME type that tells a host "this is an app, render it"."""
     async with Client(tutorial001.mcp) as client:
         result = await client.read_resource("ui://clock/app.html")
     contents = result.contents[0]
@@ -32,8 +29,7 @@ async def test_the_ui_resource_is_served_as_the_app_mime_type() -> None:
 
 
 async def test_one_tool_two_answers() -> None:
-    """tutorial001: the canonical degradation pattern: raw data for a client that
-    negotiated Apps, a human sentence for one that did not."""
+    """Degradation pattern: raw data for a client that negotiated Apps, a human sentence for one that did not."""
     async with Client(tutorial001.mcp, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as ui_client:
         rich = await ui_client.call_tool("get_time", {})
     async with Client(tutorial001.mcp) as text_client:
@@ -43,21 +39,17 @@ async def test_one_tool_two_answers() -> None:
 
 
 async def test_the_clock_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial001: `main()` declares Apps support with the required `mimeTypes` and
-    receives the rich answer the page promises."""
     await tutorial001.main()
     assert "2026-06-26T12:00:00Z" in capsys.readouterr().out
 
 
 async def test_capability_advertised_under_server_extensions() -> None:
-    """tutorial001: passing `extensions=[apps]` advertises `io.modelcontextprotocol/ui`."""
     async with Client(tutorial001.mcp) as client:
         assert client.server_capabilities.extensions == {EXTENSION_ID: {}}
 
 
 async def test_csp_permissions_domain_and_border_ride_the_resource_meta() -> None:
-    """tutorial002: the iframe lockdown fields land under `_meta.ui` on both the list
-    entry and the read content item, with the spec's camelCase wire keys."""
+    """The fields land under `_meta.ui` on both the list entry and the read content, with camelCase wire keys."""
     expected: dict[str, Any] = {
         "ui": {
             "csp": {"connectDomains": ["https://api.example.com"]},
@@ -76,8 +68,7 @@ async def test_csp_permissions_domain_and_border_ride_the_resource_meta() -> Non
 
 
 async def test_an_app_only_tool_is_still_listed_and_callable() -> None:
-    """tutorial002: `visibility=["app"]` is metadata for the host; the server lists the
-    tool like any other and serves its calls. Filtering is the host's job."""
+    """`visibility` is metadata for the host — filtering is the host's job, not the server's."""
     async with Client(tutorial002.mcp) as client:
         listed = await client.list_tools()
         result = await client.call_tool("refresh_dashboard", {})
@@ -86,8 +77,6 @@ async def test_an_app_only_tool_is_still_listed_and_callable() -> None:
 
 
 async def test_a_file_resource_is_served_with_the_app_mime_type_filled_in() -> None:
-    """tutorial003: `add_resource` accepts a pre-built `FileResource` and fills in the
-    `text/html;profile=mcp-app` MIME type the resource didn't set explicitly."""
     async with Client(tutorial003.mcp) as client:
         listed = await client.list_tools()
         called = await client.call_tool("refresh_report", {})

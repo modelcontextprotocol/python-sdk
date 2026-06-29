@@ -22,10 +22,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("mcpserver:prompt:decorated")
 async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -> None:
-    """A decorated prompt is listed with arguments derived from the function signature.
-
-    Parameters without a default are required; the description comes from the docstring.
-    """
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
@@ -54,7 +50,6 @@ async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -
 
 @requirement("mcpserver:prompt:decorated")
 async def test_get_prompt_renders_function_return(connect: Connect) -> None:
-    """The decorated function's string return value is rendered as a single user message."""
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
@@ -75,11 +70,7 @@ async def test_get_prompt_renders_function_return(connect: Connect) -> None:
 
 @requirement("mcpserver:prompt:unknown-name")
 async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
-    """Getting a prompt name that was never registered fails with a JSON-RPC error.
-
-    The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
-    the requirement).
-    """
+    """The spec reserves -32602 here; the SDK reports code 0 (see the divergence note on the requirement)."""
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
@@ -96,11 +87,9 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
 
 @requirement("prompts:get:missing-required-args")
 async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: Connect) -> None:
-    """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
+    """The spec's -32602 Invalid params is reported as code 0 with the bare exception text.
 
-    The missing argument is detected before the prompt function is called, but the spec's -32602
-    Invalid params is reported as error code 0 with the bare exception text (see the divergence
-    note on the requirement).
+    See the divergence note on the requirement.
     """
     mcp = MCPServer("prompter")
 
@@ -118,12 +107,9 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
 
 @requirement("mcpserver:prompt:args-validation")
 async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_function_runs(connect: Connect) -> None:
-    """An argument that fails the function signature's type validation is rejected before the function runs.
+    """pydantic's validate_call rejects the value before the function body runs.
 
-    The decorated function is wrapped in pydantic's validate_call, so a value that cannot be
-    coerced to the parameter's annotation fails before the body executes. The function body
-    raises NotImplementedError to prove it never ran. The error is wrapped in the SDK's stable
-    rendering-error prefix; the body of the message is raw pydantic output and is not asserted.
+    The message body is raw pydantic output, so only the stable prefix is asserted.
     """
     mcp = MCPServer("prompter")
 
@@ -142,7 +128,6 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
 
 @requirement("mcpserver:prompt:optional-args")
 async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(connect: Connect) -> None:
-    """A prompt rendered without one of its optional arguments uses that parameter's default value."""
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
@@ -163,13 +148,7 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
 
 @requirement("mcpserver:prompt:duplicate-name")
 async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(connect: Connect) -> None:
-    """Registering a second prompt with an already-used name keeps the first registration.
-
-    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
-    and discards the second registration (see the divergence note on the requirement). The
-    second function is registered via the decorator with an explicit name so the test does not
-    redefine the same function name in this scope.
-    """
+    """Intended behaviour is rejection at registration time (see the divergence note on the requirement)."""
     mcp = MCPServer("prompter")
 
     @mcp.prompt()

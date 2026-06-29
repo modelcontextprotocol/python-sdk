@@ -15,12 +15,10 @@ class Principal(BaseModel):
 
 
 def build_app() -> Starlette:
-    # The provider is both the Authorization Server (DCR/authorize/token) and the
-    # token store the bearer middleware validates against — one in-memory dict.
+    # The provider is both the Authorization Server and the token store the bearer middleware validates against.
     provider = InMemoryAuthorizationServerProvider()
 
-    # ``auth_server_provider=`` alone is enough — MCPServer derives a token verifier
-    # from it (passing both trips the mutex guard).
+    # `auth_server_provider=` alone is enough — MCPServer derives a token verifier from it (passing both is an error).
     mcp = MCPServer(
         "oauth-example",
         auth=auth_settings(required_scopes=["mcp"]),

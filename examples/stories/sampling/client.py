@@ -7,8 +7,7 @@ from stories._harness import Target, run_client
 
 
 async def on_sample(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
-    # A real host would call its LLM provider here; the example returns a deterministic
-    # canned answer so the round-trip is assertable.
+    # A real host would call its LLM provider here; a canned answer keeps the round-trip assertable.
     return CreateMessageResult(
         role="assistant",
         content=TextContent(text="[canned summary]"),

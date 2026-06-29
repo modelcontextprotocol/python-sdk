@@ -1,9 +1,7 @@
 """Behavioral tests for the Dispatcher Protocol.
 
-The contract tests are parametrized over every `Dispatcher` implementation via
-the `pair_factory` fixture (see `conftest.py`); they must pass for both
-`DirectDispatcher` and `JSONRPCDispatcher`. Implementation-specific tests pass
-a concrete factory directly.
+Contract tests run against every `Dispatcher` implementation via the `pair_factory` fixture
+(see `conftest.py`); implementation-specific tests pass a concrete factory directly.
 """
 
 from collections.abc import AsyncIterator, Mapping
@@ -43,8 +41,7 @@ def echo_handlers(recorder: Recorder) -> tuple[OnRequest, OnNotify]:
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        # Strip `_meta` so JSON-RPC and direct dispatch record identically:
-        # the JSON-RPC outbound path always attaches `_meta` (otel injection).
+        # Strip `_meta` so both dispatchers record identically: JSON-RPC outbound always attaches otel `_meta`.
         recorded = {k: v for k, v in (params or {}).items() if k != "_meta"} if params is not None else None
         recorder.requests.append((method, recorded))
         recorder.contexts.append(ctx)
@@ -110,9 +107,6 @@ async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_fa
 
 @pytest.mark.anyio
 async def test_send_raw_request_maps_validation_error_to_invalid_params(pair_factory: PairFactory):
-    """A pydantic `ValidationError` from the handler surfaces as the
-    normalized INVALID_PARAMS shape on every dispatcher."""
-
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -150,8 +144,6 @@ async def test_notify_invokes_peer_on_notify(pair_factory: PairFactory):
 
 @pytest.mark.anyio
 async def test_ctx_send_raw_request_round_trips_to_calling_side(pair_factory: PairFactory):
-    """A handler's ctx.send_raw_request reaches the side that made the inbound request."""
-
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -228,7 +220,6 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factor
 
 @pytest.mark.anyio
 async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair_factory: PairFactory):
-    """Plain requests carry no transport metadata, so handlers see `None`."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
@@ -238,8 +229,7 @@ async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair
 
 @pytest.mark.anyio
 async def test_ctx_request_id_exposes_inbound_id(pair_factory: PairFactory):
-    """Every dispatcher assigns each inbound request a distinct int id; JSON-RPC carries
-    the wire id through, DirectDispatcher synthesizes one (SDK-defined)."""
+    """JSON-RPC carries the wire id through; DirectDispatcher synthesizes a distinct int id (SDK-defined)."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
@@ -251,8 +241,6 @@ async def test_ctx_request_id_exposes_inbound_id(pair_factory: PairFactory):
 
 @pytest.mark.anyio
 async def test_direct_send_raw_request_wraps_non_mcperror_exception_as_internal_error_with_cause():
-    """DirectDispatcher-specific: the original exception is chained via __cause__."""
-
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -293,7 +281,6 @@ async def test_direct_send_raw_request_before_run_raises_runtimeerror():
 
 @pytest.mark.anyio
 async def test_direct_send_raw_request_to_never_run_peer_honors_timeout():
-    """A configured timeout bounds the wait for a peer whose run() has not started."""
     client, _server = create_direct_dispatcher_pair()
     c_req, c_notify = echo_handlers(Recorder())
     async with anyio.create_task_group() as tg:
@@ -306,7 +293,6 @@ async def test_direct_send_raw_request_to_never_run_peer_honors_timeout():
 
 @pytest.mark.anyio
 async def test_direct_request_parked_waiting_for_peer_run_is_woken_by_peer_close():
-    """A request waiting on a never-run peer fails with CONNECTION_CLOSED when that peer closes."""
     client, server = create_direct_dispatcher_pair()
     c_req, c_notify = echo_handlers(Recorder())
     with anyio.fail_after(5):
@@ -326,8 +312,7 @@ async def test_direct_request_parked_waiting_for_peer_run_is_woken_by_peer_close
 
 @pytest.mark.anyio
 async def test_direct_send_raw_request_after_local_close_raises_and_notify_is_dropped():
-    """After this side has closed, send_raw_request raises CONNECTION_CLOSED and notify
-    drops fire-and-forget, matching JSONRPCDispatcher (SDK-defined)."""
+    """Matches JSONRPCDispatcher's post-close behavior (SDK-defined)."""
     async with running_pair(direct_pair) as (client, _server, _crec, srec):
         pass  # exiting cancels both run() loops, closing both sides
     with pytest.raises(MCPError) as exc:
@@ -340,8 +325,7 @@ async def test_direct_send_raw_request_after_local_close_raises_and_notify_is_dr
 
 @pytest.mark.anyio
 async def test_direct_inbound_after_peer_close_refuses_requests_and_drops_notifications():
-    """Dispatch to a closed side fails the peer's request with CONNECTION_CLOSED and silently
-    drops the peer's notify; the closed side's handlers are never invoked (SDK-defined)."""
+    """The closed side's handlers are never invoked (SDK-defined)."""
     client, server = create_direct_dispatcher_pair()
     crec, srec = Recorder(), Recorder()
     c_req, c_notify = echo_handlers(crec)

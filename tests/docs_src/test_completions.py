@@ -22,7 +22,6 @@ PROMPT_REF = PromptReference(name="review_code")
 
 
 async def test_a_server_with_no_handler_has_no_completions_capability() -> None:
-    """tutorial001: there is something worth completing, but no handler and no advertised capability."""
     async with Client(tutorial001.mcp) as client:
         (template,) = (await client.list_resource_templates()).resource_templates
         assert template.uri_template == "github://repos/{owner}/{repo}"
@@ -32,7 +31,6 @@ async def test_a_server_with_no_handler_has_no_completions_capability() -> None:
 
 
 async def test_completing_without_a_handler_is_method_not_found() -> None:
-    """tutorial001: nothing handles `completion/complete`, so the request is a JSON-RPC error."""
     async with Client(tutorial001.mcp) as client:
         with pytest.raises(MCPError) as excinfo:
             await client.complete(ref=PROMPT_REF, argument={"name": "language", "value": "py"})
@@ -40,27 +38,23 @@ async def test_completing_without_a_handler_is_method_not_found() -> None:
 
 
 async def test_registering_the_handler_advertises_the_capability() -> None:
-    """tutorial002: `@mcp.completion()` is the whole declaration; the capability is derived from it."""
     async with Client(tutorial002.mcp) as client:
         assert client.server_capabilities.completions == CompletionsCapability()
 
 
 async def test_prompt_argument_completion_filters_on_the_typed_prefix() -> None:
-    """tutorial002: the handler returns the languages that start with `argument.value`."""
     async with Client(tutorial002.mcp) as client:
         result = await client.complete(ref=PROMPT_REF, argument={"name": "language", "value": "py"})
         assert result.completion == snapshot(Completion(values=["python"]))
 
 
 async def test_empty_value_returns_every_suggestion() -> None:
-    """tutorial002: an empty prefix matches everything, so the client gets the whole list."""
     async with Client(tutorial002.mcp) as client:
         result = await client.complete(ref=PROMPT_REF, argument={"name": "language", "value": ""})
         assert result.completion.values == ["go", "javascript", "python", "rust", "typescript"]
 
 
 async def test_returning_none_is_an_empty_list_not_an_error() -> None:
-    """tutorial002: an argument the handler does not recognise produces `values=[]`, never a failure."""
     async with Client(tutorial002.mcp) as client:
         result = await client.complete(ref=PROMPT_REF, argument={"name": "code", "value": "x"})
         assert result.completion == snapshot(Completion(values=[]))
@@ -69,7 +63,6 @@ async def test_returning_none_is_an_empty_list_not_an_error() -> None:
 
 
 async def test_context_arguments_resolve_a_dependent_parameter() -> None:
-    """tutorial003: the already-resolved `owner` arrives in `context.arguments` and picks the repo list."""
     async with Client(tutorial003.mcp) as client:
         result = await client.complete(
             ref=TEMPLATE_REF,
@@ -80,7 +73,6 @@ async def test_context_arguments_resolve_a_dependent_parameter() -> None:
 
 
 async def test_the_typed_prefix_still_filters_a_dependent_parameter() -> None:
-    """tutorial003: `argument.value` narrows the owner's repos exactly as it narrows a prompt argument."""
     async with Client(tutorial003.mcp) as client:
         result = await client.complete(
             ref=TEMPLATE_REF,
@@ -97,7 +89,6 @@ def test_context_arguments_is_optional() -> None:
 
 
 async def test_no_context_means_no_suggestions() -> None:
-    """tutorial003: without a resolved `owner` (or with an unknown one) the handler has nothing to offer."""
     async with Client(tutorial003.mcp) as client:
         result = await client.complete(ref=TEMPLATE_REF, argument={"name": "repo", "value": ""})
         assert result.completion.values == []
@@ -110,7 +101,6 @@ async def test_no_context_means_no_suggestions() -> None:
 
 
 async def test_the_prompt_branch_is_untouched_by_the_new_one() -> None:
-    """tutorial003: adding the resource-template branch leaves prompt-argument completion as it was."""
     async with Client(tutorial003.mcp) as client:
         result = await client.complete(ref=PROMPT_REF, argument={"name": "language", "value": "type"})
         assert result.completion.values == ["typescript"]

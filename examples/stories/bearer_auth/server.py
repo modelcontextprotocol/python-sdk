@@ -1,4 +1,4 @@
-"""Resource-server-only bearer auth: ``TokenVerifier``/``AuthSettings`` → 401/PRM/principal. Exports ``build_app()``."""
+"""Resource-server-only bearer auth: `TokenVerifier`/`AuthSettings` → 401/PRM/principal. Exports `build_app()`."""
 
 import time
 

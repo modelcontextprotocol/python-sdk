@@ -1,6 +1,4 @@
-"""Example MCPServer server that uses Unicode characters in various places to help test
-Unicode handling in tools and inspectors.
-"""
+"""MCPServer example using Unicode characters to exercise Unicode handling in tools and inspectors."""
 
 from mcp.server.mcpserver import MCPServer
 
@@ -9,11 +7,7 @@ mcp = MCPServer()
 
 @mcp.tool(description="🌟 A tool that uses various Unicode characters in its description: á é í ó ú ñ 漢字 🎉")
 def hello_unicode(name: str = "世界", greeting: str = "¡Hola") -> str:
-    """A simple tool that demonstrates Unicode handling in:
-    - Tool description (emojis, accents, CJK characters)
-    - Parameter defaults (CJK characters)
-    - Return values (Spanish punctuation, emojis)
-    """
+    """Demonstrates Unicode in the tool description, parameter defaults, and return value."""
     return f"{greeting}, {name}! 👋"
 
 

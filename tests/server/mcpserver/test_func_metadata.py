@@ -1,4 +1,4 @@
-# NOTE: Those were added because we actually want to test wrong type annotations.
+# Suppressed because these tests deliberately use wrong/missing type annotations.
 # pyright: reportUnknownParameterType=false
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
@@ -35,8 +35,7 @@ def complex_arguments_fn(
     must_be_none: None,
     must_be_none_dumb_annotation: Annotated[None, "blah"],
     list_of_ints: list[int],
-    # list[str] | str is an interesting case because if it comes in as JSON like
-    # "[\"a\", \"b\"]" then it will be naively parsed as a string.
+    # JSON input like "[\"a\", \"b\"]" would be naively parsed as a string here
     list_str_or_str: list[str] | str,
     an_int_annotated_with_field: Annotated[int, Field(description="An int with a field")],
     an_int_annotated_with_field_and_others: Annotated[
@@ -93,10 +92,8 @@ def complex_arguments_fn(
 
 @pytest.mark.anyio
 async def test_complex_function_runtime_arg_validation_non_json():
-    """Test that basic non-JSON arguments are validated correctly"""
     meta = func_metadata(complex_arguments_fn)
 
-    # Test with minimum required arguments
     result = await meta.call_fn_with_arg_validation(
         complex_arguments_fn,
         fn_is_async=False,
@@ -118,7 +115,6 @@ async def test_complex_function_runtime_arg_validation_non_json():
     )
     assert result == "ok!"
 
-    # Test with invalid types
     with pytest.raises(ValueError):
         await meta.call_fn_with_arg_validation(
             complex_arguments_fn,
@@ -130,7 +126,6 @@ async def test_complex_function_runtime_arg_validation_non_json():
 
 @pytest.mark.anyio
 async def test_complex_function_runtime_arg_validation_with_json():
-    """Test that JSON string arguments are parsed and validated correctly"""
     meta = func_metadata(complex_arguments_fn)
 
     result = await meta.call_fn_with_arg_validation(
@@ -140,14 +135,14 @@ async def test_complex_function_runtime_arg_validation_with_json():
             "an_int": 1,
             "must_be_none": None,
             "must_be_none_dumb_annotation": None,
-            "list_of_ints": "[1, 2, 3]",  # JSON string
-            "list_str_or_str": '["a", "b", "c"]',  # JSON string
+            "list_of_ints": "[1, 2, 3]",
+            "list_str_or_str": '["a", "b", "c"]',
             "an_int_annotated_with_field": 42,
-            "an_int_annotated_with_field_and_others": "5",  # JSON string
+            "an_int_annotated_with_field_and_others": "5",
             "an_int_annotated_with_junk": 100,
             "unannotated": "test",
-            "my_model_a": "{}",  # JSON string
-            "my_model_a_forward_ref": "{}",  # JSON string
+            "my_model_a": "{}",
+            "my_model_a_forward_ref": "{}",
             "my_model_b": '{"how_many_shrimp": 5, "ok": {"x": 1}, "y": null}',
         },
         arguments_to_pass_directly=None,
@@ -157,8 +152,6 @@ async def test_complex_function_runtime_arg_validation_with_json():
 
 @pytest.mark.anyio
 async def test_call_fn_does_not_mutate_pre_validated():
-    """A caller-provided `pre_validated` dict must not be mutated by the call."""
-
     def fn(x: int, ctx: str) -> str:
         return f"{x}:{ctx}"
 
@@ -178,48 +171,34 @@ async def test_call_fn_does_not_mutate_pre_validated():
 
 
 def test_str_vs_list_str():
-    """Test handling of string vs list[str] type annotations.
-
-    This is tricky as '"hello"' can be parsed as a JSON string or a Python string.
-    We want to make sure it's kept as a python string.
-    """
+    """A JSON-valid string like '"hello"' must be kept as a raw Python string, not parsed as JSON."""
 
     def func_with_str_types(str_or_list: str | list[str]):  # pragma: no cover
         return str_or_list
 
     meta = func_metadata(func_with_str_types)
 
-    # Test string input for union type
     result = meta.pre_parse_json({"str_or_list": "hello"})
     assert result["str_or_list"] == "hello"
 
-    # Test string input that contains valid JSON for union type
-    # We want to see here that the JSON-vali string is NOT parsed as JSON, but rather
-    # kept as a raw string
     result = meta.pre_parse_json({"str_or_list": '"hello"'})
     assert result["str_or_list"] == '"hello"'
 
-    # Test list input for union type
     result = meta.pre_parse_json({"str_or_list": '["hello", "world"]'})
     assert result["str_or_list"] == ["hello", "world"]
 
 
 def test_skip_names():
-    """Test that skipped parameters are not included in the model"""
-
     def func_with_many_params(keep_this: int, skip_this: str, also_keep: float, also_skip: bool):  # pragma: no cover
         return keep_this, skip_this, also_keep, also_skip
 
-    # Skip some parameters
     meta = func_metadata(func_with_many_params, skip_names=["skip_this", "also_skip"])
 
-    # Check model fields
     assert "keep_this" in meta.arg_model.model_fields
     assert "also_keep" in meta.arg_model.model_fields
     assert "skip_this" not in meta.arg_model.model_fields
     assert "also_skip" not in meta.arg_model.model_fields
 
-    # Validate that we can call with only non-skipped parameters
     model: BaseModel = meta.arg_model.model_validate({"keep_this": 1, "also_keep": 2.5})  # type: ignore
     assert model.keep_this == 1  # type: ignore
     assert model.also_keep == 2.5  # type: ignore
@@ -228,7 +207,6 @@ def test_skip_names():
 def test_structured_output_dict_str_types():
     """Test that dict[str, T] types are handled without wrapping."""
 
-    # Test dict[str, Any]
     def func_dict_any() -> dict[str, Any]:  # pragma: no cover
         return {"a": 1, "b": "hello", "c": [1, 2, 3]}
 
@@ -236,7 +214,6 @@ def test_structured_output_dict_str_types():
 
     assert meta.output_schema == IsPartialDict(type="object", title="func_dict_anyDictOutput")
 
-    # Test dict[str, str]
     def func_dict_str() -> dict[str, str]:  # pragma: no cover
         return {"name": "John", "city": "NYC"}
 
@@ -247,7 +224,6 @@ def test_structured_output_dict_str_types():
         "title": "func_dict_strDictOutput",
     }
 
-    # Test dict[str, list[int]]
     def func_dict_list() -> dict[str, list[int]]:  # pragma: no cover
         return {"nums": [1, 2, 3], "more": [4, 5, 6]}
 
@@ -258,7 +234,7 @@ def test_structured_output_dict_str_types():
         "title": "func_dict_listDictOutput",
     }
 
-    # Test dict[int, str] - should be wrapped since key is not str
+    # dict[int, str] is wrapped since the key is not str
     def func_dict_int_key() -> dict[int, str]:  # pragma: no cover
         return {1: "a", 2: "b"}
 
@@ -269,11 +245,9 @@ def test_structured_output_dict_str_types():
 
 @pytest.mark.anyio
 async def test_lambda_function():
-    """Test lambda function schema and validation"""
     fn: Callable[[str, int], str] = lambda x, y=5: x  # noqa: E731
     meta = func_metadata(lambda x, y=5: x)
 
-    # Test schema
     assert meta.arg_model.model_json_schema() == {
         "properties": {
             "x": {"title": "x", "type": "string"},
@@ -292,49 +266,22 @@ async def test_lambda_function():
             arguments_to_pass_directly=None,
         )
 
-    # Basic calls
     assert await check_call({"x": "hello"}) == "hello"
     assert await check_call({"x": "hello", "y": "world"}) == "hello"
     assert await check_call({"x": '"hello"'}) == '"hello"'
 
-    # Missing required arg
     with pytest.raises(ValueError):
         await check_call({"y": "world"})
 
 
 def test_complex_function_json_schema():
-    """Test JSON schema generation for complex function arguments.
-
-    Note: Different versions of pydantic output slightly different
-    JSON Schema formats for model fields with defaults. The format changed in 2.9.0:
-
-    1. Before 2.9.0:
-       {
-         "allOf": [{"$ref": "#/$defs/Model"}],
-         "default": {}
-       }
-
-    2. Since 2.9.0:
-       {
-         "$ref": "#/$defs/Model",
-         "default": {}
-       }
-
-    Both formats are valid and functionally equivalent. This test accepts either format
-    to ensure compatibility across our supported pydantic versions.
-
-    This change in format does not affect runtime behavior since:
-    1. Both schemas validate the same way
-    2. The actual model classes and validation logic are unchanged
-    3. func_metadata uses model_validate/model_dump, not the schema directly
-    """
     meta = func_metadata(complex_arguments_fn)
     actual_schema = meta.arg_model.model_json_schema()
 
-    # Create a copy of the actual schema to normalize
     normalized_schema = actual_schema.copy()
 
-    # Normalize the my_model_a_with_default field to handle both pydantic formats
+    # pydantic <2.9 emits {"allOf": [{"$ref": ...}], "default": ...} for model fields with
+    # defaults; >=2.9 inlines the $ref. Normalize to the >=2.9 form so either passes.
     if "allOf" in actual_schema["properties"]["my_model_a_with_default"]:  # pragma: no cover
         normalized_schema["properties"]["my_model_a_with_default"] = {  # pragma: no cover
             "$ref": "#/$defs/SomeInputModelA",
@@ -470,9 +417,7 @@ def test_complex_function_json_schema():
 
 
 def test_str_vs_int():
-    """Test that string values are kept as strings even when they contain numbers,
-    while numbers are parsed correctly.
-    """
+    """Numeric-looking string values stay strings."""
 
     def func_with_str_and_int(a: str, b: int):  # pragma: no cover
         return a
@@ -484,70 +429,48 @@ def test_str_vs_int():
 
 
 def test_str_annotation_preserves_json_string():
-    """Regression test for PR #1113: Ensure that when a parameter is annotated as str,
-    valid JSON strings are NOT parsed into Python objects.
-
-    This test would fail before the fix (JSON string would be parsed to dict)
-    and passes after the fix (JSON string remains as string).
-    """
+    """Regression test for PR #1113: params annotated as str keep valid-JSON strings as strings."""
 
     def process_json_config(config: str, enabled: bool = True) -> str:  # pragma: no cover
-        """Function that expects a JSON string as a string parameter."""
-        # In real use, this function might validate or transform the JSON string
-        # before parsing it, or pass it to another service as-is
         return f"Processing config: {config}"
 
     meta = func_metadata(process_json_config)
 
-    # Test case 1: JSON object as string
     json_obj_str = '{"database": "postgres", "port": 5432}'
     result = meta.pre_parse_json({"config": json_obj_str, "enabled": True})
 
-    # The config parameter should remain as a string, NOT be parsed to a dict
     assert isinstance(result["config"], str)
     assert result["config"] == json_obj_str
 
-    # Test case 2: JSON array as string
     json_array_str = '["item1", "item2", "item3"]'
     result = meta.pre_parse_json({"config": json_array_str})
 
-    # Should remain as string
     assert isinstance(result["config"], str)
     assert result["config"] == json_array_str
 
-    # Test case 3: JSON string value (double-encoded)
     json_string_str = '"This is a JSON string"'
     result = meta.pre_parse_json({"config": json_string_str})
 
-    # Should remain as the original string with quotes
     assert isinstance(result["config"], str)
     assert result["config"] == json_string_str
 
-    # Test case 4: Complex nested JSON as string
     complex_json_str = '{"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}], "count": 2}'
     result = meta.pre_parse_json({"config": complex_json_str})
 
-    # Should remain as string
     assert isinstance(result["config"], str)
     assert result["config"] == complex_json_str
 
 
 @pytest.mark.anyio
 async def test_str_annotation_runtime_validation():
-    """Regression test for PR #1113: Test runtime validation with string parameters
-    containing valid JSON to ensure they are passed as strings, not parsed objects.
-    """
+    """Regression test for PR #1113: runtime validation passes JSON-bearing str params through unchanged."""
 
     def handle_json_payload(payload: str, strict_mode: bool = False) -> str:
-        """Function that processes a JSON payload as a string."""
-        # This function expects to receive the raw JSON string
-        # It might parse it later after validation or logging
         assert isinstance(payload, str), f"Expected str, got {type(payload)}"
         return f"Handled payload of length {len(payload)}"
 
     meta = func_metadata(handle_json_payload)
 
-    # Test with a JSON object string
     json_payload = '{"action": "create", "resource": "user", "data": {"name": "Test User"}}'
 
     result = await meta.call_fn_with_arg_validation(
@@ -557,10 +480,8 @@ async def test_str_annotation_runtime_validation():
         arguments_to_pass_directly=None,
     )
 
-    # The function should have received the string and returned successfully
     assert result == f"Handled payload of length {len(json_payload)}"
 
-    # Test with JSON array string
     json_array_payload = '["task1", "task2", "task3"]'
 
     result = await meta.call_fn_with_arg_validation(
@@ -573,12 +494,7 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
-# Tests for structured output functionality
-
-
 def test_structured_output_requires_return_annotation():
-    """Test that structured_output=True requires a return annotation"""
-
     def func_no_annotation():  # pragma: no cover
         return "hello"
 
@@ -600,8 +516,6 @@ def test_structured_output_requires_return_annotation():
 
 
 def test_structured_output_basemodel():
-    """Test structured output with BaseModel return types"""
-
     class PersonModel(BaseModel):
         name: str
         age: int
@@ -624,8 +538,6 @@ def test_structured_output_basemodel():
 
 
 def test_structured_output_primitives():
-    """Test structured output with primitive return types"""
-
     def func_str() -> str:  # pragma: no cover
         return "hello"
 
@@ -641,7 +553,6 @@ def test_structured_output_primitives():
     def func_bytes() -> bytes:  # pragma: no cover
         return b"data"
 
-    # Test string
     meta = func_metadata(func_str)
     assert meta.output_schema == {
         "type": "object",
@@ -650,7 +561,6 @@ def test_structured_output_primitives():
         "title": "func_strOutput",
     }
 
-    # Test int
     meta = func_metadata(func_int)
     assert meta.output_schema == {
         "type": "object",
@@ -659,7 +569,6 @@ def test_structured_output_primitives():
         "title": "func_intOutput",
     }
 
-    # Test float
     meta = func_metadata(func_float)
     assert meta.output_schema == {
         "type": "object",
@@ -668,7 +577,6 @@ def test_structured_output_primitives():
         "title": "func_floatOutput",
     }
 
-    # Test bool
     meta = func_metadata(func_bool)
     assert meta.output_schema == {
         "type": "object",
@@ -677,7 +585,6 @@ def test_structured_output_primitives():
         "title": "func_boolOutput",
     }
 
-    # Test bytes
     meta = func_metadata(func_bytes)
     assert meta.output_schema == {
         "type": "object",
@@ -688,8 +595,6 @@ def test_structured_output_primitives():
 
 
 def test_structured_output_generic_types():
-    """Test structured output with generic types (list, dict, Union, etc.)"""
-
     def func_list_str() -> list[str]:  # pragma: no cover
         return ["a", "b", "c"]
 
@@ -702,7 +607,6 @@ def test_structured_output_generic_types():
     def func_optional() -> str | None:  # pragma: no cover
         return None
 
-    # Test list
     meta = func_metadata(func_list_str)
     assert meta.output_schema == {
         "type": "object",
@@ -711,7 +615,7 @@ def test_structured_output_generic_types():
         "title": "func_list_strOutput",
     }
 
-    # Test dict[str, int] - should NOT be wrapped
+    # dict[str, int] is NOT wrapped
     meta = func_metadata(func_dict_str_int)
     assert meta.output_schema == {
         "type": "object",
@@ -719,7 +623,6 @@ def test_structured_output_generic_types():
         "title": "func_dict_str_intDictOutput",
     }
 
-    # Test Union
     meta = func_metadata(func_union)
     assert meta.output_schema == {
         "type": "object",
@@ -728,7 +631,6 @@ def test_structured_output_generic_types():
         "title": "func_unionOutput",
     }
 
-    # Test Optional
     meta = func_metadata(func_optional)
     assert meta.output_schema == {
         "type": "object",
@@ -739,8 +641,6 @@ def test_structured_output_generic_types():
 
 
 def test_structured_output_dataclass():
-    """Test structured output with dataclass return types"""
-
     @dataclass
     class PersonDataClass:
         name: str
@@ -770,14 +670,12 @@ def test_structured_output_dataclass():
 
 
 def test_structured_output_typeddict():
-    """Test structured output with TypedDict return types"""
-
     class PersonTypedDictOptional(TypedDict, total=False):
         name: str
         age: int
 
     def func_returning_typeddict_optional() -> PersonTypedDictOptional:  # pragma: no cover
-        return {"name": "Dave"}  # Only returning one field to test partial dict
+        return {"name": "Dave"}
 
     meta = func_metadata(func_returning_typeddict_optional)
     assert meta.output_schema == {
@@ -789,14 +687,13 @@ def test_structured_output_typeddict():
         "title": "PersonTypedDictOptional",
     }
 
-    # Test with total=True (all required)
     class PersonTypedDictRequired(TypedDict):
         name: str
         age: int
         email: str | None
 
     def func_returning_typeddict_required() -> PersonTypedDictRequired:  # pragma: no cover
-        return {"name": "Eve", "age": 40, "email": None}  # Testing None value
+        return {"name": "Eve", "age": 40, "email": None}
 
     meta = func_metadata(func_returning_typeddict_required)
     assert meta.output_schema == {
@@ -812,8 +709,6 @@ def test_structured_output_typeddict():
 
 
 def test_structured_output_ordinary_class():
-    """Test structured output with ordinary annotated classes"""
-
     class PersonClass:
         name: str
         age: int
@@ -841,7 +736,6 @@ def test_structured_output_ordinary_class():
 
 
 def test_unstructured_output_unannotated_class():
-    # Test with class that has no annotations
     class UnannotatedClass:
         def __init__(self, x, y):  # pragma: no cover
             self.x = x
@@ -885,10 +779,8 @@ def test_tool_call_result_annotated_is_structured_and_converted():
 
 
 def test_tool_call_result_annotated_unioned_with_input_required_result_is_equivalent_to_the_bare_annotated_form():
-    """Stripping `InputRequiredResult` makes the residual behave exactly as if it were the
-    declared return annotation, including the `Annotated[CallToolResult, Model]` special case
-    — the schema derives from `Model` and `convert_result` validates `structured_content`
-    against it instead of wrapping the whole `CallToolResult`."""
+    """Stripping `InputRequiredResult` must preserve the `Annotated[CallToolResult, Model]` special
+    case: schema derives from `Model` and `convert_result` validates `structured_content` against it."""
 
     class PersonClass(BaseModel):
         name: str
@@ -921,8 +813,6 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
 
 
 def test_tool_call_result_in_optional_is_rejected():
-    """Test that Optional[CallToolResult] raises InvalidSignature"""
-
     def func_optional_call_tool_result() -> CallToolResult | None:  # pragma: no cover
         return CallToolResult(content=[])
 
@@ -934,8 +824,6 @@ def test_tool_call_result_in_optional_is_rejected():
 
 
 def test_tool_call_result_in_union_is_rejected():
-    """Test that Union[str, CallToolResult] raises InvalidSignature"""
-
     def func_union_call_tool_result() -> str | CallToolResult:  # pragma: no cover
         return CallToolResult(content=[])
 
@@ -947,8 +835,6 @@ def test_tool_call_result_in_union_is_rejected():
 
 
 def test_tool_call_result_in_pipe_union_is_rejected():
-    """Test that str | CallToolResult raises InvalidSignature"""
-
     def func_pipe_union_call_tool_result() -> str | CallToolResult:  # pragma: no cover
         return CallToolResult(content=[])
 
@@ -960,8 +846,6 @@ def test_tool_call_result_in_pipe_union_is_rejected():
 
 
 def test_structured_output_with_field_descriptions():
-    """Test that Field descriptions are preserved in structured output"""
-
     class ModelWithDescriptions(BaseModel):
         name: Annotated[str, Field(description="The person's full name")]
         age: Annotated[int, Field(description="Age in years", ge=0, le=150)]
@@ -982,8 +866,6 @@ def test_structured_output_with_field_descriptions():
 
 
 def test_structured_output_nested_models():
-    """Test structured output with nested models"""
-
     class Address(BaseModel):
         street: str
         city: str
@@ -1021,28 +903,22 @@ def test_structured_output_nested_models():
 
 
 def test_structured_output_unserializable_type_error():
-    """Test error when structured_output=True is used with unserializable types"""
-
-    # Test with a class that has non-serializable default values
     class ConfigWithCallable:
         name: str
-        # Callable defaults are not JSON serializable and will trigger Pydantic warnings
+        # callable defaults are not JSON serializable and trigger pydantic warnings
         callback: Callable[[Any], Any] = lambda x: x * 2
 
     def func_returning_config_with_callable() -> ConfigWithCallable:  # pragma: no cover
         return ConfigWithCallable()
 
-    # Should work without structured_output=True (returns None for output_schema)
     meta = func_metadata(func_returning_config_with_callable)
     assert meta.output_schema is None
 
-    # Should raise error with structured_output=True
     with pytest.raises(InvalidSignature) as exc_info:
         func_metadata(func_returning_config_with_callable, structured_output=True)
     assert "is not serializable for structured output" in str(exc_info.value)
     assert "ConfigWithCallable" in str(exc_info.value)
 
-    # Also test with NamedTuple for good measure
     class Point(NamedTuple):
         x: int
         y: int
@@ -1050,11 +926,9 @@ def test_structured_output_unserializable_type_error():
     def func_returning_namedtuple() -> Point:  # pragma: no cover
         return Point(1, 2)
 
-    # Should work without structured_output=True (returns None for output_schema)
     meta = func_metadata(func_returning_namedtuple)
     assert meta.output_schema is None
 
-    # Should raise error with structured_output=True
     with pytest.raises(InvalidSignature) as exc_info:
         func_metadata(func_returning_namedtuple, structured_output=True)
     assert "is not serializable for structured output" in str(exc_info.value)
@@ -1069,26 +943,22 @@ def test_structured_output_aliases():
         field_second: str | None = Field(default=None, alias="second", description="The second field.")
 
     def func_with_aliases() -> ModelWithAliases:  # pragma: no cover
-        # When aliases are defined, we must use the aliased names to set values
         return ModelWithAliases(**{"first": "hello", "second": "world"})
 
     meta = func_metadata(func_with_aliases)
 
-    # Check that schema uses aliases
     assert meta.output_schema is not None
     assert "first" in meta.output_schema["properties"]
     assert "second" in meta.output_schema["properties"]
     assert "field_first" not in meta.output_schema["properties"]
     assert "field_second" not in meta.output_schema["properties"]
 
-    # Check that the actual output uses aliases too
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
     converted = meta.convert_result(result)
     assert isinstance(converted, CallToolResult)
     structured_content = converted.structured_content
     assert structured_content is not None
 
-    # The structured content should use aliases to match the schema
     assert "first" in structured_content
     assert "second" in structured_content
     assert "field_first" not in structured_content
@@ -1096,14 +966,12 @@ def test_structured_output_aliases():
     assert structured_content["first"] == "hello"
     assert structured_content["second"] == "world"
 
-    # Also test the case where we have a model with defaults to ensure aliases work in all cases
-    result_with_defaults = ModelWithAliases()  # Uses default None values
+    result_with_defaults = ModelWithAliases()
     converted_defaults = meta.convert_result(result_with_defaults)
     assert isinstance(converted_defaults, CallToolResult)
     structured_content_defaults = converted_defaults.structured_content
     assert structured_content_defaults is not None
 
-    # Even with defaults, should use aliases in output
     assert "first" in structured_content_defaults
     assert "second" in structured_content_defaults
     assert "field_first" not in structured_content_defaults
@@ -1113,8 +981,6 @@ def test_structured_output_aliases():
 
 
 def test_basemodel_reserved_names():
-    """Test that functions with parameters named after BaseModel methods work correctly"""
-
     def func_with_reserved_names(  # pragma: no cover
         model_dump: str,
         model_validate: int,
@@ -1128,7 +994,6 @@ def test_basemodel_reserved_names():
 
     meta = func_metadata(func_with_reserved_names)
 
-    # Check that the schema has all the original parameter names (using aliases)
     schema = meta.arg_model.model_json_schema(by_alias=True)
     assert "model_dump" in schema["properties"]
     assert "model_validate" in schema["properties"]
@@ -1141,8 +1006,6 @@ def test_basemodel_reserved_names():
 
 @pytest.mark.anyio
 async def test_basemodel_reserved_names_validation():
-    """Test that validation and calling works with reserved parameter names"""
-
     def func_with_reserved_names(
         model_dump: str,
         model_validate: int,
@@ -1155,7 +1018,6 @@ async def test_basemodel_reserved_names_validation():
 
     meta = func_metadata(func_with_reserved_names)
 
-    # Test validation with reserved names
     result = await meta.call_fn_with_arg_validation(
         func_with_reserved_names,
         fn_is_async=False,
@@ -1172,7 +1034,6 @@ async def test_basemodel_reserved_names_validation():
 
     assert result == "test_dump|42|3|{'key': 'value'}|True|normal"
 
-    # Test that the model can still call its own methods
     model_instance = meta.arg_model.model_validate(
         {
             "model_dump": "dump_value",
@@ -1184,11 +1045,10 @@ async def test_basemodel_reserved_names_validation():
         }
     )
 
-    # The model should still have its methods accessible
     assert hasattr(model_instance, "model_dump")
     assert callable(model_instance.model_dump)
 
-    # model_dump_one_level should return the original parameter names
+    # model_dump_one_level returns the original (non-aliased) parameter names
     dumped = model_instance.model_dump_one_level()
     assert dumped["model_dump"] == "dump_value"
     assert dumped["model_validate"] == 123
@@ -1199,8 +1059,6 @@ async def test_basemodel_reserved_names_validation():
 
 
 def test_basemodel_reserved_names_with_json_preparsing():
-    """Test that pre_parse_json works correctly with reserved parameter names"""
-
     def func_with_reserved_json(  # pragma: no cover
         json: dict[str, Any],
         model_dump: list[int],
@@ -1210,12 +1068,11 @@ def test_basemodel_reserved_names_with_json_preparsing():
 
     meta = func_metadata(func_with_reserved_json)
 
-    # Test pre-parsing with reserved names
     result = meta.pre_parse_json(
         {
-            "json": '{"nested": "data"}',  # JSON string that should be parsed
-            "model_dump": "[1, 2, 3]",  # JSON string that should be parsed
-            "normal": "plain string",  # Should remain as string
+            "json": '{"nested": "data"}',
+            "model_dump": "[1, 2, 3]",
+            "normal": "plain string",
         }
     )
 

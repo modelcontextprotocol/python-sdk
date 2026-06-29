@@ -9,9 +9,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.metadata_utils import get_display_name
 
-# Create server parameters for stdio connection
 server_params = StdioServerParameters(
-    command="uv",  # Using uv to run the server
+    command="uv",
     args=["run", "server", "mcpserver_quickstart", "stdio"],
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
@@ -44,10 +43,8 @@ async def display_resources(session: ClientSession):
 
 
 async def run():
-    """Run the display utilities example."""
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
-            # Initialize the connection
             await session.initialize()
 
             print("=== Available Tools ===")
@@ -58,7 +55,6 @@ async def run():
 
 
 def main():
-    """Entry point for the display utilities client."""
     asyncio.run(run())
 
 

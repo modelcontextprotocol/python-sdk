@@ -30,8 +30,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("tools:call:content:text")
 async def test_call_tool_returns_text_content(connect: Connect) -> None:
-    """Arguments reach the tool handler; its content comes back as the call result."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -54,10 +52,9 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
 
 @requirement("tools:call:is-error")
 async def test_call_tool_execution_error_is_returned_as_result(connect: Connect) -> None:
-    """A tool reporting its own failure with is_error=True reaches the client as a result, not an exception.
+    """Execution errors are part of the result so the caller (typically a model) can see them.
 
-    Tool execution errors are part of the result so the caller (typically a model) can see
-    them; only protocol-level failures become JSON-RPC errors.
+    Only protocol-level failures become JSON-RPC errors.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -76,11 +73,6 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
 
 @requirement("tools:call:unknown-name")
 async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised tool name with MCPError produces a JSON-RPC error.
-
-    The error's code, message, and data chosen by the handler reach the client verbatim.
-    """
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         raise MCPError(code=INVALID_PARAMS, message=f"Unknown tool: {params.name}", data={"requested": params.name})
 
@@ -97,11 +89,7 @@ async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> Non
 
 @requirement("protocol:error:internal-error")
 async def test_call_tool_uncaught_exception_becomes_error_response(connect: Connect) -> None:
-    """An uncaught exception in the tool handler surfaces to the client as a JSON-RPC error.
-
-    The low-level server reports it with code 0 and the exception text as the message; see the
-    divergence note on the requirement.
-    """
+    """The low-level server reports code 0 with the exception text; see the divergence note on the requirement."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "explode"
@@ -118,8 +106,6 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
 
 @requirement("tools:list:basic")
 async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
-    """The tools advertised by the server's list handler arrive at the client unchanged."""
-
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
@@ -164,12 +150,10 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
 @requirement("tools:input-schema:preserve-defs")
 @requirement("tools:input-schema:preserve-schema-dialect")
 async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect) -> None:
-    """A rich JSON Schema 2020-12 inputSchema reaches the client unchanged and the tool is callable.
+    """The single identity assertion proves all four pass-through requirements at once.
 
-    The single identity assertion below proves all four pass-through behaviours at once: the same
-    dict literal that was registered is the dict that arrives, so $schema, $defs, the nested object
-    property, and additionalProperties are each preserved by virtue of the whole schema being
-    preserved. The follow-up call proves the rich-schema tool is callable end to end.
+    The registered schema dict arrives unchanged, so $schema, $defs, nested objects, and
+    additionalProperties each survive.
     """
     schema = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -207,8 +191,6 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
 
 @requirement("tools:list:metadata")
 async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
-    """Every optional Tool field the server supplies reaches the client unchanged."""
-
     tool = Tool(
         name="annotated",
         title="Annotated tool",
@@ -252,11 +234,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
 @requirement("tools:call:content:resource-link")
 @requirement("tools:call:content:embedded-resource")
 async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
-    """A tool result can mix every content block type; all of them arrive in order.
-
-    The payloads are tiny fixed base64 strings ("aW1n" is b"img", "YXVk" is b"aud") so the
-    snapshot pins the exact bytes the client receives.
-    """
+    """The fixed base64 payloads ("aW1n" is b"img", "YXVk" is b"aud") let the snapshot pin the exact bytes."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[Tool(name="render", input_schema={"type": "object"})])
@@ -297,8 +275,6 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
 
 @requirement("tools:call:structured-content")
 async def test_call_tool_structured_content(connect: Connect) -> None:
-    """A tool result carrying structured content alongside content delivers both to the client."""
-
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[Tool(name="sum", input_schema={"type": "object"})])
 
@@ -316,11 +292,9 @@ async def test_call_tool_structured_content(connect: Connect) -> None:
 
 @requirement("tools:call:concurrent")
 async def test_concurrent_tool_calls_complete_independently(connect: Connect) -> None:
-    """Two tool calls in flight at once run concurrently and each caller gets its own answer.
+    """Both handlers are held on a shared event until both have signalled they started.
 
-    Both handlers are held on a shared event after signalling that they have started, and the test
-    only releases them once both signals have arrived -- a server that processed requests
-    sequentially would never start the second handler and the test would time out instead.
+    A sequential server would never start the second handler and the test would time out.
     """
     started: list[str] = []
     started_events = {"first": anyio.Event(), "second": anyio.Event()}
@@ -352,7 +326,6 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
                 task_group.start_soon(call_and_record, "first")
                 task_group.start_soon(call_and_record, "second")
 
-                # Both handlers are running at the same time before either is allowed to finish.
                 await started_events["first"].wait()
                 await started_events["second"].wait()
                 release.set()
@@ -368,9 +341,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
 
 @requirement("client:output-schema:validate")
 async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client(connect: Connect) -> None:
-    """A result whose structured content does not conform to the tool's declared output schema never
-    reaches the caller: the client validates it against the schema cached from tools/list and raises.
-    """
+    """The client validates structured content against the output schema cached from tools/list and raises."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
@@ -404,11 +375,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
 @requirement("client:output-schema:skip-on-error")
 async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect) -> None:
-    """A tool result with isError true is returned as-is even when its structured content violates the schema.
-
-    The schema is cached up front so the client could validate, proving the bypass is specifically the
-    isError flag and not an empty cache.
-    """
+    """The schema is cached up front, proving the bypass is specifically the isError flag, not an empty cache."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
@@ -444,11 +411,6 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
 
 @requirement("client:output-schema:missing-structured")
 async def test_declared_output_schema_with_no_structured_content_is_rejected_by_the_client(connect: Connect) -> None:
-    """A tool that declared an output schema but returned no structuredContent fails the client-side check.
-
-    The error is the SDK's own message, so the full text is snapshotted.
-    """
-
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
@@ -476,12 +438,10 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
 
 @requirement("client:output-schema:auto-list")
 async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(connect: Connect) -> None:
-    """Calling a tool whose schema is not cached issues exactly one implicit tools/list to populate it.
+    """The first call of an uncached tool issues one implicit tools/list; the second hits the cache.
 
-    The first call_tool of an uncached tool triggers a tools/list the caller never asked for; the
-    second call hits the cache and does not. This is the SDK's chosen cache strategy and the cause of
-    the surprising behaviour where a server with only on_call_tool sees a successful call answered
-    with METHOD_NOT_FOUND from a request the caller never made; see the divergence on the requirement.
+    This is why a server with only on_call_tool sees a successful call answered with
+    METHOD_NOT_FOUND from a request the caller never made; see the divergence on the requirement.
     """
     list_calls: list[str] = []
 

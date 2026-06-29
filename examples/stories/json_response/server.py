@@ -1,8 +1,7 @@
-"""Serve over Streamable HTTP with JSON responses (no SSE stream); HTTP-only, so this exports ``build_app()``.
+"""Serve over Streamable HTTP with JSON responses (no SSE stream); HTTP-only, so this exports `build_app()`.
 
-The 2026-07-28 path is stateless and JSON-only by construction today; the
-``json_response=True`` flag also forces JSON for the legacy (2025-era) branch on
-the same endpoint. Mid-call notifications are dropped.
+The 2026-07-28 path is stateless and JSON-only by construction; `json_response=True` also forces
+JSON for the legacy (2025-era) branch on the same endpoint. Mid-call notifications are dropped.
 """
 
 from starlette.applications import Starlette

@@ -1,8 +1,7 @@
 """Logging interactions against the low-level Server, driven through the public Client API.
 
-Notification ordering: await-free callbacks finish in arrival order, and passing
-``related_request_id`` keeps each notification on the originating request's POST stream over
-streamable HTTP, so plain-list collection is deterministic on every transport leg.
+Await-free callbacks finish in arrival order, and `related_request_id` keeps each notification on
+the originating request's POST stream over streamable HTTP, so plain-list collection is deterministic.
 """
 
 import mcp_types as types
@@ -30,8 +29,6 @@ ALL_LEVELS: tuple[types.LoggingLevel, ...] = (
 
 @requirement("logging:set-level")
 async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
-    """The level requested by the client is delivered to the server's handler verbatim."""
-
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
         assert params.level == "warning"
         return EmptyResult()
@@ -47,11 +44,7 @@ async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
 @requirement("logging:message:fields")
 @requirement("tools:call:logging-mid-execution")
 async def test_log_messages_reach_logging_callback_in_order(connect: Connect) -> None:
-    """Log messages sent during a tool call arrive at the logging callback, in order, before the call returns.
-
-    The two messages pin the full notification shape: severity, optional logger name, and both
-    string and structured data payloads.
-    """
+    """Two messages pin the full notification shape: severity, optional logger name, string and structured data."""
     received: list[LoggingMessageNotificationParams] = []
 
     async def collect(params: LoggingMessageNotificationParams) -> None:

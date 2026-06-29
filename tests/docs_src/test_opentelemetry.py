@@ -11,7 +11,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_a_plain_server_is_traced_with_no_extra_code(capfire: CaptureLogfire) -> None:
-    """tutorial001: calling a tool emits a `tools/call` SERVER span, though the example adds no middleware."""
     async with Client(tutorial001.mcp) as client:
         await client.call_tool("search_books", {"query": "dune"})
 

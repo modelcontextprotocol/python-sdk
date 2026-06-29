@@ -1,5 +1,3 @@
-"""Tests for filesystem path safety primitives."""
-
 from pathlib import Path
 
 import pytest
@@ -15,7 +13,6 @@ from mcp.shared.path_security import (
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        # Safe: no traversal
         ("a/b/c", False),
         ("readme.txt", False),
         ("", False),
@@ -40,7 +37,6 @@ from mcp.shared.path_security import (
         ("..\\etc", True),
         ("a\\..\\..\\b", True),
         ("a\\b\\c", False),
-        # Mixed separators
         ("a/..\\..\\b", True),
     ],
 )
@@ -51,33 +47,27 @@ def test_contains_path_traversal(value: str, expected: bool):
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        # Relative
         ("relative/path", False),
         ("file.txt", False),
         ("", False),
         (".", False),
         ("..", False),
-        # POSIX absolute
         ("/", True),
         ("/etc/passwd", True),
         ("/a", True),
-        # Windows drive
         ("C:", True),
         ("C:\\Windows", True),
         ("c:/foo", True),
         ("Z:\\", True),
-        # Windows UNC / backslash-absolute
         ("\\\\server\\share", True),
         ("\\foo", True),
         # Windows drive-relative — discards the join base when drives differ
         ("C:relative", True),
         ("x:y", True),
         ("a:debug", True),
-        # Not a drive: digit before colon
+        # Colon but no drive letter: digit, wrong position, non-ASCII
         ("1:foo", False),
-        # Colon not in position 1
         ("ab:c", False),
-        # Non-ASCII letter is not a drive letter
         ("Ω:namespace", False),
         ("é:foo", False),
     ],
@@ -149,7 +139,6 @@ def test_safe_join_rejects_symlink_escape(tmp_path: Path):
 
 
 def test_safe_join_base_equals_target(tmp_path: Path):
-    # Joining nothing (or ".") should return the base itself
     assert safe_join(tmp_path) == tmp_path
     assert safe_join(tmp_path, ".") == tmp_path
 

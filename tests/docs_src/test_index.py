@@ -7,11 +7,9 @@ from mcp_types import CallToolResult, TextContent, TextResourceContents
 from docs_src.index.tutorial001 import mcp
 from mcp import Client
 
-# `pyproject.toml` globally downgrades `mcp.MCPDeprecationWarning` to *ignore* because the
-# SDK still calls those methods internally. A documentation example must never lean on
-# that allowance, so every test that runs one re-arms the warning as an error. This is a
-# per-module mark, not a conftest hook, because `pytest_collection_modifyitems` receives
-# every item in the session. A hook here would break unrelated tests across the repo.
+# `pyproject.toml` globally ignores `mcp.MCPDeprecationWarning` (the SDK still calls those methods
+# internally), but doc examples must never lean on that, so each module re-arms it as an error.
+# Per-module mark, not a conftest hook: a collection hook would affect every test in the session.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
 
 

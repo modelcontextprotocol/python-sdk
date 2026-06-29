@@ -1,10 +1,9 @@
 """Tests for the stdio client transport.
 
-Transport logic (framing, parse errors, shutdown escalation decisions) is tested in
-process against a fake process injected through the spawn seam; only real OS behaviour
-(process-group kill semantics, SIGKILL after an ignored SIGTERM, exec failure) uses
-real subprocesses, synchronized only by kernel-level liveness sockets. The full
-client<->server round trip is pinned by tests/interaction/transports/test_stdio.py.
+Transport logic is tested in process against a fake process injected through the spawn
+seam; only real OS behaviour (process-group kills, SIGKILL delivery, exec failure) uses
+real subprocesses, synchronized by kernel-level liveness sockets. The full round trip is
+pinned by tests/interaction/transports/test_stdio.py.
 """
 
 import errno
@@ -44,14 +43,6 @@ from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 
-# ---------------------------------------------------------------------------
-# In-process fake of the spawned server process
-# ---------------------------------------------------------------------------
-#
-# Everything between the spawn and the OS kill is pure SDK logic, so it is tested
-# against this fake by monkeypatching the spawn and terminate seams. The OS half
-# is tested separately below with real processes.
-
 
 class _FakeStdin:
     """The fake process's stdin: records what the client writes, signals closure."""
@@ -61,8 +52,7 @@ class _FakeStdin:
 
     async def send(self, data: bytes) -> None:
         if self._process.stdin_send_gate is not None:
-            # A full pipe whose reader is busy elsewhere: the write completes
-            # only once the test's gate opens.
+            # A full pipe whose reader is busy elsewhere: completes once the gate opens.
             await self._process.stdin_send_gate.wait()
         if self._process.stdin_send_blocks:
             # A pipe whose reader stopped reading: the write never completes.
@@ -83,10 +73,8 @@ class _FakeStdin:
 
 
 class _FakeStdout:
-    """The fake process's stdout: delegates to the in-memory stream.
-
-    Optionally surfaces the abrupt-death or close-time errors a real pipe can.
-    """
+    """The fake process's stdout: delegates to the in-memory stream, optionally
+    surfacing the abrupt-death or close-time errors a real pipe can."""
 
     def __init__(
         self,
@@ -185,9 +173,8 @@ def install_fake_process(
 ) -> list[FakeProcess]:
     """Route stdio_client's spawn and terminate seams to `process`.
 
-    Returns the list of processes the (fake) tree termination was invoked on.
-    `grace_period=None` keeps the production stdin-close grace (affordable only on a
-    virtual clock).
+    Returns the processes the fake tree termination was invoked on. `grace_period=None`
+    keeps the production stdin-close grace (affordable only on a virtual clock).
     """
     terminated: list[FakeProcess] = []
 
@@ -227,11 +214,6 @@ async def _next_message(read_stream: ReadStream[SessionMessage | Exception]) -> 
 
 @pytest.mark.anyio
 async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Framing survives arbitrary chunk boundaries.
-
-    Split, packed, and CRLF-terminated messages are each delivered exactly once, and a
-    trailing line without a newline is not delivered.
-    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     ping2 = JSONRPCRequest(jsonrpc="2.0", id=2, method="ping")
@@ -253,9 +235,8 @@ async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch:
             assert await _next_message(read_stream) == pong
             assert await _next_message(read_stream) == ping2
 
-            # The partial trailing message is dropped at EOF, not delivered broken.
-            # (no branch: coverage mis-traces the exit arc of a `with` whose body
-            # raises inside a nested async context.)
+            # The partial trailing message is dropped at EOF, not delivered broken. (no
+            # branch: coverage mis-traces a `with` whose body raises in a nested async context.)
             with pytest.raises(anyio.EndOfStream):  # pragma: no branch
                 process.close_stdout()
                 await read_stream.receive()
@@ -263,11 +244,6 @@ async def test_messages_split_and_packed_across_chunks_are_reframed(monkeypatch:
 
 @pytest.mark.anyio
 async def test_each_outgoing_message_is_written_as_exactly_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Client -> server framing writes one line per message.
-
-    Every sent message reaches the server's stdin as exactly one newline-terminated
-    JSON document.
-    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
@@ -288,10 +264,6 @@ async def test_each_outgoing_message_is_written_as_exactly_one_line(monkeypatch:
 async def test_invalid_json_from_the_server_surfaces_as_an_in_stream_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A line failing JSON-RPC validation is delivered as an Exception on the read stream.
-
-    The messages after it still come through.
-    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
 
@@ -302,7 +274,6 @@ async def test_invalid_json_from_the_server_surfaces_as_an_in_stream_exception(
             await process.feed(b"not json\n" + _line(ping))
 
             error = await read_stream.receive()
-            # The transport surfaces parse failures as the underlying validation error.
             assert isinstance(error, ValueError)
             assert await _next_message(read_stream) == ping
 
@@ -311,10 +282,6 @@ async def test_invalid_json_from_the_server_surfaces_as_an_in_stream_exception(
 async def test_a_server_that_dies_before_responding_fails_initialize_with_connection_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Server death (stdout EOF) is reported to the session as a closed connection.
-
-    The in-flight initialize fails instead of hanging.
-    """
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
     process.exit(1)
 
@@ -334,12 +301,7 @@ async def test_a_server_that_dies_before_responding_fails_initialize_with_connec
 
 @pytest.mark.anyio
 async def test_a_server_that_exits_on_stdin_close_is_never_terminated(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Closing stdin (shutdown's first step) suffices for a well-behaved server.
-
-    The escalation is never invoked. The fake's stdin also raises on close, which the
-    shutdown must tolerate.
-    """
-
+    """Shutdown tolerates stdin raising on close; the escalation is never invoked."""
     process = FakeProcess(
         on_stdin_close=lambda: process.exit(0),
         stdin_aclose_error=anyio.ClosedResourceError(),
@@ -355,25 +317,19 @@ async def test_a_server_that_exits_on_stdin_close_is_never_terminated(monkeypatc
 
 
 def test_escalation_fires_once_and_only_after_the_grace_period(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A server that ignores stdin closure is terminated at the grace deadline exactly.
-
-    The kill lands no earlier than the production `PROCESS_TERMINATION_TIMEOUT` on the
-    runtime clock, and by the first `returncode` poll after it.
+    """The kill lands no earlier than `PROCESS_TERMINATION_TIMEOUT` on the runtime clock,
+    and by the first `returncode` poll after it.
 
     The suite's only direct trio use: anyio's pytest plugin cannot hand the backend a
-    clock, so the test calls `trio.run` itself with an autojumping `MockClock`. Every
-    time primitive rides that one virtual clock, so the production grace elapses
-    instantly and the bound can be two-sided (a wall-clock upper bound flakes under
-    load). That virtual seconds match wall seconds is the runtime clock's contract,
-    deliberately not re-tested here.
+    clock, so the test calls `trio.run` itself with an autojumping `MockClock`. Every time
+    primitive rides that one virtual clock, so the production grace elapses instantly and
+    the bound can be two-sided (a wall-clock upper bound flakes under load); that virtual
+    seconds match wall seconds is the runtime clock's contract, not re-tested here.
     """
 
     class ClockedFakeProcess(FakeProcess):
-        """Records the virtual time of each death.
-
-        Only the (fake) tree termination calls `exit` here, so these are the
-        escalation timestamps.
-        """
+        """Records the virtual time of each death; only the fake tree termination calls
+        `exit`, so these are the escalation timestamps."""
 
         def __init__(self) -> None:
             super().__init__()
@@ -406,15 +362,11 @@ def test_escalation_fires_once_and_only_after_the_grace_period(monkeypatch: pyte
 
 
 def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A server exiting in the poll interval the grace deadline cuts short is not escalated.
-
-    Such a server is dead, not hung: the timed-out grace wait must re-check `returncode`
-    before deciding to escalate, so this server is never terminated.
-
-    Runs on trio's MockClock (see the escalation-bound test above). The grace is
-    set to end mid-interval (0.105 with 0.01 polls) and the fake dies at 0.102
-    after its stdin closes, strictly between the last in-window poll (0.10) and
-    the deadline (0.105), so no two timers collide.
+    """Dead, not hung: the timed-out grace wait must re-check `returncode` before
+    deciding to escalate. Runs on trio's MockClock (see the escalation-bound test
+    above); the grace ends mid-interval (0.105 with 0.01 polls) and the fake dies at
+    0.102, strictly between the last in-window poll and the deadline, so no two timers
+    collide.
     """
     process = FakeProcess()
     terminated = install_fake_process(monkeypatch, process, grace_period=0.105)
@@ -429,8 +381,8 @@ def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch:
 
                 # The grace wait starts when stdin closes; anchor the death there.
                 process.on_stdin_close = lambda: tg.start_soon(die_late)
-                # no branch: the tracer drops this nested async-with's arcs under
-                # trio's MockClock even though the body runs.
+                # no branch: the tracer drops this nested async-with's arcs under MockClock
+                # though the body runs.
                 async with stdio_client(FAKE_PARAMS):  # pragma: no branch
                     pass
 
@@ -442,18 +394,14 @@ def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch:
 
 @pytest.mark.anyio
 async def test_cancelling_the_client_still_runs_the_full_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cancellation (a client timeout, app shutdown) must not skip the shutdown sequence.
-
-    Stdin is still closed and a server ignoring it is still terminated. Without the
-    shielded shutdown this leaks the process and can deadlock.
-    """
+    """Without the shielded shutdown, cancellation (a client timeout, app shutdown)
+    skips cleanup, leaking the process and potentially deadlocking."""
     process = FakeProcess()
     terminated = install_fake_process(monkeypatch, process, grace_period=0.05)
     entered = anyio.Event()
     # Cancel a scope owned by the client's task, not the test's task group: a host
-    # self-cancel is delivered by throwing through this test function's suspended
-    # frames, and Python 3.11's tracer loses coverage events after such a throw()
-    # traversal (python/cpython#106749).
+    # self-cancel throws through this test's suspended frames, and Python 3.11's tracer
+    # loses coverage events after such a throw() traversal (python/cpython#106749).
     cancel_scope = anyio.CancelScope()
 
     async def run_client_until_cancelled() -> None:
@@ -474,11 +422,6 @@ async def test_cancelling_the_client_still_runs_the_full_shutdown(monkeypatch: p
 
 @pytest.mark.anyio
 async def test_writing_after_the_server_dies_reports_clean_closure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A send racing the server's death must not surface a raw backend exception.
-
-    The exception (ConnectionResetError in an exception group) must not escape the
-    context manager; the transport still shuts down cleanly.
-    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
 
@@ -495,11 +438,6 @@ async def test_writing_after_the_server_dies_reports_clean_closure(monkeypatch: 
 
 @pytest.mark.anyio
 async def test_exiting_with_an_unconsumed_server_message_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exiting while a server message is still undelivered must be a clean exit.
-
-    Shutdown closes the read stream under the blocked reader task, and that closure
-    must not escape the caller as a BrokenResourceError in an exception group.
-    """
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
 
@@ -507,21 +445,18 @@ async def test_exiting_with_an_unconsumed_server_message_does_not_raise(monkeypa
 
     with anyio.fail_after(5):
         async with stdio_client(FAKE_PARAMS):
-            # Feed a message and never receive it: the reader parses it and blocks
-            # delivering into the zero-buffer read stream until shutdown breaks the send.
+            # Feed a message and never receive it: the reader parks sending into the
+            # zero-buffer read stream; shutdown's closing of that stream must not escape
+            # as a BrokenResourceError in an exception group.
             await process.feed(_line(ping))
-            # Wait until the reader task is genuinely parked on its blocked send
-            # before shutdown closes the stream out from under it.
+            # Ensure the reader is genuinely parked before shutdown closes the stream under it.
             await anyio.wait_all_tasks_blocked()
 
 
 @pytest.mark.anyio
 async def test_spawn_failure_propagates_the_error_and_leaks_no_streams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When the spawn itself fails, the OSError reaches the caller and no streams leak.
-
-    The transport's internal streams are all closed; an unclosed stream would fail the
-    test through its GC-time ResourceWarning under filterwarnings=error.
-    """
+    """An unclosed internal stream would fail the test through its GC-time
+    ResourceWarning under filterwarnings=error."""
 
     async def failing_spawn(
         command: str,
@@ -547,7 +482,6 @@ async def test_spawn_failure_propagates_the_error_and_leaks_no_streams(monkeypat
 
 @pytest.mark.anyio
 async def test_a_command_that_cannot_be_execed_raises_enoent() -> None:
-    """A command that cannot be exec'd raises OSError(ENOENT) out of stdio_client."""
     server_params = StdioServerParameters(
         command="/path/to/nonexistent/command",
         args=["--help"],
@@ -562,11 +496,8 @@ async def test_a_command_that_cannot_be_execed_raises_enoent() -> None:
 
 @pytest.mark.anyio
 async def test_cancellation_during_spawn_leaks_no_streams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cancellation while the spawn is still in flight must not leak the internal streams.
-
-    A caller timeout can fire mid-spawn (interpreter cold start); an unclosed stream
-    would fail the test through its GC-time ResourceWarning under filterwarnings=error.
-    """
+    """A caller timeout can fire mid-spawn (interpreter cold start); the internal streams
+    must still all be closed (GC-time ResourceWarnings catch leaks)."""
     spawn_started = anyio.Event()
 
     async def hanging_spawn(
@@ -582,10 +513,8 @@ async def test_cancellation_during_spawn_leaks_no_streams(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(stdio, "_create_platform_compatible_process", hanging_spawn)
 
-    # Cancel a scope owned by the client's task, not the test's task group: a host
-    # self-cancel is delivered by throwing through this test function's suspended
-    # frames, and Python 3.11's tracer loses coverage events after such a throw()
-    # traversal (python/cpython#106749).
+    # Cancel a scope owned by the client's task, not the test's task group (see
+    # test_cancelling_the_client_still_runs_the_full_shutdown).
     cancel_scope = anyio.CancelScope()
 
     async def run_client() -> None:
@@ -604,12 +533,8 @@ async def test_cancellation_during_spawn_leaks_no_streams(monkeypatch: pytest.Mo
 
 @pytest.mark.anyio
 async def test_a_non_oserror_spawn_failure_propagates_and_leaks_no_streams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-OSError spawn failure also propagates and leaks no streams.
-
-    Spawning can fail with more than OSError (e.g. ValueError for a NUL byte in the
-    command); the error reaches the caller and the transport's internal streams are
-    still all closed (checked through GC-time ResourceWarnings, as above).
-    """
+    """Spawning can fail with more than OSError (e.g. ValueError for a NUL byte in the
+    command); the error propagates and the internal streams are still all closed."""
 
     async def failing_spawn(
         command: str,
@@ -631,12 +556,9 @@ async def test_a_non_oserror_spawn_failure_propagates_and_leaks_no_streams(monke
 
 @pytest.mark.anyio
 async def test_a_message_sent_just_before_exit_is_flushed_to_the_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A message the transport accepted must reach the server even on immediate exit.
-
-    The caller exits right after sending. Once the writer is parked waiting, a send is
-    a pure handoff that returns before the write lands, so the second message here is
-    the one shutdown must let the writer flush before closing the server's stdin.
-    """
+    """Once the writer is parked, a send is a pure handoff returning before the write
+    lands; the second message is the one shutdown must let the writer flush before
+    closing the server's stdin."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
@@ -655,17 +577,10 @@ async def test_a_message_sent_just_before_exit_is_flushed_to_the_server(monkeypa
 async def test_a_failed_write_to_a_live_server_closes_the_read_stream_instead_of_hanging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed write to a live server ends the read stream instead of hanging the session.
-
-    When a write fails but the server is still alive (stdout never EOFs), the transport
-    must end the read stream so a session maps the loss to CONNECTION_CLOSED instead of
-    waiting forever. EIO pins that plain OSError, not just ConnectionError, is handled.
-
-    Steps:
-    1. A send fails with EIO while the server is alive; the read stream ends.
-    2. Output the server produces afterwards is still drained, so it cannot wedge
-       on a full pipe.
-    """
+    """When a write fails but the server is alive (stdout never EOFs), the transport must
+    end the read stream so the session maps the loss to CONNECTION_CLOSED instead of
+    waiting forever. EIO pins that plain OSError, not just ConnectionError, is handled;
+    later server output is still drained so it cannot wedge on a full pipe."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     process = FakeProcess(
@@ -693,11 +608,8 @@ async def test_a_failed_write_to_a_live_server_closes_the_read_stream_instead_of
 async def test_exit_completes_when_a_write_is_wedged_in_a_pipe_no_one_reads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exiting stays bounded even when the writer is parked in a write that cannot complete.
-
-    A kill-surviving descendant can hold the read end without reading; the flush window
-    expires and the post-shutdown cancellation unparks the writer.
-    """
+    """A kill-surviving descendant can hold the read end without reading; the flush
+    window expires and the post-shutdown cancellation unparks the wedged writer."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0), stdin_send_blocks=True)
     terminated = install_fake_process(monkeypatch, process)
@@ -718,13 +630,10 @@ async def test_exit_completes_when_a_write_is_wedged_in_a_pipe_no_one_reads(
 async def test_undelivered_server_output_is_drained_at_shutdown_so_the_server_can_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Output the caller never received is consumed during the stdin-close grace period.
-
-    A real server flushing its remaining output on the way out would otherwise block on
-    a full pipe, never reach its stdin read, and be killed despite being well-behaved.
-    The fake ignores stdin closure (so it is ultimately terminated); the pin is that its
-    backlog was drained during the grace window.
-    """
+    """A real server flushing remaining output on the way out would block on a full pipe,
+    never reach its stdin read, and be killed despite being well-behaved. The fake
+    ignores stdin closure (so it is terminated); the pin is that its backlog was drained
+    during the grace window."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     process = FakeProcess()
@@ -748,12 +657,9 @@ async def test_undelivered_server_output_is_drained_at_shutdown_so_the_server_ca
 async def test_shutdown_drains_stdout_first_so_a_wedged_writers_flush_can_complete(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Shutdown unblocks the reader's drain before waiting out the writer flush.
-
-    A server wedged writing its stdout cannot get to reading its stdin, so a client
-    write can sit in a full pipe; the drain is what unwedges the server and lets the
-    flush complete.
-    """
+    """A server wedged writing its stdout cannot get to reading its stdin, so a client
+    write can sit in a full pipe; shutdown's drain must unwedge the server before the
+    writer flush can complete."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
 
@@ -796,12 +702,8 @@ async def test_shutdown_drains_stdout_first_so_a_wedged_writers_flush_can_comple
 async def test_cancellation_with_undelivered_backlog_still_drains_and_spares_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cancellation must not skip the shutdown drain.
-
-    A well-behaved server that can only exit once its remaining output is consumed (a
-    real one blocks on a full stdout pipe) still exits within the grace period and is
-    never terminated.
-    """
+    """A server that can only exit once its output is consumed (a real one blocks on a
+    full stdout pipe) still exits within the grace period under cancellation."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     pong = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
     process = FakeProcess()
@@ -844,19 +746,15 @@ async def test_cancellation_with_undelivered_backlog_still_drains_and_spares_the
 async def test_invalid_utf8_flushed_by_a_dying_server_does_not_break_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The shutdown drain consumes raw bytes.
-
-    A server flushing non-UTF-8 output (a crash dump, say) on its way out must not
-    abort the drain or surface a UnicodeDecodeError out of the context manager.
-    """
+    """A server flushing non-UTF-8 output (a crash dump, say) on its way out must not
+    abort the raw-bytes drain or surface a UnicodeDecodeError out of the context manager."""
     ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     process = FakeProcess(on_stdin_close=lambda: process.exit(0))
     terminated = install_fake_process(monkeypatch, process)
 
     with anyio.fail_after(5):
         async with stdio_client(FAKE_PARAMS):
-            # Park the reader delivering a message nobody receives, then queue
-            # bytes that are not valid UTF-8 behind it.
+            # Park the reader on an undelivered message, then queue invalid UTF-8 behind it.
             await process.feed(_line(ping))
             await anyio.wait_all_tasks_blocked()
             await process.feed(b"\xff\xfe not utf-8\n")
@@ -870,11 +768,8 @@ async def test_a_kill_racing_a_pending_stdout_read_is_swallowed_during_shutdown(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A hard kill during a pending stdout read must not escape the context manager.
-
-    The read surfaces ConnectionResetError on the proactor backend; being expected
-    teardown noise, it is not logged as an error either.
-    """
+    """The read surfaces ConnectionResetError on the proactor backend; being expected
+    teardown noise, it must not escape the context manager or be logged as an error."""
     process = FakeProcess(stdout_eof_error=ConnectionResetError("read torn down by kill"))
     terminated = install_fake_process(monkeypatch, process)
 
@@ -891,11 +786,8 @@ async def test_a_mid_session_stdout_failure_is_logged_and_surfaces_as_clean_clos
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A mid-session stdout read failure ends the read stream cleanly and is logged.
-
-    A failure outside shutdown surfaces no raw exception out of the context manager and
-    leaves an error log identifying the failure, unlike the silent shutdown case.
-    """
+    """Unlike the silent shutdown case, a failure outside shutdown surfaces no raw
+    exception out of the context manager and leaves an error log identifying it."""
     process = FakeProcess(
         on_stdin_close=lambda: process.exit(0),
         stdout_eof_error=ConnectionResetError("pipe failed mid-session"),
@@ -905,8 +797,7 @@ async def test_a_mid_session_stdout_failure_is_logged_and_surfaces_as_clean_clos
     with anyio.fail_after(5):
         async with stdio_client(FAKE_PARAMS) as (read_stream, _):
             process.exit(1)
-            # (no branch: coverage mis-traces the exit arc of a `with` whose body
-            # raises inside a nested async context.)
+            # (no branch: coverage mis-traces a `with` whose body raises in a nested async context.)
             with pytest.raises(anyio.EndOfStream):  # pragma: no branch
                 await read_stream.receive()
 
@@ -915,12 +806,8 @@ async def test_a_mid_session_stdout_failure_is_logged_and_surfaces_as_clean_clos
 
 @pytest.mark.anyio
 async def test_a_failing_stdout_close_still_closes_the_transport_streams(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A close-time error on the process's stdout must not abort the rest of the shutdown.
-
-    Such an error (a contended pipe handle on the Windows fallback) still leaves the
-    context exiting cleanly and the internal streams all closed (checked via GC-time
-    ResourceWarnings).
-    """
+    """A close-time stdout error (a contended pipe handle on the Windows fallback) must
+    not abort the rest of shutdown; the internal streams are still all closed."""
     process = FakeProcess(
         on_stdin_close=lambda: process.exit(0),
         stdout_aclose_error=OSError(errno.EBADF, "Bad file descriptor"),
@@ -940,12 +827,8 @@ async def test_a_process_surviving_the_kill_escalation_is_logged_and_abandoned(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A process surviving the whole kill escalation is logged and abandoned.
-
-    If the process is still alive after the escalation (D-state, an unsignalable
-    survivor), shutdown still completes, bounded, and leaves a warning instead of
-    silently leaking a live process.
-    """
+    """A survivor (D-state, unsignalable) must not hang shutdown: it still completes,
+    bounded, and leaves a warning instead of silently leaking a live process."""
     process = FakeProcess()  # ignores stdin closure and survives "termination"
     install_fake_process(monkeypatch, process, grace_period=0.05)
 
@@ -969,20 +852,13 @@ async def test_a_process_surviving_the_kill_escalation_is_logged_and_abandoned(
     process.close_stdout()
 
 
-# ---------------------------------------------------------------------------
-# POSIX tree-termination policy, tested through the sanctioned killpg seam
-# ---------------------------------------------------------------------------
-#
-# `mcp.os.posix.utilities` is coverage-omitted and the sanctioned place to monkeypatch
-# OS calls. These pin the EPERM policy without a foreign-euid process: macOS killpg
-# raises EPERM when *any* group member cannot be signalled, even if others were.
+# `mcp.os.posix.utilities` is coverage-omitted and the sanctioned seam for monkeypatching
+# OS calls. The next tests pin the EPERM policy without a foreign-euid process: macOS
+# killpg raises EPERM when *any* group member cannot be signalled, even if others were.
 
 
 class _StubPosixProcess:
-    """The two attributes `terminate_posix_process_tree` touches.
-
-    They are the pgid source and the reap-progress probe.
-    """
+    """The two attributes `terminate_posix_process_tree` touches: pgid source and reap probe."""
 
     pid = 54321
     returncode: int | None = None
@@ -994,11 +870,8 @@ class _StubPosixProcess:
 async def test_an_eperm_group_that_dies_during_the_grace_period_is_not_sigkilled(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """EPERM from the SIGTERM killpg no longer short-circuits termination.
-
-    The grace wait still runs, and a group observed to be gone during it is never
-    SIGKILLed.
-    """
+    """EPERM from the SIGTERM killpg no longer short-circuits: the grace wait still runs,
+    and a group observed to be gone during it is never SIGKILLed."""
     calls: list[tuple[int, int]] = []
     probes = 0
 
@@ -1029,12 +902,9 @@ async def test_an_eperm_group_that_dies_during_the_grace_period_is_not_sigkilled
 async def test_an_eperm_group_that_outlives_the_grace_period_is_still_sigkilled(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Even when every probe reports EPERM, the SIGKILL escalation still fires.
-
-    It fires after the grace period, and its own EPERM is tolerated. Pre-fix, EPERM at
-    SIGTERM abandoned the group escalation for a leader-only kill, leaking every other
-    group member. The tiny timeout is the time-based grace period under test.
-    """
+    """The SIGKILL fires after the grace period and its own EPERM is tolerated. Pre-fix,
+    EPERM at SIGTERM abandoned the group escalation for a leader-only kill, leaking
+    every other group member. The tiny timeout is the grace period under test."""
     calls: list[tuple[int, int]] = []
 
     def fake_killpg(pgid: int, sig: int) -> None:
@@ -1061,19 +931,16 @@ async def test_an_eperm_group_that_outlives_the_grace_period_is_still_sigkilled(
 async def test_the_grace_wait_reads_returncode_so_trio_can_reap_the_leaders_zombie(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The wait between SIGTERM and SIGKILL reads `process.returncode` while it polls.
-
-    On trio that property calls `Popen.poll()`, whose reap stops the leader's zombie
-    from keeping the group alive for the full timeout (see terminate_posix_process_tree).
-    Regression pin for the read itself, on both backends; the reaping side effect is
-    trio's documented behaviour, deliberately not re-tested here.
-    """
+    """On trio, reading `returncode` calls `Popen.poll()`, whose reap stops the leader's
+    zombie keeping the group alive for the full timeout (see terminate_posix_process_tree).
+    Pins the read itself, on both backends; the reaping side effect is trio's documented
+    behaviour, deliberately not re-tested here."""
 
     calls: list[tuple[int, int]] = []
 
     def fake_killpg(pgid: int, sig: int) -> None:
-        # SIGTERM is accepted and every liveness probe reports survivors, so the
-        # grace wait runs to its (tiny) timeout and the SIGKILL escalation fires.
+        # SIGTERM is accepted and every probe reports survivors: the grace wait runs to
+        # its (tiny) timeout and SIGKILL fires.
         calls.append((pgid, sig))
 
     class _ReadCountingProcess:
@@ -1102,19 +969,14 @@ async def test_the_grace_wait_reads_returncode_so_trio_can_reap_the_leaders_zomb
     assert stub.returncode_reads >= 1
 
 
-# ---------------------------------------------------------------------------
-# Real-process tests: the OS facts no fake can certify
-# ---------------------------------------------------------------------------
-#
-# These pin kernel behaviour (process-group kill semantics, SIGKILL delivery) via a
-# socket liveness probe, no sleeps or polls: `accept()` blocks until the subprocess
-# connects, proving it runs (and its pre-connect setup ran); after cleanup, `receive(1)`
-# raises EndOfStream (FIN) or BrokenResourceError (RST, typical of SIGKILL and Windows
-# job termination) because the kernel closes a dead process's file descriptors.
+# The real-process tests pin kernel behaviour via a socket liveness probe, no sleeps or
+# polls: `accept()` blocks until the subprocess connects, proving it runs; after cleanup,
+# `receive(1)` raises EndOfStream (FIN) or BrokenResourceError (RST, typical of SIGKILL
+# and Windows job termination) because the kernel closes a dead process's descriptors.
 
 
 def _connect_back_script(port: int) -> str:
-    """Return a ``python -c`` liveness-probe body: connect to `port`, send `b'alive'`, block forever."""
+    """Liveness-probe body for `python -c`: connect to `port`, send `b'alive'`, block forever."""
     return (
         f"import socket, time\n"
         f"s = socket.create_connection(('127.0.0.1', {port}))\n"
@@ -1124,7 +986,6 @@ def _connect_back_script(port: int) -> str:
 
 
 async def _open_liveness_listener() -> tuple[anyio.abc.SocketListener, int]:
-    """Open a TCP listener on localhost and return it along with its port."""
     multi = await anyio.create_tcp_listener(local_host="127.0.0.1")
     sock = multi.listeners[0]
     assert isinstance(sock, anyio.abc.SocketListener)
@@ -1135,11 +996,8 @@ async def _open_liveness_listener() -> tuple[anyio.abc.SocketListener, int]:
 
 
 async def _accept_alive(sock: anyio.abc.SocketListener) -> anyio.abc.SocketStream:
-    """Accept one connection and assert the peer sent ``b'alive'``.
-
-    Blocks until a subprocess connects (the outer test bounds this with
-    ``anyio.fail_after``).
-    """
+    """Accept one connection and assert the peer sent `b'alive'`; blocks until the
+    subprocess connects (the outer test bounds this with `anyio.fail_after`)."""
     stream = await sock.accept()
     msg = await stream.receive(5)
     assert msg == b"alive", f"expected b'alive', got {msg!r}"
@@ -1152,25 +1010,18 @@ async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
         await stream.receive(1)
 
 
-# lax no cover: only called by win32-skipped tests; Windows CI jobs enforce 100%
-# coverage per job, where these helpers never execute.
+# lax no cover: only called by win32-skipped tests; Windows CI enforces 100% per job.
 async def _wait_until_exited(proc: anyio.abc.Process) -> None:  # pragma: lax no cover
-    """Poll `returncode` until the process itself dies.
-
-    Not `proc.wait()`: on asyncio that also waits for the pipes to close, conflating
-    process death with pipe state.
-    """
+    """Poll `returncode` until the process dies; `proc.wait()` on asyncio also waits for
+    the pipes to close, conflating process death with pipe state."""
     while proc.returncode is None:
         await anyio.sleep(0.01)
 
 
 async def _reap(proc: anyio.abc.Process) -> None:  # pragma: lax no cover
-    """Reap an already-killed process and release its pipe transports.
-
-    Draining stdout to EOF lets the asyncio pipe transport observe the closure instead
-    of warning at GC. The bound swallows a hung cleanup on purpose; reaping is just a
-    safety net.
-    """
+    """Reap a killed process: draining stdout to EOF lets the asyncio pipe transport
+    observe the closure instead of warning at GC. The bound deliberately swallows a
+    hung cleanup; reaping is just a safety net."""
     with anyio.move_on_after(5.0):
         await proc.wait()
         assert proc.stdin is not None
@@ -1182,11 +1033,7 @@ async def _reap(proc: anyio.abc.Process) -> None:  # pragma: lax no cover
 
 
 def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc.Process | FallbackProcess]:
-    """Record every process `stdio_client` spawns (the real spawn still runs).
-
-    A test can inspect each process afterwards and tear its process group down on
-    failure.
-    """
+    """Record every process `stdio_client` spawns; the real spawn still runs."""
     spawned: list[anyio.abc.Process | FallbackProcess] = []
 
     async def recording_spawn(
@@ -1204,15 +1051,11 @@ def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc
     return spawned
 
 
-# lax no cover: registered on every platform but a no-op on Windows, whose runners
-# enforce 100% coverage per job.
+# lax no cover: registered on every platform but a no-op on Windows (100% per-job coverage).
 def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> None:  # pragma: lax no cover
-    """Failure-path safety net: SIGKILL each spawn-time process group.
-
-    This stops a test failing mid-body from orphaning its sleep-forever descendants.
-    A no-op when the test passed, and on Windows (no process group to signal; the Job
-    Object covers strays).
-    """
+    """Failure-path safety net: SIGKILL each spawn-time process group so a test failing
+    mid-body cannot orphan its sleep-forever descendants. A no-op when the test passed,
+    and on Windows (no process group to signal; the Job Object covers strays)."""
     if sys.platform == "win32":
         return
     for process in spawned:
@@ -1223,14 +1066,10 @@ def _kill_spawn_groups(spawned: list[anyio.abc.Process | FallbackProcess]) -> No
 
 @pytest.mark.anyio
 async def test_exiting_the_context_terminates_the_entire_process_tree(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exiting `stdio_client` kills the server's whole process tree.
-
-    The tree is a parent that exits instantly on SIGTERM (so the group must outlive its
-    leader), a child, and a grandchild, each death observed through its liveness socket
-    closing. The escalation timing is pinned in process by
-    test_escalation_fires_once_and_only_after_the_grace_period; the production grace
-    constant's value is deliberately unpinned.
-    """
+    """The tree is a parent that exits instantly on SIGTERM (so the group must outlive
+    its leader), a child, and a grandchild, each death observed through its liveness
+    socket closing. Escalation timing is pinned in process by the escalation-bound test;
+    the production grace constant's value is deliberately unpinned."""
     monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 0.2)
     spawned = _record_spawned_processes(monkeypatch)
 
@@ -1253,8 +1092,7 @@ async def test_exiting_the_context_terminates_the_entire_process_tree(monkeypatc
         )
         server_params = StdioServerParameters(command=sys.executable, args=["-c", parent])
 
-        # The bound covers three Python interpreter cold starts on a loaded runner;
-        # a healthy run takes well under a second.
+        # Covers three interpreter cold starts on a loaded runner; healthy runs are <1s.
         with anyio.fail_after(15.0):
             async with stdio_client(server_params):
                 streams = [await _accept_alive(sock) for _ in range(3)]
@@ -1269,12 +1107,8 @@ async def test_exiting_the_context_terminates_the_entire_process_tree(monkeypatc
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group semantics")
 # lax no cover: Windows CI jobs enforce 100% coverage per job and skip this test.
 async def test_tree_kill_reaches_children_after_the_leader_has_already_exited() -> None:  # pragma: lax no cover
-    """Killing the tree of an already-exited process still reaches its surviving children.
-
-    The process group outlives its leader, and the group ID is the leader's pid by
-    construction (start_new_session), not something to look up from the (reaped)
-    leader.
-    """
+    """The process group outlives its leader, and the group ID is the leader's pid by
+    construction (start_new_session), not something looked up from the (reaped) leader."""
     async with AsyncExitStack() as stack:
         sock, port = await _open_liveness_listener()
         stack.push_async_callback(sock.aclose)
@@ -1305,15 +1139,12 @@ async def test_tree_kill_reaches_children_after_the_leader_has_already_exited() 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group semantics")
 # lax no cover: same Windows-runner coverage reason as above.
 async def test_terminating_an_already_exited_process_is_a_no_op() -> None:  # pragma: lax no cover
-    """Once the whole group is gone, tree termination returns without error.
-
-    It does not fall back to signalling a reaped pid.
-    """
+    """Once the whole group is gone, tree termination returns without error rather than
+    falling back to signalling a reaped pid."""
     proc = await _create_platform_compatible_process(sys.executable, ["-c", "pass"])
     assert isinstance(proc, anyio.abc.Process)
 
-    # The bound covers one interpreter cold start on a loaded runner; a healthy run
-    # takes well under a second.
+    # Covers one interpreter cold start on a loaded runner; healthy runs are <1s.
     with anyio.fail_after(10.0):
         await _wait_until_exited(proc)
         await _terminate_process_tree(proc)
@@ -1326,13 +1157,10 @@ async def test_terminating_an_already_exited_process_is_a_no_op() -> None:  # pr
 async def test_escalation_kills_a_process_that_ignores_sigterm(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cleanup escalates past SIGTERM and kills a process that ignores it.
-
-    The child installs SIG_IGN *before* connecting to the liveness socket, so the
-    ignore is guaranteed in place; SIGKILL delivery is proven by the kernel closing
-    the socket. The only test of the SIGTERM-then-SIGKILL escalation itself; the
-    production constants' values are deliberately unpinned.
-    """
+    """The child installs SIG_IGN *before* connecting to the liveness socket, so the
+    ignore is guaranteed in place; SIGKILL delivery is proven by the kernel closing the
+    socket. The only test of the SIGTERM-then-SIGKILL escalation itself; the production
+    constants' values are deliberately unpinned."""
     monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 0.2)
     monkeypatch.setattr(stdio, "FORCE_KILL_TIMEOUT", 0.2)
     spawned = _record_spawned_processes(monkeypatch)
@@ -1345,8 +1173,7 @@ async def test_escalation_kills_a_process_that_ignores_sigterm(  # pragma: lax n
         script = "import signal\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n" + _connect_back_script(port)
         server_params = StdioServerParameters(command=sys.executable, args=["-c", script])
 
-        # The bound covers an interpreter cold start on a loaded runner plus the two
-        # shortened escalation waits; a healthy run takes well under a second.
+        # Covers a cold start plus the two shortened escalation waits; healthy runs are <1s.
         with anyio.fail_after(15.0):
             async with stdio_client(server_params):
                 stream = await _accept_alive(sock)
@@ -1361,14 +1188,10 @@ async def test_escalation_kills_a_process_that_ignores_sigterm(  # pragma: lax n
 async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A graceful exit with a surviving child must not leak the client's pipe fds.
-
-    A server may exit cleanly on stdin closure while leaving a child holding the
+    """A server may exit cleanly on stdin closure while leaving a child holding the
     inherited pipe ends (the POSIX policy: survivors are the server's business). The
-    client must still release its own pipe fds and subprocess transport at shutdown
-    (on asyncio nothing else ever closes them while the orphan holds the pipe) instead
-    of leaking them for the orphan's lifetime.
-    """
+    client must still release its own pipe fds and subprocess transport at shutdown; on
+    asyncio nothing else ever closes them while the orphan holds the pipe."""
     spawned = _record_spawned_processes(monkeypatch)
 
     async with AsyncExitStack() as stack:

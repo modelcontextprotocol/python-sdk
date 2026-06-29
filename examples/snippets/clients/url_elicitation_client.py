@@ -1,23 +1,7 @@
-"""URL Elicitation Client Example.
+"""Interactive client demonstrating how to handle URL elicitation requests from servers.
 
-Demonstrates how clients handle URL elicitation requests from servers.
-This is the Python equivalent of TypeScript SDK's elicitationUrlExample.ts,
-focused on URL elicitation patterns without OAuth complexity.
-
-Features demonstrated:
-1. Client elicitation capability declaration
-2. Handling elicitation requests from servers via callback
-3. Catching UrlElicitationRequiredError from tool calls
-4. Browser interaction with security warnings
-5. Interactive CLI for testing
-
-Run with:
-    cd examples/snippets
-    uv run elicitation-client
-
-Requires a server with URL elicitation tools running. Start the elicitation
-server first:
-    uv run server elicitation sse
+Start the elicitation server first (`cd examples/snippets && uv run server elicitation sse`),
+then run `uv run elicitation-client` from the same directory.
 """
 
 from __future__ import annotations
@@ -41,15 +25,10 @@ async def handle_elicitation(
     context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
-    """Handle elicitation requests from the server.
-
-    This callback is invoked when the server sends an elicitation/request.
-    For URL mode, we prompt the user and optionally open their browser.
-    """
+    """Elicitation callback invoked for each server elicitation request; only URL mode is supported here."""
     if params.mode == "url":
         return await handle_url_elicitation(params)
     else:
-        # We only support URL mode in this example
         return types.ErrorData(
             code=types.INVALID_REQUEST,
             message=f"Unsupported elicitation mode: {params.mode}",
@@ -62,15 +41,8 @@ ALLOWED_SCHEMES = {"http", "https"}
 async def handle_url_elicitation(
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult:
-    """Handle URL mode elicitation - show security warning and optionally open browser.
-
-    This function demonstrates the security-conscious approach to URL elicitation:
-    1. Validate the URL scheme before prompting the user
-    2. Display the full URL and domain for user inspection
-    3. Show the server's reason for requesting this interaction
-    4. Require explicit user consent before opening any URL
-    """
-    # Extract URL parameters - these are available on URL mode requests
+    """Show a security warning and open the URL in a browser only with explicit user consent."""
+    # url and elicitationId are only present on URL mode requests
     url = getattr(params, "url", None)
     elicitation_id = getattr(params, "elicitationId", None)
     message = params.message
@@ -85,10 +57,9 @@ async def handle_url_elicitation(
         print(f"\nRejecting URL with disallowed scheme '{parsed.scheme}': {url}")
         return types.ElicitResult(action="decline")
 
-    # Extract domain for security display
     domain = extract_domain(url)
 
-    # Security warning - always show the user what they're being asked to do
+    # Always show the user what they're being asked to open
     print("\n" + "=" * 60)
     print("SECURITY WARNING: External URL Request")
     print("=" * 60)
@@ -100,7 +71,6 @@ async def handle_url_elicitation(
     print(f"\n  Elicitation ID: {elicitation_id}")
     print("\n" + "-" * 60)
 
-    # Get explicit user consent
     try:
         response = input("\nOpen this URL in your browser? (y/n): ").strip().lower()
     except EOFError:
@@ -113,7 +83,6 @@ async def handle_url_elicitation(
         print("Invalid response. Cancelling.")
         return types.ElicitResult(action="cancel")
 
-    # Open the browser
     print(f"\nOpening browser to: {url}")
     try:
         webbrowser.open(url)
@@ -142,18 +111,13 @@ async def call_tool_with_error_handling(
 ) -> types.CallToolResult | None:
     """Call a tool, handling UrlElicitationRequiredError if raised.
 
-    When a server tool needs URL elicitation before it can proceed,
-    it can either:
-    1. Send an elicitation request directly (handled by elicitation_callback)
-    2. Return an error with code -32042 (URL_ELICITATION_REQUIRED)
-
-    This function demonstrates handling case 2 - catching the error
-    and processing the required URL elicitations.
+    A server tool needing URL elicitation can send an elicitation request directly
+    (handled by the elicitation callback) or return error -32042
+    (URL_ELICITATION_REQUIRED); this demonstrates catching the error form.
     """
     try:
         result = await session.call_tool(tool_name, arguments)
 
-        # Check if the tool returned an error in the result
         if result.is_error:
             print(f"Tool returned error: {result.content}")
             return None
@@ -161,26 +125,22 @@ async def call_tool_with_error_handling(
         return result
 
     except MCPError as e:
-        # Check if this is a URL elicitation required error
         if e.code == URL_ELICITATION_REQUIRED:
             print("\n[Tool requires URL elicitation to proceed]")
 
             # Convert to typed error to access elicitations
             url_error = UrlElicitationRequiredError.from_error(e.error)
 
-            # Process each required elicitation
             for elicitation in url_error.elicitations:
                 await handle_url_elicitation(elicitation)
 
             return None
         else:
-            # Re-raise other MCP errors
             print(f"MCP Error: {e.error.message} (code: {e.error.code})")
             return None
 
 
 def print_help() -> None:
-    """Print available commands."""
     print("\nAvailable commands:")
     print("  list-tools              - List available tools")
     print("  call <name> [json-args] - Call a tool with optional JSON arguments")
@@ -191,7 +151,6 @@ def print_help() -> None:
 
 
 def print_tool_result(result: types.CallToolResult | None) -> None:
-    """Print a tool call result."""
     if not result:
         return
     print("\nTool result:")
@@ -203,7 +162,6 @@ def print_tool_result(result: types.CallToolResult | None) -> None:
 
 
 async def handle_list_tools(session: ClientSession) -> None:
-    """Handle the list-tools command."""
     tools = await session.list_tools()
     if tools.tools:
         print("\nAvailable tools:")
@@ -214,7 +172,6 @@ async def handle_list_tools(session: ClientSession) -> None:
 
 
 async def handle_call_command(session: ClientSession, command: str) -> None:
-    """Handle the call command."""
     parts = command.split(maxsplit=2)
     if len(parts) < 2:
         print("Usage: call <tool-name> [json-args]")
@@ -262,7 +219,6 @@ async def process_command(session: ClientSession, command: str) -> bool:
 
 
 async def run_command_loop(session: ClientSession) -> None:
-    """Run the interactive command loop."""
     while True:
         try:
             command = input("> ").strip()

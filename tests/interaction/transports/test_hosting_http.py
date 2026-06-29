@@ -1,9 +1,7 @@
 """Streamable HTTP semantics: status codes, header validation, message routing, and security.
 
-These tests speak HTTP directly to the server's mounted ASGI app via the in-process bridge,
-asserting the wire contract -- which status code answers which condition, which stream a message
-travels on -- that the SDK client never exposes. Transport-agnostic behaviour is covered by the
-`connect`-fixture matrix.
+These tests speak HTTP directly to the server's mounted ASGI app, asserting the wire contract the
+SDK client never exposes. Transport-agnostic behaviour is covered by the `connect`-fixture matrix.
 """
 
 import anyio
@@ -85,7 +83,6 @@ def _server() -> Server:
 
 @requirement("hosting:http:method-405")
 async def test_unsupported_http_methods_return_405() -> None:
-    """PUT and PATCH on the MCP endpoint return 405 with an Allow header naming the supported methods."""
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
         put = await http.put("/mcp", json={}, headers=base_headers(session_id=session_id))
@@ -97,7 +94,6 @@ async def test_unsupported_http_methods_return_405() -> None:
 
 @requirement("hosting:http:accept-406")
 async def test_missing_accept_media_types_return_406() -> None:
-    """A POST whose Accept header lacks both required types, or a GET lacking text/event-stream, returns 406."""
     async with mounted_app(_server()) as (http, _):
         post = await http.post(
             "/mcp", json=initialize_body(), headers={"accept": "text/plain", "mcp-protocol-version": "2025-11-25"}
@@ -118,11 +114,7 @@ async def test_missing_accept_media_types_return_406() -> None:
 
 @requirement("hosting:http:content-type-415")
 async def test_non_json_content_type_is_rejected() -> None:
-    """A POST with a non-JSON Content-Type is rejected before reaching the transport.
-
-    See the divergence on the requirement: the security middleware rejects with 400, so the
-    transport's own 415 path is unreachable through any public entry point.
-    """
+    """Divergence: the security middleware rejects with 400, so the transport's own 415 path is unreachable."""
     async with mounted_app(_server()) as (http, _):
         response = await http.post(
             "/mcp", content=b"<not-json/>", headers=base_headers() | {"content-type": "text/plain"}
@@ -134,7 +126,6 @@ async def test_non_json_content_type_is_rejected() -> None:
 @requirement("hosting:http:parse-error-400")
 @requirement("hosting:http:batch")
 async def test_malformed_and_batched_bodies_return_400() -> None:
-    """A non-JSON body returns 400 Parse error; a JSON array of requests returns 400 Invalid params."""
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
         not_json = await http.post(
@@ -160,11 +151,9 @@ async def test_malformed_and_batched_bodies_return_400() -> None:
 @requirement("hosting:http:protocol-version-400")
 @requirement("hosting:http:protocol-version-default")
 async def test_protocol_version_header_is_validated() -> None:
-    """An unsupported MCP-Protocol-Version header returns 400; an absent header is accepted as the default.
+    """An unrecognised header value routes to the modern entry, which owns rejecting unknown versions.
 
-    An unrecognised header value routes to the modern entry (which owns rejection of unknown
-    versions), and a request without the per-request envelope is rejected at the first ladder
-    rung. Only known initialize-handshake versions and an absent header reach the legacy path.
+    Only known initialize-handshake versions and an absent header reach the legacy path.
     """
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
@@ -189,12 +178,10 @@ async def test_protocol_version_header_is_validated() -> None:
 
 @requirement("hosting:http:protocol-version-rejection-literal")
 async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_literal() -> None:
-    """The 400 body for an unsupported MCP-Protocol-Version contains the substring peer SDKs sniff.
+    """SDK-defined: peer SDKs detect this rejection by substring-matching `Unsupported protocol version`.
 
-    SDK-defined: other SDKs detect this rejection by substring-matching ``Unsupported protocol
-    version`` in the response body, so the literal must survive any rewording of the surrounding
-    message. The unsupported value must appear in both the header and the envelope so the
-    classifier reaches its version-supported rung rather than reporting a header mismatch first.
+    The unsupported value goes in both the header and the envelope so the classifier reaches its
+    version-supported rung rather than reporting a header mismatch first.
     """
     bad = "1991-01-01"
     meta = {
@@ -218,11 +205,7 @@ async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_
 
 @requirement("hosting:http:json-response-mode")
 async def test_json_response_mode_answers_with_application_json_not_sse() -> None:
-    """With JSON response mode enabled, request POSTs are answered with a single application/json body.
-
-    Asserted at the wire level because the SDK client parses either representation, so a
-    Client-driven round trip cannot distinguish a JSON response from an SSE one.
-    """
+    """Wire-level: the SDK client parses either representation, so it cannot distinguish JSON from SSE."""
     async with mounted_app(_server(), json_response=True) as (http, _):
         initialized = await http.post("/mcp", json=initialize_body(), headers=base_headers())
         session_id = initialized.headers["mcp-session-id"]
@@ -242,7 +225,6 @@ async def test_json_response_mode_answers_with_application_json_not_sse() -> Non
 
 @requirement("hosting:http:notifications-202")
 async def test_notification_post_returns_202_with_no_body() -> None:
-    """A POST containing only a notification (no request ID) returns 202 Accepted with no body."""
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
         response = await http.post(
@@ -256,15 +238,13 @@ async def test_notification_post_returns_202_with_no_body() -> None:
 
 @requirement("hosting:http:second-sse-rejected")
 async def test_a_second_standalone_get_stream_on_the_same_session_returns_409() -> None:
-    """Opening a second standalone GET SSE stream while one is already established returns 409 Conflict."""
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
 
         async with aconnect_sse(http, "GET", "/mcp", headers=base_headers(session_id=session_id)) as first:
             assert first.response.status_code == 200
-            # The standalone-stream writer registers its key as its first action, then parks
-            # awaiting messages; one yield to the loop lets that registration complete before the
-            # second GET is dispatched.
+            # The standalone-stream writer registers its key as its first action; one yield to the
+            # loop lets that registration complete before the second GET is dispatched.
             await checkpoint()
             second = await http.get("/mcp", headers=base_headers(session_id=session_id))
 
@@ -281,14 +261,8 @@ async def test_a_second_standalone_get_stream_on_the_same_session_returns_409() 
 async def test_messages_are_routed_to_exactly_one_stream() -> None:
     """Each server message travels on exactly one SSE stream and is never broadcast.
 
-    A streamable-HTTP session has two kinds of server-to-client SSE stream: one short-lived stream
-    per POST request, carrying that request's response and any notifications related to it, and one
-    long-lived standalone stream (opened by GET) for notifications not tied to any request. The
-    spec's routing rule is that the POST stream delivers the response (and its related
-    notifications) and then closes, the standalone stream carries only unrelated notifications and
-    never a JSON-RPC response, and no message appears on both. The test opens both streams, calls a
-    tool whose handler emits one related and one unrelated notification, and asserts each message's
-    routing.
+    Spec routing rule: the per-POST stream delivers the response plus its related notifications and
+    then closes; the standalone GET stream carries only unrelated notifications and never a response.
     """
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
@@ -329,7 +303,6 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
     post_messages = parse_sse_messages(post_events)
     get_messages = parse_sse_messages(get_events)
 
-    # POST stream: the related log notification, then the response, then the iterator ends (close).
     assert [type(m).__name__ for m in post_messages] == snapshot(["JSONRPCNotification", "JSONRPCResponse"])
     assert isinstance(post_messages[0], JSONRPCNotification)
     assert (post_messages[0].method, post_messages[0].params) == snapshot(
@@ -338,7 +311,6 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
     assert isinstance(post_messages[1], JSONRPCResponse)
     assert post_messages[1].id == 5
 
-    # Standalone stream: only the unrelated resource-updated notification, never a response.
     assert [type(m).__name__ for m in get_messages] == snapshot(["JSONRPCNotification"])
     assert isinstance(get_messages[0], JSONRPCNotification)
     assert get_messages[0].method == snapshot("notifications/resources/updated")
@@ -347,12 +319,10 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
 @requirement("hosting:http:dns-rebinding")
 @requirement("transport:streamable-http:origin-validation")
 async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> None:
-    """A disallowed Origin returns 403 (and Host 421) with protection enabled; disabled lets both through.
+    """Divergence on hosting:http:dns-rebinding: the spec's Origin validation is an unconditional MUST.
 
-    See the divergence on hosting:http:dns-rebinding: the spec's Origin validation is an
-    unconditional MUST, but the SDK enables it only when the host is localhost (or settings are
-    passed explicitly) and additionally checks the Host header (returning 421), which the spec
-    does not require.
+    The SDK enables it only for localhost (or explicit settings) and additionally checks the Host
+    header (returning 421), which the spec does not require.
     """
     # transport_security=None triggers the localhost auto-enable behaviour.
     async with mounted_app(Server("guarded"), transport_security=None) as (http, _):

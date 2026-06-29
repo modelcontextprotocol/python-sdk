@@ -30,8 +30,7 @@ def test_matches_rfc6570_reserved_expansion():
 
 
 def test_matches_rejects_encoded_slash_traversal():
-    # %2F decodes to / in UriTemplate.match(), giving "../../etc/passwd".
-    # ResourceSecurity's traversal check then rejects the '..' components.
+    # %2F decodes to '/' in UriTemplate.match(); the traversal check then rejects the '..' components.
     t = _make("file://docs/{name}")
     with pytest.raises(ResourceSecurityError, match="'name'"):
         t.matches("file://docs/..%2F..%2Fetc%2Fpasswd")
@@ -75,8 +74,7 @@ def test_matches_disabled_policy_allows_traversal():
 
 
 def test_matches_rejects_null_byte_by_default():
-    # %00 decodes to \x00 which defeats string comparisons
-    # ("..\x00" != "..") and can truncate in C extensions.
+    # %00 decodes to \x00, which defeats string comparisons ("..\x00" != "..") and can truncate in C extensions.
     t = _make("file://docs/{name}")
     with pytest.raises(ResourceSecurityError):
         t.matches("file://docs/key%00.txt")
@@ -92,22 +90,18 @@ def test_matches_null_byte_check_can_be_disabled():
 
 
 def test_security_rejection_does_not_fall_through_to_next_template():
-    # A strict template's security rejection must halt iteration, not
-    # fall through to a later permissive template. Previously matches()
-    # returned None for both "no match" and "security failed", making
-    # registration order security-critical.
+    # A strict template's rejection must halt iteration, not fall through to a later permissive template:
+    # matches() once returned None for both "no match" and "security failed", making registration order critical.
     strict = _make("file://docs/{name}")
     lax = _make(
         "file://docs/{+path}",
         security=ResourceSecurity(exempt_params={"path"}),
     )
     uri = "file://docs/..%2Fsecrets"
-    # Strict matches structurally then fails security -> raises.
     with pytest.raises(ResourceSecurityError) as exc:
         strict.matches(uri)
     assert exc.value.param == "name"
-    # If this raised, the resource manager never reaches the lax
-    # template. Verify the lax template WOULD have accepted it.
+    # Prove the lax template WOULD have accepted the URI — the raise above is what prevents fall-through.
     assert lax.matches(uri) == {"path": "../secrets"}
 
 
@@ -120,32 +114,27 @@ def test_matches_explode_checks_each_segment():
 
 
 def test_matches_encoded_backslash_caught_by_traversal_check():
-    # %5C decodes to '\\'. The traversal check normalizes '\\' to '/'
-    # and catches the '..' components.
+    # %5C decodes to '\'; the traversal check normalizes '\' to '/' and catches the '..' components.
     t = _make("file://docs/{name}")
     with pytest.raises(ResourceSecurityError):
         t.matches("file://docs/..%5C..%5Csecret")
 
 
 def test_matches_encoded_dots_caught_by_traversal_check():
-    # %2E%2E decodes to '..' which the traversal check rejects.
     t = _make("file://docs/{name}")
     with pytest.raises(ResourceSecurityError):
         t.matches("file://docs/%2E%2E")
 
 
 def test_matches_mixed_encoded_and_literal_slash():
-    # The literal '/' stops the simple-var regex, so the URI doesn't
-    # match the template at all.
+    # The literal '/' stops the simple-var regex, so the URI doesn't match the template at all.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/..%2F../etc") is None
 
 
 def test_matches_encoded_slash_without_traversal_allowed():
-    # %2F decoding to '/' is fine when there's no traversal involved.
-    # UriTemplate accepts it; ResourceSecurity only blocks '..' and
-    # absolute paths. Handlers that need single-segment should use
-    # safe_join or validate explicitly.
+    # ResourceSecurity only blocks '..' and absolute paths; a decoded '/' alone is allowed.
+    # Handlers that need single-segment values must use safe_join or validate explicitly.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/sub%2Ffile.txt") == {"name": "sub/file.txt"}
 
@@ -158,11 +147,7 @@ def test_matches_escapes_template_literals():
 
 
 class TestResourceTemplate:
-    """Test ResourceTemplate functionality."""
-
     def test_template_creation(self):
-        """Test creating a template from a function."""
-
         def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
@@ -177,8 +162,6 @@ class TestResourceTemplate:
         assert template.fn(key="test", value=42) == my_func(key="test", value=42)
 
     def test_template_matches(self):
-        """Test matching URIs against a template."""
-
         def my_func(key: str, value: int) -> dict[str, Any]:  # pragma: no cover
             return {"key": key, "value": value}
 
@@ -188,18 +171,14 @@ class TestResourceTemplate:
             name="test",
         )
 
-        # Valid match
         params = template.matches("test://foo/123")
         assert params == {"key": "foo", "value": "123"}
 
-        # No match
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
     @pytest.mark.anyio
     async def test_create_resource(self):
-        """Test creating a resource from a template."""
-
         def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
@@ -223,8 +202,6 @@ class TestResourceTemplate:
 
     @pytest.mark.anyio
     async def test_template_error(self):
-        """Test error handling in template resource creation."""
-
         def failing_func(x: str) -> str:
             raise ValueError("Test error")
 
@@ -239,8 +216,6 @@ class TestResourceTemplate:
 
     @pytest.mark.anyio
     async def test_async_text_resource(self):
-        """Test creating a text resource from async function."""
-
         async def greet(name: str) -> str:
             return f"Hello, {name}!"
 
@@ -262,8 +237,6 @@ class TestResourceTemplate:
 
     @pytest.mark.anyio
     async def test_async_binary_resource(self):
-        """Test creating a binary resource from async function."""
-
         async def get_bytes(value: str) -> bytes:
             return value.encode()
 
@@ -285,8 +258,6 @@ class TestResourceTemplate:
 
     @pytest.mark.anyio
     async def test_basemodel_conversion(self):
-        """Test handling of BaseModel types."""
-
         class MyModel(BaseModel):
             key: str
             value: int
@@ -314,8 +285,6 @@ class TestResourceTemplate:
 
     @pytest.mark.anyio
     async def test_custom_type_conversion(self):
-        """Test handling of custom types."""
-
         class CustomData:
             def __init__(self, value: str):
                 self.value = value
@@ -344,11 +313,7 @@ class TestResourceTemplate:
 
 
 class TestResourceTemplateAnnotations:
-    """Test annotations on resource templates."""
-
     def test_template_with_annotations(self):
-        """Test creating a template with annotations."""
-
         def get_user_data(user_id: str) -> str:  # pragma: no cover
             return f"User {user_id}"
 
@@ -362,8 +327,6 @@ class TestResourceTemplateAnnotations:
         assert template.annotations.priority == 0.9
 
     def test_template_without_annotations(self):
-        """Test that annotations are optional for templates."""
-
         def get_user_data(user_id: str) -> str:  # pragma: no cover
             return f"User {user_id}"
 
@@ -373,8 +336,6 @@ class TestResourceTemplateAnnotations:
 
     @pytest.mark.anyio
     async def test_template_annotations_in_mcpserver(self):
-        """Test template annotations via an MCPServer decorator."""
-
         mcp = MCPServer()
 
         @mcp.resource("resource://dynamic/{id}", annotations=Annotations(audience=["user"], priority=0.7))
@@ -390,8 +351,6 @@ class TestResourceTemplateAnnotations:
 
     @pytest.mark.anyio
     async def test_template_created_resources_inherit_annotations(self):
-        """Test that resources created from templates inherit annotations."""
-
         def get_item(item_id: str) -> str:
             return f"Item {item_id}"
 
@@ -401,24 +360,17 @@ class TestResourceTemplateAnnotations:
             fn=get_item, uri_template="resource://items/{item_id}", annotations=annotations
         )
 
-        # Create a resource from the template
         resource = await template.create_resource("resource://items/123", {"item_id": "123"}, Context())
 
-        # The resource should inherit the template's annotations
         assert resource.annotations is not None
         assert resource.annotations.priority == 0.6
 
-        # Verify the resource works correctly
         content = await resource.read()
         assert content == "Item 123"
 
 
 class TestResourceTemplateMetadata:
-    """Test ResourceTemplate meta handling."""
-
     def test_template_from_function_with_metadata(self):
-        """Test that ResourceTemplate.from_function() accepts and stores meta parameter."""
-
         def get_user(user_id: str) -> str:  # pragma: no cover
             return f"User {user_id}"
 
@@ -437,8 +389,6 @@ class TestResourceTemplateMetadata:
 
     @pytest.mark.anyio
     async def test_template_created_resources_inherit_metadata(self):
-        """Test that resources created from templates inherit meta from template."""
-
         def get_item(item_id: str) -> str:
             return f"Item {item_id}"
 
@@ -450,10 +400,8 @@ class TestResourceTemplateMetadata:
             meta=metadata,
         )
 
-        # Create a resource from the template
         resource = await template.create_resource("resource://items/123", {"item_id": "123"}, Context())
 
-        # The resource should inherit the template's metadata
         assert resource.meta is not None
         assert resource.meta == metadata
         assert resource.meta["category"] == "inventory"
@@ -462,8 +410,6 @@ class TestResourceTemplateMetadata:
 
 @pytest.mark.anyio
 async def test_sync_fn_runs_in_worker_thread():
-    """Sync template functions must run in a worker thread, not the event loop."""
-
     main_thread = threading.get_ident()
     fn_thread: list[int] = []
 

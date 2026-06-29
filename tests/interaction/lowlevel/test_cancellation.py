@@ -1,9 +1,7 @@
 """Cancellation interactions against the low-level Server, driven through the public Client API.
 
-There is no client-side cancellation API: cancelling means sending a CancelledNotification
-carrying the request id, which only the server-side handler can observe (`ctx.request_id`), so
-these tests capture the id from inside the blocked handler before cancelling. The handler blocks
-on an Event rather than a sleep, and every wait is bounded by `anyio.fail_after`.
+There is no client-side cancellation API: tests send `CancelledNotification` by hand, capturing the
+request id from inside the blocked handler since only the server side (`ctx.request_id`) observes it.
 """
 
 import anyio
@@ -40,12 +38,8 @@ pytestmark = pytest.mark.anyio
 @requirement("protocol:cancel:in-flight")
 @requirement("protocol:cancel:handler-abort-propagates")
 async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
-    """Cancelling an in-flight request interrupts its handler and fails the pending call.
-
-    The server answers the cancelled request with an error response (the spec says it should
-    not respond at all; see the divergence note on the requirement), so the caller's pending
-    request raises rather than hanging.
-    """
+    """The server answers the cancelled request with an error response, so the pending call raises
+    rather than hanging (the spec says not to respond at all; see the divergence note on the requirement)."""
     started = anyio.Event()
     handler_cancelled = anyio.Event()
     request_ids: list[types.RequestId] = []
@@ -57,11 +51,11 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
         request_ids.append(ctx.request_id)
         started.set()
         try:
-            await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
+            await anyio.Event().wait()  # blocks until cancelled
         except anyio.get_cancelled_exc_class():
             handler_cancelled.set()
             raise
-        raise NotImplementedError  # unreachable: the wait above never completes normally
+        raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_call_tool=call_tool)
 
@@ -89,7 +83,6 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
 
 @requirement("protocol:cancel:server-survives")
 async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
-    """A request cancelled mid-flight does not poison the session: the next request succeeds."""
     started = anyio.Event()
     request_ids: list[types.RequestId] = []
 
@@ -135,8 +128,6 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
 
 @requirement("protocol:cancel:unknown-id-ignored")
 async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> None:
-    """A cancellation referencing a request id that is not in flight is ignored without error."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -159,7 +150,6 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
 
 @requirement("protocol:cancel:server-to-client")
 async def test_abandoned_server_request_cancels_the_client_callback(connect: Connect) -> None:
-    """A server that abandons a sampling request cancels it, interrupting the client's callback mid-await."""
     callback_started = anyio.Event()
     callback_cancelled = anyio.Event()
 
@@ -168,7 +158,7 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
     ) -> types.CreateMessageResult:
         callback_started.set()
         try:
-            await anyio.Event().wait()  # blocks until the cancellation interrupts it
+            await anyio.Event().wait()  # blocks until cancelled
         except anyio.get_cancelled_exc_class():
             callback_cancelled.set()
             raise
@@ -191,7 +181,7 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
 
             async def sample() -> None:
                 await ctx.session.send_request(request, types.CreateMessageResult)
-                raise NotImplementedError  # unreachable: the scope is cancelled
+                raise NotImplementedError  # unreachable
 
             abandon_scope.start_soon(sample)
             with anyio.fail_after(5):
@@ -212,22 +202,11 @@ async def test_abandoned_server_request_cancels_the_client_callback(connect: Con
 
 @requirement("protocol:cancel:late-response-ignored")
 async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
-    """A response whose id matches no in-flight request is ignored, as the spec asks.
+    """A response whose id matches no in-flight request is dropped without surfacing.
 
-    The spec says a sender SHOULD ignore a response that arrives after it issued a cancellation;
-    that is the same client-side code path as any response with an unknown id, and that form is
-    deterministic to test without a client-side cancellation API.
-
-    "Ignored" is proved in two halves: the pong round-trip proves the read loop survived the
-    fabricated response (the ordered in-memory stream routed it first), and `surfaced` holding
-    only the control notification proves the fabricated response was never delivered to
-    `message_handler` (v1 surfaced it there as a RuntimeError).
-
-    A real Server cannot be made to answer with a fabricated id, so the test plays the server's
-    side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
-    other tests in this file run over the transport matrix; this one is in-memory only because the
-    scripted-peer mechanism is the in-memory stream pair, not because the behaviour is
-    transport-specific.
+    This is the spec's SHOULD-ignore path for responses arriving after a cancellation, tested in
+    its deterministic unknown-id form. A real Server never answers with a fabricated id, so a
+    scripted peer plays the server's side of the wire — hence in-memory only, no transport matrix.
     """
 
     async def scripted_server(streams: MessageStream) -> None:
@@ -238,7 +217,7 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
                 JSONRPCResponse(
                     jsonrpc="2.0",
                     id=request_id,
-                    # Serialized exactly as a real server serializes results onto the wire.
+                    # Serialized the way a real server puts results on the wire.
                     result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
@@ -267,8 +246,7 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
         assert isinstance(ping, SessionMessage)
         assert isinstance(ping.message, JSONRPCRequest)
         assert ping.message.method == "ping"
-        # First a fabricated id that matches nothing in flight, then a control notification that
-        # is surfaced to message_handler (proving the handler is live), then the real id.
+        # Fabricated unknown id, then a control notification (proves message_handler is live), then the real id.
         await server_write.send(respond(9999, EmptyResult()))
         await server_write.send(
             SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
@@ -291,17 +269,14 @@ async def test_a_response_for_an_unknown_request_id_is_ignored() -> None:
             pong = await session.send_request(PingRequest(), EmptyResult)
 
         assert pong == snapshot(EmptyResult())
-        # The stream is ordered, so the fabricated response was routed before the control
-        # notification: only the control surfaced, so the unknown-id response was dropped.
+        # Ordered stream: the fabricated response was routed before the control notification, yet only
+        # the control surfaced — the response was dropped (v1 delivered it here as a RuntimeError).
         assert surfaced == snapshot([types.ToolListChangedNotification()])
 
 
 @requirement("protocol:cancel:initialize-not-cancellable")
 async def test_timed_out_initialize_sends_no_cancellation() -> None:
-    """An abandoned initialize is not followed by notifications/cancelled on the wire (spec-mandated).
-
-    A real Server always answers initialize, so the test plays a stalling server by hand.
-    """
+    """A real Server always answers initialize, so the test plays a stalling server by hand."""
     received_methods: list[str] = []
 
     async def scripted_server(streams: MessageStream) -> None:

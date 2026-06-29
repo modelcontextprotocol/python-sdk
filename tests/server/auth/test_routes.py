@@ -27,13 +27,11 @@ def test_validate_issuer_url_http_non_loopback_rejected():
 
 
 def test_validate_issuer_url_http_127_prefix_domain_rejected():
-    """A domain like 127.0.0.1.evil.com is not loopback."""
     with pytest.raises(ValueError, match="Issuer URL must be HTTPS"):
         validate_issuer_url(AnyHttpUrl("http://127.0.0.1.evil.com/path"))
 
 
 def test_validate_issuer_url_http_127_prefix_subdomain_rejected():
-    """A domain like 127.0.0.1something.example.com is not loopback."""
     with pytest.raises(ValueError, match="Issuer URL must be HTTPS"):
         validate_issuer_url(AnyHttpUrl("http://127.0.0.1something.example.com/path"))
 

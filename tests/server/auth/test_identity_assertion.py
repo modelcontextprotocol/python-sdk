@@ -217,7 +217,6 @@ async def test_identity_assertion_rejected_when_disabled(provider: IdentityAsser
 
 @pytest.mark.anyio
 async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClient, provider: IdentityAssertionProvider):
-    """A public (auth method 'none') client cannot use the grant, even if it presents a valid assertion."""
     provider.clients["public-client"] = OAuthClientInformationFull(
         client_id="public-client",
         redirect_uris=None,
@@ -240,11 +239,7 @@ async def test_identity_assertion_rejects_public_client(client: httpx.AsyncClien
 async def test_identity_assertion_rejects_secretless_confidential_client(
     client: httpx.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """A client registered with a secret-based method but no stored secret fails authentication.
-
-    `ClientAuthenticator` rejects this misconfiguration as `invalid_client`, so the request never
-    reaches the jwt-bearer handler or the provider hook.
-    """
+    # ClientAuthenticator rejects the missing secret as invalid_client before the jwt-bearer handler runs.
     provider.clients["secretless-client"] = OAuthClientInformationFull(
         client_id="secretless-client",
         client_secret=None,
@@ -268,7 +263,6 @@ async def test_identity_assertion_rejects_secretless_confidential_client(
 
 @pytest.mark.anyio
 async def test_malformed_request_missing_assertion_is_invalid_request(client: httpx.AsyncClient):
-    """A jwt-bearer request without the required `assertion` fails validation with invalid_request."""
     response = await client.post(
         "/token",
         data={
@@ -286,7 +280,6 @@ async def test_malformed_request_missing_assertion_is_invalid_request(client: ht
 async def test_client_without_the_grant_registered_is_rejected(
     client: httpx.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """A confidential client whose registration omits the jwt-bearer grant is refused the grant."""
     provider.clients["no-grant-client"] = OAuthClientInformationFull(
         client_id="no-grant-client",
         client_secret="s",
@@ -315,7 +308,7 @@ async def test_client_without_the_grant_registered_is_rejected(
 async def test_dcr_refuses_to_register_the_jwt_bearer_grant(
     client: httpx.AsyncClient, provider: IdentityAssertionProvider
 ):
-    """Dynamic client registration rejects the jwt-bearer grant; the ID-JAG flow needs pre-registration."""
+    # The ID-JAG flow requires pre-registration, so DCR must refuse the jwt-bearer grant.
     response = await client.post(
         "/register",
         json={
@@ -331,7 +324,6 @@ async def test_dcr_refuses_to_register_the_jwt_bearer_grant(
     assert body["error"] == "invalid_client_metadata"
     assert JWT_BEARER_GRANT_TYPE in body["error_description"]
 
-    # A registration without the jwt-bearer grant still succeeds and is stored.
     ok = await client.post(
         "/register",
         json={
@@ -347,8 +339,6 @@ async def test_dcr_refuses_to_register_the_jwt_bearer_grant(
 
 @pytest.mark.anyio
 async def test_default_provider_rejects_identity_assertion():
-    """A provider that does not override `exchange_identity_assertion` rejects with unsupported_grant_type."""
-
     class BareProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
         async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
             raise NotImplementedError

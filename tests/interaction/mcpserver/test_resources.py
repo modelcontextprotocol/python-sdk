@@ -22,7 +22,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("mcpserver:resource:static")
 async def test_read_static_resource(connect: Connect) -> None:
-    """A function registered for a fixed URI is served at that URI with its return value as text."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")
@@ -42,11 +41,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:static")
 async def test_list_static_and_templated_resources(connect: Connect) -> None:
-    """Statically-registered resources appear in resources/list; templated ones only in templates/list.
-
-    The name and description are derived from the function name and docstring; the MIME type
-    defaults to text/plain.
-    """
+    """Static resources appear only in resources/list; templated ones only in templates/list."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")
@@ -92,7 +87,6 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
 @requirement("mcpserver:resource:template")
 @requirement("resources:read:template-vars")
 async def test_read_templated_resource(connect: Connect) -> None:
-    """Reading a URI that matches a registered template invokes the function with the extracted parameters."""
     mcp = MCPServer("library")
 
     @mcp.resource("users://{user_id}/profile")
@@ -131,11 +125,7 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:read-throws-surfaced")
 async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(connect: Connect) -> None:
-    """An exception raised by a resource function reaches the caller as a JSON-RPC error.
-
-    MCPServer wraps the failure in a generic ResourceError that names only the URI, so the original
-    exception text is not leaked to the client. The wrapped exception surfaces as -32603 Internal error.
-    """
+    """The -32603 error names only the URI; the original exception text is deliberately not leaked."""
     mcp = MCPServer("library")
 
     @mcp.resource("res://boom")
@@ -153,13 +143,7 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
 
 @requirement("mcpserver:resource:duplicate-name")
 async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(connect: Connect) -> None:
-    """Registering a second static resource at an already-used URI keeps the first registration.
-
-    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
-    and discards the second registration (see the divergence note on the requirement). The two
-    registrations use different function names so the test does not redefine a name in this scope;
-    the resource decorator keys on the URI, not the function name.
-    """
+    """Intended behaviour is rejection at registration time (see the divergence note on the requirement)."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")

@@ -1,17 +1,13 @@
 """List-changed notifications from the low-level Server, driven through the public Client API.
 
-``send_*_list_changed`` does not take a ``related_request_id``, so over streamable HTTP the
-notification routes to the standalone GET stream and is not guaranteed to arrive before the tool
-result on its POST stream. Tests therefore wait on an event the collector sets, the same pattern
-as ``transports/test_streamable_http.py::test_unrelated_server_messages_arrive_on_the_standalone_stream``.
-The collector still records every message it receives, so the snapshot also proves nothing else
-was delivered.
+`send_*_list_changed` takes no `related_request_id`, so over streamable HTTP it routes to the
+standalone GET stream and may arrive after the tool result on the POST stream; tests wait on an
+event the collector sets
+(see `transports/test_streamable_http.py::test_unrelated_server_messages_arrive_on_the_standalone_stream`).
 
-The servers register the parent capability (resources/prompts) so that part of the spec's
-precondition holds, but the ``listChanged`` sub-capability stays ``False``: ``NotificationOptions``
-is not threaded through any of the suite's connection paths. The tests therefore rely on the
-recorded ``lifecycle:capability:server-not-advertised`` divergence and will need updating
-alongside the fix that introduces capability gating.
+Servers register the parent capability (resources/prompts), but `listChanged` stays `False` —
+`NotificationOptions` isn't threaded through the suite's connection paths — so tests rely on the
+recorded `lifecycle:capability:server-not-advertised` divergence; update alongside the capability-gating fix.
 """
 
 import anyio
@@ -36,7 +32,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("tools:list-changed")
 async def test_tool_list_changed_notification(connect: Connect) -> None:
-    """A tools/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
     seen = anyio.Event()
 
@@ -66,7 +61,6 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
 
 @requirement("resources:list-changed")
 async def test_resource_list_changed_notification(connect: Connect) -> None:
-    """A resources/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
     seen = anyio.Event()
 
@@ -102,7 +96,6 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
 
 @requirement("prompts:list-changed")
 async def test_prompt_list_changed_notification(connect: Connect) -> None:
-    """A prompts/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
     seen = anyio.Event()
 

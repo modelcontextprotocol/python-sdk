@@ -1,4 +1,4 @@
-"""Run every story's ``main`` over the in-process (transport × era × variant) matrix."""
+"""Run every story's `main` over the in-process (transport × era × variant) matrix."""
 
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ _SERVER_EXPORTS = {"factory", "app"}
 
 
 def test_manifest_schema_valid() -> None:
-    """Declared manifest values are mutually consistent with the story files."""
     for name in STORIES:
         cfg = story_cfg(name)
         assert "-" not in name, f"{name!r}: story directories must be underscored"
@@ -66,7 +65,7 @@ def test_manifest_schema_valid() -> None:
 
 @pytest.mark.parametrize("name", sorted(STORIES))
 def test_main_signature_matches_manifest(name: str) -> None:
-    """``main``'s first parameter is ``target``/``targets`` per ``multi_connection``; ``http`` iff ``needs_http``."""
+    """`main`'s first parameter is `target`/`targets` per `multi_connection`; `http` iff `needs_http`."""
     cfg = story_cfg(name)
     params = list(inspect.signature(importlib.import_module(f"stories.{name}.client").main).parameters)
     first = "targets" if cfg["multi_connection"] else "target"

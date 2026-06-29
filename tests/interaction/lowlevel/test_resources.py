@@ -37,12 +37,10 @@ pytestmark = pytest.mark.anyio
 @requirement("resources:list:basic")
 @requirement("resources:annotations")
 async def test_list_resources_returns_registered_resources(connect: Connect) -> None:
-    """Listed resources reach the client with their URIs, names, and optional descriptive fields intact.
+    """The SDK's Annotations model omits the schema's lastModified field.
 
-    The fully-populated entry includes annotations, so the snapshot also proves they round-trip.
-    The SDK's Annotations model omits the schema's lastModified field (see the divergence on
-    resources:annotations); the input is built via model_validate with lastModified set so the
-    snapshot pins the drop and will fail once the SDK adds the field.
+    The input sets lastModified via model_validate (see the divergence on resources:annotations)
+    so the snapshot pins the drop and fails once the SDK adds the field.
     """
 
     async def list_resources(
@@ -94,8 +92,6 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
 
 @requirement("resources:read:text")
 async def test_read_resource_text(connect: Connect) -> None:
-    """Reading a text resource returns its contents with the URI, MIME type, and text supplied by the handler."""
-
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         return ReadResourceResult(
             contents=[TextResourceContents(uri=params.uri, mime_type="text/plain", text="Hello, world!")]
@@ -115,8 +111,6 @@ async def test_read_resource_text(connect: Connect) -> None:
 
 @requirement("resources:read:blob")
 async def test_read_resource_binary(connect: Connect) -> None:
-    """Reading a binary resource returns its contents base64-encoded in the blob field."""
-
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         return ReadResourceResult(
             contents=[
@@ -142,11 +136,7 @@ async def test_read_resource_binary(connect: Connect) -> None:
 
 @requirement("resources:read:unknown-uri")
 async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
-
-    The spec reserves -32002 for resource-not-found; the code is the handler's choice and reaches
-    the client verbatim.
-    """
+    """The spec reserves -32002 for resource-not-found; the handler's chosen code reaches the client verbatim."""
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         raise MCPError(code=-32002, message=f"Resource not found: {params.uri}")
@@ -162,8 +152,6 @@ async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> 
 
 @requirement("resources:templates:list")
 async def test_list_resource_templates_returns_registered_templates(connect: Connect) -> None:
-    """Listed resource templates reach the client with their URI templates and descriptive fields intact."""
-
     async def list_resource_templates(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> ListResourceTemplatesResult:
@@ -205,8 +193,6 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
 
 @requirement("resources:subscribe")
 async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
-    """Subscribing to a resource delivers the URI to the server's subscribe handler and returns an empty result."""
-
     async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
         assert params.uri == "file:///watched.txt"
         return EmptyResult()
@@ -221,10 +207,9 @@ async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> N
 
 @requirement("resources:subscribe:capability-required")
 async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect: Connect) -> None:
-    """Subscribing to a server that registered no subscribe handler is rejected with METHOD_NOT_FOUND.
+    """The rejection comes from the missing handler, not a capability check.
 
-    The rejection comes from no handler being registered, not from any capability check; see the
-    divergence on lifecycle:capability:server-not-advertised.
+    See the divergence on lifecycle:capability:server-not-advertised.
     """
 
     async def list_resources(
@@ -246,8 +231,6 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
 
 @requirement("resources:unsubscribe")
 async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
-    """Unsubscribing from a resource delivers the URI to the server's unsubscribe handler."""
-
     async def unsubscribe_resource(ctx: ServerRequestContext, params: types.UnsubscribeRequestParams) -> EmptyResult:
         assert params.uri == "file:///watched.txt"
         return EmptyResult()
@@ -262,12 +245,11 @@ async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) ->
 
 @requirement("resources:updated-notification")
 async def test_resource_updated_notification_reaches_client(connect: Connect) -> None:
-    """A resources/updated notification sent during a tool call reaches the client with the resource URI.
+    """`send_resource_updated` takes no `related_request_id`, so arrival order is not guaranteed.
 
-    ``send_resource_updated`` does not take a ``related_request_id``, so over streamable HTTP the
-    notification routes to the standalone GET stream and is not guaranteed to arrive before the
-    tool result; the test waits on an event the collector sets. The collector records every
-    message the handler receives, so the assertion also proves nothing else was delivered.
+    Over streamable HTTP the notification routes to the standalone GET stream and may trail the
+    tool result — hence the event wait. The collector records every message, so the snapshot also
+    proves nothing else arrived.
     """
     received: list[IncomingMessage] = []
     seen = anyio.Event()

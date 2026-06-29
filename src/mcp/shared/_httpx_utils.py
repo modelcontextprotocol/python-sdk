@@ -6,9 +6,8 @@ import httpx
 
 __all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
 
-# Default MCP timeout configuration
-MCP_DEFAULT_TIMEOUT = 30.0  # General operations (seconds)
-MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # SSE streams - 5 minutes (seconds)
+MCP_DEFAULT_TIMEOUT = 30.0  # seconds, general operations
+MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # seconds, long-lived SSE streams
 
 
 class McpHttpClientFactory(Protocol):  # pragma: no branch
@@ -25,70 +24,22 @@ def create_mcp_http_client(
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
 ) -> httpx.AsyncClient:
-    """Create a standardized httpx AsyncClient with MCP defaults.
+    """Create an httpx AsyncClient with MCP defaults.
 
-    Always enables follow_redirects and applies an SSE-friendly default timeout.
-
-    Args:
-        headers: Optional headers to include with all requests.
-        timeout: Request timeout as httpx.Timeout object. Defaults to 30s for
-            connect/write/pool and 300s for read (for long-lived SSE streams).
-        auth: Optional authentication handler.
-
-    Returns:
-        Configured httpx.AsyncClient instance with MCP defaults.
-
-    Note:
-        The returned AsyncClient must be used as a context manager to ensure
-        proper cleanup of connections.
-
-    Example:
-        Basic usage with MCP defaults:
-
-        ```python
-        async with create_mcp_http_client() as client:
-            response = await client.get("https://api.example.com")
-        ```
-
-        With custom headers:
-
-        ```python
-        headers = {"Authorization": "Bearer token"}
-        async with create_mcp_http_client(headers) as client:
-            response = await client.get("/endpoint")
-        ```
-
-        With both custom headers and timeout:
-
-        ```python
-        timeout = httpx.Timeout(60.0, read=300.0)
-        async with create_mcp_http_client(headers, timeout) as client:
-            response = await client.get("/long-request")
-        ```
-
-        With authentication:
-
-        ```python
-        from httpx import BasicAuth
-        auth = BasicAuth(username="user", password="pass")
-        async with create_mcp_http_client(headers, timeout, auth) as client:
-            response = await client.get("/protected-endpoint")
-        ```
+    Enables follow_redirects and, when `timeout` is omitted, defaults to 30s for
+    connect/write/pool and 300s for read so long-lived SSE streams stay open.
+    Use the returned client as a context manager to clean up connections.
     """
-    # Set MCP defaults
     kwargs: dict[str, Any] = {"follow_redirects": True}
 
-    # Handle timeout
     if timeout is None:
         kwargs["timeout"] = httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT)
     else:
         kwargs["timeout"] = timeout
 
-    # Handle headers
     if headers is not None:
         kwargs["headers"] = headers
 
-    # Handle authentication
     if auth is not None:  # pragma: no cover
         kwargs["auth"] = auth
 

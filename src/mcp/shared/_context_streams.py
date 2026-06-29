@@ -1,13 +1,8 @@
 """Context-aware memory stream wrappers.
 
-anyio memory streams do not propagate ``contextvars.Context`` across task
-boundaries.  These thin wrappers capture the sender's context at ``send()``
-time and expose it on the receive side via ``last_context``, so consumers
-can restore it with ``ctx.run(handler, item)``.
-
-The iteration interface is unchanged (yields ``T``, not tuples), keeping
-these wrappers duck-type compatible with plain ``MemoryObjectSendStream``
-and ``MemoryObjectReceiveStream``.
+anyio memory streams don't propagate `contextvars.Context` across tasks; these wrappers snapshot
+the sender's context at `send()` and expose it on the receive side via `last_context`, while still
+yielding plain `T` so they stay duck-type compatible with the anyio memory streams.
 """
 
 from __future__ import annotations
@@ -21,12 +16,11 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 T = TypeVar("T")
 
-# Internal payload carried through the underlying raw stream.
 _Envelope = tuple[contextvars.Context, T]
 
 
 class ContextSendStream(Generic[T]):
-    """Send-side wrapper that snapshots ``contextvars.copy_context()`` on every ``send()``."""
+    """Send-side wrapper that snapshots `contextvars.copy_context()` on every `send()`."""
 
     __slots__ = ("_inner",)
 
@@ -59,7 +53,7 @@ class ContextSendStream(Generic[T]):
 
 
 class ContextReceiveStream(Generic[T]):
-    """Receive-side wrapper that yields ``T`` and stores the sender's context in ``last_context``."""
+    """Receive-side wrapper that yields `T` and stores the sender's context in `last_context`."""
 
     __slots__ = ("_inner", "last_context")
 
@@ -108,8 +102,8 @@ class create_context_streams(
 ):
     """Create context-aware memory object streams.
 
-    Supports ``create_context_streams[T](n)`` bracket syntax,
-    matching anyio's ``create_memory_object_stream`` API style.
+    A class so `create_context_streams[T](n)` bracket syntax works, matching anyio's
+    `create_memory_object_stream`.
     """
 
     def __new__(cls, max_buffer_size: float = 0) -> tuple[ContextSendStream[T], ContextReceiveStream[T]]:  # type: ignore[type-var]

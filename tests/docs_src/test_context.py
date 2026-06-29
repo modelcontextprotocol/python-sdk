@@ -14,7 +14,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_context_parameter_is_not_in_the_input_schema() -> None:
-    """tutorial001: the injected `Context` never appears in the schema the model sees."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.input_schema == snapshot(
@@ -28,7 +27,6 @@ async def test_the_context_parameter_is_not_in_the_input_schema() -> None:
 
 
 async def test_every_request_gets_its_own_context() -> None:
-    """tutorial001: `ctx.request_id` identifies the request being served, so it changes per call."""
     async with Client(tutorial001.mcp) as client:
         first = await client.call_tool("search_books", {"query": "dune"})
         second = await client.call_tool("search_books", {"query": "dune"})
@@ -52,7 +50,6 @@ async def test_a_tool_reads_the_servers_own_resource() -> None:
 
 
 async def test_a_context_only_tool_takes_no_arguments() -> None:
-    """tutorial002: a tool whose only parameter is the `Context` has an empty input schema."""
     async with Client(tutorial002.mcp) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         assert tools["describe_catalog"].input_schema == snapshot(
@@ -61,7 +58,6 @@ async def test_a_context_only_tool_takes_no_arguments() -> None:
 
 
 async def test_register_a_tool_at_runtime_and_notify_the_client() -> None:
-    """tutorial003: `mcp.add_tool` takes effect immediately and `send_tool_list_changed` reaches the client."""
     messages: list[object] = []
 
     async def collect(message: object) -> None:

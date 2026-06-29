@@ -1,7 +1,4 @@
-"""Minimal in-process OAuth pieces for the auth stories.
-
-A story-shaped subset; ``tests/interaction/auth`` keeps its own (richer) provider.
-"""
+"""Minimal in-process OAuth pieces for the auth stories; `tests/interaction/auth` keeps its richer provider."""
 
 from __future__ import annotations
 
@@ -30,7 +27,7 @@ REDIRECT_URI = f"{BASE_URL}/oauth/callback"
 
 
 class InMemoryTokenStorage:
-    """A ``TokenStorage`` that keeps tokens and DCR client info on instance attributes."""
+    """A `TokenStorage` that keeps tokens and DCR client info on instance attributes."""
 
     tokens: OAuthToken | None = None
     client_info: OAuthClientInformationFull | None = None
@@ -49,7 +46,7 @@ class InMemoryTokenStorage:
 
 
 class HeadlessOAuth:
-    """Completes the authorize redirect in-process via the bound ``httpx`` client."""
+    """Completes the authorize redirect in-process via the bound `httpx` client."""
 
     def __init__(self) -> None:
         self.authorize_url: str | None = None
@@ -62,7 +59,7 @@ class HeadlessOAuth:
     async def redirect_handler(self, authorization_url: str) -> None:
         assert self._http is not None
         self.authorize_url = authorization_url
-        # ``auth=None`` is load-bearing: re-entering the locked auth flow would deadlock.
+        # `auth=None` is load-bearing: re-entering the locked auth flow would deadlock.
         response = await self._http.get(authorization_url, follow_redirects=False, auth=None)
         assert response.status_code == 302, f"authorize returned {response.status_code}: {response.text}"
         params = parse_qs(urlsplit(response.headers["location"]).query)
@@ -77,8 +74,8 @@ class InMemoryAuthorizationServerProvider(
 ):
     """Minimal demo AS: DCR + authorize + auth-code exchange held in instance dicts.
 
-    ``authorize`` auto-consents only when ``OAUTH_DEMO_AUTO_CONSENT=1``; otherwise it redirects
-    with ``error=interaction_required`` so a manual run shows where a real browser would open.
+    `authorize` auto-consents only when `OAUTH_DEMO_AUTO_CONSENT=1`; otherwise it redirects
+    with `error=interaction_required` so a manual run shows where a real browser would open.
     """
 
     def __init__(self) -> None:
@@ -158,9 +155,9 @@ class InMemoryAuthorizationServerProvider(
 def auth_settings(
     *, required_scopes: list[str] | None = None, identity_assertion_enabled: bool = False
 ) -> AuthSettings:
-    """``AuthSettings`` for the co-hosted demo AS+RS on the loopback origin, DCR enabled.
+    """`AuthSettings` for the co-hosted demo AS+RS on the loopback origin, DCR enabled.
 
-    ``identity_assertion_enabled`` passes through to the SEP-990 jwt-bearer grant flag.
+    `identity_assertion_enabled` passes through to the SEP-990 jwt-bearer grant flag.
     """
     scopes = required_scopes or ["mcp"]
     return AuthSettings(

@@ -7,8 +7,7 @@ from stories._harness import Target, run_client
 
 
 async def on_elicit(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
-    # The same callback serves legacy push-style elicitation/create requests AND embedded
-    # InputRequiredResult.input_requests entries — the driver dispatches both here.
+    # One callback serves both legacy elicitation/create requests and embedded input_requests entries.
     assert isinstance(params, types.ElicitRequestFormParams)
     assert "confirm" in params.requested_schema["properties"]
     return types.ElicitResult(action="accept", content={"confirm": True})
@@ -16,14 +15,13 @@ async def on_elicit(context: ClientRequestContext, params: types.ElicitRequestPa
 
 async def main(target: Target, *, mode: str = "auto") -> None:
     async with Client(target, mode=mode, elicitation_callback=on_elicit) as client:
-        # ── auto-loop: Client.call_tool dispatches input_requests to on_elicit and retries
-        # internally; the caller just sees the final CallToolResult.
+        # Auto-loop: call_tool dispatches input_requests to on_elicit and retries; the caller sees the final result.
         deployed = await client.call_tool("deploy", {"env": "production"})
         assert isinstance(deployed.content[0], types.TextContent)
         assert deployed.content[0].text == "deployed to production", deployed
 
-        # ── manual loop: drop to client.session for the raw InputRequiredResult so the
-        # request_state can be persisted between rounds (e.g. across a process restart).
+        # Manual loop: client.session yields the raw InputRequiredResult so request_state
+        # can be persisted between rounds (e.g. across a process restart).
         first = await client.session.call_tool("deploy", {"env": "staging"}, allow_input_required=True)
         assert isinstance(first, types.InputRequiredResult)
         assert first.input_requests is not None and "confirm" in first.input_requests

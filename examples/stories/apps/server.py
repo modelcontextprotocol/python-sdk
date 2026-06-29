@@ -1,10 +1,8 @@
 """MCP Apps: a tool bound to a `ui://` resource the host renders as an interactive surface.
 
-`Apps` is an opt-in `Extension` passed to `MCPServer(extensions=[...])`. The
-`@apps.tool(resource_uri=...)` decorator stamps `_meta.ui.resourceUri` onto the
-tool; `add_html_resource` registers the matching `ui://` HTML resource. The tool
-degrades gracefully: `client_supports_apps(ctx)` reports whether the client
-negotiated Apps, so it returns text-only output otherwise.
+`Apps` is an opt-in extension: `@apps.tool(resource_uri=...)` stamps `_meta.ui.resourceUri` onto the tool,
+`add_html_resource` registers the matching `ui://` HTML, and `client_supports_apps(ctx)` enables a
+text-only fallback for clients that didn't negotiate Apps.
 """
 
 from mcp.server.apps import Apps, client_supports_apps

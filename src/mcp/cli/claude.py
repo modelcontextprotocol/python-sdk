@@ -16,12 +16,9 @@ logger = get_logger(__name__)
 def mcp_requirement(package: str = "mcp") -> str:
     """Requirement string pinning spawned environments to the running SDK version.
 
-    `uv run --with mcp` resolves the requirement in a fresh environment, where
-    an unpinned `mcp` means the latest stable release — not necessarily the
-    version the user installed (pre-releases in particular are never selected
-    without an explicit pin). Source builds carry dev/local version segments
-    that are not published to PyPI, so they fall back to the unpinned form,
-    as does a missing distribution (no metadata to pin from).
+    An unpinned `mcp` in a fresh `uv run --with mcp` environment resolves to the latest
+    stable release, not the installed one (pre-releases are never selected without a pin).
+    Dev/local builds and missing distributions have no published version, so they stay unpinned.
     """
     try:
         version = importlib.metadata.version("mcp")
@@ -55,7 +52,7 @@ def get_uv_path() -> str:
         logger.error(
             "uv executable not found in PATH, falling back to 'uv'. Please ensure uv is installed and in your PATH"
         )
-        return "uv"  # Fall back to just "uv" if not found
+        return "uv"
     return uv_path
 
 
@@ -70,16 +67,11 @@ def update_claude_config(
     """Add or update an MCP server in Claude's configuration.
 
     Args:
-        file_spec: Path to the server file, optionally with :object suffix
-        server_name: Name for the server in Claude's config
-        with_editable: Optional directory to install in editable mode
-        with_packages: Optional list of additional packages to install
-        env_vars: Optional dictionary of environment variables. These are merged with
-            any existing variables, with new values taking precedence.
+        file_spec: Path to the server file, optionally with `:object` suffix.
+        env_vars: Merged with any existing variables, with new values taking precedence.
 
     Raises:
-        RuntimeError: If Claude Desktop's config directory is not found, indicating
-            Claude Desktop may not be installed or properly set up.
+        RuntimeError: If Claude Desktop's config directory is not found.
     """
     config_dir = get_claude_config_path()
     uv_path = get_uv_path()
@@ -107,48 +99,39 @@ def update_claude_config(
         if "mcpServers" not in config:
             config["mcpServers"] = {}
 
-        # Always preserve existing env vars and merge with new ones
         if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:
             existing_env = config["mcpServers"][server_name]["env"]
             if env_vars:
-                # New vars take precedence over existing ones
                 env_vars = {**existing_env, **env_vars}
             else:
                 env_vars = existing_env
 
-        # Build uv run command
         args = ["run", "--frozen"]
 
-        # Collect all packages in a set to deduplicate
         packages = {mcp_requirement("mcp[cli]")}
         if with_packages:
             packages.update(pkg for pkg in with_packages if pkg)
 
-        # Add all packages with --with
         for pkg in sorted(packages):
             args.extend(["--with", pkg])
 
         if with_editable:
             args.extend(["--with-editable", str(with_editable)])
 
-        # Convert file path to absolute before adding to command
-        # Split off any :object suffix first
-        # First check if we have a Windows path (e.g., C:\...)
+        # Resolve to an absolute path, splitting any :object suffix on the last colon
+        # without mistaking a Windows drive letter (C:\...) for one.
         has_windows_drive = len(file_spec) > 1 and file_spec[1] == ":"
 
-        # Split on the last colon, but only if it's not part of the Windows drive letter
         if ":" in (file_spec[2:] if has_windows_drive else file_spec):
             file_path, server_object = file_spec.rsplit(":", 1)
             file_spec = f"{Path(file_path).resolve()}:{server_object}"
         else:
             file_spec = str(Path(file_spec).resolve())
 
-        # Add mcp run command
         args.extend(["mcp", "run", file_spec])
 
         server_config: dict[str, Any] = {"command": uv_path, "args": args}
 
-        # Add environment variables if specified
         if env_vars:
             server_config["env"] = env_vars
 

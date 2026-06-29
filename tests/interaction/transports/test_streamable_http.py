@@ -1,10 +1,8 @@
-"""Behaviour specific to the streamable HTTP transport, exercised entirely in process.
+"""Streamable-HTTP-specific behaviour, driven in process through the suite's streaming ASGI bridge.
 
-Transport-agnostic behaviour is covered by the `connect`-fixture matrix, which runs the rest of
-the suite over this transport as well; this file only pins what cannot be observed in memory: the
-server's stateless and JSON-response modes, the standalone GET stream, and the full-duplex
-server-initiated exchange on a still-open call. Every test drives the server's real Starlette app
-through the suite's streaming ASGI bridge — no sockets, threads, or subprocesses.
+Transport-agnostic behaviour runs in the `connect`-fixture matrix; this file pins only what that
+matrix cannot observe: stateless and JSON-response modes, the standalone GET stream, and the
+full-duplex server-initiated exchange on a still-open call.
 """
 
 import anyio
@@ -67,7 +65,6 @@ def _smoke_server() -> MCPServer:
 @requirement("transport:streamable-http:json-response")
 @requirement("client-transport:http:json-response-parsed")
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
-    """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
         assert client.server_info.name == "smoke"
         result = await client.call_tool("echo", {"text": "as json"})
@@ -79,7 +76,6 @@ async def test_tool_call_over_streamable_http_with_json_responses() -> None:
 
 @requirement("transport:streamable-http:stateless")
 async def test_tool_calls_over_stateless_streamable_http() -> None:
-    """Consecutive requests each succeed against a stateless server with no session to share."""
     async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
         first = await client.call_tool("echo", {"text": "first"})
         second = await client.call_tool("echo", {"text": "second"})
@@ -94,10 +90,7 @@ async def test_tool_calls_over_stateless_streamable_http() -> None:
 
 @requirement("transport:streamable-http:stateless-restrictions")
 async def test_stateless_streamable_http_rejects_server_initiated_requests() -> None:
-    """A handler that tries to call back to the client in stateless mode fails: there is no
-    back-channel for server-initiated requests. The resulting ``NoBackChannelError`` is an
-    ``MCPError``, so it surfaces as a top-level JSON-RPC error rather than an
-    ``isError`` result."""
+    """The resulting `NoBackChannelError` is an `MCPError`: a top-level JSON-RPC error, not an `isError` result."""
     async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("ask", {})
@@ -109,14 +102,6 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
 @requirement("transport:streamable-http:unrelated-messages")
 @requirement("hosting:http:standalone-sse")
 async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> None:
-    """A server message with no related request reaches the client through the standalone GET stream.
-
-    The log notification is related to the tool call and travels on that call's own SSE stream;
-    the resource-updated notification is not related to any request, so the only way it can reach
-    the client is the standalone stream the client opens after initialization. Delivery order
-    across the two streams is not guaranteed, so the unrelated message is awaited rather than
-    assumed to beat the tool result.
-    """
     received: list[IncomingMessage] = []
     resource_update_seen = anyio.Event()
 
@@ -127,14 +112,14 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
 
     async with connect_over_streamable_http(_smoke_server(), message_handler=collect) as client:
         result = await client.call_tool("announce", {})
+        # Delivery order across the two streams is not guaranteed, so await rather than assume.
         with anyio.fail_after(5):
             await resource_update_seen.wait()
 
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="announced")], structured_content={"result": "announced"})
     )
-    # The related log notification rides the call's stream; the unrelated resource-updated
-    # notification rides the standalone stream. Both arrive, nothing else does.
+    # Related log rides the call's stream; unrelated resource-update rides the standalone stream.
     assert [message for message in received if isinstance(message, LoggingMessageNotification)] == snapshot(
         [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="about to announce"))]
     )
@@ -147,11 +132,9 @@ async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> No
 @requirement("transport:streamable-http:stateful")
 @requirement("transport:streamable-http:server-to-client")
 async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> None:
-    """An elicitation issued mid-call reaches the client and its answer reaches the handler over stateful HTTP.
+    """The elicitation rides the tool call's still-open SSE response; the answer is a separate POST.
 
-    The elicitation request travels on the still-open SSE response of the tool call that triggered
-    it, and the client's answer arrives as a separate POST -- the full-duplex exchange the
-    streamable HTTP transport exists to provide.
+    This is the full-duplex exchange the streamable HTTP transport exists to provide.
     """
     asked: list[ElicitRequestParams] = []
 

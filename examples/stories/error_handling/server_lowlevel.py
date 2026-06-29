@@ -33,8 +33,7 @@ def build_server() -> Server[Any]:
                 )
             return types.CallToolResult(content=[types.TextContent(text=str(a / b))])
         if params.name == "restricted":
-            # Protocol error: raise MCPError; the dispatcher serialises it as a
-            # JSON-RPC error response with this code/message/data.
+            # Protocol error: the dispatcher serialises MCPError as a JSON-RPC error with this code/message/data.
             raise MCPError(code=types.INVALID_PARAMS, message="this tool is gated", data={"reason": "demo"})
         raise MCPError(code=types.INVALID_PARAMS, message=f"Unknown tool: {params.name}")
 

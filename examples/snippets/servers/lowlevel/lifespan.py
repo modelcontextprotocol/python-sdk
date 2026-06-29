@@ -12,23 +12,18 @@ import mcp.server.stdio
 from mcp.server import Server, ServerRequestContext
 
 
-# Mock database class for example
 class Database:
     """Mock database class for example."""
 
     @classmethod
     async def connect(cls) -> "Database":
-        """Connect to database."""
         print("Database connected")
         return cls()
 
     async def disconnect(self) -> None:
-        """Disconnect from database."""
         print("Database disconnected")
 
     async def query(self, query_str: str) -> list[dict[str, str]]:
-        """Execute a query."""
-        # Simulate database query
         return [{"id": "1", "name": "Example", "query": query_str}]
 
 
@@ -49,7 +44,6 @@ async def server_lifespan(_server: Server[AppContext]) -> AsyncIterator[AppConte
 async def handle_list_tools(
     ctx: ServerRequestContext[AppContext], params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
-    """List available tools."""
     return types.ListToolsResult(
         tools=[
             types.Tool(
@@ -68,7 +62,6 @@ async def handle_list_tools(
 async def handle_call_tool(
     ctx: ServerRequestContext[AppContext], params: types.CallToolRequestParams
 ) -> types.CallToolResult:
-    """Handle database query tool call."""
     if params.name != "query_db":
         raise ValueError(f"Unknown tool: {params.name}")
 
@@ -87,7 +80,6 @@ server = Server(
 
 
 async def run():
-    """Run the server with lifespan management."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

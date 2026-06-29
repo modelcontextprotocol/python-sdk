@@ -1,17 +1,13 @@
-"""Subprocess smoke for the story ``__main__`` paths.
+"""Subprocess smoke for the story `__main__` paths.
 
-The in-process matrix in ``test_stories.py`` never executes a story's
-``if __name__ == "__main__"`` block, so ``run_client`` / ``run_server_from_args`` /
-``run_app_from_args`` and the real stdio + uvicorn entries are unverified by
-construction. This file proves that plumbing by running the literal commands the
-story READMEs print: stdio (``run_client`` spawns the server over stdio) and bare
-``--http`` (``run_client`` self-hosts the server on a real uvicorn socket on a
-port it owns, then terminates it).
+The in-process matrix in `test_stories.py` never executes a story's `__main__` block, so
+`run_client` / `run_server_from_args` / `run_app_from_args` and the real stdio + uvicorn
+entries go unverified there. Runs the literal README commands: stdio, and bare `--http`
+(`run_client` self-hosts the server on a real uvicorn socket).
 
-lax no cover: gated on ``MCP_EXAMPLES_SMOKE=1``, which CI sets on exactly one
-matrix cell (ubuntu / 3.12 / locked — see ``shared.yml``). Every other cell
-skips at collection, so the test body is uncovered there and the per-job 100%
-gate would otherwise fail.
+lax no cover: gated on `MCP_EXAMPLES_SMOKE=1`, set on exactly one CI matrix cell
+(ubuntu / 3.12 / locked — see `shared.yml`); other cells skip at collection, so the
+per-job 100% coverage gate would otherwise fail.
 """
 
 from __future__ import annotations
@@ -32,8 +28,7 @@ pytestmark = [
 ]
 
 _REPO_ROOT = Path(__file__).parents[2]
-# httpx in the spawned client honours these and tries to mount a SOCKS transport even for
-# 127.0.0.1; strip them so the smoke run is hermetic regardless of the caller's shell.
+# httpx in the spawned client honours these and mounts a SOCKS transport even for 127.0.0.1; strip for hermetic runs.
 _PROXY_VARS = {v for base in ("all_proxy", "http_proxy", "https_proxy", "ftp_proxy") for v in (base, base.upper())}
 _ENV = {k: v for k, v in os.environ.items() if k not in _PROXY_VARS}
 
@@ -48,7 +43,6 @@ _ENV = {k: v for k, v in os.environ.items() if k not in _PROXY_VARS}
     ids=["tools-stdio", "tools-http", "bearer_auth-http"],
 )
 async def test_story_main_runs_end_to_end(argv: tuple[str, ...]) -> None:  # pragma: lax no cover
-    """``python -m <story>.client [--http]`` (the README command) exits 0 over a real subprocess."""
     with anyio.fail_after(60):
         async with await anyio.open_process(
             [sys.executable, "-m", *argv], cwd=_REPO_ROOT, env=_ENV, stdout=None, stderr=None

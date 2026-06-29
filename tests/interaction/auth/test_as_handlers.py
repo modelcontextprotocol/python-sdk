@@ -1,10 +1,6 @@
-"""Error-plane behaviour of the SDK's bundled OAuth authorization-server handlers.
+"""Error-plane behaviour of the SDK's bundled OAuth authorization-server handlers, driven with raw httpx.
 
-The end-to-end OAuth tests prove the handlers' happy paths; these tests drive the same
-mounted authorization server directly with raw httpx so the assertions are the HTTP
-semantics (status, redirect target, error body, headers) the OAuth RFCs mandate. Almost
-every behaviour here is enforced by the SDK's own handlers; where the pinned output
-deviates from the RFC, the manifest entry carries the divergence.
+Where the pinned output deviates from the OAuth RFCs, the manifest entry carries the divergence.
 """
 
 import base64
@@ -30,7 +26,6 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture
 async def as_app() -> AsyncIterator[tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider]]:
-    """Co-host the SDK's authorization-server routes and yield a raw httpx client against them."""
     provider = InMemoryAuthorizationServerProvider()
     settings = auth_settings()
     async with mounted_app(
@@ -43,21 +38,18 @@ async def as_app() -> AsyncIterator[tuple[httpx.AsyncClient, InMemoryAuthorizati
 
 
 def _pkce_pair() -> tuple[str, str]:
-    """Generate a (code_verifier, code_challenge) pair the same way the SDK client does."""
     verifier = secrets.token_urlsafe(48)[:64]
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     return verifier, challenge
 
 
 async def _register_client(http: httpx.AsyncClient) -> OAuthClientInformationFull:
-    """Dynamically register a client and return its full credentials."""
     response = await http.post("/register", content=oauth_client_metadata().model_dump_json())
     assert response.status_code == 201
     return OAuthClientInformationFull.model_validate_json(response.content)
 
 
 async def _mint_code(http: httpx.AsyncClient) -> tuple[OAuthClientInformationFull, str, str]:
-    """Register a client, complete a valid authorize step, and return (client_info, code, verifier)."""
     client_info = await _register_client(http)
     assert client_info.client_id is not None
     verifier, challenge = _pkce_pair()
@@ -81,7 +73,6 @@ async def _mint_code(http: httpx.AsyncClient) -> tuple[OAuthClientInformationFul
 
 
 def _token_form(client_info: OAuthClientInformationFull, **overrides: str) -> dict[str, str]:
-    """Build the form body for an authorization-code token request, with the defaults a real client would send."""
     assert client_info.client_id is not None
     assert client_info.client_secret is not None
     form = {
@@ -98,13 +89,8 @@ def _token_form(client_info: OAuthClientInformationFull, **overrides: str) -> di
 async def test_authorize_without_a_code_challenge_is_rejected_with_invalid_request(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """An authorize request omitting `code_challenge` is redirected back with `error=invalid_request`.
-
-    PKCE is mandatory: the bundled authorize handler models `code_challenge` as a required field, so
-    a code without a stored challenge can never be issued. That makes the PKCE-downgrade attack (a
-    token request carrying a verifier for a code minted without a challenge) structurally impossible
-    through these handlers, so no separate downgrade-guard test is needed.
-    """
+    """PKCE is mandatory by construction: `code_challenge` is a required field of the authorize handler,
+    so a code without a stored challenge can never be issued and PKCE downgrade needs no separate test."""
     http, _ = as_app
     client_info = await _register_client(http)
     assert client_info.client_id is not None
@@ -133,7 +119,6 @@ async def test_authorize_without_a_code_challenge_is_rejected_with_invalid_reque
 async def test_a_mismatched_code_verifier_is_rejected_with_invalid_grant(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """A token exchange whose `code_verifier` does not hash to the stored challenge is rejected."""
     http, _ = as_app
     client_info, code, _ = await _mint_code(http)
 
@@ -147,13 +132,8 @@ async def test_a_mismatched_code_verifier_is_rejected_with_invalid_grant(
 async def test_reusing_an_authorization_code_is_rejected_with_invalid_grant(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """An authorization code can be exchanged exactly once; a second exchange is `invalid_grant`.
-
-    The handler does not track used codes itself: it returns `invalid_grant` whenever the provider's
-    `load_authorization_code` returns None, and the in-memory provider deletes the code on first
-    exchange. The test proves the combination enforces single-use; a provider that did not consume
-    codes would not get this guarantee from the handler.
-    """
+    """Single-use comes from the handler (`invalid_grant` when `load_authorization_code` returns None)
+    plus the provider deleting the code on first exchange — a non-consuming provider loses the guarantee."""
     http, _ = as_app
     client_info, code, verifier = await _mint_code(http)
     form = _token_form(client_info, code=code, code_verifier=verifier)
@@ -173,14 +153,9 @@ async def test_reusing_an_authorization_code_is_rejected_with_invalid_grant(
 async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_endpoint(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """A token exchange whose `redirect_uri` differs from the one used at authorize is rejected.
-
-    This is the security-critical half of redirect-URI binding: a code intercepted via redirect
-    substitution cannot be redeemed because the attacker cannot reproduce the original authorize
-    redirect URI at the token endpoint. RFC 6749 §5.2 specifies `invalid_grant` for this case;
-    the SDK returns `invalid_request` (see the divergence on the requirement). The rejection
-    itself is the security property and is correct.
-    """
+    """RFC 6749 §5.2 specifies `invalid_grant` here; the SDK returns `invalid_request` (see the
+    divergence on the requirement). The rejection itself — an intercepted code cannot be redeemed
+    without the original authorize redirect URI — is the security property."""
     http, _ = as_app
     client_info, code, verifier = await _mint_code(http)
 
@@ -202,7 +177,6 @@ async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_
 async def test_token_responses_carry_cache_control_no_store(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """Every token-endpoint response (success and error) carries `Cache-Control: no-store`."""
     http, _ = as_app
     client_info, code, verifier = await _mint_code(http)
     form = _token_form(client_info, code=code, code_verifier=verifier)
@@ -249,11 +223,7 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
 async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """An authorize request naming an unregistered `redirect_uri` returns 400 without redirecting to it.
-
-    The security property is that the authorization server never redirects to an unvalidated URI:
-    the response is a direct JSON error to the user agent, not a 302 to the attacker's host.
-    """
+    """The server never redirects to an unvalidated URI: a direct JSON error, not a 302 to the attacker."""
     http, _ = as_app
     client_info = await _register_client(http)
     assert client_info.client_id is not None
@@ -282,12 +252,8 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
     as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
-    """A registration carrying a non-HTTPS, non-loopback redirect URI is accepted.
-
-    The spec requires every redirect URI to be either HTTPS or a loopback host; the bundled
-    registration handler does not enforce this and registers `http://evil.example/callback`
-    successfully. See the divergence on the requirement.
-    """
+    """The spec requires redirect URIs to be HTTPS or loopback; the bundled registration handler does
+    not enforce this (see the divergence on the requirement)."""
     http, provider = as_app
     body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
     body["redirect_uris"] = ["http://evil.example/callback"]

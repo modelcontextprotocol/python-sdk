@@ -15,7 +15,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_tool_logs_through_the_standard_library(caplog: pytest.LogCaptureFixture) -> None:
-    """tutorial001: `logger.info(...)` inside a tool emits an ordinary stdlib record named after the module."""
     caplog.set_level(logging.INFO)
     async with Client(tutorial001.mcp) as client:
         await client.call_tool("search_books", {"query": "dune"})
@@ -25,7 +24,6 @@ async def test_the_tool_logs_through_the_standard_library(caplog: pytest.LogCapt
 
 
 async def test_the_log_line_never_reaches_the_client() -> None:
-    """tutorial001: the result is only the return value. Log output is invisible to the model."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
         assert result == snapshot(

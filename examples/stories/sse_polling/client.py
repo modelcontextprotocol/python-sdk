@@ -17,14 +17,12 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         with anyio.fail_after(10):
             result = await client.call_tool("long_operation", {}, progress_callback=on_progress)
 
-        # The result arrived — the client transport survived the server-initiated close,
-        # reconnected with Last-Event-ID, and received the replayed response.
+        # The transport survived the server's close: it reconnected with Last-Event-ID and got the replayed response.
         assert not result.is_error, result
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "resumed"
 
-        # "after-close" was emitted while no SSE stream was open; receiving it proves the
-        # event store buffered it and the reconnect replayed it.
+        # "after-close" was emitted while no SSE stream was open — proof the event store buffered it for the replay.
         assert messages == ["before-close", "after-close"], messages
 
 

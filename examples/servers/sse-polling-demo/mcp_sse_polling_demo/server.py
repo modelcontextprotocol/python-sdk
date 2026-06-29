@@ -1,15 +1,7 @@
-"""SSE Polling Demo Server
+"""SSE polling demo: a long-running tool closes its SSE stream at checkpoints via `close_sse_stream`.
 
-Demonstrates the SSE polling pattern with close_sse_stream() for long-running tasks.
-
-Features demonstrated:
-- Priming events (automatic with EventStore)
-- Server-initiated stream close via close_sse_stream callback
-- Client auto-reconnect with Last-Event-ID
-- Progress notifications during long-running tasks
-
-Run with:
-    uv run mcp-sse-polling-demo --port 3000
+The client auto-reconnects with Last-Event-ID and the EventStore replays missed events.
+Run with: uv run mcp-sse-polling-demo --port 3000
 """
 
 import logging
@@ -28,7 +20,6 @@ logger = logging.getLogger(__name__)
 async def handle_list_tools(
     ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
-    """List available tools."""
     return types.ListToolsResult(
         tools=[
             types.Tool(
@@ -58,7 +49,6 @@ async def handle_list_tools(
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
-    """Handle tool calls."""
     arguments = params.arguments or {}
 
     if params.name == "process_batch":
@@ -85,7 +75,6 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
             # Simulate work
             await anyio.sleep(0.5)
 
-            # Report progress
             await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level="info",
                 data=f"[{i}/{items}] Processing item {i}",

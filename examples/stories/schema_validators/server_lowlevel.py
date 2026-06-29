@@ -8,8 +8,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args
 
-# With lowlevel.Server there is no reflection layer: you author the JSON Schema
-# yourself and validate/unpack `params.arguments` in the handler.
+# lowlevel.Server has no reflection layer: author the JSON Schema and validate `params.arguments` yourself.
 PERSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {"name": {"type": "string"}, "title": {"type": "string"}},

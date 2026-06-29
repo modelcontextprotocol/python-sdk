@@ -1,17 +1,10 @@
-"""SSE Polling Demo Client
+"""SSE polling demo client.
 
-Demonstrates the client-side auto-reconnect for SSE polling pattern.
+Calls process_batch on the demo server, which periodically closes the SSE stream;
+the client auto-reconnects via Last-Event-ID and resumes receiving messages.
 
-This client connects to the SSE Polling Demo server and calls process_batch,
-which triggers periodic server-side stream closes. The client automatically
-reconnects using Last-Event-ID and resumes receiving messages.
-
-Run with:
-    # First start the server:
-    uv run mcp-sse-polling-demo --port 3000
-
-    # Then run this client:
-    uv run mcp-sse-polling-client --url http://localhost:3000/mcp
+Start the server (`uv run mcp-sse-polling-demo --port 3000`), then run
+`uv run mcp-sse-polling-client --url http://localhost:3000/mcp`.
 """
 
 import asyncio
@@ -23,7 +16,6 @@ from mcp.client.streamable_http import streamable_http_client
 
 
 async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
-    """Run the SSE polling demo."""
     print(f"\n{'=' * 60}")
     print("SSE Polling Demo Client")
     print(f"{'=' * 60}")
@@ -33,16 +25,13 @@ async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
 
     async with streamable_http_client(url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
-            # Initialize the connection
             print("Initializing connection...")
             await session.initialize()
             print("Connected!\n")
 
-            # List available tools
             tools = await session.list_tools()
             print(f"Available tools: {[t.name for t in tools.tools]}\n")
 
-            # Call the process_batch tool
             print(f"Calling process_batch(items={items}, checkpoint_every={checkpoint_every})...\n")
             print("-" * 40)
 

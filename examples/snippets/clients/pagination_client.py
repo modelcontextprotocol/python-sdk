@@ -21,13 +21,12 @@ async def list_all_resources() -> None:
             cursor = None
 
             while True:
-                # Fetch a page of resources
                 result = await session.list_resources(params=PaginatedRequestParams(cursor=cursor))
                 all_resources.extend(result.resources)
 
                 print(f"Fetched {len(result.resources)} resources")
 
-                # Check if there are more pages
+                # A next_cursor means there are more pages to fetch
                 if result.next_cursor:
                     cursor = result.next_cursor
                 else:

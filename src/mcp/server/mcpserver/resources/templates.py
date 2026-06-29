@@ -31,45 +31,33 @@ if TYPE_CHECKING:
 class ResourceSecurity:
     """Security policy applied to extracted resource template parameters.
 
-    These checks run after :meth:`~mcp.shared.uri_template.UriTemplate.match`
-    has extracted and decoded parameter values. They catch path-traversal
-    and absolute-path injection regardless of how the value was encoded in
-    the URI (literal, ``%2F``, ``%5C``, ``%2E%2E``).
+    Checks run after `UriTemplate.match` has decoded parameter values, so they catch
+    traversal and absolute-path injection however the URI encoded them (`%2F`, `%5C`, `%2E%2E`).
 
-    Example::
+    Example (opt out for a parameter that legitimately contains `..`):
 
-        # Opt out for a parameter that legitimately contains ..
-        @mcp.resource(
-            "git://diff/{+range}",
-            security=ResourceSecurity(exempt_params={"range"}),
-        )
+        @mcp.resource("git://diff/{+range}", security=ResourceSecurity(exempt_params={"range"}))
         def git_diff(range: str) -> str: ...
     """
 
     reject_path_traversal: bool = True
-    """Reject values containing ``..`` as a path component."""
+    """Reject values containing `..` as a path component."""
 
     reject_absolute_paths: bool = True
     """Reject values that look like absolute filesystem paths."""
 
     reject_null_bytes: bool = True
-    """Reject values containing NUL (``\\x00``). Null bytes defeat string
-    comparisons (``"..\\x00" != ".."``) and can cause truncation in C
-    extensions or subprocess calls."""
+    """Reject values containing NUL; null bytes defeat string comparisons and can
+    cause truncation in C extensions or subprocess calls."""
 
     exempt_params: Set[str] = field(default_factory=frozenset[str])
     """Parameter names to skip all checks for."""
 
     def validate(self, params: Mapping[str, str | list[str]]) -> str | None:
-        """Check all parameter values against the configured policy.
-
-        Args:
-            params: Extracted template parameters. List values (from
-                explode variables) are checked element-wise.
+        """Check parameter values against the policy; list values are checked element-wise.
 
         Returns:
-            The name of the first parameter that fails, or ``None`` if
-            all values pass.
+            The name of the first failing parameter, or `None` if all values pass.
         """
         for name, value in params.items():
             if name in self.exempt_params:
@@ -90,11 +78,10 @@ DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
 
 
 class ResourceSecurityError(ValueError):
-    """Raised when an extracted parameter fails :class:`ResourceSecurity` checks.
+    """Raised when an extracted parameter fails `ResourceSecurity` checks.
 
-    Distinct from a simple ``None`` non-match so that template
-    iteration can stop at the first security rejection rather than
-    falling through to a later, possibly more permissive, template.
+    Distinct from a `None` non-match so template iteration stops at the first
+    security rejection instead of falling through to a more permissive template.
     """
 
     def __init__(self, template: str, param: str) -> None:
@@ -138,8 +125,7 @@ class ResourceTemplate(BaseModel):
         """Create a template from a function.
 
         Raises:
-            InvalidUriTemplate: If ``uri_template`` is malformed or uses
-                unsupported RFC 6570 features.
+            InvalidUriTemplate: If `uri_template` is malformed or uses unsupported RFC 6570 features.
         """
         func_name = name or fn.__name__
         if func_name == "<lambda>":
@@ -147,18 +133,16 @@ class ResourceTemplate(BaseModel):
 
         parsed = UriTemplate.parse(uri_template)
 
-        # Find context parameter if it exists
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
-        # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
-        # ensure the arguments are properly cast
+        # validate_call coerces arguments to their annotated types
         fn = validate_call(fn)
 
         return cls(
@@ -180,20 +164,13 @@ class ResourceTemplate(BaseModel):
     def matches(self, uri: str) -> dict[str, str | list[str]] | None:
         """Check if a URI matches this template and extract parameters.
 
-        Delegates to :meth:`UriTemplate.match` for RFC 6570 extraction,
-        then applies this template's :class:`ResourceSecurity` policy
-        (path traversal, absolute paths).
-
         Returns:
-            Extracted parameters on success, or ``None`` if the URI
-            doesn't match the template.
+            Extracted parameters, or `None` if the URI doesn't match.
 
         Raises:
-            ResourceSecurityError: If the URI matches but an extracted
-                parameter fails security validation. Raising (rather
-                than returning ``None``) prevents the resource manager
-                from silently falling through to a later, possibly more
-                permissive, template.
+            ResourceSecurityError: If a matched parameter fails security validation. Raising
+                (not returning `None`) prevents the resource manager from silently falling
+                through to a later, possibly more permissive, template.
         """
         params = self.parsed_template.match(uri)
         if params is None:
@@ -215,7 +192,6 @@ class ResourceTemplate(BaseModel):
             ResourceError: If creating the resource fails.
         """
         try:
-            # Add context to params if needed
             params = inject_context(self.fn, params, context, self.context_kwarg)
 
             fn = self.fn
@@ -233,7 +209,7 @@ class ResourceTemplate(BaseModel):
                 icons=self.icons,
                 annotations=self.annotations,
                 meta=self.meta,
-                fn=lambda: result,  # Capture result in closure
+                fn=lambda: result,
             )
         except ResourceError:
             raise

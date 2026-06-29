@@ -1,8 +1,7 @@
 """Server-side hosting scaffold for story examples.
 
-A story's ``server.py`` / ``server_lowlevel.py`` imports only from here. The
-marked lines touch entry-point APIs that a later release reshapes into
-free-function entries; isolating them here keeps story bodies stable.
+Story `server*.py` files import only from here; the marked lines touch entry-point
+APIs that a later release reshapes into free functions, keeping story bodies stable.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ NO_DNS_REBIND = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
 def argv_after(flag: str, *, default: str | None = None) -> str:
-    """Return the argv token following ``flag``, or ``default`` when the flag is absent."""
+    """Return the argv token following `flag`, or `default` when the flag is absent."""
     try:
         return sys.argv[sys.argv.index(flag) + 1]
     except ValueError:
@@ -48,10 +47,9 @@ def asgi_from(server: AnyServer, *, path: str = "/mcp") -> Starlette:
 
 
 def run_server_from_args(build_server: ServerFactory) -> None:
-    """Entry point for ``if __name__ == "__main__"`` in every ``server*.py``.
+    """Entry point for `if __name__ == "__main__"` in every `server*.py`.
 
-    Bare argv serves over stdio; ``--http --port N [--path /mcp]`` serves over
-    uvicorn on 127.0.0.1:N.
+    Bare argv serves over stdio; `--http --port N [--path /mcp]` serves over uvicorn on 127.0.0.1:N.
     """
     server = build_server()
     if "--http" in sys.argv:
@@ -77,10 +75,9 @@ async def _serve_http(server: AnyServer, port: int, path: str) -> None:
 
 
 def run_app_from_args(build_app: AppFactory) -> None:
-    """Entry point for ``if __name__ == "__main__"`` in app-exporting ``server*.py``.
+    """Entry point for app-exporting `server*.py` (HTTP-only, no stdio leg).
 
-    App-exporting stories are HTTP-only; ``--port N`` serves the Starlette app over
-    uvicorn on 127.0.0.1:N (uvicorn drives the app's own lifespan). No stdio leg.
+    `--port N` serves the Starlette app over uvicorn on 127.0.0.1:N; uvicorn drives the app's lifespan.
     """
     port = int(argv_after("--port", default="8000"))
     config = uvicorn.Config(build_app(), host="127.0.0.1", port=port, log_level="error")

@@ -24,12 +24,9 @@ class SearchResult(types.Result):
 
 async def main(target: Target, *, mode: str = "auto") -> None:
     async with Client(target, mode=mode) as client:
-        # `Client` only exposes spec-defined verbs, so vendor methods have to drop one
-        # layer to `client.session` today — there is no `Client`-level API for them
-        # yet, and whether `.session` stays public is undecided. `send_request` is
-        # typed against the closed `ClientRequest` union, hence the cast; at runtime
-        # the body only calls `.model_dump()` and the unknown method skips the
-        # per-spec result-validation registry.
+        # `Client` only exposes spec-defined verbs, so vendor methods drop to `client.session` today.
+        # `send_request` is typed against the closed `ClientRequest` union, hence the cast; at runtime it
+        # only calls `.model_dump()`, and an unknown method skips the per-spec result-validation registry.
         request = SearchRequest(params=SearchParams(query="mcp", limit=3))
         result = await client.session.send_request(cast("types.ClientRequest", request), SearchResult)
         assert result.items == ["mcp-0", "mcp-1", "mcp-2"], result

@@ -2,7 +2,7 @@
 
 These tests speak HTTP directly to the server's mounted ASGI app via the in-process bridge,
 asserting the wire contract for a 2026-07-28 POST -- one self-contained request, no initialize
-handshake, no ``Mcp-Session-Id``, JSON response body -- and that 2025-era traffic on the same
+handshake, no `Mcp-Session-Id`, JSON response body -- and that 2025-era traffic on the same
 endpoint is byte-unchanged. The SDK client never exposes the response headers or the raw
 result-envelope shape, so every assertion here is necessarily wire-level.
 """
@@ -49,11 +49,7 @@ pytestmark = pytest.mark.anyio
 
 
 def _modern_headers(*, method: str, name: str | None = None) -> dict[str, str]:
-    """Request headers for a 2026-07-28 POST.
-
-    The Accept/Content-Type baseline plus the ``MCP-Protocol-Version`` routing header and the
-    ``Mcp-Method`` / ``Mcp-Name`` advisory headers a 2026-era client always sends.
-    """
+    """Request headers for a 2026-07-28 POST: routing and advisory headers atop the Accept/Content-Type baseline."""
     headers = base_headers() | {"mcp-protocol-version": LATEST_MODERN_VERSION, "mcp-method": method}
     if name is not None:
         headers["mcp-name"] = name
@@ -61,11 +57,7 @@ def _modern_headers(*, method: str, name: str | None = None) -> dict[str, str]:
 
 
 def _meta_envelope() -> dict[str, object]:
-    """The per-request ``_meta`` envelope a 2026-07-28 client stamps on every request.
-
-    Replaces the 2025-era initialize handshake: protocol version, client info, and client
-    capabilities travel on each request instead of once per session.
-    """
+    """The per-request `_meta` envelope that replaces the 2025-era initialize handshake."""
     return {
         "io.modelcontextprotocol/protocolVersion": LATEST_MODERN_VERSION,
         "io.modelcontextprotocol/clientInfo": {"name": "raw", "version": "0.0.0"},
@@ -74,7 +66,7 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
-    """A low-level server with one ``add`` tool for the raw-httpx tests below."""
+    """A low-level server with one `add` tool for the raw-httpx tests below."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         tool = Tool(name="add", input_schema={"type": "object"})
@@ -93,13 +85,7 @@ def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Serve
 
 @requirement("hosting:http:modern:tools-call-stateless")
 async def test_modern_tools_call_returns_result_type_complete_without_initialize() -> None:
-    """A 2026-07-28 tools/call is served without an initialize handshake and returns resultType: complete.
-
-    Spec-mandated under the draft transport: the per-request ``_meta`` envelope replaces initialize,
-    and ``resultType`` is the 2026 result-envelope discriminator (``complete`` for the monolith
-    result). Asserted at the wire because the SDK client never surfaces ``resultType`` and because
-    the absence of any prior request on the connection is the assertion.
-    """
+    """`resultType` is the 2026 result-envelope discriminator; `complete` marks the monolith result."""
     body = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -120,12 +106,7 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
 
 @requirement("hosting:http:modern:no-session-id")
 async def test_modern_response_carries_no_session_id_header() -> None:
-    """A 2026-07-28 response never sets ``Mcp-Session-Id``.
-
-    Spec-mandated under the draft transport: the 2026-07-28 exchange is sessionless by definition,
-    so the header that the 2025-era transport always sets on responses must be absent. Asserted at
-    the wire because the SDK client never exposes response headers.
-    """
+    """The 2026-07-28 exchange is sessionless, so the header the 2025-era transport always sets must be absent."""
     body = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -141,14 +122,9 @@ async def test_modern_response_carries_no_session_id_header() -> None:
 
 @requirement("hosting:http:modern:initialize-removed")
 async def test_modern_initialize_is_method_not_found() -> None:
-    """A 2026-07-28 initialize request that carries a valid envelope is answered METHOD_NOT_FOUND at HTTP 404.
+    """The valid `_meta` envelope lets the request past the classifier to the kernel's method/version gate.
 
-    Spec-mandated under the draft: initialize is not a defined method at 2026-07-28, so the kernel's
-    method/version gate rejects it before any handler runs. The body must carry the per-request
-    ``_meta`` envelope so the classifier ladder admits it as far as kernel dispatch -- without the
-    envelope the request is INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND. Asserted at the wire
-    because the SDK client at 2026-07-28 never sends initialize, so only a raw POST can drive the
-    negative.
+    Without it the rejection would be INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -160,11 +136,11 @@ async def test_modern_initialize_is_method_not_found() -> None:
 
 @requirement("hosting:http:modern:legacy-fallthrough")
 async def test_legacy_version_header_falls_through_and_unrecognised_header_routes_to_modern() -> None:
-    """SDK-defined under the draft versioning rules: only the known initialize-handshake protocol
-    versions reach the legacy transport, so a 2025-era ``initialize`` on the same endpoint still
-    completes unchanged. Any other ``MCP-Protocol-Version`` value routes to the modern entry,
-    where the validation ladder rejects it (a request without the per-request envelope fails the
-    first rung). The modern entry is therefore the single owner of unknown-version rejection.
+    """Only known initialize-handshake versions reach the legacy transport.
+
+    Any other `MCP-Protocol-Version` routes to the modern entry, the single owner of
+    unknown-version rejection (the envelope-less request fails the ladder's first rung as
+    INVALID_PARAMS).
     """
     async with mounted_app(_server()) as (http, _):
         # 2025-era initialize through the same endpoint: the modern branch must not intercept it.
@@ -181,12 +157,9 @@ async def test_legacy_version_header_falls_through_and_unrecognised_header_route
 
 @requirement("hosting:http:modern:handler-exception-internal-error")
 async def test_modern_handler_exception_maps_to_internal_error_without_leaking_the_message() -> None:
-    """A handler exception on the 2026-07-28 path returns -32603 with a generic message.
+    """The 2026-07-28 entry deliberately does not echo `str(exc)`.
 
-    Spec-mandated for the code: -32603 is the JSON-RPC Internal error code. SDK-defined for the
-    message: the 2026-07-28 entry deliberately does not echo ``str(exc)`` (the legacy dispatcher's
-    code-0 leak is the recorded divergence on ``protocol:error:internal-error``). Asserted at the
-    wire because the SDK client surfaces only the error object, not the HTTP status it travelled on.
+    The legacy dispatcher's code-0 leak is the recorded divergence on `protocol:error:internal-error`.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -210,12 +183,9 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 
 @requirement("hosting:http:modern:discover-response-shape")
 async def test_modern_server_discover_returns_capabilities_and_supported_versions() -> None:
-    """A 2026-07-28 server/discover POST returns capabilities, serverInfo, and supportedVersions.
+    """`server/discover` replaces the initialize-response advertisement.
 
-    Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
-    the initialize-response payload, and ``supportedVersions`` is the field a client picks its
-    per-request envelope version from. Asserted at the wire because the SDK client never exposes
-    the raw result body.
+    `supportedVersions` is the field a client picks its per-request envelope version from.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -230,12 +200,10 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
 
 @requirement("hosting:http:modern:removed-method-status-404")
 async def test_modern_removed_method_is_method_not_found_at_http_404() -> None:
-    """A 2026-07-28 ping (removed at 2026) is answered METHOD_NOT_FOUND and the HTTP status is 404.
+    """The error code is spec-mandated; the HTTP 404 is SDK-defined.
 
-    Spec-mandated for the error code: ping is not a defined method at 2026-07-28 so the kernel's
-    method/version gate rejects it. SDK-defined for the HTTP status: kernel-origin METHOD_NOT_FOUND
-    travels through the same error-code-to-status table as classifier-origin errors. Asserted at the
-    wire because the HTTP status is the assertion.
+    Kernel-origin METHOD_NOT_FOUND maps through the same error-code-to-status table as
+    classifier-origin errors.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -247,12 +215,7 @@ async def test_modern_removed_method_is_method_not_found_at_http_404() -> None:
 
 @requirement("hosting:http:modern:envelope-missing-key-status-400")
 async def test_modern_envelope_missing_required_meta_key_is_invalid_params_at_http_400() -> None:
-    """A 2026-07-28 request whose ``_meta`` envelope omits a required key is INVALID_PARAMS at HTTP 400.
-
-    Spec-mandated under the draft transport: the per-request envelope must carry every reserved key,
-    so a missing ``clientCapabilities`` fails the classifier's first rung before any kernel dispatch.
-    Asserted at the wire because the HTTP status is the assertion.
-    """
+    """A missing reserved envelope key fails the classifier's first rung, before any kernel dispatch."""
     incomplete = _meta_envelope()
     del incomplete[CLIENT_CAPABILITIES_META_KEY]
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": incomplete}}
@@ -265,14 +228,10 @@ async def test_modern_envelope_missing_required_meta_key_is_invalid_params_at_ht
 
 @requirement("hosting:http:modern:handler-error-status-via-table")
 async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_table() -> None:
-    """A handler-raised ``MCPError`` reaches the wire as a top-level JSON-RPC error at the table-mapped HTTP status.
+    """Handler-origin error codes map through the same error-code-to-status table as classifier-origin ones.
 
-    SDK-defined for the HTTP status: the modern entry maps every JSON-RPC ``error.code`` -- whether
-    classifier-origin or handler-origin -- through one error-code-to-status table, so a handler
-    raising ``MISSING_REQUIRED_CLIENT_CAPABILITY`` produces HTTP 400 with ``error.data`` preserved.
-    Spec-mandated for the error code: the named code and its ``requiredCapabilities`` data shape are
-    the spec's capability-gating contract. Registered via the low-level ``add_request_handler`` so
-    the high-level tool wrapper's error-swallowing is not on the path.
+    `error.data` is preserved. Registered via the low-level `add_request_handler` so the
+    high-level tool wrapper's error-swallowing is not on the path.
     """
 
     async def cap_check(ctx: ServerRequestContext, params: RequestParams) -> EmptyResult:
@@ -299,20 +258,11 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
 @requirement("lifecycle:stateless:caller-meta-preserved")
 @requirement("client-transport:http:body-derived-headers")
 async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern_entry() -> None:
-    """First end-to-end exercise of the 2026-07-28 stateless request style: SDK client to SDK server.
+    """End-to-end 2026-07-28 stateless round trip: a pinned `ClientSession` against the modern entry.
 
-    Spec-mandated under the draft stateless transport: the pinned ``ClientSession`` and the
-    single-exchange serving entry compose so that ``call_tool`` returns ``resultType: complete``
-    with no ``initialize`` ever sent, no ``Mcp-Session-Id`` on any request or response, and every
-    POST carrying the body-derived ``MCP-Protocol-Version`` / ``Mcp-Method`` / ``Mcp-Name`` headers
-    plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. The caller passes a
-    ``custom-key`` under ``meta=`` and the server handler captures the incoming ``ctx.meta``,
-    proving the envelope merge is additive: the caller's key sits alongside the three envelope keys
-    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx event
-    hooks because none of the headers, the envelope, or the handshake-absence is observable through
-    the public client API. The recorded log shows two POSTs: the ``tools/call`` itself and the
-    client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
-    both of which must satisfy the stateless contract.
+    Observed via the `mounted_app` httpx event hooks. Two POSTs are expected -- the `tools/call`
+    and the client's implicit `tools/list` output-schema fetch (see `client:output-schema:auto-list`)
+    -- and both must satisfy the stateless contract.
     """
     observed_metas: list[dict[str, Any]] = []
     server = _server(on_meta=observed_metas.append)
@@ -350,16 +300,14 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
         {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
     )
 
-    # Exactly the tools/call POST and the implicit tools/list POST -- no initialize, no
-    # notifications/initialized, no standalone GET stream, no closing DELETE.
+    # Only the tools/call and implicit tools/list POSTs: no initialize, no GET stream, no closing DELETE.
     bodies = [json.loads(r.content) for r in requests]
     assert [(r.method, body["method"]) for r, body in zip(requests, bodies, strict=True)] == snapshot(
         [("POST", "tools/call"), ("POST", "tools/list")]
     )
     assert all("initialize" not in body["method"] for body in bodies)
 
-    # The tools/call POST carries the body-derived headers, and its _meta envelope overwrites the
-    # caller's colliding io.modelcontextprotocol/* key while preserving the non-colliding caller key.
+    # The envelope overwrites the caller's colliding io.modelcontextprotocol/* key and preserves `custom-key`.
     call = requests[0]
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-")} == snapshot(
         {"mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "add"}
@@ -372,8 +320,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
             "io.modelcontextprotocol/clientCapabilities": {},
         }
     )
-    # The implicit tools/list carries the envelope but no caller meta: proves the envelope is
-    # stamped on every request, not just on requests where the caller passed meta=.
+    # The implicit tools/list carries the envelope with no caller meta: stamped on every request, not just meta= calls.
     assert bodies[1]["params"]["_meta"] == snapshot(
         {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -382,10 +329,8 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
         }
     )
 
-    # The server handler observed the same merged _meta on ctx.meta.
     assert observed_metas == [bodies[0]["params"]["_meta"]]
 
-    # No session id on any request or response: the exchange is sessionless end to end.
     assert len(responses) == len(requests)
     assert all("mcp-session-id" not in r.headers for r in requests)
     assert all("mcp-session-id" not in r.headers for r in responses)
@@ -421,13 +366,11 @@ def _custom_header_server() -> Server:
 
 @requirement("client-transport:http:custom-param-headers")
 async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() -> None:
-    """A tools/call mirrors the tool's `x-mcp-header` arguments into `Mcp-Param-*` headers.
+    """`list_tools` caches the tool's annotations; the client then mirrors annotated arguments into headers.
 
-    After `list_tools` caches the tool's annotations, the client renders each annotated argument into
-    its header per the spec's Value Encoding rules: `region` verbatim, `priority` as a decimal, `verbose`
-    as `false`, and the non-ASCII `note` base64-sentinel-wrapped. The unannotated `query` and the omitted
-    `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
-    at the wire because the client never surfaces the outgoing headers.
+    Each value is rendered per the spec's Value Encoding rules -- string verbatim, integer as
+    decimal, boolean lowercase, non-ASCII base64-sentinel-wrapped -- while unannotated arguments
+    stay out of the headers.
     """
     requests: list[httpx.Request] = []
 
@@ -468,11 +411,9 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
 
 @requirement("client-transport:http:custom-param-headers")
 async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> None:
-    """A `tools/call` for a tool the client never listed carries no `Mcp-Param-*` headers.
+    """The spec lets a client lacking the tool's `inputSchema` send the call without custom headers.
 
-    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
-    The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
-    implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
+    The first `tools/call` POST is captured before the implicit output-schema `list_tools` runs.
     """
     requests: list[httpx.Request] = []
 
@@ -501,11 +442,9 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
 
 @requirement("client-transport:http:custom-param-headers")
 async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() -> None:
-    """A re-list that drops a previously valid tool stops mirroring its `x-mcp-header` args.
+    """The re-list returns the tool with an invalid annotation; the client evicts the cached header map.
 
-    The tool is first listed with a valid annotation (so a call mirrors `Mcp-Param-Region`), then re-listed
-    with an invalid annotation -- the modern client drops it and evicts the cached map, so a later `tools/call`
-    by name carries no `Mcp-Param-*` header. Asserted at the wire, where the eviction is observable.
+    A later `tools/call` by name therefore mirrors nothing.
     """
     schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}}
     bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}

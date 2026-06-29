@@ -8,9 +8,8 @@ from stories._harness import TargetFactory, run_client
 
 
 async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
-    # ── modern arm: the caller's mode (the real-user "auto" default) probes
-    # ``server/discover`` and adopts the result — no ``initialize`` handshake runs.
-    # The version/info/capabilities accessors are era-neutral.
+    # Modern arm: the caller's mode (the real-user "auto" default) probes `server/discover`
+    # and adopts the result — no `initialize` handshake. The accessors below are era-neutral.
     async with Client(targets(), mode=mode) as modern:
         assert modern.protocol_version == LATEST_MODERN_VERSION
         assert modern.server_info.name == "dual-era-example"
@@ -24,8 +23,8 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
         assert isinstance(first, types.TextContent)
         assert first.text == f"Hello, 2026 client! (served on the modern era at {LATEST_MODERN_VERSION})"
 
-    # ── legacy arm: a fresh connection to the SAME server, pinned to the handshake era.
-    # The same accessors are populated identically — here by ``initialize``.
+    # Legacy arm: a fresh connection to the SAME server, pinned to the handshake era.
+    # The same accessors are populated identically — here by `initialize`.
     async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
         assert legacy.server_info.name == "dual-era-example"

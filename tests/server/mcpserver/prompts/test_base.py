@@ -97,8 +97,6 @@ class TestRenderPrompt:
 
     @pytest.mark.anyio
     async def test_fn_returns_resource_content(self):
-        """Test returning a message with resource content."""
-
         async def fn() -> UserMessage:
             return UserMessage(
                 content=EmbeddedResource(
@@ -127,8 +125,6 @@ class TestRenderPrompt:
 
     @pytest.mark.anyio
     async def test_fn_returns_mixed_content(self):
-        """Test returning messages with mixed content types."""
-
         async def fn() -> list[Message]:
             return [
                 UserMessage(content="Please analyze this file:"),
@@ -163,8 +159,6 @@ class TestRenderPrompt:
 
     @pytest.mark.anyio
     async def test_fn_returns_dict_with_resource(self):
-        """Test returning a dict with resource content."""
-
         async def fn() -> dict[str, Any]:
             return {
                 "role": "user",
@@ -195,8 +189,6 @@ class TestRenderPrompt:
 
 @pytest.mark.anyio
 async def test_sync_fn_runs_in_worker_thread():
-    """Sync prompt functions must run in a worker thread, not the event loop."""
-
     main_thread = threading.get_ident()
     fn_thread: list[int] = []
 

@@ -2,7 +2,6 @@
 
 from mcp.server.mcpserver import MCPServer
 
-# Create server
 mcp = MCPServer("Echo Server")
 
 

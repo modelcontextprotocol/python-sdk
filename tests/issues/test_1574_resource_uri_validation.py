@@ -1,13 +1,7 @@
-"""Tests for issue #1574: Python SDK incorrectly validates Resource URIs.
+"""Regression tests for issue #1574: URI fields are plain strings, not Pydantic AnyUrl.
 
-The Python SDK previously used Pydantic's AnyUrl for URI fields, which rejected
-relative paths like 'users/me' that are valid according to the MCP spec and
-accepted by the TypeScript SDK.
-
-The fix changed URI fields to plain strings to match the spec, which defines
-uri fields as strings with no JSON Schema format validation.
-
-These tests verify the fix works end-to-end through the JSON-RPC protocol.
+AnyUrl rejected relative URIs like `users/me`, which the spec (it types `uri` as a plain
+string) and the TypeScript SDK accept; the fix changed URI fields to `str`.
 """
 
 import mcp_types as types
@@ -27,12 +21,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_relative_uri_roundtrip():
-    """Relative URIs survive the full server-client JSON-RPC roundtrip.
-
-    This is the critical regression test - if someone reintroduces AnyUrl,
-    the server would fail to serialize resources with relative URIs,
-    or the URI would be transformed during the roundtrip.
-    """
+    """Reintroducing AnyUrl would fail serialization or transform relative URIs in flight."""
 
     async def handle_list_resources(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
@@ -53,7 +42,6 @@ async def test_relative_uri_roundtrip():
     server = Server("test", on_list_resources=handle_list_resources, on_read_resource=handle_read_resource)
 
     async with Client(server) as client:
-        # List should return the exact URIs we specified
         resources = await client.list_resources()
         uri_map = {r.uri: r for r in resources.resources}
 
@@ -61,7 +49,6 @@ async def test_relative_uri_roundtrip():
         assert "./config" in uri_map, f"Expected './config' in {list(uri_map.keys())}"
         assert "../parent/resource" in uri_map, f"Expected '../parent/resource' in {list(uri_map.keys())}"
 
-        # Read should work with each relative URI and preserve it in the response
         for uri_str in ["users/me", "./config", "../parent/resource"]:
             result = await client.read_resource(uri_str)
             assert len(result.contents) == 1
@@ -69,12 +56,6 @@ async def test_relative_uri_roundtrip():
 
 
 async def test_custom_scheme_uri_roundtrip():
-    """Custom scheme URIs work through the protocol.
-
-    Some MCP servers use custom schemes like "custom://resource".
-    These should work end-to-end.
-    """
-
     async def handle_list_resources(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
     ) -> ListResourcesResult:
@@ -99,17 +80,11 @@ async def test_custom_scheme_uri_roundtrip():
         assert "custom://my-resource" in uri_map
         assert "file:///path/to/file" in uri_map
 
-        # Read with custom scheme
         result = await client.read_resource("custom://my-resource")
         assert len(result.contents) == 1
 
 
 def test_uri_json_roundtrip_preserves_value():
-    """URI is preserved exactly through JSON serialization.
-
-    This catches any Pydantic validation or normalization that would
-    alter the URI during the JSON-RPC message flow.
-    """
     test_uris = [
         "users/me",
         "custom://resource",
@@ -127,7 +102,6 @@ def test_uri_json_roundtrip_preserves_value():
 
 
 def test_resource_contents_uri_json_roundtrip():
-    """TextResourceContents URI is preserved through JSON serialization."""
     test_uris = ["users/me", "./relative", "custom://resource"]
 
     for uri_str in test_uris:

@@ -1,5 +1,3 @@
-"""Regression coverage for the StreamableHTTP per-session response router."""
-
 import anyio
 import pytest
 from mcp_types import JSONRPCMessage, JSONRPCResponse
@@ -27,17 +25,11 @@ class _PrimingFailingStore(EventStore):
 
 @pytest.mark.anyio
 async def test_router_unconsumed_request_stream_does_not_block_siblings() -> None:
-    """A response whose `sse_writer` is not yet receiving must not park the router (#1764).
-
-    Drives the routing layer directly (the production race does not reproduce
-    on loopback), so this pins the router semantics, not the call sites.
-    """
+    """Regression for #1764; drives the router directly: the production race does not reproduce on loopback."""
     transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=False)
     streams = transport._request_streams
     async with transport.connect() as (_read_stream, write_stream):
-        # Model two concurrent POSTs at the point _handle_post_request has
-        # registered the per-request stream but A's sse_writer has not yet
-        # reached its first receive().
+        # As if _handle_post_request registered both streams but A's sse_writer hasn't reached its first receive().
         streams["A"] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
         streams["B"] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
         a_send, a_recv = streams["A"]
@@ -66,7 +58,6 @@ async def test_router_unconsumed_request_stream_does_not_block_siblings() -> Non
 
 @pytest.mark.anyio
 async def test_priming_store_failure_leaves_no_per_request_state() -> None:
-    """`EventStore.store_event` raising on the priming row must not leak per-request entries."""
     transport = StreamableHTTPServerTransport(
         mcp_session_id=None,
         is_json_response_enabled=False,
@@ -105,8 +96,7 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
             with anyio.fail_after(5):
                 forwarded = await read_stream.receive()
             assert isinstance(forwarded, Exception)
-        # handle_request has returned; connect()'s finally (which clears
-        # _request_streams unconditionally) has not yet run.
+        # handle_request returned but connect()'s finally (which clears _request_streams unconditionally) hasn't yet.
         assert transport._request_streams == {}
         assert transport._sse_stream_writers == {}
 

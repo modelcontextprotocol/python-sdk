@@ -1,5 +1,3 @@
-"""Tests for tool annotations in low-level server."""
-
 import pytest
 from mcp_types import ListToolsResult, PaginatedRequestParams, Tool, ToolAnnotations
 
@@ -9,8 +7,6 @@ from mcp.server import Server, ServerRequestContext
 
 @pytest.mark.anyio
 async def test_lowlevel_server_tool_annotations():
-    """Test that tool annotations work in low-level server."""
-
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[

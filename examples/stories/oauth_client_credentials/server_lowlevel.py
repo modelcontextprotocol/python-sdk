@@ -1,4 +1,4 @@
-"""Bearer-gated MCP resource server (lowlevel API) + the same minimal ``client_credentials`` AS."""
+"""Bearer-gated MCP resource server (lowlevel API) + the same minimal `client_credentials` AS."""
 
 import base64
 import json

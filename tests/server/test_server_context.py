@@ -1,9 +1,4 @@
-"""Tests for the server-side `Context`.
-
-`Context` extends `BaseContext` (forwarding to a `DispatchContext`) with
-`lifespan`, `connection`, and request-scoped `log`. End-to-end tested over
-`DirectDispatcher`.
-"""
+"""Tests for the server-side `Context`, exercised end-to-end over `DirectDispatcher`."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass

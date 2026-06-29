@@ -41,11 +41,9 @@ class JSONRPCResponse(BaseModel):
     result: dict[str, Any]
 
 
-# MCP error codes occupy the JSON-RPC server-error range -32000..-32099.
-# Per the 2026-07-28 spec's allocation policy:
-#   -32000..-32019  implementation-defined
-#   -32020..-32099  reserved for spec-defined codes, allocated sequentially from -32020
-#   -32002, -32042  reserved-never-reused (retired by earlier protocol versions)
+# MCP error codes occupy the JSON-RPC server-error range -32000..-32099. 2026-07-28 allocation policy:
+# -32000..-32019 implementation-defined; -32020..-32099 spec-defined, allocated sequentially from -32020;
+# -32002 and -32042 reserved-never-reused (retired by earlier protocol versions).
 
 HEADER_MISMATCH = -32020
 """HTTP headers do not match the request body, or required headers are missing/malformed (protocol 2026-07-28)."""
@@ -59,15 +57,13 @@ UNSUPPORTED_PROTOCOL_VERSION = -32022
 URL_ELICITATION_REQUIRED = -32042
 """A URL-mode elicitation is required before the request can be processed (protocol 2025-11-25 only)."""
 
-# SDK error codes: SDK-internal allocations in the implementation-defined band
-# -32000..-32019; not defined by the MCP schema.
+# SDK-internal allocations in the implementation-defined band; not defined by the MCP schema.
 CONNECTION_CLOSED = -32000
 """SDK-only: the connection closed before a response arrived; never emitted on the wire."""
 
 REQUEST_TIMEOUT = -32001
 """SDK-only: a request timed out waiting for its response."""
 
-# Standard JSON-RPC error codes
 PARSE_ERROR = -32700
 """Standard JSON-RPC: invalid JSON was received."""
 
@@ -94,16 +90,10 @@ class ErrorData(BaseModel):
     """The error type that occurred."""
 
     message: str
-    """A short description of the error.
-
-    The message SHOULD be limited to a concise single sentence.
-    """
+    """A short description of the error; SHOULD be limited to a concise single sentence."""
 
     data: Any = None
-    """Additional information about the error.
-
-    The value of this member is defined by the sender (e.g. detailed error information, nested errors, etc.).
-    """
+    """Additional information about the error, defined by the sender (e.g. detailed or nested errors)."""
 
 
 class JSONRPCError(BaseModel):
@@ -111,10 +101,7 @@ class JSONRPCError(BaseModel):
 
     jsonrpc: Literal["2.0"]
     id: RequestId | None
-    """The id of the request this error responds to.
-
-    Required but nullable per JSON-RPC 2.0: `None` encodes `"id": null` (the id could not be determined).
-    """
+    """Required but nullable per JSON-RPC 2.0: `None` encodes `"id": null` (the id could not be determined)."""
 
     error: ErrorData
 

@@ -1,9 +1,6 @@
 """`ServerSession`: server-to-client requests and notifications.
 
-A per-request proxy built by the kernel for each inbound request. Exposes the
-request-scoped outbound channel and the connection's standalone channel.
-Handlers reach it as `ctx.session` and use the typed helpers (`elicit_form`,
-`send_log_message`, ...) to call back to the client.
+Handlers reach it as `ctx.session` and use the typed helpers to call back to the client.
 """
 
 from typing import Any, TypeVar, overload
@@ -27,13 +24,10 @@ ResultT = TypeVar("ResultT", bound=BaseModel)
 class ServerSession:
     """Per-request proxy for server-to-client requests and notifications.
 
-    Built once per inbound request by the kernel's `_make_context`. Holds two
-    `Outbound` channels: the request-scoped one (the per-request
-    `DispatchContext`, which on streamable HTTP routes onto the originating
-    POST's response stream) and the connection's standalone channel
-    (`connection.outbound`). `related_request_id` on the public methods is the
-    selector — present means request-scoped, absent means standalone — and
-    never crosses the `Outbound` Protocol.
+    Built by the kernel per inbound request. Holds two `Outbound` channels: the request-scoped
+    `DispatchContext` (on streamable HTTP, the originating POST's response stream) and the
+    connection's standalone channel. `related_request_id` on the public methods selects between
+    them — present means request-scoped, absent standalone — and never crosses the `Outbound` Protocol.
     """
 
     def __init__(self, request_outbound: DispatchContext[Any], connection: Connection) -> None:
@@ -47,11 +41,7 @@ class ServerSession:
 
     @property
     def protocol_version(self) -> str:
-        """The protocol version this connection speaks.
-
-        Populated at `Connection` construction and overwritten once the
-        handshake commits on the loop path; never `None`.
-        """
+        """The protocol version this connection speaks (set at construction, updated on handshake; never `None`)."""
         return self._connection.protocol_version
 
     async def send_request(
@@ -66,8 +56,7 @@ class ServerSession:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: The connection has no back-channel for
-                server-initiated requests (raised by the held `Outbound`).
+            NoBackChannelError: No back-channel for server-initiated requests.
             pydantic.ValidationError: The peer's result does not match `result_type`.
         """
         related = metadata.related_request_id if metadata is not None else None
@@ -185,31 +174,13 @@ class ServerSession:
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:
         """Send a sampling/create_message request.
 
-        Args:
-            messages: The conversation messages to send.
-            max_tokens: Maximum number of tokens to generate.
-            system_prompt: Optional system prompt.
-            include_context: Optional context inclusion setting.
-                Should only be set to "thisServer" or "allServers"
-                if the client has sampling.context capability.
-            temperature: Optional sampling temperature.
-            stop_sequences: Optional stop sequences.
-            metadata: Optional metadata to pass through to the LLM provider.
-            model_preferences: Optional model selection preferences.
-            tools: Optional list of tools the LLM can use during sampling.
-                Requires client to have sampling.tools capability.
-            tool_choice: Optional control over tool usage behavior.
-                Requires client to have sampling.tools capability.
-            related_request_id: Optional ID of a related request.
-
-        Returns:
-            The sampling result from the client.
+        `include_context` of "thisServer"/"allServers" requires the client's `sampling.context`
+        capability; `tools` and `tool_choice` require `sampling.tools`.
 
         Raises:
-            MCPError: If tools are provided but client doesn't support them.
-            ValueError: If tool_use or tool_result message structure is invalid.
-            NoBackChannelError: The connection has no back-channel for
-                server-initiated requests.
+            MCPError: Tools were provided but the client does not support them.
+            ValueError: Invalid tool_use or tool_result message structure.
+            NoBackChannelError: No back-channel for server-initiated requests.
         """
         client_caps = self.client_params.capabilities if self.client_params else None
         validate_sampling_tools(client_caps, tools, tool_choice)
@@ -248,8 +219,7 @@ class ServerSession:
         """Send a roots/list request.
 
         Raises:
-            NoBackChannelError: The connection has no back-channel for
-                server-initiated requests.
+            NoBackChannelError: No back-channel for server-initiated requests.
         """
         return await self.send_request(
             types.ListRootsRequest(),
@@ -264,17 +234,7 @@ class ServerSession:
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
-        Args:
-            message: The message to present to the user.
-            requested_schema: Schema defining the expected response structure.
-            related_request_id: Optional ID of the request that triggered this elicitation.
-
-        Returns:
-            The client's response.
-
-        Note:
-            This method is deprecated in favor of elicit_form(). It remains for
-            backward compatibility but new code should use elicit_form().
+        Deprecated: use `elicit_form()`; kept for backward compatibility.
         """
         return await self.elicit_form(message, requested_schema, related_request_id)
 
@@ -286,17 +246,8 @@ class ServerSession:
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
-        Args:
-            message: The message to present to the user.
-            requested_schema: Schema defining the expected response structure.
-            related_request_id: Optional ID of the request that triggered this elicitation.
-
-        Returns:
-            The client's response with form data.
-
         Raises:
-            NoBackChannelError: The connection has no back-channel for
-                server-initiated requests.
+            NoBackChannelError: No back-channel for server-initiated requests.
         """
         return await self.send_request(
             types.ElicitRequest(
@@ -318,21 +269,11 @@ class ServerSession:
     ) -> types.ElicitResult:
         """Send a URL mode elicitation/create request.
 
-        This directs the user to an external URL for out-of-band interactions
-        like OAuth flows, credential collection, or payment processing.
-
-        Args:
-            message: Human-readable explanation of why the interaction is needed.
-            url: The URL the user should navigate to.
-            elicitation_id: Unique identifier for tracking this elicitation.
-            related_request_id: Optional ID of the request that triggered this elicitation.
-
-        Returns:
-            The client's response indicating acceptance, decline, or cancellation.
+        Directs the user to an external URL for out-of-band interactions like OAuth flows,
+        credential collection, or payment processing.
 
         Raises:
-            NoBackChannelError: The connection has no back-channel for
-                server-initiated requests.
+            NoBackChannelError: No back-channel for server-initiated requests.
         """
         return await self.send_request(
             types.ElicitRequest(
@@ -356,10 +297,9 @@ class ServerSession:
     async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         """Report progress for the inbound request this session is scoped to.
 
-        A no-op when the caller did not request progress. Dispatcher-agnostic:
-        on JSON-RPC the held `DispatchContext` emits ``notifications/progress``
-        against the caller's token; on the in-process direct dispatcher it
-        invokes the caller's callback directly.
+        A no-op when the caller did not request progress. On JSON-RPC this emits
+        `notifications/progress` against the caller's token; the in-process direct
+        dispatcher invokes the caller's callback directly.
         """
         await self._request_outbound.progress(progress, total, message)
 
@@ -403,13 +343,8 @@ class ServerSession:
     ) -> None:
         """Send an elicitation completion notification.
 
-        This should be sent when a URL mode elicitation has been completed
-        out-of-band to inform the client that it may retry any requests
-        that were waiting for this elicitation.
-
-        Args:
-            elicitation_id: The unique identifier of the completed elicitation
-            related_request_id: Optional ID of the request that triggered this notification
+        Sent when a URL mode elicitation completes out-of-band, telling the client it
+        may retry requests that were waiting on it.
         """
         await self.send_notification(
             types.ElicitCompleteNotification(

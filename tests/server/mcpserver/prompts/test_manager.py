@@ -8,8 +8,6 @@ from mcp.server.mcpserver.prompts.manager import PromptManager
 
 class TestPromptManager:
     def test_add_prompt(self):
-        """Test adding a prompt to the manager."""
-
         def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
@@ -20,8 +18,6 @@ class TestPromptManager:
         assert manager.get_prompt("fn") == prompt
 
     def test_add_duplicate_prompt(self, caplog: pytest.LogCaptureFixture):
-        """Test adding the same prompt twice."""
-
         def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
@@ -33,8 +29,6 @@ class TestPromptManager:
         assert "Prompt already exists" in caplog.text
 
     def test_disable_warn_on_duplicate_prompts(self, caplog: pytest.LogCaptureFixture):
-        """Test disabling warning on duplicate prompts."""
-
         def fn() -> str:  # pragma: no cover
             return "Hello, world!"
 
@@ -46,8 +40,6 @@ class TestPromptManager:
         assert "Prompt already exists" not in caplog.text
 
     def test_list_prompts(self):
-        """Test listing all prompts."""
-
         def fn1() -> str:  # pragma: no cover
             return "Hello, world!"
 
@@ -65,8 +57,6 @@ class TestPromptManager:
 
     @pytest.mark.anyio
     async def test_render_prompt(self):
-        """Test rendering a prompt."""
-
         def fn() -> str:
             return "Hello, world!"
 
@@ -78,8 +68,6 @@ class TestPromptManager:
 
     @pytest.mark.anyio
     async def test_render_prompt_with_args(self):
-        """Test rendering a prompt with arguments."""
-
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
@@ -91,15 +79,12 @@ class TestPromptManager:
 
     @pytest.mark.anyio
     async def test_render_unknown_prompt(self):
-        """Test rendering a non-existent prompt."""
         manager = PromptManager()
         with pytest.raises(ValueError, match="Unknown prompt: unknown"):
             await manager.render_prompt("unknown", None, Context())
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
-        """Test rendering a prompt with missing required arguments."""
-
         def fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 

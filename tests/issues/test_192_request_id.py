@@ -19,15 +19,12 @@ from mcp.shared.message import SessionMessage
 
 @pytest.mark.anyio
 async def test_request_id_match() -> None:
-    """Test that the server preserves request IDs in responses."""
     server = Server("test")
     custom_request_id = "test-123"
 
-    # Create memory streams for communication
     client_writer, client_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
-    # Server task to process the request
     async def run_server():
         async with client_reader, server_writer:
             await server.run(
@@ -44,7 +41,6 @@ async def test_request_id_match() -> None:
                 raise_exceptions=True,
             )
 
-    # Start server task
     async with (
         anyio.create_task_group() as tg,
         client_writer,
@@ -54,7 +50,6 @@ async def test_request_id_match() -> None:
     ):
         tg.start_soon(run_server)
 
-        # Send initialize request
         init_req = JSONRPCRequest(
             id="init-1",
             method="initialize",
@@ -67,9 +62,8 @@ async def test_request_id_match() -> None:
         )
 
         await client_writer.send(SessionMessage(init_req))
-        response = await server_reader.receive()  # Get init response but don't need to check it
+        response = await server_reader.receive()  # drain the init response
 
-        # Send initialized notification
         initialized_notification = JSONRPCNotification(
             method="notifications/initialized",
             params=NotificationParams().model_dump(by_alias=True, exclude_none=True),
@@ -77,19 +71,15 @@ async def test_request_id_match() -> None:
         )
         await client_writer.send(SessionMessage(initialized_notification))
 
-        # Send ping request with custom ID
         ping_request = JSONRPCRequest(id=custom_request_id, method="ping", params={}, jsonrpc="2.0")
 
         await client_writer.send(SessionMessage(ping_request))
 
-        # Read response
         response = await server_reader.receive()
 
-        # Verify response ID matches request ID
         assert isinstance(response, SessionMessage)
         assert isinstance(response.message, JSONRPCMessage)
         assert isinstance(response.message, JSONRPCResponse)
         assert response.message.id == custom_request_id, "Response ID should match request ID"
 
-        # Cancel server task
         tg.cancel_scope.cancel()

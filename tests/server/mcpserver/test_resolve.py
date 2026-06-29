@@ -80,8 +80,7 @@ async def _decline(context: ClientRequestContext, params: ElicitRequestParams) -
 
 
 async def _never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
-    # Declares the form elicitation capability for clients that drive the
-    # input_required loop manually; the auto-driver never invokes it.
+    # Declares the elicitation capability for clients driving the input_required loop manually; never invoked.
     raise AssertionError("should not be called")
 
 
@@ -318,10 +317,8 @@ def test_find_resolved_parameters_tolerates_unresolvable_hints():
 
 
 def test_elicitation_result_alias_resolves_under_postponed_annotations():
-    # Reproduces the case where `from __future__ import annotations` stringifies
-    # `Annotated[ElicitationResult[Login], Resolve(_alias_login)]`: the alias must be
-    # subscriptable so the resolver is detected (not silently dropped) and the
-    # consumer is recognized as wanting the result union.
+    # The string annotation simulates `from __future__ import annotations`; the alias must be subscriptable
+    # so the resolver is detected (not silently dropped) and the consumer is recognized as wanting the result union.
     def tool(login: str) -> str:
         return login  # pragma: no cover
 
@@ -343,9 +340,7 @@ def test_unresolvable_resolver_param_raises_at_registration():
 
 
 def test_multiple_elicit_arms_raise_at_registration():
-    # The runtime can honor only one static question schema per resolver, so an
-    # ambiguous `-> Elicit[A] | Elicit[B]` must not register (the second arm used
-    # to be silently ignored).
+    # Regression: the second Elicit arm used to be silently ignored; only one question schema can be honored.
     async def ambiguous(ctx: Context) -> Elicit[Login] | Elicit[Confirm]:
         raise NotImplementedError  # pragma: no cover
 
@@ -368,8 +363,6 @@ def test_resolve_marker_inside_a_union_raises_at_registration():
 
 
 def test_bare_elicitation_result_alias_wants_the_outcome_union():
-    # The bare `ElicitationResult` alias (no `[T]` subscription) must still opt into
-    # the result union, not be treated as wanting the unwrapped model.
     async def login(ctx: Context) -> Login:
         return Login(username="x")  # pragma: no cover
 
@@ -408,8 +401,7 @@ def test_callable_object_resolver_error_uses_type_name():
 async def test_by_name_resolver_param_uses_aliased_tool_arg():
     mcp = MCPServer(name="Aliased")
 
-    # `schema` collides with a BaseModel attribute, so func_metadata aliases the field;
-    # the runtime kwarg key is the alias, which is what a by-name resolver must match.
+    # `schema` collides with a BaseModel attribute, so func_metadata aliases it; by-name resolution matches the alias.
     async def upper(schema: str) -> Login:
         return Login(username=schema.upper())
 
@@ -474,8 +466,7 @@ async def test_bound_method_resolver_runs_once_across_references():
 
     service = Service()
 
-    # Each `service.token` access is a fresh bound-method object; keying by the
-    # callable (not id) keeps the resolver memoized to a single call.
+    # Each `service.token` access is a fresh bound-method object; memoization must not key on identity.
     async def downstream(token: Annotated[str, Resolve(service.token)]) -> str:
         return token.upper()
 
@@ -522,8 +513,6 @@ async def test_resolver_and_body_see_the_same_validated_default():
         counter["n"] += 1
         return counter["n"]
 
-    # A by-name resolver and the tool body must observe one validation pass, so the
-    # `default_factory` runs once and both see the same generated value.
     async def echo_id(request_id: int) -> int:
         return request_id
 
@@ -548,19 +537,16 @@ def test_resolver_key_is_stable_for_methods_and_distinct_callables():
 
     a, b = Service(), Service()
 
-    # Pure-python bound methods: stable across accesses, distinct per instance.
     assert _resolver_key(a.handler) == _resolver_key(a.handler)
     assert _resolver_key(a.handler) != _resolver_key(b.handler)
 
-    # Built-in bound methods (no `__func__`): fresh object each access, but the key
-    # is stable and keyed to `__self__`.
+    # Built-in bound methods have no `__func__`; the key is still stable and keyed to `__self__`.
     items: list[int] = []
     others: list[int] = []
     assert _resolver_key(items.append) == _resolver_key(items.append)
     assert _resolver_key(items.append) != _resolver_key(others.append)
     assert _resolver_key(items.append) != _resolver_key(items.pop)
 
-    # Plain functions key by identity.
     def fn() -> None: ...  # pragma: no cover
 
     assert _resolver_key(fn) == _resolver_key(fn)
@@ -668,8 +654,7 @@ async def test_input_required_loop_handles_every_outcome(
     content: dict[str, str | int | float | bool | list[str] | None] | None,
     expected: str,
 ):
-    # End-to-end at 2026-07-28: the client's auto-driver answers the embedded
-    # elicitation through the ordinary `elicitation_callback` and retries.
+    # At 2026-07-28 the auto-driver answers the embedded elicitation via the `elicitation_callback` and retries.
     mcp, fs = _delete_folder_server()
     fs["/docs"] = ["a.txt", "b.txt"]
 
@@ -677,7 +662,7 @@ async def test_input_required_loop_handles_every_outcome(
         assert "/docs has 2 file(s)" in params.message
         return ElicitResult(action=action, content=content)
 
-    async with Client(mcp, elicitation_callback=callback) as client:  # mode="auto" negotiates 2026-07-28
+    async with Client(mcp, elicitation_callback=callback) as client:
         result = await client.call_tool("delete_folder", {"path": "/docs"})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == expected
@@ -732,14 +717,10 @@ async def test_input_required_resolver_asks_and_consumes_then_never_reruns():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "octocat:True"
 
-    # `confirm` can only form its question from `login`'s answer, so the auto-driver
-    # sees the questions in two successive rounds and answers each exactly once.
+    # `confirm` needs `login`'s answer to form its question, so the questions arrive in two successive rounds.
     assert asked == ["Username?", "As octocat?"]
-    # An eliciting resolver runs twice - once to ask, once to consume the answer -
-    # then its outcome is carried in `request_state` and it never runs again. `login`
-    # asks in round 1 and is consumed in round 2; `confirm` (which depends on
-    # `login`) only forms its question once `login` is known, so it asks in round 2
-    # and is consumed in round 3. Neither re-runs beyond consuming its own answer.
+    # An eliciting resolver runs twice - once to ask, once to consume the answer - then its outcome is
+    # carried in `request_state` and it never runs again.
     assert counts == {"login": 2, "confirm": 2}
 
 
@@ -766,7 +747,6 @@ async def test_input_required_batches_independent_elicits_in_one_round():
         return ElicitResult(action="accept", content={"ok": True})
 
     async with Client(mcp, elicitation_callback=_never) as client:
-        # Both independent resolvers are asked together in the first round.
         first = await client.session.call_tool("both", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
         assert first.input_requests is not None
@@ -787,8 +767,7 @@ async def test_input_required_batches_independent_elicits_in_one_round():
 
 @pytest.mark.anyio
 async def test_auto_driver_answers_independent_questions_in_a_single_round():
-    # The pure `count_round` resolver is never persisted in `request_state`, so it
-    # re-runs on every round: its run count is the number of rounds the call took.
+    # The pure `count_round` resolver is never persisted, so its run count is the number of rounds taken.
     mcp = MCPServer(name="AutoBatch")
     rounds = 0
 
@@ -825,7 +804,7 @@ async def test_auto_driver_answers_independent_questions_in_a_single_round():
         assert result.content[0].text == "octocat:True"
 
     # The driver dispatches batched questions concurrently, so order is unspecified.
-    assert sorted(asked) == ["Confirm?", "Name?"]  # both questions, each exactly once
+    assert sorted(asked) == ["Confirm?", "Name?"]
     assert rounds == 2  # one question round, then the completing round
 
 
@@ -859,7 +838,7 @@ def test_state_round_trips_accept_decline_cancel():
         "d": _StateEntry(action="accept", data="raw-token"),  # non-dict wire value
     }
     decoded = _decode_state(_encode_state(entries))
-    assert decoded == entries  # encode-restore is the identity on the stored entries
+    assert decoded == entries
 
     accepted = _outcome_from_state(decoded["a"], Login)
     assert isinstance(accepted, AcceptedElicitation) and accepted.data == Login(username="octocat")
@@ -874,11 +853,9 @@ def test_elicit_return_schema_extraction():
     assert _elicit_return_schema(Login | Elicit[Login], "r") is Login  # union arm
     assert _elicit_return_schema(Login, "r") is None  # no Elicit arm
     assert _elicit_return_schema(None, "r") is None
-    # The bound on `Elicit`'s parameter is unenforced at runtime, so a non-model
-    # subscription is constructible and must yield no schema rather than crash.
+    # The type bound on `Elicit` is unenforced at runtime, so `Elicit[int]` must yield no schema, not crash.
     unbounded_elicit: Any = Elicit
     assert _elicit_return_schema(unbounded_elicit[int], "r") is None
-    # Two distinct Elicit arms are ambiguous: the runtime can honor only one schema.
     with pytest.raises(InvalidSignature, match="'r' return annotation has multiple Elicit arms"):
         _elicit_return_schema(Elicit[Login] | Elicit[Confirm], "r")
 
@@ -917,9 +894,8 @@ async def test_non_elicitation_response_raises():
 
 @pytest.mark.anyio
 async def test_direct_call_tool_with_non_eliciting_resolver():
-    # `MCPServer.call_tool()` called directly builds a Context with no request, so
-    # `ctx.protocol_version` is None. A tool whose resolvers never elicit must still
-    # work there (regression: it used to raise "Context is not available").
+    # Direct `MCPServer.call_tool()` builds a Context with no request, so `ctx.protocol_version` is None
+    # (regression: this used to raise "Context is not available").
     mcp = MCPServer(name="Direct")
 
     async def whoami(ctx: Context) -> Login:
@@ -989,8 +965,6 @@ async def test_non_serializable_sibling_resolver_does_not_break_rounds():
 
 @pytest.mark.anyio
 async def test_bare_elicit_dependency_restored_as_model():
-    # A `-> Elicit[Login]` (bare, no union) resolver feeds a dependent resolver. After
-    # the round-trip the dependency must come back as a Login model, not a raw dict.
     mcp = MCPServer(name="BareElicitDep")
 
     async def login(ctx: Context) -> Elicit[Login]:
@@ -1021,8 +995,7 @@ async def test_bare_elicit_dependency_restored_as_model():
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["legacy", "auto"])
 async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["legacy", "auto"]):
-    # Both transports must agree: mode="legacy" elicits synchronously mid-call,
-    # mode="auto" rides the 2026-07-28 input_required loop.
+    # mode="legacy" elicits synchronously mid-call; mode="auto" rides the 2026-07-28 input_required loop.
     mcp = MCPServer(name="AcceptNoContent")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1044,9 +1017,7 @@ async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["le
 
 @pytest.mark.anyio
 async def test_eliciting_tool_without_client_capability_is_a_protocol_error():
-    # The server must not send an `input_requests` entry the client has not declared
-    # capability for: with no `elicitation` declared (no callback), the call fails as
-    # a -32021 protocol error, not a CallToolResult execution failure.
+    # With no callback the client declares no elicitation capability.
     mcp = MCPServer(name="NoElicitationCapability")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1074,8 +1045,6 @@ async def test_independent_nested_deps_batch_into_one_round():
     async def ask_b(ctx: Context) -> Elicit[Confirm]:
         return Elicit("B confirm?", Confirm)
 
-    # `combine` depends on two independent eliciting resolvers; both must be asked
-    # in the same round, not serialized across two InputRequiredResult rounds.
     async def combine(
         a: Annotated[Login, Resolve(ask_a)],
         b: Annotated[Confirm, Resolve(ask_b)],
@@ -1111,8 +1080,6 @@ async def test_independent_nested_deps_batch_into_one_round():
 
 @pytest.mark.anyio
 async def test_deep_chain_keeps_early_answers_across_rounds():
-    # A 4-round dependency chain where an early answer (A) must survive in
-    # request_state while later resolvers are asked. It must be asked exactly once.
     mcp = MCPServer(name="DeepChain")
 
     async def ra(ctx: Context) -> Elicit[Login]:
@@ -1153,8 +1120,7 @@ async def test_deep_chain_keeps_early_answers_across_rounds():
 
 @pytest.mark.anyio
 async def test_factory_closures_get_distinct_wire_keys():
-    # Two resolvers from one factory share module:qualname; they must still get
-    # distinct questions and their own values (regression: they collided on the wire).
+    # Closures from one factory share module:qualname (regression: their wire keys collided).
     mcp = MCPServer(name="FactoryClosures")
 
     def make(label: str):
@@ -1195,10 +1161,6 @@ async def test_factory_closures_get_distinct_wire_keys():
 
 @pytest.mark.anyio
 async def test_eliciting_resolver_without_elicit_arm_restores_a_typed_model():
-    # A resolver annotated `-> Login` that actually returns `Elicit(...)` has no
-    # `Elicit[T]` return arm, so `elicit_schema` is None. Its answer, restored from
-    # request_state in a 3+ round flow, must still come back as a Login model (not a
-    # raw dict) so a dependent resolver/tool can use its attributes.
     mcp = MCPServer(name="LyingAnnotation")
 
     # Annotated without an `Elicit[T]` return arm, so `elicit_schema` is None.
@@ -1237,8 +1199,7 @@ def test_wire_key_is_worker_stable_for_methods_and_callable_objects():
             return Login(username="x")  # pragma: no cover
 
     a, b = Service(), Service()
-    # No id(...) in the key: two instances of one method get the same base (they are
-    # disambiguated at registration, not here), and the key carries no memory address.
+    # Instances of one method share a base key (disambiguated at registration); no memory address in the key.
     assert _state_key(a.token) == _state_key(b.token)
     assert "#" not in _state_key(a.token)
     assert _state_key(a.token).endswith("Service.token")
@@ -1248,9 +1209,6 @@ def test_wire_key_is_worker_stable_for_methods_and_callable_objects():
 
 @pytest.mark.anyio
 async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
-    # A decline is recorded in `request_state` just like an accept: RB elicits only
-    # after seeing RA's decline, so RA's outcome must survive into the round that
-    # answers RB without RA being asked again.
     mcp = MCPServer(name="DeclinePersists")
 
     async def ra(ctx: Context) -> Elicit[Login]:
@@ -1301,9 +1259,6 @@ async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
 
 @pytest.mark.anyio
 async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
-    # `input_responses` keys the server never asked for and `request_state` outcome
-    # entries matching no resolver are tolerated (both are client-supplied), and the
-    # ghost state entry is not echoed into any later round's `request_state`.
     mcp = MCPServer(name="GhostKeys")
 
     async def ra(ctx: Context) -> Elicit[Login]:
@@ -1366,9 +1321,7 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
     ],
 )
 async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(forged_data: str | dict[str, bool]):
-    # `request_state` is client-trusted JSON: an accept entry whose data does not
-    # validate against the resolver's schema reads as no recorded progress, so the
-    # question is asked again (not an error) and a proper answer completes the call.
+    # An accept entry whose data fails the schema reads as no recorded progress, so the question is re-asked.
     mcp = MCPServer(name="ForgedState")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1410,9 +1363,7 @@ async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(for
 @pytest.mark.anyio
 @pytest.mark.parametrize("mode", ["legacy", "auto"])
 async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_leakage(mode: Literal["legacy", "auto"]):
-    # An accepted answer whose content fails the requested schema fails the call
-    # with the framework's own message on both transports; pydantic's error text
-    # (which carries an "errors.pydantic.dev" link) must not leak to the client.
+    # Pydantic's error text (with its "errors.pydantic.dev" link) must not leak to the client.
     mcp = MCPServer(name="MismatchedAnswer")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1437,10 +1388,8 @@ async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_le
 
 @pytest.mark.anyio
 async def test_auto_driver_gives_up_when_the_chain_outlasts_its_round_budget():
-    # A dependency chain of 11 eliciting resolvers needs 11 retry rounds, one more
-    # than the default `input_required_max_rounds`, so `client.call_tool` must raise
-    # rather than loop on. The pure `count_leg` resolver is never persisted, so it
-    # re-runs on every server leg: its final value is the exact number of legs.
+    # 11 chained eliciting resolvers need one round more than the default `input_required_max_rounds`. The
+    # pure `count_leg` resolver is never persisted, so its final value counts the server legs exactly.
     mcp = MCPServer(name="TooDeep")
     legs = 0
 
@@ -1487,10 +1436,8 @@ async def test_auto_driver_gives_up_when_the_chain_outlasts_its_round_budget():
 
 @pytest.mark.anyio
 async def test_aliased_elicitation_model_round_trips_through_request_state():
-    # The stored entry is the client's raw wire content, so it restores through
-    # the same validation the answer originally passed - aliases and all. A
-    # re-derived (field-name) shape would fail validation on the round after
-    # next, drop the stored answer, and re-ask the user forever.
+    # The stored entry is the client's raw wire content; a re-derived (field-name) shape would fail
+    # validation on a later round, drop the stored answer, and re-ask the user forever.
     mcp = MCPServer(name="AliasState")
 
     async def who(ctx: Context) -> Elicit[Handle]:
@@ -1538,11 +1485,8 @@ async def test_aliased_elicitation_model_round_trips_through_request_state():
 
 @pytest.mark.anyio
 async def test_divergent_validation_and_serialization_aliases_round_trip():
-    # `request_state` must carry the client's answer exactly as it was sent: the
-    # rendered question is validation-aliased, so re-deriving the stored shape from
-    # the validated model (which serializes under the *serialization* alias) would
-    # produce data the schema's own validation rejects, dropping the stored answer
-    # on the round after next and re-asking the user.
+    # The question is validation-aliased but the model serializes under the serialization alias, so
+    # re-deriving the stored shape from the model would fail later validation and re-ask the user forever.
     mcp = MCPServer(name="DivergentAliases")
 
     async def who(ctx: Context) -> Elicit[Account]:

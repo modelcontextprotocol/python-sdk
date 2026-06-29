@@ -1,14 +1,9 @@
-"""Test that URL-encoded parameters are decoded in resource templates.
-
-Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/973
-"""
+"""Regression tests for https://github.com/modelcontextprotocol/python-sdk/issues/973 (URL-encoded template params)."""
 
 from mcp.server.mcpserver.resources import ResourceTemplate
 
 
 def test_template_matches_decodes_space():
-    """Test that %20 is decoded to space."""
-
     def search(query: str) -> str:  # pragma: no cover
         return f"Results for: {query}"
 
@@ -24,8 +19,6 @@ def test_template_matches_decodes_space():
 
 
 def test_template_matches_decodes_accented_characters():
-    """Test that %C3%A9 is decoded to e with accent."""
-
     def search(query: str) -> str:  # pragma: no cover
         return f"Results for: {query}"
 
@@ -41,8 +34,6 @@ def test_template_matches_decodes_accented_characters():
 
 
 def test_template_matches_decodes_complex_phrase():
-    """Test complex French phrase from the original issue."""
-
     def search(query: str) -> str:  # pragma: no cover
         return f"Results for: {query}"
 
@@ -58,12 +49,7 @@ def test_template_matches_decodes_complex_phrase():
 
 
 def test_template_matches_preserves_plus_sign():
-    """Test that plus sign remains as plus (not converted to space).
-
-    In URI encoding, %20 is space. Plus-as-space is only for
-    application/x-www-form-urlencoded (HTML forms).
-    """
-
+    # Plus-as-space is only for application/x-www-form-urlencoded; in URI encoding space is %20.
     def search(query: str) -> str:  # pragma: no cover
         return f"Results for: {query}"
 

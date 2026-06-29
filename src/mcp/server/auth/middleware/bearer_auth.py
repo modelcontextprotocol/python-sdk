@@ -26,14 +26,11 @@ class AuthorizationContext(TypedDict):
 
 
 def authorization_context(user: AuthenticatedUser) -> AuthorizationContext:
-    """Identify the principal `user` represents, for transports to compare
-    against the principal that created a session. Components the token
-    verifier does not supply are `None`, so the comparison degrades to the
-    remaining components.
+    """Identify the principal `user` represents, for transports to compare against a session's creator.
 
-    See `examples/servers/simple-auth/mcp_simple_auth/token_verifier.py` for
-    a verifier that populates `subject` and `claims` from an introspection
-    response."""
+    Components the token verifier does not supply are `None`, so the comparison degrades to the rest.
+    See `examples/servers/simple-auth/mcp_simple_auth/token_verifier.py` for a populating verifier.
+    """
     token = user.access_token
     issuer = (token.claims or {}).get("iss")
     return AuthorizationContext(
@@ -59,7 +56,6 @@ class BearerAuthBackend(AuthenticationBackend):
 
         token = auth_header[7:]  # Remove "Bearer " prefix
 
-        # Validate the token with the verifier
         auth_info = await self.token_verifier.verify_token(token)
 
         if not auth_info:
@@ -72,10 +68,9 @@ class BearerAuthBackend(AuthenticationBackend):
 
 
 class RequireAuthMiddleware:
-    """Middleware that requires a valid Bearer token in the Authorization header.
+    """Middleware that rejects requests lacking a valid Bearer token with the required scopes.
 
-    This will validate the token with the auth provider and store the resulting
-    auth info in the request state.
+    Error responses carry a WWW-Authenticate header, advertising `resource_metadata_url` when set.
     """
 
     def __init__(
@@ -84,13 +79,6 @@ class RequireAuthMiddleware:
         required_scopes: list[str],
         resource_metadata_url: AnyHttpUrl | None = None,
     ):
-        """Initialize the middleware.
-
-        Args:
-            app: ASGI application
-            required_scopes: List of scopes that the token must have
-            resource_metadata_url: Optional protected resource metadata URL for WWW-Authenticate header
-        """
         self.app = app
         self.required_scopes = required_scopes
         self.resource_metadata_url = resource_metadata_url
@@ -116,15 +104,12 @@ class RequireAuthMiddleware:
         await self.app(scope, receive, send)
 
     async def _send_auth_error(self, send: Send, status_code: int, error: str, description: str) -> None:
-        """Send an authentication error response with WWW-Authenticate header."""
-        # Build WWW-Authenticate header value
         www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
         if self.resource_metadata_url:
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 
         www_authenticate = f"Bearer {', '.join(www_auth_parts)}"
 
-        # Send response
         body = {"error": error, "error_description": description}
         body_bytes = json.dumps(body).encode()
 

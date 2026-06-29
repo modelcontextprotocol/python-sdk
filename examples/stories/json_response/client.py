@@ -1,9 +1,6 @@
-"""Plain ``Client`` against a JSON-only server: mid-call progress drops. HTTP-only — ``main`` also takes ``http``.
+"""Plain `Client` against a JSON-only server: mid-call progress drops. HTTP-only — `main` also takes `http`.
 
-``RAW_ENVELOPE_BODY`` / ``MODERN_HEADERS`` are the exact wire shape a 2026-era client
-sends — this is the only story that shows it. ``main`` posts that body by hand and
-asserts the response is a single ``application/json`` body with no session id.
-"""
+`RAW_ENVELOPE_BODY`/`MODERN_HEADERS` are the exact wire shape a 2026-era client sends — the only story that shows it."""
 
 import httpx
 from mcp_types import TextContent
@@ -12,11 +9,9 @@ from mcp_types.version import LATEST_MODERN_VERSION
 from mcp.client import Client
 from stories._harness import Target, run_client
 
-# The raw 2026-07-28 POST envelope: per-request `_meta` replaces the initialize handshake.
-# The key/header strings are spelled out on purpose — this is the raw-wire story. In code
-# use the named constants instead: `mcp_types.PROTOCOL_VERSION_META_KEY` /
-# `CLIENT_INFO_META_KEY` / `CLIENT_CAPABILITIES_META_KEY` and
-# `mcp.shared.inbound.MCP_PROTOCOL_VERSION_HEADER` (`legacy_routing/` shows that form).
+# Raw 2026-07-28 POST envelope: per-request `_meta` replaces the initialize handshake. The literal
+# key/header strings are deliberate here; real code uses the `*_META_KEY` constants from `mcp_types`
+# and `mcp.shared.inbound.MCP_PROTOCOL_VERSION_HEADER` (`legacy_routing/` shows that form).
 RAW_ENVELOPE_BODY: dict[str, object] = {
     "jsonrpc": "2.0",
     "id": 1,

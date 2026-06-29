@@ -14,8 +14,7 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, Registrat
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthClientMetadata
 
-# this alias is a no-op; it's just to separate out the types exposed to the
-# provider from what we use in the HTTP handler
+# No-op alias separating the provider-facing type from the HTTP handler's
 RegistrationRequest = OAuthClientMetadata
 
 
@@ -30,12 +29,10 @@ class RegistrationHandler:
     options: ClientRegistrationOptions
 
     async def handle(self, request: Request) -> Response:
-        # Implements dynamic client registration as defined in https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
+        # Dynamic client registration per https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
         try:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
-
-            # Scope validation is handled below
         except ValidationError as validation_error:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
@@ -47,13 +44,11 @@ class RegistrationHandler:
 
         client_id = str(uuid4())
 
-        # If auth method is None, default to client_secret_post
         if client_metadata.token_endpoint_auth_method is None:
             client_metadata.token_endpoint_auth_method = "client_secret_post"
 
         client_secret = None
         if client_metadata.token_endpoint_auth_method != "none":  # pragma: no branch
-            # cryptographically secure random 32-byte hex string
             client_secret = secrets.token_hex(32)
 
         if client_metadata.scope is None and self.options.default_scopes is not None:
@@ -79,9 +74,8 @@ class RegistrationHandler:
                 status_code=400,
             )
 
-        # SEP-990 §5.1 / draft-ietf-oauth-identity-assertion-authz-grant §8.1: the ID-JAG flow is
-        # for confidential clients provisioned out of band. Refuse to grant it through DCR so a
-        # self-registered client cannot reach the identity-assertion provider hook.
+        # SEP-990 §5.1 / draft-ietf-oauth-identity-assertion-authz-grant §8.1: the ID-JAG flow is for
+        # out-of-band-provisioned confidential clients, so refuse to grant it to self-registered ones.
         if JWT_BEARER_GRANT_TYPE in client_metadata.grant_types:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
@@ -94,8 +88,7 @@ class RegistrationHandler:
                 status_code=400,
             )
 
-        # The MCP spec requires servers to use the authorization `code` flow
-        # with PKCE
+        # The MCP spec requires the authorization code flow with PKCE
         if "code" not in client_metadata.response_types:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
@@ -117,7 +110,6 @@ class RegistrationHandler:
             client_id_issued_at=client_id_issued_at,
             client_secret=client_secret,
             client_secret_expires_at=client_secret_expires_at,
-            # passthrough information from the client request
             redirect_uris=client_metadata.redirect_uris,
             token_endpoint_auth_method=client_metadata.token_endpoint_auth_method,
             grant_types=client_metadata.grant_types,
@@ -135,13 +127,10 @@ class RegistrationHandler:
             software_version=client_metadata.software_version,
         )
         try:
-            # Register client
             await self.provider.register_client(client_info)
-
-            # Return client information
             return PydanticJSONResponse(content=client_info, status_code=201)
         except RegistrationError as e:
-            # Handle registration errors as defined in RFC 7591 Section 3.2.2
+            # Error response per RFC 7591 §3.2.2
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(error=e.error, error_description=e.error_description),
                 status_code=400,

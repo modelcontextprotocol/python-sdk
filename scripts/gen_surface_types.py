@@ -1,11 +1,8 @@
 """Regenerate the per-version wire-shape surface packages from vendored schemas.
 
-Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
-writes the result to `src/mcp-types/mcp_types/v<version>/__init__.py` with only the
-fixes the raw output needs: a small JSON pre-patch for the known
-`number`-as-`integer` schema.json defect, a header, full URLs for the spec's
-site-absolute doc links, and per-version epilogue aliases. Run with
-`uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
+Runs `datamodel-code-generator` over each `schema/PINNED.json` entry, applies the minimal
+fixes the raw output needs, and writes `src/mcp-types/mcp_types/v<version>/__init__.py`.
+Run with `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
 """
 
 from __future__ import annotations
@@ -25,11 +22,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "schema"
 TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
 
-# schema.ts -> schema.json renders TypeScript `number` as JSON Schema
-# `integer` at these sites; patch the JSON before codegen so floats validate.
-# Patched to `["integer", "number"]` (not bare `"number"`) so codegen emits
-# `int | float` and pydantic's smart-union preserves ints on round-trip.
-# TODO: drop once modelcontextprotocol/modelcontextprotocol fixes the schema.ts -> schema.json number rendering.
+# schema.ts -> schema.json renders TypeScript `number` as `integer` at these sites; patch to
+# `["integer", "number"]` (not bare `"number"`) so codegen emits `int | float` and pydantic's
+# smart-union preserves ints on round-trip.
+# TODO: drop once modelcontextprotocol/modelcontextprotocol fixes the number rendering.
 SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
     "2025-11-25": [
         ("$defs/NumberSchema/properties/default/type", "integer", ["integer", "number"]),
@@ -41,10 +37,9 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             ["string", "integer", "boolean"],
             ["string", "integer", "number", "boolean", "null"],
         ),
-        # Older python-sdk releases emit `anyOf` for Optional fields; the callback's
-        # own schema validation is the real gate, so accept any property shape inbound.
-        # PrimitiveSchemaDefinition becomes an orphan $def after this patch but
-        # datamodel-codegen still emits it; elicitation.py imports it as the gate type.
+        # Older python-sdk releases emit `anyOf` for Optional fields; the callback's own schema
+        # validation is the real gate, so accept any property shape inbound. PrimitiveSchemaDefinition
+        # becomes an orphan $def but codegen still emits it; elicitation.py imports it as the gate type.
         (
             "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
@@ -67,8 +62,7 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             ["string", "integer", "boolean"],
             ["string", "integer", "number", "boolean", "null"],
         ),
-        # Older python-sdk releases emit `anyOf` for Optional fields; the callback's
-        # own schema validation is the real gate, so accept any property shape inbound.
+        # Same rationale as the 2025-11-25 ElicitRequestFormParams patch above.
         (
             "$defs/ElicitRequestFormParams/properties/requestedSchema/properties/properties/additionalProperties",
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
@@ -77,11 +71,9 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
     ],
 }
 
-# Classes the spec defines as open key-value bags: `_meta` content, the
-# JSON-Schema-document fields on `Tool`, and the schemas with explicit
-# `additionalProperties: {}`. These keep `extra="allow"` so the sieve preserves
-# arbitrary keys; every other class ignores extras. Per-version because codegen
-# reuses class names across versions for unrelated schemas (e.g. `Data`).
+# Classes the spec defines as open key-value bags (`_meta` content, Tool's JSON-Schema-document
+# fields, explicit `additionalProperties: {}`): these keep `extra="allow"`; every other class
+# ignores extras. Per-version because codegen reuses class names across versions (e.g. `Data`).
 OPEN_CLASSES: dict[str, frozenset[str]] = {
     "2025-11-25": frozenset({"Meta", "InputSchema", "OutputSchema", "Result", "GetTaskPayloadResult", "Data"}),
     "2026-07-28": frozenset(
@@ -169,11 +161,7 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
 
 
 def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
-    """Restore `extra="allow"` on `open_classes` only.
-
-    Every other class uses `extra="ignore"` so the surface acts as a sieve;
-    `open_classes` are the places the spec defines as open key-value bags.
-    """
+    """Restore `extra="allow"` on `open_classes` only; every other class keeps `extra="ignore"` as a sieve."""
 
     def patch(match: re.Match[str]) -> str:
         if match.group(1) not in open_classes:
@@ -209,9 +197,8 @@ def build(entry: dict[str, str]) -> str:
     # Codegen appends `| None` to forward refs of nullable models, which is a
     # runtime TypeError on a string ref and redundant since `JSONValue` includes None.
     source = source.replace('"JSONValue" | None', '"JSONValue"')
-    # Schema descriptions link to spec-site pages with site-absolute paths; expand
-    # them to full URLs so they resolve from the rendered API docs and pass the
-    # strict mkdocs link validation.
+    # Expand the spec's site-absolute doc links to full URLs so they resolve from the
+    # rendered API docs and pass strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
     if epilogue := EPILOGUES.get(version, ""):

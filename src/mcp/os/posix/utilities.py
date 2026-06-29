@@ -10,19 +10,17 @@ from anyio.abc import Process
 
 logger = logging.getLogger(__name__)
 
-# How often to probe for surviving group members between SIGTERM and SIGKILL.
 _GROUP_POLL_INTERVAL = 0.01
 
 
 async def terminate_posix_process_tree(process: Process, timeout_seconds: float = 2.0) -> None:
-    """Terminates a process and all its descendants on POSIX.
+    """SIGTERM the process group, wait up to timeout_seconds, then SIGKILL whatever remains.
 
-    SIGTERMs the process group, waits up to timeout_seconds for it to
-    disappear, then SIGKILLs whatever remains. killpg reaches every descendant
-    atomically, even ones whose parent already exited; daemonizers that left
-    the group escape by design. A group only disappears once every member is
-    dead and reaped, so a client running as PID 1 should reap orphans (e.g.
-    docker run --init) or the wait below runs its full timeout.
+    killpg reaches every descendant atomically, even ones whose parent already
+    exited; daemonizers that left the group escape by design. A group only
+    disappears once every member is dead and reaped, so a client running as
+    PID 1 should reap orphans (e.g. docker run --init) or the wait below runs
+    its full timeout.
     """
     # The leader's pid is the pgid (start_new_session). Never use getpgid():
     # it fails once the leader is reaped, even with live members left.

@@ -1,8 +1,4 @@
-"""`docs/tutorial/testing.md`: the page's own test, run for real.
-
-The page shows this test against a `server.py` next to it; here the import path
-is the only difference.
-"""
+"""`docs/tutorial/testing.md`: the page's own test, run for real; only the import path differs from the page."""
 
 import pytest
 from inline_snapshot import snapshot

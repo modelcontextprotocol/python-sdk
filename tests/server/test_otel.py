@@ -1,9 +1,5 @@
-"""Tests for `OpenTelemetryMiddleware` (the context-tier OTel span middleware).
-
-Every `Server` ships `OpenTelemetryMiddleware` at the head of `Server.middleware`,
-so these tests assert against the default-configured server rather than appending
-the middleware by hand.
-"""
+"""Tests for `OpenTelemetryMiddleware`, which every `Server` ships at the head of
+`Server.middleware` — so these tests assert against the default-configured server."""
 
 from collections.abc import Callable
 from dataclasses import replace
@@ -102,8 +98,7 @@ async def test_tool_error_model_result_sets_error_type(server: SrvT, spans: Span
 
 @pytest.mark.anyio
 async def test_snake_case_dict_result_is_not_a_tool_error(server: SrvT, spans: SpanCapture):
-    # `is_error` is alias-only on the wire, so serialization drops it; the result reaches the
-    # client as a success and the span must not contradict that.
+    # `is_error` is alias-only on the wire; serialization drops it, so the client sees success and the span must agree.
     async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
         return {"content": [], "is_error": True}
 
@@ -169,10 +164,8 @@ async def test_notification_span_omits_request_id(server: SrvT, spans: SpanCaptu
 
 
 def _ambient(rewrite_meta: Callable[[RequestParamsMeta | None], RequestParamsMeta | None]) -> Any:
-    """A middleware placed outside `OpenTelemetryMiddleware` (head of
-    `Server.middleware`) that opens an ambient SERVER span around the request
-    and rewrites `ctx.meta` via `rewrite_meta`, so the context-tier span sees
-    the no-traceparent path yet has a current span to nest under."""
+    """Middleware ahead of `OpenTelemetryMiddleware` that opens an ambient SERVER span and rewrites
+    `ctx.meta`, so the context-tier span takes the no-traceparent path with a current span to nest under."""
 
     async def middleware(ctx: Ctx, call_next: CallNext) -> Any:
         with otel_span("ambient", kind=SpanKind.SERVER):
@@ -183,12 +176,9 @@ def _ambient(rewrite_meta: Callable[[RequestParamsMeta | None], RequestParamsMet
 
 @pytest.mark.anyio
 async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans: SpanCapture):
-    """With no `_meta` on the inbound message (a non-SDK client), the span must
-    parent to the ambient current span rather than become an orphan root.
-    SDK-defined: SEP-414 only covers the traceparent-present case."""
+    """SDK-defined: SEP-414 only covers the traceparent-present case."""
 
-    # The in-process client always injects `_meta.traceparent`; drop it so the
-    # span sees the no-carrier path.
+    # The in-process client always injects `_meta.traceparent`; drop it to hit the no-carrier path.
     server.middleware.insert(0, _ambient(lambda _meta: None))
     async with connected_runner(server) as (client, _):
         spans.clear()
@@ -205,10 +195,7 @@ async def test_nests_under_ambient_span_when_no_traceparent(server: SrvT, spans:
 
 @pytest.mark.anyio
 async def test_nests_under_ambient_span_when_meta_lacks_traceparent(server: SrvT, spans: SpanCapture):
-    """`_meta` is present but carries no `traceparent` (e.g. only a
-    `progressToken`). `extract()` would yield an empty Context here, which
-    would orphan the span; the middleware must fall through to ambient
-    parenting just as if `_meta` were absent."""
+    """`extract()` on a `_meta` without `traceparent` yields an empty Context, which would orphan the span."""
 
     server.middleware.insert(0, _ambient(lambda _meta: {"progressToken": "tok"}))
     async with connected_runner(server) as (client, _):
@@ -291,9 +278,7 @@ async def test_records_error_status_on_handler_exception(server: SrvT, spans: Sp
 
 @pytest.mark.anyio
 async def test_records_error_status_on_malformed_spec_result(server: SrvT, spans: SpanCapture):
-    """Result serialization runs inside the span, so a handler returning a
-    malformed dict for a spec method (INTERNAL_ERROR on the wire) is recorded
-    on the span rather than closing it as a success."""
+    """Result serialization runs inside the span, so a malformed result is recorded as an error, not a success."""
 
     async def bad_result(ctx: Ctx, params: PaginatedRequestParams | None) -> dict[str, Any]:
         return {"tools": 42}

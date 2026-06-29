@@ -1,8 +1,7 @@
 """Transport-level composed flows: multi-client isolation, reconnection, and dual-transport hosting.
 
-These scenarios are about how the transport layer holds together across more than one connection
-or more than one transport, so they connect real `Client`s against one mounted server rather than
-running over the matrix.
+These scenarios span multiple connections or transports, so they connect real `Client`s against
+one mounted server rather than running over the matrix.
 """
 
 import anyio
@@ -21,12 +20,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("flow:multi-client:stateful-isolation")
 async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_notifications() -> None:
-    """Two clients on one stateful manager each receive only the notifications their own request produced.
-
-    Complements `test_terminating_one_session_leaves_others_working` (which proves session
-    independence under termination) with the notification-isolation dimension: a notification
-    emitted by one session's handler does not leak to another session's client.
-    """
+    """Complements `test_terminating_one_session_leaves_others_working` with the notification-isolation dimension."""
     mcp = MCPServer("multi")
 
     @mcp.tool()
@@ -61,12 +55,7 @@ async def test_concurrent_clients_on_one_stateful_server_receive_only_their_own_
 
 @requirement("flow:session:terminate-then-reconnect")
 async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_operates() -> None:
-    """After a client terminates, a fresh connection to the same manager gets a distinct session.
-
-    Steps: (1) connect a client and call list_tools, (2) the client exits (its DELETE fires),
-    (3) connect a second client to the same mounted app, (4) the second client's call_tool
-    succeeds and the recorded session ids show two distinct sessions were issued.
-    """
+    """Exiting the first client's context fires its session DELETE; the second connection gets a distinct session."""
     mcp = MCPServer("reconnectable")
 
     @mcp.tool()
@@ -97,13 +86,10 @@ async def test_a_fresh_connection_after_termination_obtains_a_new_session_and_op
 
 @requirement("flow:compat:dual-transport-server")
 async def test_one_server_serves_streamable_http_and_sse_clients_concurrently() -> None:
-    """One MCPServer instance serves a streamable-HTTP client and a legacy-SSE client at the same time.
+    """Both transports dispatch into the same server's handlers despite independent connection management.
 
-    The two transports have independent connection management (the streamable-HTTP session manager
-    versus a per-connection SSE handler), but both dispatch into the same server's request
-    handlers. The test connects one client over each transport against the same instance and
-    proves both reach the same tool. Uses MCPServer because the low-level Server has no SSE
-    convenience; the entry is about hosting composition, not the low-level API.
+    Uses MCPServer because the low-level Server has no SSE convenience; the entry is about hosting
+    composition, not the low-level API.
     """
     mcp = MCPServer("dual")
 

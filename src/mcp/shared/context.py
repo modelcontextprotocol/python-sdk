@@ -1,12 +1,7 @@
-"""`BaseContext` - the user-facing per-request context.
+"""`BaseContext` - the user-facing per-request context, composing a `DispatchContext`.
 
-Composition over a `DispatchContext`: forwards the transport metadata, the
-back-channel (`send_raw_request`/`notify`), progress reporting, and the cancel
-event. Adds `meta` (the inbound request's `_meta` field).
-
-Satisfies `Outbound`, so `ClientPeer` can wrap it. Shared between client and
-server: the server's `Context` extends this with `lifespan`/`connection`;
-`ClientContext` is just an alias.
+Satisfies `Outbound`, so `ClientPeer` can wrap it. Shared between client and server:
+the server's `Context` adds `lifespan`/`connection`; `ClientContext` is just an alias.
 """
 
 from collections.abc import Mapping
@@ -25,11 +20,7 @@ TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportCont
 
 
 class BaseContext(Generic[TransportT]):
-    """Per-request context wrapping a `DispatchContext`.
-
-    `ServerRunner` constructs one per inbound request and passes it to the
-    user's handler.
-    """
+    """Per-request context wrapping a `DispatchContext`; constructed by `ServerRunner` per inbound request."""
 
     def __init__(self, dctx: DispatchContext[TransportT], meta: RequestParamsMeta | None = None) -> None:
         self._dctx = dctx
@@ -49,8 +40,7 @@ class BaseContext(Generic[TransportT]):
     def can_send_request(self) -> bool:
         """Whether the back-channel can currently deliver server-initiated requests.
 
-        `False` when the transport has no back-channel, or when the underlying
-        dispatch context has been closed because the inbound request finished.
+        `False` when the transport has no back-channel or the inbound request has finished.
         """
         return self._dctx.can_send_request
 
@@ -78,8 +68,5 @@ class BaseContext(Generic[TransportT]):
         await self._dctx.notify(method, params, opts)
 
     async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        """Report progress for this request, if the peer supplied a progress token.
-
-        A no-op when no token was supplied.
-        """
+        """Report progress for this request; a no-op when the peer supplied no progress token."""
         await self._dctx.progress(progress, total, message)

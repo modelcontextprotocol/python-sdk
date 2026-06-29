@@ -1,14 +1,10 @@
-"""MCPServer Screenshot Example
-
-Give Claude a tool to capture and view screenshots.
-"""
+"""Give Claude a tool to capture and view screenshots."""
 
 import io
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
 
-# Create server
 mcp = MCPServer("Screenshot Demo")
 
 

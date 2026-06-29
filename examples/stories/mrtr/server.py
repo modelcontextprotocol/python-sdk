@@ -19,8 +19,7 @@ def build_server() -> MCPServer:
     async def deploy(env: str, ctx: Context) -> str | InputRequiredResult:
         responses = ctx.input_responses
         if responses is None or "confirm" not in responses:
-            # First round: ask the client to elicit confirmation. request_state is opaque
-            # to the client; here it carries the step name so the retry can verify the echo.
+            # First round: request_state is opaque to the client and carries the step name for the retry to verify.
             ask = ElicitRequest(
                 params=ElicitRequestFormParams(message=f"Deploy to {env}?", requested_schema=CONFIRM_SCHEMA)
             )

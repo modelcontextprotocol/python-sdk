@@ -19,7 +19,6 @@ ENVELOPE_FIELDS: frozenset[str] = frozenset({"jsonrpc", "id"})
 
 # Surface classes whose monolith counterpart has a different name (key: "<surface_tail>.<ClassName>").
 NAME_MAP: dict[str, type[BaseModel]] = {
-    # v2025_11_25
     "v2025_11_25.Argument": monolith.CompletionArgument,
     "v2025_11_25.Context": monolith.CompletionContext,
     "v2025_11_25.Data": monolith.ElicitationRequiredErrorData,
@@ -44,7 +43,6 @@ NAME_MAP: dict[str, type[BaseModel]] = {
     "v2025_11_25.Tasks1": monolith.ServerTasksCapability,
     "v2025_11_25.Tools": monolith.TasksToolsCapability,
     "v2025_11_25.Tools1": monolith.ToolsCapability,
-    # v2026_07_28
     "v2026_07_28.Argument": monolith.CompletionArgument,
     "v2026_07_28.Context": monolith.CompletionContext,
     "v2026_07_28.Data": monolith.MissingRequiredClientCapabilityErrorData,
@@ -62,7 +60,6 @@ NAME_MAP: dict[str, type[BaseModel]] = {
 # Surface classes with no monolith equivalent (envelope wrappers, JSON-Schema fragments modelled as `dict`).
 SKIP: frozenset[str] = frozenset(
     {
-        # v2025_11_25
         "v2025_11_25.AnyOfItem",
         "v2025_11_25.BooleanSchema",
         "v2025_11_25.Error1",
@@ -84,7 +81,6 @@ SKIP: frozenset[str] = frozenset(
         "v2025_11_25.URLElicitationRequiredError",
         "v2025_11_25.UntitledMultiSelectEnumSchema",
         "v2025_11_25.UntitledSingleSelectEnumSchema",
-        # v2026_07_28
         "v2026_07_28.AnyOfItem",
         "v2026_07_28.BooleanSchema",
         "v2026_07_28.CallToolResultResponse",

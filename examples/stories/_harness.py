@@ -1,9 +1,7 @@
 """Client-side scaffold for story examples.
 
-A story's ``client.py`` imports ``Target`` (or ``TargetFactory``) for its ``main``
-signature and calls ``run_client(main)`` from ``__main__``. The story owns the
-``Client(target, mode=...)`` construction; this module only decides WHICH target
-``__main__`` hands it.
+A story's `client.py` calls `run_client(main)` from `__main__`; the story owns the
+`Client(target, mode=...)` construction — this module only decides which target it gets.
 """
 
 from __future__ import annotations
@@ -33,17 +31,17 @@ else:
     import tomli as tomllib
 
 Target: TypeAlias = "Server[Any] | MCPServer | Transport | str"
-"""Anything ``Client(...)`` accepts: an in-process server, a ``Transport``, or an HTTP URL."""
+"""Anything `Client(...)` accepts: an in-process server, a `Transport`, or an HTTP URL."""
 
 TargetFactory = Callable[[], Target]
-"""Yields a FRESH target against the same server/app on every call (``multi_connection`` stories)."""
+"""Yields a FRESH target against the same server/app on every call (`multi_connection` stories)."""
 
 AuthBuilder = Callable[[httpx.AsyncClient], httpx.Auth]
-"""Builds an ``httpx.Auth`` bound to the in-process HTTP client (auth-story harness seam)."""
+"""Builds an `httpx.Auth` bound to the in-process HTTP client (auth-story harness seam)."""
 
 
 def argv_after(flag: str, *, default: str | None = None) -> str:
-    """Return the argv token following ``flag``, or ``default`` when the flag is absent."""
+    """Return the argv token following `flag`, or `default` when the flag is absent."""
     try:
         return sys.argv[sys.argv.index(flag) + 1]
     except ValueError:
@@ -53,11 +51,7 @@ def argv_after(flag: str, *, default: str | None = None) -> str:
 
 
 def target_from_args(file: str, url: str | None) -> TargetFactory:
-    """Build a ``TargetFactory`` for the sibling server of the ``client.py`` at ``file``.
-
-    ``url`` (already resolved by ``run_client``) targets that streamable-HTTP endpoint; ``None``
-    spawns ``<stem>.py`` over stdio per call, ``<stem>`` from ``--server`` (default ``server``).
-    """
+    """Build a `TargetFactory`: `url` as-is, or `None` to spawn the sibling `--server` script over stdio."""
     if url is not None:
         return lambda: url
     # stdio is legacy-only until serve_stdio() lands; the modern arm is --http only for now.
@@ -67,7 +61,7 @@ def target_from_args(file: str, url: str | None) -> TargetFactory:
 
 
 def _explicit_http_url() -> str | None:
-    """The URL token after ``--http``, or ``None`` when the flag stands alone (self-host)."""
+    """The URL token after `--http`, or `None` when the flag stands alone (self-host)."""
     rest = sys.argv[sys.argv.index("--http") + 1 :]
     return rest[0] if rest and not rest[0].startswith("-") else None
 
@@ -80,7 +74,6 @@ def _free_port() -> int:
 
 
 async def _accepting(port: int) -> bool:
-    """Whether something accepts a TCP connect on ``127.0.0.1:port`` right now."""
     try:
         stream = await anyio.connect_tcp("127.0.0.1", port)
     except OSError:
@@ -91,17 +84,14 @@ async def _accepting(port: int) -> bool:
 
 @asynccontextmanager
 async def _self_hosted(name: str, cfg: dict[str, Any]) -> AsyncIterator[str]:
-    """Serve the story's sibling server from a subprocess on a port this process owns; yield its URL.
+    """Serve the story's sibling server in a subprocess; yield its URL once it accepts TCP.
 
-    Readiness is the first accepted TCP connect (bounded by ``run_client``'s
-    ``anyio.fail_after``); exiting terminates the subprocess. Nothing to background or kill.
-    A subprocess that dies before serving, or a ``fixed_port`` someone else already holds,
-    is a loud ``SystemExit`` rather than a hang or a run against the wrong server.
+    A child that dies before serving, or a `fixed_port` someone else holds, is a loud
+    `SystemExit` rather than a hang; the readiness poll is bounded by `run_client`'s timeout.
     """
     port: int = cfg["fixed_port"] or _free_port()
     if cfg["fixed_port"] and await _accepting(port):
-        # The readiness probe below can't tell our child from a server already on the
-        # story's pinned port, so a foreign listener would be tested in its place.
+        # The readiness probe can't tell our child from a foreign listener already on the pinned port.
         raise SystemExit(
             f"{name} self-hosts on :{port} but something is already serving there; "
             f"stop it, or connect to it with --http <url>"
@@ -122,22 +112,22 @@ async def _self_hosted(name: str, cfg: dict[str, Any]) -> AsyncIterator[str]:
 
 
 def _story_cfg(name: str) -> dict[str, Any]:
-    """The manifest entry for the story ``name`` with ``[defaults]`` applied."""
+    """The manifest entry for the story `name` with `[defaults]` applied."""
     manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text())
     return manifest["defaults"] | manifest["story"].get(name, {})
 
 
 def _authed_targets(url: str, http: httpx.AsyncClient) -> TargetFactory:
-    """Fresh streamable-HTTP transports over an already-authed ``httpx`` client."""
+    """Fresh streamable-HTTP transports over an already-authed `httpx` client."""
     return lambda: streamable_http_client(url, http_client=http)
 
 
 def run_client(main: Callable[..., Awaitable[None]]) -> None:
-    """Entry point for ``if __name__ == "__main__"`` in every ``client.py``.
+    """Entry point for `if __name__ == "__main__"` in every `client.py`.
 
-    Resolves the argv target — stdio (the default), ``--http <url>`` for a server you run, or
-    bare ``--http`` to self-host the sibling server in a subprocess it owns — and calls ``main``
-    with an explicit ``mode=``. A ``build_auth`` export auths the HTTP target. ``OK``/``FAIL``, exit 0/1.
+    Resolves the argv target — stdio (default), `--http <url>`, or bare `--http` to self-host
+    the sibling server — and calls `main` with an explicit `mode=`; a `build_auth` export
+    auths the HTTP target. `OK`/`FAIL`, exit 0/1.
     """
     globals_ = getattr(main, "__globals__", {})
     file = str(globals_.get("__file__", "<unknown>"))
@@ -153,16 +143,14 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     if cfg["needs_http"] and transport != "http":
         raise SystemExit(f"{name} asserts on raw HTTP responses; run it with --http")
     explicit_url = _explicit_http_url() if transport == "http" else None
-    # The era is an axis of the story matrix, so ``mode=`` is always passed explicitly
-    # even though it often matches the ``Client`` default of "auto". stdio is legacy-only
-    # until the SDK's stdio entry can negotiate the era, so only --http gets a modern arm.
+    # Era is an axis of the story matrix, so `mode=` is always passed explicitly even when it
+    # matches the `Client` default. stdio can't negotiate the era yet, so only --http gets a modern arm.
     era = "modern" if transport == "http" and "--legacy" not in sys.argv else "legacy"
     if cfg["era"] in ("legacy", "modern"):
         era = cfg["era"]
     if cfg["era"] == "dual-in-body":
-        # The story pins its connection modes inside ``main`` itself, so hand it "auto"
-        # (the ``Client`` default) and let those in-body pins decide. A hard version pin
-        # here would skip the discover probe and leave ``server_info`` blank.
+        # The story pins its connection modes inside `main`, so hand it "auto"; a hard
+        # version pin here would skip the discover probe and leave `server_info` blank.
         era = "in-body"
     mode = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}[era]
 
@@ -176,10 +164,8 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
                 if url is None or (build_auth is None and not cfg["needs_http"]):
                     await main(targets if cfg["multi_connection"] else targets(), mode=mode)
                     return
-                # Auth and needs_http stories want the raw httpx client underneath the transport:
-                # build_auth threads an httpx.Auth onto it (Client(url, auth=...) doesn't exist
-                # yet), and needs_http stories assert on raw responses, so root the client at the
-                # server origin and relative paths like "/mcp" resolve.
+                # build_auth threads an httpx.Auth onto the raw client (Client(url, auth=...) doesn't
+                # exist yet); needs_http asserts on raw responses; origin base_url makes "/mcp" resolve.
                 parts = urlsplit(url)
                 base = f"{parts.scheme}://{parts.netloc}"
                 http = await stack.enter_async_context(httpx.AsyncClient(base_url=base))

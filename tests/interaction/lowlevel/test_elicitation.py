@@ -1,8 +1,4 @@
-"""Form- and URL-mode elicitation against the low-level Server, driven through the public Client API.
-
-The final test plays the server's side of the wire by hand to issue an elicitation request with no
-mode field, because the typed server API (`elicit_form`/`elicit_url`) always serializes one.
-"""
+"""Form- and URL-mode elicitation against the low-level Server, driven through the public Client API."""
 
 import anyio
 import mcp_types as types
@@ -52,11 +48,6 @@ REQUESTED_SCHEMA: dict[str, object] = {
 @requirement("elicitation:form:basic")
 @requirement("tools:call:elicitation-roundtrip")
 async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect) -> None:
-    """An accepted form elicitation returns the user's content to the requesting handler.
-
-    The tool reports the action as text and the received content as structured content, proving
-    the client's answer made it back into the tool's own result.
-    """
     received: list[types.ElicitRequestParams] = []
 
     async def list_tools(
@@ -106,8 +97,6 @@ async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect)
 
 @requirement("elicitation:form:action:decline")
 async def test_elicit_form_decline_returns_no_content(connect: Connect) -> None:
-    """A declined form elicitation returns the decline action to the handler with no content."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -133,8 +122,6 @@ async def test_elicit_form_decline_returns_no_content(connect: Connect) -> None:
 
 @requirement("elicitation:form:action:cancel")
 async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
-    """A cancelled form elicitation returns the cancel action to the handler with no content."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -163,11 +150,8 @@ async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
 async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
     """Eliciting from a client that configured no elicitation callback fails with an error.
 
-    The client's default callback answers with an Invalid request error, which the server-side
-    elicit call raises as an MCPError; the tool reports the code and message it caught. The spec
-    requires -32602 for an undeclared mode (see the divergence note on the requirement). The
-    request reaching the client also shows the server does not check the client's declared
-    elicitation capability before sending (see the divergence on `server-respects-mode`).
+    The spec requires -32602, not the -32600 the default callback answers, and the request reaching
+    the client shows the server skips the capability check (see the divergences on both requirements).
     """
 
     async def list_tools(
@@ -196,12 +180,7 @@ async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
 @requirement("elicitation:url:action:accept-no-content")
 @requirement("elicitation:url:basic")
 async def test_elicit_url_delivers_url_and_returns_accept_without_content(connect: Connect) -> None:
-    """A URL elicitation delivers the message, URL, and elicitation id to the client; accepting it
-    returns the action with no content.
-
-    Accept means the user agreed to visit the URL, not that the out-of-band interaction finished,
-    so there is never form content to return.
-    """
+    """Accept means the user agreed to visit the URL, not that the out-of-band interaction finished."""
     received: list[types.ElicitRequestParams] = []
 
     async def list_tools(
@@ -242,8 +221,6 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content(connec
 
 @requirement("elicitation:url:decline")
 async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
-    """A declined URL elicitation returns the decline action to the handler with no content."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -271,8 +248,6 @@ async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
 
 @requirement("elicitation:url:cancel")
 async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
-    """A cancelled URL elicitation returns the cancel action to the handler with no content."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -300,15 +275,8 @@ async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
 
 @requirement("elicitation:url:complete-notification")
 async def test_elicitation_complete_notification_carries_the_elicited_id_back_to_the_client(connect: Connect) -> None:
-    """After a URL elicitation finishes, the server announces it with a notification carrying the same id.
-
-    The lifecycle under test: the tool elicits a URL interaction with an elicitationId, the user
-    agrees to visit the URL, the out-of-band interaction finishes, and the server emits
-    elicitation/complete so the client can correlate the completion with the elicitation it
-    accepted earlier. The completion notification carries ``related_request_id`` so over
-    streamable HTTP it rides the tool call's own stream and reaches the client before the call
-    returns; the same ordering already holds on in-memory and SSE transports.
-    """
+    """`related_request_id` makes the completion ride the tool call's own stream over streamable HTTP,
+    so it reaches the client before the call returns."""
     elicitation_id = "auth-001"
     elicited_ids: list[str | None] = []
     received: list[IncomingMessage] = []
@@ -342,7 +310,6 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
     async with connect(server, message_handler=collect, elicitation_callback=answer_url) as client:
         await client.call_tool("link_account", {})
 
-    # The completion notification refers to the same elicitation the client accepted.
     assert elicited_ids == [elicitation_id]
     assert received == snapshot(
         [ElicitCompleteNotification(params=ElicitCompleteNotificationParams(elicitation_id="auth-001"))]
@@ -351,13 +318,8 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
 
 @requirement("elicitation:url:required-error")
 async def test_url_elicitation_required_error_carries_pending_elicitations(connect: Connect) -> None:
-    """A request that cannot proceed until a URL interaction completes is rejected with error -32042.
-
-    This is the non-interactive alternative to elicit_url: instead of asking and waiting, the
-    handler rejects the whole request and lists the required URL elicitations in the error data.
-    The client is expected to present those URLs, wait for the matching elicitation/complete
-    notifications, and retry the original request.
-    """
+    """Error -32042 is the non-interactive alternative to elicit_url: it lists the required URL
+    elicitations so the client can present them, await elicitation/complete, and retry."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "read_files"
@@ -400,13 +362,6 @@ async def test_url_elicitation_required_error_carries_pending_elicitations(conne
 async def test_elicit_form_schema_with_every_primitive_and_enum_type_reaches_the_callback_as_sent(
     connect: Connect,
 ) -> None:
-    """A requested schema covering every spec-listed property kind is delivered to the callback unchanged.
-
-    One schema with one property per kind: a formatted string, an integer with bounds, a number,
-    a boolean, a plain enum, a oneOf-const titled enum, and a multi-select array-of-enum. The
-    callback observing the same schema as the handler sent proves both the primitive coverage and
-    the enum-variant coverage in one snapshot.
-    """
     schema: ElicitRequestedSchema = {
         "type": "object",
         "properties": {
@@ -457,13 +412,9 @@ async def test_elicit_form_schema_with_every_primitive_and_enum_type_reaches_the
 
 @requirement("elicitation:form:schema:restricted-subset")
 async def test_elicit_form_with_a_nested_schema_is_forwarded_unchanged(connect: Connect) -> None:
-    """A requested schema with nested-object and array-of-object properties passes through unchanged.
-
-    The spec restricts form-mode requested schemas to flat objects with primitive-typed properties;
-    this test pins that the SDK does not enforce that restriction on either side (see the
-    divergence on the requirement). The inbound surface gate is deliberately relaxed here so older
-    servers that emit `anyOf` for `Optional` form fields still reach the elicitation callback.
-    """
+    """The spec restricts form schemas to flat primitive-property objects; the SDK enforces this on
+    neither side (see the divergence). The inbound gate is deliberately relaxed so older servers
+    emitting `anyOf` for `Optional` form fields still reach the callback."""
     schema: ElicitRequestedSchema = {
         "type": "object",
         "properties": {
@@ -510,12 +461,7 @@ async def test_elicit_form_with_a_nested_schema_is_forwarded_unchanged(connect: 
 async def test_accepted_elicitation_content_that_violates_the_schema_reaches_the_handler_unchanged(
     connect: Connect,
 ) -> None:
-    """Accepted form content that contradicts the requested schema is delivered to the handler unchanged.
-
-    The schema requires a string `name`; the callback answers with a wrong-type value and an extra
-    field. Nothing on either side validates the response against the schema (see the divergence on
-    the requirement), so the handler observes exactly what the callback sent.
-    """
+    """Neither side validates the response against the requested schema (see the divergence)."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -547,13 +493,6 @@ async def test_accepted_elicitation_content_that_violates_the_schema_reaches_the
 
 @requirement("elicitation:url:complete-unknown-ignored")
 async def test_elicitation_complete_for_an_unknown_id_is_received_without_error(connect: Connect) -> None:
-    """An elicitation/complete for an id the client never elicited is delivered and does not fail anything.
-
-    No URL elicitation precedes the notification; the client neither tracks elicitation ids nor
-    rejects unknown ones, so the call completes normally and the message handler observes the
-    notification as-is.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -584,12 +523,8 @@ async def test_elicitation_complete_for_an_unknown_id_is_received_without_error(
 
 @requirement("elicitation:form:mode-omitted-default")
 async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None:
-    """An elicitation/create request with no mode field reaches the client callback as form-mode.
-
-    The typed server API always serializes a mode (`elicit_form` writes 'form', `elicit_url` writes
-    'url'), so this test plays the server's side of the wire by hand to send a request body without
-    one. Reserve this pattern for behaviour the typed server API cannot produce.
-    """
+    """The typed server API always serializes a mode, so this test plays the server's side of the wire
+    by hand; reserve this pattern for behaviour the typed API cannot produce."""
     received: list[types.ElicitRequestParams] = []
     answered = anyio.Event()
     server_received: list[JSONRPCMessage] = []

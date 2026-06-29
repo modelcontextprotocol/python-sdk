@@ -1,9 +1,7 @@
-"""Tests for `ServerSession`.
+"""Tests for `ServerSession`, a thin proxy over two `Outbound` channels and a `Connection`.
 
-`ServerSession` is a thin per-request proxy over two `Outbound` channels and a
-`Connection`. Tested with stub outbounds so we can assert what reaches the wire
-(method, params, `CallOptions`) and which channel it routed to, without standing
-up a transport.
+Stub outbounds record what reaches the wire (method, params, `CallOptions`) and
+which channel it routed to, without standing up a transport.
 """
 
 from collections.abc import Mapping
@@ -27,10 +25,7 @@ from mcp.shared.message import ServerMessageMetadata
 
 
 class StubOutbound:
-    """Records `send_raw_request` / `notify` / `progress` calls and returns a canned result.
-
-    Structurally a `DispatchContext[Any]` so it can stand in for the per-request channel.
-    """
+    """Structural `DispatchContext[Any]` stub: records calls and returns a canned result."""
 
     transport: Any = None
     can_send_request: bool = True
@@ -109,8 +104,7 @@ async def test_send_request_omits_call_options_when_none_given():
 
 @pytest.mark.anyio
 async def test_send_request_timeout_zero_is_forwarded():
-    """0 is a real timeout (fail at the first checkpoint, `anyio.fail_after(0)`
-    semantics) and must reach the channel; only `None` means "no timeout"."""
+    """0 is a real timeout (`anyio.fail_after(0)` semantics); only `None` means no timeout."""
     outbound = StubOutbound(result={})
     session = _make_session(outbound)
     await session.send_request(types.PingRequest(), types.EmptyResult, request_read_timeout_seconds=0.0)
@@ -119,7 +113,7 @@ async def test_send_request_timeout_zero_is_forwarded():
 
 @pytest.mark.anyio
 async def test_send_request_without_related_id_routes_to_standalone_channel():
-    """SDK-defined: no `related_request_id` routes the request onto the connection's standalone channel."""
+    """SDK-defined: no `related_request_id` routes onto the connection's standalone channel."""
     request_ch = StubOutbound()
     standalone_ch = StubOutbound(result={"roots": []})
     session = _two_channel_session(request_ch, standalone_ch)
@@ -130,8 +124,7 @@ async def test_send_request_without_related_id_routes_to_standalone_channel():
 
 @pytest.mark.anyio
 async def test_send_request_with_related_id_routes_to_request_channel():
-    """SDK-defined: with `related_request_id` the request rides the per-request channel
-    (the originating POST's response stream over streamable HTTP)."""
+    """SDK-defined: the request rides the originating POST's response stream over streamable HTTP."""
     request_ch = StubOutbound(result={"action": "cancel"})
     standalone_ch = StubOutbound()
     session = _two_channel_session(request_ch, standalone_ch)
@@ -147,7 +140,7 @@ async def test_send_request_with_related_id_routes_to_request_channel():
 
 @pytest.mark.anyio
 async def test_send_notification_routes_by_related_request_id():
-    """SDK-defined: notifications select channel by `related_request_id` exactly like requests."""
+    """SDK-defined: notifications pick their channel by `related_request_id` exactly like requests."""
     request_ch = StubOutbound()
     standalone_ch = StubOutbound()
     session = _two_channel_session(request_ch, standalone_ch)
@@ -159,8 +152,7 @@ async def test_send_notification_routes_by_related_request_id():
 
 @pytest.mark.anyio
 async def test_report_progress_delegates_to_the_request_dispatch_context():
-    """`report_progress` calls the per-request `DispatchContext.progress` seam, never the
-    standalone channel: token gating and routing live in the dispatcher, not here."""
+    """Delegates to the per-request `DispatchContext.progress` seam: token gating lives in the dispatcher."""
     request_ch = StubOutbound()
     standalone_ch = StubOutbound()
     session = _two_channel_session(request_ch, standalone_ch)
@@ -172,8 +164,7 @@ async def test_report_progress_delegates_to_the_request_dispatch_context():
 
 @pytest.mark.anyio
 async def test_send_request_validates_the_client_result_against_the_surface_schema():
-    """A spec-method result that fails the per-version surface schema raises
-    `ValidationError` even when the caller's `result_type` would accept it."""
+    """The surface gate rejects results the caller's `result_type` would accept."""
     session = _make_session(StubOutbound(result={"roots": "nope"}))
     with pytest.raises(ValidationError):
         await session.send_request(types.ListRootsRequest(), types.EmptyResult)
@@ -181,7 +172,6 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
 
 @pytest.mark.anyio
 async def test_send_request_passes_a_spec_valid_client_result():
-    """A spec-valid client result passes the surface gate and parses to the typed model."""
     session = _make_session(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}))
     result = await session.send_request(types.ListRootsRequest(), types.ListRootsResult)
     assert isinstance(result, types.ListRootsResult)
@@ -190,8 +180,6 @@ async def test_send_request_passes_a_spec_valid_client_result():
 
 @pytest.mark.anyio
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
-    """Surface row absent for the connection's version: gate is bypassed and only
-    `result_type` validates."""
     session = _make_session(StubOutbound(result={}), protocol_version=LATEST_MODERN_VERSION)
     result = await session.send_request(types.PingRequest(), types.EmptyResult)
     assert isinstance(result, types.EmptyResult)
@@ -199,8 +187,7 @@ async def test_send_request_skips_the_surface_gate_when_method_absent_at_version
 
 @pytest.mark.anyio
 async def test_send_request_validates_result_alias_only():
-    """Peer results validate alias-only; a snake_case key from the wire is
-    ignored as extra, not populated by Python field name."""
+    """A snake_case wire key is ignored as extra, not populated by Python field name."""
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     session = _make_session(StubOutbound(result=snake))
     request = types.CreateMessageRequest(params=types.CreateMessageRequestParams(messages=[], max_tokens=1))
