@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
-from mcp_types import Annotations, Icon
+from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError
@@ -17,6 +17,7 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 from mcp.shared.path_security import contains_path_traversal, is_absolute_path
 from mcp.shared.uri_template import UriTemplate
 
@@ -208,8 +209,13 @@ class ResourceTemplate(BaseModel):
         uri: str,
         params: dict[str, Any],
         context: Context[LifespanContextT, RequestT],
-    ) -> Resource:
+    ) -> Resource | InputRequiredResult:
         """Create a resource from the template with the given parameters.
+
+        An `InputRequiredResult` returned by the template function is passed
+        through unchanged (the 2026-07-28 multi-round-trip flow); the retry's
+        answers arrive on `ctx.input_responses`, with `ctx.request_state`
+        carrying the echoed opaque state.
 
         Raises:
             ResourceError: If creating the resource fails.
@@ -224,6 +230,9 @@ class ResourceTemplate(BaseModel):
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
 
+            if isinstance(result, InputRequiredResult):
+                return result
+
             return FunctionResource(
                 uri=uri,  # type: ignore
                 name=self.name,
@@ -235,7 +244,7 @@ class ResourceTemplate(BaseModel):
                 meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
-        except ResourceError:
+        except (ResourceError, MCPError):
             raise
         except Exception as exc:
             logger.exception(f"Error creating resource from template {uri}")

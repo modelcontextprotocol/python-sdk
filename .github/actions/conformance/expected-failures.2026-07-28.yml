@@ -22,7 +22,4 @@
 
 client: []
 
-server:
-  # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
-  # cannot return InputRequiredResult from MCPServer yet (tools/call can).
-  - input-required-result-non-tool-request
+server: []

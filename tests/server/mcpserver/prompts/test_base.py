@@ -2,7 +2,14 @@ import threading
 from typing import Any
 
 import pytest
-from mcp_types import EmbeddedResource, TextContent, TextResourceContents
+from mcp_types import (
+    ElicitRequest,
+    ElicitRequestFormParams,
+    EmbeddedResource,
+    InputRequiredResult,
+    TextContent,
+    TextResourceContents,
+)
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
@@ -209,3 +216,30 @@ async def test_sync_fn_runs_in_worker_thread():
 
     assert messages == [UserMessage(content=TextContent(type="text", text="hello"))]
     assert fn_thread[0] != main_thread
+
+
+@pytest.mark.anyio
+async def test_render_passes_input_required_result_through_unchanged():
+    """Prompt.render returns the InputRequiredResult the function returned, bypassing
+    message conversion entirely (SEP-2322 multi-round-trip pass-through)."""
+    sentinel = InputRequiredResult(
+        input_requests={
+            "who": ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message="Who is this for?",
+                    requested_schema={
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                        "required": ["name"],
+                    },
+                )
+            )
+        }
+    )
+
+    def asking_prompt() -> InputRequiredResult:
+        return sentinel
+
+    prompt = Prompt.from_function(asking_prompt)
+    result = await prompt.render(None, Context())
+    assert result is sentinel

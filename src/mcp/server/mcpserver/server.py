@@ -389,7 +389,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
-    ) -> ReadResourceResult:
+    ) -> ReadResourceResult | InputRequiredResult:
         context = Context(request_context=ctx, mcp_server=self, input_params=params)
         try:
             results = await self.read_resource(params.uri, context)
@@ -397,6 +397,8 @@ class MCPServer(Generic[LifespanResultT]):
             raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
         except ResourceError as err:
             raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
+        if isinstance(results, InputRequiredResult):
+            return results
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -431,7 +433,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
-    ) -> GetPromptResult:
+    ) -> GetPromptResult | InputRequiredResult:
         context = Context(request_context=ctx, mcp_server=self, input_params=params)
         return await self.get_prompt(params.name, params.arguments, context)
 
@@ -496,8 +498,13 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
-    ) -> Iterable[ReadResourceContents]:
+    ) -> Iterable[ReadResourceContents] | InputRequiredResult:
         """Read a resource by URI.
+
+        An `InputRequiredResult` returned by a resource template function is
+        passed through unchanged (the 2026-07-28 multi-round-trip flow); the
+        retry's answers arrive on `ctx.input_responses`, with
+        `ctx.request_state` carrying the echoed opaque state.
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
@@ -506,10 +513,14 @@ class MCPServer(Generic[LifespanResultT]):
         if context is None:
             context = Context(mcp_server=self)
         resource = await self._resource_manager.get_resource(uri, context)
+        if isinstance(resource, InputRequiredResult):
+            return resource
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
+        except MCPError:
+            raise
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
             # If an exception happens when reading the resource, we should not leak the exception to the client.
@@ -696,6 +707,9 @@ class MCPServer(Generic[LifespanResultT]):
         The function can return:
         - str for text content
         - bytes for binary content
+        - an InputRequiredResult (template resources only; passed through
+          unchanged for the 2026-07-28 multi-round-trip flow — read
+          `ctx.input_responses` on the retry)
         - other types will be converted to JSON
 
         If the URI contains parameters (e.g. "resource://{param}"), it is
@@ -851,6 +865,11 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
+
+        The function returns the prompt messages (a string, `Message`, dict,
+        or a sequence of these), or an `InputRequiredResult` to request
+        client input first (the 2026-07-28 multi-round-trip flow — read
+        `ctx.input_responses` on the retry).
 
         Args:
             name: Optional name for the prompt (defaults to function name)
@@ -1192,8 +1211,14 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def get_prompt(
         self, name: str, arguments: dict[str, Any] | None = None, context: Context[LifespanResultT, Any] | None = None
-    ) -> GetPromptResult:
-        """Get a prompt by name with arguments."""
+    ) -> GetPromptResult | InputRequiredResult:
+        """Get a prompt by name with arguments.
+
+        An `InputRequiredResult` returned by the prompt function is passed
+        through unchanged (the 2026-07-28 multi-round-trip flow); the retry's
+        answers arrive on `ctx.input_responses`, with `ctx.request_state`
+        carrying the echoed opaque state.
+        """
         if context is None:
             context = Context(mcp_server=self)
         try:
@@ -1201,12 +1226,16 @@ class MCPServer(Generic[LifespanResultT]):
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments, context)
+            rendered = await prompt.render(arguments, context)
+            if isinstance(rendered, InputRequiredResult):
+                return rendered
 
             return GetPromptResult(
                 description=prompt.description,
-                messages=pydantic_core.to_jsonable_python(messages),
+                messages=pydantic_core.to_jsonable_python(rendered),
             )
+        except MCPError:
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e

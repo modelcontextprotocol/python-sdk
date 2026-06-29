@@ -20,6 +20,26 @@ If you call `MCPServer.call_tool()` directly, read `.content` and
 `.structured_content` off the returned `CallToolResult` instead of branching on
 the result type.
 
+### `MCPServer.get_prompt()` and `read_resource()` may return `InputRequiredResult`
+
+Like `call_tool()` above, `MCPServer.get_prompt()` now returns
+`GetPromptResult | InputRequiredResult` and `MCPServer.read_resource()` returns
+`Iterable[ReadResourceContents] | InputRequiredResult`: at 2026-07-28 an
+`@mcp.prompt()` function or an `@mcp.resource()` template function may answer
+with an `InputRequiredResult` to request client input first (see
+[Multi-round-trip requests](advanced/multi-round-trip.md)). If you call these
+methods directly, narrow with `isinstance` (or
+`assert not isinstance(result, InputRequiredResult)` when your prompt and
+resource functions never return one). `Prompt.render()` and
+`ResourceTemplate.create_resource()` carry the same union.
+
+`ctx.read_resource()` inside a handler is unchanged: it still returns content,
+and raises `RuntimeError` if the resource requests input. A handler that wants
+to receive the `InputRequiredResult` and forward it as its own result calls
+`MCPServer.read_resource(uri, context)` directly — but not from a tool whose
+dependencies elicit via `Resolve(...)`: the resolver owns that tool's
+`request_state` channel, and a forwarded result's state would clobber it.
+
 ### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
 
 Raising `MCPError` (or a subclass such as `UrlElicitationRequiredError`) inside

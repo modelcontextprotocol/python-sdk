@@ -12,11 +12,12 @@ import anyio.to_thread
 import httpx
 import pydantic
 import pydantic_core
-from mcp_types import Annotations, Icon
+from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 
 
 class TextResource(Resource):
@@ -63,6 +64,14 @@ class FunctionResource(Resource):
             else:
                 result = await anyio.to_thread.run_sync(self.fn)
 
+            if isinstance(result, InputRequiredResult):
+                # A static resource function can never read the retry's
+                # input_responses (it takes no Context), so this can only be a
+                # mistake — reject it instead of JSON-dumping it as content.
+                raise ValueError(
+                    "static resources cannot return InputRequiredResult; only resource "
+                    "template functions participate in the multi-round-trip flow"
+                )
             if isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
             elif isinstance(result, bytes):
@@ -71,6 +80,8 @@ class FunctionResource(Resource):
                 return result
             else:
                 return pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        except MCPError:
+            raise
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
 

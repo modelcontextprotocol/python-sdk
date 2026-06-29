@@ -3,7 +3,7 @@ import threading
 from typing import Any
 
 import pytest
-from mcp_types import Annotations
+from mcp_types import Annotations, ElicitRequest, ElicitRequestFormParams, InputRequiredResult
 from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -403,6 +403,7 @@ class TestResourceTemplateAnnotations:
 
         # Create a resource from the template
         resource = await template.create_resource("resource://items/123", {"item_id": "123"}, Context())
+        assert not isinstance(resource, InputRequiredResult)
 
         # The resource should inherit the template's annotations
         assert resource.annotations is not None
@@ -477,3 +478,30 @@ async def test_sync_fn_runs_in_worker_thread():
     assert isinstance(resource, FunctionResource)
     assert await resource.read() == "hello world"
     assert fn_thread[0] != main_thread
+
+
+@pytest.mark.anyio
+async def test_create_resource_passes_input_required_result_through_unchanged():
+    """create_resource returns the InputRequiredResult the template function returned
+    instead of wrapping it in a FunctionResource (SEP-2322 multi-round-trip pass-through)."""
+    sentinel = InputRequiredResult(
+        input_requests={
+            "who": ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message="Who is this for?",
+                    requested_schema={
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                        "required": ["name"],
+                    },
+                )
+            )
+        }
+    )
+
+    def ask(topic: str) -> InputRequiredResult:
+        return sentinel
+
+    template = ResourceTemplate.from_function(fn=ask, uri_template="ask://{topic}")
+    result = await template.create_resource("ask://databases", {"topic": "databases"}, Context())
+    assert result is sentinel

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import InputRequiredResult
+
 from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
@@ -50,7 +52,7 @@ class PromptManager:
         name: str,
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
-    ) -> list[Message]:
+    ) -> list[Message] | InputRequiredResult:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
