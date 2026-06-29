@@ -1661,6 +1661,37 @@ async def test_discover_reraises_unsupported_version_with_malformed_error_data()
     assert [m for m, _ in dispatcher.calls] == ["server/discover"]
 
 
+# --- inbound ttlMs clamp ---
+
+
+@pytest.mark.anyio
+async def test_a_positive_inbound_ttl_reaches_the_result_unchanged() -> None:
+    """SDK-defined: the inbound clamp only floors negative `ttlMs` values — a valid
+    positive hint passes through to the typed result untouched."""
+    listing: dict[str, Any] = {"resultType": "complete", "tools": [], "ttlMs": 60_000, "cacheScope": "private"}
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), listing)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            result = await session.list_tools()
+    assert result.ttl_ms == 60_000
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("wire_ttl", [True, False])
+async def test_a_boolean_inbound_ttl_is_not_clamped_only_coerced_by_validation(wire_ttl: bool) -> None:
+    """SDK-defined: `bool` is an `int` subclass but the clamp does not treat it as a
+    number — the value reaches validation untouched, where pydantic's lax mode
+    coerces it (True -> 1, False -> 0) rather than rejecting it."""
+    listing: dict[str, Any] = {"resultType": "complete", "tools": [], "ttlMs": wire_ttl, "cacheScope": "private"}
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), listing)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            result = await session.list_tools()
+    assert result.ttl_ms == int(wire_ttl)
+
+
 @pytest.mark.anyio
 async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
     """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the

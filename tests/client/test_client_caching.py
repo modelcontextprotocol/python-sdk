@@ -8,6 +8,8 @@ The coordinator's own behavior is covered in `test_caching.py`.
 
 import json
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any
 
@@ -54,6 +56,8 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.caching import CacheHint
 from mcp.shared.exceptions import MCPError
+from mcp.shared.memory import MessageStream, create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from tests.interaction._connect import BASE_URL, mounted_app
 
@@ -960,3 +964,102 @@ async def test_a_resource_updated_notification_evicts_that_uris_read_entry() -> 
     # The notification carried the exact string the entry was stored under.
     assert delivered == [uri]
     assert reads == [uri, uri]
+
+
+# --- The inbound ttlMs clamp (parse seam) ---
+
+
+@pytest.mark.parametrize("wire_ttl", [-5, -5.0])
+async def test_a_negative_inbound_ttl_is_served_as_zero_and_never_cached(wire_ttl: int | float) -> None:
+    """Spec SHOULD (2026-07-28 caching): a negative `ttlMs` is treated as 0 — the
+    call succeeds instead of failing the `ge=0` wire validation, and a zero ttl is
+    never stored, so the next call goes back to the server. The peer is scripted
+    over raw streams because an SDK server cannot emit a negative ttl (server-side
+    `ge=0` enforcement)."""
+    listings_served = 0
+
+    async def scripted_server(streams: MessageStream) -> None:
+        nonlocal listings_served
+        server_read, server_write = streams
+        async for message in server_read:
+            assert isinstance(message, SessionMessage)
+            frame = message.message
+            assert isinstance(frame, types.JSONRPCRequest)
+            if frame.method == "server/discover":
+                result: dict[str, Any] = {
+                    "supportedVersions": [LATEST_MODERN_VERSION],
+                    "capabilities": {},
+                    "serverInfo": {"name": "negative-ttl", "version": "0.0.1"},
+                    "resultType": "complete",
+                    "ttlMs": 0,
+                }
+            else:
+                assert frame.method == "tools/list"
+                listings_served += 1
+                result = {"resultType": "complete", "tools": [], "ttlMs": wire_ttl, "cacheScope": "private"}
+            await server_write.send(SessionMessage(types.JSONRPCResponse(jsonrpc="2.0", id=frame.id, result=result)))
+
+    @asynccontextmanager
+    async def scripted_transport() -> AsyncIterator[TransportStreams]:
+        async with (
+            create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(scripted_server, server_streams)
+            yield client_read, client_write
+            tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(scripted_transport(), mode="auto") as client:
+            first = await client.list_tools()
+            second = await client.list_tools()
+
+    assert first.ttl_ms == 0
+    assert second.ttl_ms == 0
+    assert listings_served == 2  # the clamped-to-zero ttl was never stored: the second call re-fetched
+
+
+async def test_a_negative_discover_ttl_still_connects_modern_in_auto_mode() -> None:
+    """Spec SHOULD (2026-07-28 caching) — silent-downgrade regression: before the
+    parse-seam clamp, a negative `ttlMs` on `server/discover` failed `DiscoverResult`
+    validation inside the mode='auto' probe, which reads as "not modern evidence" and
+    silently fell back to the legacy initialize handshake. Clamped, the probe adopts
+    the modern era and the result carries `ttl_ms == 0`."""
+    methods_seen: list[str] = []
+
+    async def scripted_server(streams: MessageStream) -> None:
+        server_read, server_write = streams
+        async for message in server_read:
+            assert isinstance(message, SessionMessage)
+            frame = message.message
+            assert isinstance(frame, types.JSONRPCRequest)
+            methods_seen.append(frame.method)
+            # A legacy downgrade would send `initialize` next; fail loudly instead.
+            assert frame.method == "server/discover"
+            result: dict[str, Any] = {
+                "supportedVersions": [LATEST_MODERN_VERSION],
+                "capabilities": {},
+                "serverInfo": {"name": "negative-ttl", "version": "0.0.1"},
+                "resultType": "complete",
+                "ttlMs": -5,
+            }
+            await server_write.send(SessionMessage(types.JSONRPCResponse(jsonrpc="2.0", id=frame.id, result=result)))
+
+    @asynccontextmanager
+    async def scripted_transport() -> AsyncIterator[TransportStreams]:
+        async with (
+            create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(scripted_server, server_streams)
+            yield client_read, client_write
+            tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(scripted_transport(), mode="auto") as client:
+            assert client.protocol_version == LATEST_MODERN_VERSION
+            discover = client.session.discover_result
+            assert discover is not None
+            assert discover.ttl_ms == 0
+
+    assert methods_seen == ["server/discover"]

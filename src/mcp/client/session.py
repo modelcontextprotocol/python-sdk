@@ -55,6 +55,19 @@ DISCOVER_TIMEOUT_SECONDS = 10.0
 logger = logging.getLogger("client")
 
 
+def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
+    """Floor a negative inbound `ttlMs` to 0, in place (2026-07-28 caching SHOULD).
+
+    Runs before the surface validation, whose `ge=0` would otherwise fail the
+    whole call over one bad hint. Emit-side strictness is untouched — only a
+    misbehaving peer reaches this. Floats are floored too; bools are not numbers
+    here and are left for the validation to reject.
+    """
+    ttl = raw.get("ttlMs")
+    if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
+        raw["ttlMs"] = 0
+
+
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
     # initialize/discover forbid cancellation; other pre-handshake requests (lowlevel
     # ClientSession callers may skip the handshake entirely) keep the courtesy cancel.
@@ -331,6 +344,7 @@ class ClientSession:
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        _clamp_inbound_ttl(raw)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self._negotiated_version or "2025-11-25"
         try:
@@ -458,7 +472,13 @@ class ClientSession:
             "cancel_on_abandon": False,
             "headers": {MCP_PROTOCOL_VERSION_HEADER: version, MCP_METHOD_HEADER: data["method"]},
         }
-        return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+        raw = await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+        # Clamping here (not in the callers) covers both discover() and the
+        # mode='auto' probe — un-floored, a negative ttl fails DiscoverResult
+        # validation in the probe, which reads as "not modern evidence" and
+        # silently downgrades the connection to the legacy handshake.
+        _clamp_inbound_ttl(raw)
+        return raw
 
     async def discover(self) -> types.DiscoverResult:
         """Probe `server/discover` and adopt the result.
