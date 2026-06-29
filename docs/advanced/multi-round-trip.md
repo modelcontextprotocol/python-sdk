@@ -19,7 +19,7 @@ That's the whole protocol. Every leg is an ordinary request from the client to t
 
 ## The server side
 
-On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user and the SDK returns the `InputRequiredResult` for you - that form is the **[Dependencies](../tutorial/dependencies.md)** tutorial. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
+On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user and the SDK returns the `InputRequiredResult` for you - that form is the **[Dependencies](../tutorial/dependencies.md)** tutorial. The two forms don't mix: a call has one `input_responses`/`request_state` channel, so a tool that uses `Resolve(...)` parameters cannot also return `InputRequiredResult` from its body - a declared `InputRequiredResult` return is rejected at registration (`InvalidSignature`), and an undeclared one fails the call at runtime. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
 
 ```python title="server.py" hl_lines="44-47"
 --8<-- "docs_src/mrtr/tutorial001.py"

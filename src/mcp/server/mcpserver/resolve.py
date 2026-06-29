@@ -13,8 +13,10 @@ and resumes when the client retries with `input_responses`/`request_state`
 (independent resolvers are asked in one round; a resolver depending on another's
 answer is asked in a later round). At <= 2025-11-25 it issues a synchronous
 `elicitation/create` request mid-call. Only *elicited* outcomes are carried in
-`request_state` across rounds (so the user is asked each question once); a
-resolver that returns a value without eliciting is pure and may re-run each round.
+`request_state` across rounds (so the user is asked each question once). Resolver
+bodies may re-run on every round; a recorded outcome is consulted only when the
+body asks its question again, so a resolver's own computation always wins over
+anything the client echoes back in `request_state`.
 
 Whether the consumer receives the unwrapped model or the full
 `ElicitationResult` union is decided by the consumer's annotation:
@@ -114,15 +116,11 @@ class _ResolverPlan:
         fn: Callable[..., Any],
         params: dict[str, _ParamPlan],
         is_async: bool,
-        elicit_schema: type[BaseModel] | None,
         wire_key: str,
     ) -> None:
         self.fn = fn
         self.params = params
         self.is_async = is_async
-        # The `T` from the resolver's `Elicit[T]` return arm, if annotated. Used to
-        # re-validate an outcome restored from `request_state` into a model.
-        self.elicit_schema = elicit_schema
         # Deterministic, collision-free key for this resolver's elicitation on the
         # wire (`input_requests`/`request_state`). Assigned at registration so it is
         # stable across rounds even when `module:qualname` collides (closures).
@@ -176,6 +174,30 @@ def find_resolved_parameters(fn: Callable[..., Any]) -> dict[str, tuple[Resolve,
     return resolved
 
 
+def returns_input_required(fn: Callable[..., Any]) -> bool:
+    """True when `fn`'s return annotation carries an `InputRequiredResult` arm.
+
+    Used at tool registration to reject combining `Resolve(...)` parameters with a
+    hand-rolled `InputRequiredResult` flow: a call has a single
+    `input_responses`/`request_state` channel, so the two flows would overwrite
+    each other's state and the call could never converge.
+    """
+    return _has_input_required_arm(_type_hints(fn).get("return"))
+
+
+def _has_input_required_arm(annotation: Any) -> bool:
+    """Walk an annotation's arms through `Annotated`, type aliases, and unions."""
+    if get_origin(annotation) is Annotated:
+        return _has_input_required_arm(get_args(annotation)[0])
+    # A `type X = ...` / `TypeAliasType` alias carries its target on `__value__`.
+    value = getattr(annotation, "__value__", None)
+    if value is not None:
+        return _has_input_required_arm(value)
+    if _is_union(annotation):
+        return any(_has_input_required_arm(arg) for arg in get_args(annotation))
+    return isinstance(annotation, type) and issubclass(annotation, InputRequiredResult)
+
+
 def _contains_resolve(annotation: Any) -> bool:
     """True when a `Resolve` marker is nested inside `annotation` (e.g. a union member)."""
     if get_origin(annotation) is Annotated:
@@ -183,16 +205,12 @@ def _contains_resolve(annotation: Any) -> bool:
     return any(_contains_resolve(arg) for arg in get_args(annotation))
 
 
-def _elicit_return_schema(return_annotation: Any, name: str) -> type[BaseModel] | None:
-    """Extract `T` from a resolver return type's `Elicit[T]` arm, if present.
-
-    Handles a bare `-> Elicit[T]` and a `-> T | Elicit[T]` union. Lets an elicited
-    outcome restored from `request_state` (a plain dict) be re-validated into its
-    model so dependent resolvers and tools receive a typed value.
+def _check_elicit_return(return_annotation: Any, name: str) -> None:
+    """Validate the `Elicit[...]` arms of a resolver's return annotation.
 
     Raises:
         InvalidSignature: If the annotation has more than one `Elicit[...]` arm;
-            the runtime can honor only one static question schema per resolver.
+            a resolver asks one question - a second arm means it should be split.
     """
     # A bare `Elicit[T]` is itself a candidate; a union contributes its members.
     candidates = get_args(return_annotation) if _is_union(return_annotation) else (return_annotation,)
@@ -203,10 +221,6 @@ def _elicit_return_schema(return_annotation: Any, name: str) -> type[BaseModel] 
             f"Resolver {name!r} return annotation has multiple Elicit arms; "
             "a resolver asks one question - split it into separate resolvers"
         )
-    if not arms:
-        return None
-    schema = get_args(arms[0])[0]
-    return schema if isinstance(schema, type) and issubclass(schema, BaseModel) else None
 
 
 def _is_union(annotation: Any) -> bool:
@@ -299,8 +313,8 @@ def build_resolver_plans(
                 "expected a Context, an Annotated[_, Resolve(...)], or a tool argument by name"
             )
 
-        elicit_schema = _elicit_return_schema(hints.get("return"), _resolver_name(fn))
-        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn), elicit_schema, wire_key)
+        _check_elicit_return(hints.get("return"), _resolver_name(fn))
+        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn), wire_key)
         for dep in nested:
             analyze(dep, stack + (key,))
 
@@ -387,9 +401,10 @@ async def resolve_arguments(
     negotiated protocol is >= 2026-07-28), returns an `InputRequiredResult`
     carrying the batched questions instead; the tool body is not run.
 
-    An eliciting resolver asks its question once - its answer is carried in
-    `request_state` across rounds - while a resolver that resolves without
-    eliciting is pure and may re-run on each round.
+    Each question is asked once - its answer is carried in `request_state` across
+    rounds and satisfies the question when the resolver asks it again. Resolver
+    bodies themselves may re-run on each round; a recorded answer is consulted
+    only when the body asks, never in place of running it.
 
     Raises:
         ToolError: If an elicited value is declined or cancelled and the consumer
@@ -428,15 +443,6 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
     if wire_key in res.pending:
         # Already asked this round by another consumer; don't run the resolver again.
         raise _Pending
-    # Restore a prior round's outcome directly only when its model is known from the
-    # `Elicit[T]` return arm. Without that (a resolver that elicits but isn't annotated
-    # `-> ... Elicit[T]`), fall through and re-run the resolver so `_elicit` can
-    # re-validate the stored answer against the live `Elicit.schema`.
-    if wire_key in res.state and (plan.elicit_schema is not None or res.state[wire_key].action != "accept"):
-        outcome = _restore_outcome(res, wire_key, plan.elicit_schema)
-        if outcome is not None:
-            res.cache[cache_key] = outcome
-            return outcome
 
     kwargs: dict[str, Any] = {}
     dep_pending = False
@@ -481,10 +487,11 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
     if not res.input_required:
         return await res.context.elicit(elicit.message, elicit.schema)
 
-    # Answered in a prior round (restored without a known schema, e.g. an unannotated
-    # resolver): re-validate the stored entry against the live `Elicit.schema`. A
-    # recorded outcome wins over a re-sent answer; an invalid entry self-deletes and
-    # falls through to the fresh answer (or to re-asking).
+    # A recorded outcome from a prior round is consulted only here, after the body
+    # decided to ask, so a `request_state` entry can never stand in for a resolver's
+    # own computation. Re-validate it against the live `Elicit.schema`. A recorded
+    # outcome wins over a re-sent answer; an invalid entry self-deletes and falls
+    # through to the fresh answer (or to re-asking).
     outcome = _restore_outcome(res, key, elicit.schema)
     if outcome is not None:
         return outcome
@@ -614,24 +621,21 @@ def _encode_state(outcomes: Mapping[str, _StateEntry]) -> str:
     return _State(v=_STATE_VERSION, outcomes=dict(outcomes)).model_dump_json()
 
 
-def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel] | None) -> ElicitationResult[Any]:
+def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel]) -> ElicitationResult[Any]:
     """Rebuild an `ElicitationResult` from a decoded `request_state` entry.
 
     Raises:
-        ValidationError: If `schema` is known and the entry's data does not
-            validate against it.
+        ValidationError: If an accepted entry's data does not validate against
+            `schema` (the live `Elicit.schema` of the question being asked).
     """
     if entry.action == "decline":
         return DeclinedElicitation()
     if entry.action == "cancel":
         return CancelledElicitation()
-    data = entry.data
-    if schema is not None:
-        data = schema.model_validate(data)
-    return _accepted(data)
+    return _accepted(schema.model_validate(entry.data))
 
 
-def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel] | None) -> ElicitationResult[Any] | None:
+def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel]) -> ElicitationResult[Any] | None:
     """Restore `key`'s recorded outcome from a prior round, or `None` when absent.
 
     `request_state` is client-trusted, so an entry whose data fails validation gets
@@ -665,4 +669,5 @@ __all__ = [
     "find_resolved_parameters",
     "build_resolver_plans",
     "resolve_arguments",
+    "returns_input_required",
 ]
