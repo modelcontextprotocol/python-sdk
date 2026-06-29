@@ -9,10 +9,23 @@ store. Wiring into `Client` lives in `mcp.client.client`.
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol
+
+import anyio
+from mcp_types import (
+    CacheableResult,
+    PromptListChangedNotification,
+    ResourceListChangedNotification,
+    ResourceUpdatedNotification,
+    ServerNotification,
+    ToolListChangedNotification,
+)
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 __all__ = [
     "MAX_TTL_MS",
@@ -23,6 +36,8 @@ __all__ = [
     "InMemoryResponseCacheStore",
     "ResponseCacheStore",
 ]
+
+logger = logging.getLogger(__name__)
 
 CacheMode = Literal["use", "refresh", "bypass"]
 """Per-call cache behavior: `"use"` serves fresh entries and stores fetches,
@@ -81,6 +96,13 @@ class ResponseCacheStore(Protocol):
     atomicity are the implementation's responsibility. Operations may raise;
     the SDK degrades per its error discipline (a failing store never fails a
     successful fetch).
+
+    A store that serializes entries (any cross-process store must) is
+    responsible for round-tripping them: `get` returns the entry as stored,
+    with `value` still the result model object `set` received - the SDK has
+    no rehydration hook to rebuild it from serialized data. An entry that
+    comes back in the wrong shape (e.g. with a plain-dict value) degrades to
+    a cache miss, never an error.
     """
 
     async def get(self, key: CacheKey) -> CacheEntry | None: ...
@@ -186,3 +208,237 @@ class InMemoryResponseCacheStore:
 
     async def clear(self) -> None:
         self._entries.clear()
+
+
+_GENERATION_MAP_CAP: Final[int] = 4096
+"""Cap on the coordinator's eviction-race bookkeeping (the generation map).
+At the cap, registering a new key drops the oldest one, degrading the dropped
+key's race guard to the accepted co-tenant class."""
+
+
+class ClientResponseCache:
+    """Coordinator between the `Client` verbs and a `ResponseCacheStore`.
+
+    Owns key construction (the scope arms), the era gate, TTL/scope
+    resolution, eviction, and the store error discipline. `Client` mints one
+    per instance; the caching verbs and the notification wrap are the only
+    callers.
+    """
+
+    def __init__(
+        self,
+        *,
+        store: ResponseCacheStore,
+        partition: str,
+        arm_id: str,
+        default_ttl_ms: int,
+        clock: Callable[[], float],
+        share_public: bool,
+        negotiated_version: Callable[[], str | None],
+        generation_map_cap: int = _GENERATION_MAP_CAP,
+    ) -> None:
+        self._store = store
+        self._default_ttl_ms = default_ttl_ms
+        self._clock = clock
+        self._negotiated_version = negotiated_version
+        # Arms are JSON arrays so crafted arm_id/partition values cannot
+        # collide across field boundaries. Private entries always carry the
+        # partition; public entries do too unless the operator opted into
+        # fleet-wide sharing of server-asserted-public results.
+        self._private_arm = json.dumps(["private", arm_id, partition])
+        self._public_arm = json.dumps(["public", arm_id] if share_public else ["public", arm_id, partition])
+        # The generation map is the sole membership structure: a key is
+        # race-guarded iff registered here.
+        self._generations: dict[tuple[str, str], int] = {}
+        self._generation_map_cap = generation_map_cap
+        # Operation kinds ("get"/"set"/"delete") that warned and have not
+        # succeeded since; membership suppresses repeat warnings for the kind.
+        self._warned_store_ops: set[str] = set()
+
+    async def read(self, method: str, params_key: str) -> CacheableResult | None:
+        """Serve a fresh entry for the key, or `None`.
+
+        Called only under `cache_mode="use"`; returns a deep copy so a served
+        result never aliases the stored one.
+        """
+        # One boundary around the whole read path: a raising store `get` and
+        # an entry rehydrated into the wrong shape (which raises only at the
+        # freshness check or the copy) are the same "get" failure class -
+        # warned once per burst, re-armed only by a fully successful read.
+        try:
+            entry = await self._get_fresh(CacheKey(method, params_key, self._private_arm))
+            if entry is None:
+                # Stale counts as a miss for fall-through too: after a server
+                # scope flip (private -> public), a stale private leftover
+                # must not shadow a fresh public entry.
+                entry = await self._get_fresh(CacheKey(method, params_key, self._public_arm))
+                if entry is not None and entry.scope != "public":
+                    # The arm routes, the scope verifies: never serve an entry the
+                    # server scoped "private" out of the shared arm, however it
+                    # got there.
+                    entry = None
+            copied: CacheableResult | None = None if entry is None else entry.value.model_copy(deep=True)
+        except Exception:  # boundary around user store code: any read-path failure is a miss, never a failed call
+            self._warn_store_failure("get")
+            return None
+        self._warned_store_ops.discard("get")
+        return copied
+
+    async def _get_fresh(self, key: CacheKey) -> CacheEntry | None:
+        entry = await self._store.get(key)
+        if entry is None or entry.expires_at is None or entry.expires_at <= self._clock():
+            return None
+        return entry
+
+    def capture(self, method: str, params_key: str) -> int:
+        """Register the key for eviction-race detection, before the fetch is
+        sent; the matching `write` passes the returned generation back."""
+        gen_key = (method, params_key)
+        if gen_key not in self._generations:
+            if len(self._generations) >= self._generation_map_cap:
+                # FIFO overflow: drop the oldest key, degrading its race guard
+                # to the accepted co-tenant class (an eviction racing that
+                # key's in-flight fetch is no longer detected at write time).
+                del self._generations[next(iter(self._generations))]
+            self._generations[gen_key] = 0
+        return self._generations[gen_key]
+
+    async def write(
+        self,
+        method: str,
+        params_key: str,
+        result: CacheableResult,
+        gen_at_capture: int,
+        mode: Literal["use", "refresh"],
+    ) -> None:
+        """Store a fetched result under the arm its resolved scope selects."""
+        gen_key = (method, params_key)
+        if self._generation_moved(gen_key, gen_at_capture):
+            return  # the key was evicted while the fetch was in flight
+        ttl_ms, scope = self._resolve(result)
+        private_key = CacheKey(method, params_key, self._private_arm)
+        public_key = CacheKey(method, params_key, self._public_arm)
+        if ttl_ms <= 0:
+            if mode == "refresh":
+                # The refetch superseded whatever was cached; purge the warm
+                # entry so it cannot be served again. Shielded: a cancellation
+                # delivered between the two deletes would leave the opposite
+                # arm warm for its full TTL.
+                with anyio.CancelScope(shield=True):
+                    await self._delete(private_key)
+                    await self._delete(public_key)
+            return
+        own, opposite = (public_key, private_key) if scope == "public" else (private_key, public_key)
+        # Opposite arm first: a failed (or cancelled) delete aborts before the
+        # set, leaving a miss - never two arms answering for one key.
+        if not await self._delete(opposite):
+            return
+        entry = CacheEntry(value=result.model_copy(deep=True), scope=scope, expires_at=self._clock() + ttl_ms / 1000)
+        try:
+            await self._set(own, entry)
+        finally:
+            # An eviction can land while an async store's set is committing,
+            # and the set can commit even when its await is cancelled (the
+            # request may already be on the wire) - so the re-check runs on
+            # every exit, and the compensating delete is shielded so the
+            # pending cancellation cannot abort it and resurrect the evicted
+            # entry for its full TTL. (A delete after a set that raised is an
+            # idempotent no-op.)
+            if self._generation_moved(gen_key, gen_at_capture):
+                with anyio.CancelScope(shield=True):
+                    await self._delete(own)
+
+    async def evict_method(self, method: str) -> None:
+        """Evict the method's cursor-less entry (notification- or
+        cursor-expiry-driven)."""
+        await self.evict_key(method, "")
+
+    async def evict_key(self, method: str, params_key: str) -> None:
+        """Evict one key from both arms."""
+        gen_key = (method, params_key)
+        # Bump before deleting so an in-flight fetch that captured earlier
+        # cannot write the just-evicted entry back. Only registered keys bump
+        # (arbitrary notification uris must not grow the map); the store
+        # deletes always run - a persistent store may hold warm entries this
+        # coordinator never captured.
+        if gen_key in self._generations:
+            self._generations[gen_key] += 1
+        # Shielded: eviction runs in spawned notification tasks that die with
+        # the session - a cancellation between the two deletes would leave one
+        # arm serving the evicted entry until its TTL.
+        with anyio.CancelScope(shield=True):
+            await self._delete(CacheKey(method, params_key, self._private_arm))
+            await self._delete(CacheKey(method, params_key, self._public_arm))
+
+    async def evict_for_notification(self, notification: ServerNotification) -> None:
+        """Map a server notification to the entries it makes stale.
+
+        Wire-path notifications are dispatched from spawned tasks, so eviction
+        is eventual relative to in-flight responses: the generation bump
+        closes the write-back race, while a read racing the notification may
+        briefly serve the pre-eviction entry (accepted, latency-bounded).
+        """
+        match notification:
+            case ToolListChangedNotification():
+                await self.evict_method("tools/list")
+            case PromptListChangedNotification():
+                await self.evict_method("prompts/list")
+            case ResourceListChangedNotification():
+                # Templates enumerate the same changed resource space.
+                await self.evict_method("resources/list")
+                await self.evict_method("resources/templates/list")
+            case ResourceUpdatedNotification():
+                await self.evict_key("resources/read", notification.params.uri)
+            case _:
+                pass
+
+    def _resolve(self, result: CacheableResult) -> tuple[int, Literal["public", "private"]]:
+        # Hints count only on modern sessions: a legacy peer can also put
+        # `ttlMs`/`cacheScope` keys on the wire (the 2025 surfaces validate
+        # and discard unknown keys, so wire presence still reaches
+        # `model_fields_set`) - wire presence is not a peer-era signal.
+        modern = self._negotiated_version() in MODERN_PROTOCOL_VERSIONS
+        if modern and "ttl_ms" in result.model_fields_set:
+            # An explicit `ttlMs: 0` stays 0 (never overridden by the
+            # default), and negatives are unconstructible here - the model
+            # enforces ge=0 and the parse seam floors negative wire values -
+            # so only the cap applies.
+            ttl_ms = result.ttl_ms
+        else:
+            ttl_ms = self._default_ttl_ms
+        scope: Literal["public", "private"] = "public" if modern and result.cache_scope == "public" else "private"
+        return min(ttl_ms, MAX_TTL_MS), scope
+
+    def _generation_moved(self, gen_key: tuple[str, str], gen_at_capture: int) -> bool:
+        # A key FIFO-dropped from the map can no longer be checked; the guard
+        # fails open (the accepted co-tenant race class) rather than
+        # discarding the fetch.
+        return self._generations.get(gen_key, gen_at_capture) != gen_at_capture
+
+    async def _set(self, key: CacheKey, entry: CacheEntry) -> bool:
+        try:
+            await self._store.set(key, entry)
+        except Exception:  # boundary around user store code: nothing cached, the fetch already succeeded
+            self._warn_store_failure("set")
+            return False
+        self._warned_store_ops.discard("set")
+        return True
+
+    async def _delete(self, key: CacheKey) -> bool:
+        try:
+            await self._store.delete(key)
+        except Exception:  # boundary around user store code: callers decide whether a failed delete aborts
+            self._warn_store_failure("delete")
+            return False
+        self._warned_store_ops.discard("delete")
+        return True
+
+    def _warn_store_failure(self, kind: Literal["get", "set", "delete"]) -> None:
+        # One warning per failure burst, tracked per operation kind: armed by
+        # the kind's first failure, re-armed only when that same kind succeeds.
+        # A dead store warns once, not once per request - and a store where
+        # only `set` is broken warns once too, instead of its healthy deletes
+        # re-arming the warning every write cycle.
+        if kind not in self._warned_store_ops:
+            self._warned_store_ops.add(kind)
+            logger.warning("Response cache store operation failed; continuing without the cache", exc_info=True)
