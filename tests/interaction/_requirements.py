@@ -2204,8 +2204,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         note=(
-            "Low-level Server only: MCPServer returns InputRequiredResult from tools alone, so the "
-            "resources/read MRTR leg has no mcpserver mirror."
+            "Driven on the low-level Server; MCPServer now passes InputRequiredResult through its "
+            "resource pipeline as well, so an mcpserver mirror is possible and not yet covered here."
         ),
     ),
     "resources:read:blob": Requirement(
@@ -2667,8 +2667,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         note=(
-            "Low-level Server only: MCPServer returns InputRequiredResult from tools alone, so the "
-            "prompts/get MRTR leg has no mcpserver mirror."
+            "Driven on the low-level Server; MCPServer now passes InputRequiredResult through its "
+            "prompt pipeline as well, so an mcpserver mirror is possible and not yet covered here."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════

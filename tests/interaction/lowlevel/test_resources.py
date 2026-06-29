@@ -393,7 +393,7 @@ async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_t
 
     The retry carries the callback's responses and the echoed request_state, and returns the resource
     contents. Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported
-    Requests). Low-level Server only — MCPServer cannot return InputRequiredResult from resources.
+    Requests). Driven on the low-level Server; MCPServer also passes InputRequiredResult through resources.
     """
     sent = ElicitRequestFormParams(
         message="Who is reading?",

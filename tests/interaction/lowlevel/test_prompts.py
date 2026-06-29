@@ -270,7 +270,7 @@ async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_
 
     The retry carries the callback's responses and the echoed request_state, and returns the prompt
     messages. Spec-mandated: prompts/get is an MRTR-supported request (basic/patterns/mrtr, Supported
-    Requests). Low-level Server only — MCPServer cannot return InputRequiredResult from prompts.
+    Requests). Driven on the low-level Server; MCPServer also passes InputRequiredResult through prompts.
     """
     sent = ElicitRequestFormParams(
         message="Who is reading?",
