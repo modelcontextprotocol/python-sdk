@@ -165,7 +165,7 @@ class FuncMetadata(BaseModel):
                 key_to_field_info[field_info.alias] = field_info
 
         for data_key, data_value in data.items():
-            if data_key not in key_to_field_info:  # pragma: no cover
+            if data_key not in key_to_field_info:
                 continue
 
             field_info = key_to_field_info[data_key]

@@ -1624,64 +1624,19 @@ app = server.streamable_http_app(
 
 The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
-### Resolver dependency injection for tools (`Resolve` / `Elicit`)
+### `ElicitationResult` is now a subscriptable generic alias
 
-A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the resolver `fn` before the tool body, instead of by the calling LLM. Resolvers form a dependency graph: a resolver may declare its own `Resolve(...)` dependencies, read the `Context` (including `ctx.headers`), and receive the tool's own arguments by name. A resolver may return `Elicit[T]` to ask the client; the SDK runs the elicitation and injects the answer. A resolver only elicits when it needs to - it can also resolve a value directly and skip the question. Each resolver runs at most once per `tools/call`.
+`ElicitationResult` is now a `TypeAliasType` instead of a plain union, so `ElicitationResult[Confirm]` works as an annotation (resolver dependency injection consumes it that way - see [Dependencies](tutorial/dependencies.md)). The members are unchanged: `AcceptedElicitation[T] | DeclinedElicitation | CancelledElicitation`.
 
-The injected type follows the consumer's annotation. Annotating the unwrapped model (`Annotated[Confirm, Resolve(confirm)]`) injects the model on accept and aborts the call with an error result on decline or cancel. To branch on the outcome instead - so the tool can react to decline and cancel - annotate `ElicitationResult[Confirm]` (or an explicit `AcceptedElicitation[Confirm] | DeclinedElicitation | CancelledElicitation` union):
+The one behavioral change: a runtime `isinstance(result, ElicitationResult)` now raises `TypeError`. Check against the member classes directly instead:
 
 ```python
-from typing import Annotated
-
-from pydantic import BaseModel
-
-from mcp.server.mcpserver import (
-    AcceptedElicitation,
-    CancelledElicitation,
-    DeclinedElicitation,
-    Elicit,
-    ElicitationResult,
-    MCPServer,
-    Resolve,
-)
-
-mcp = MCPServer(name="files")
-
-
-class Confirm(BaseModel):
-    ok: bool
-
-
-async def confirm_delete(path: str) -> Confirm | Elicit[Confirm]:
-    file_count = len(list_files(path))
-    if file_count == 0:
-        return Confirm(ok=True)  # empty folder: nothing to confirm, no question
-    return Elicit(f"{path} has {file_count} file(s). Delete anyway?", Confirm)
-
-
-@mcp.tool()
-async def delete_folder(
-    path: str,
-    confirm: Annotated[ElicitationResult[Confirm], Resolve(confirm_delete)],
-) -> str:
-    """Delete a folder, asking for confirmation when it is not empty."""
-    match confirm:
-        case AcceptedElicitation(data=Confirm(ok=True)):
-            delete(path)
-            return f"deleted {path}"
-        case AcceptedElicitation():
-            return "kept the folder"
-        case DeclinedElicitation():
-            return "declined: folder not deleted"
-        case CancelledElicitation():
-            return "cancelled: folder not deleted"
+result = await ctx.elicit("Proceed?", Confirm)
+if isinstance(result, AcceptedElicitation):
+    ...  # result.data is a Confirm
 ```
 
-The `confirm_delete` resolver reads the tool's own `path` argument by name, lists the folder, and only elicits when the folder is non-empty - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client. Because `delete_folder` annotates the result union, it handles every outcome: the user accepting and confirming, accepting but declining to delete (`ok=False`), declining the elicitation, or cancelling it.
-
-Resolved parameters are omitted from the tool's input schema, so the client never supplies them. Resolver parameters that cannot be classified, and cyclic resolver dependencies, raise at registration time.
-
-`ElicitationResult` is now a subscriptable generic alias (so `ElicitationResult[T]` works in annotations) instead of a plain union. A runtime `isinstance(result, ElicitationResult)` therefore raises `TypeError`; check against the member classes directly - `isinstance(result, AcceptedElicitation)` (or `DeclinedElicitation` / `CancelledElicitation`).
+Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected.
 
 ## Need Help?
 
