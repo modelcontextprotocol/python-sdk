@@ -906,12 +906,14 @@ class ClientSession:
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
-        return self._absorb_tool_listing(result)
+        complete = (params is None or params.cursor is None) and result.next_cursor is None
+        return self._absorb_tool_listing(result, complete=complete)
 
-    def _absorb_tool_listing(self, result: types.ListToolsResult) -> types.ListToolsResult:
+    def _absorb_tool_listing(self, result: types.ListToolsResult, *, complete: bool) -> types.ListToolsResult:
         """Filter the listing per the 2026 x-mcp-header MUST and rebuild derived per-tool state, in place.
 
         Idempotent: cached values are already post-filter, so the response cache can re-absorb a served listing.
+        `complete` (an uncursored single-page listing) prunes per-tool state down to the listing's tools.
         """
         if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
             # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
@@ -928,10 +930,16 @@ class ClientSession:
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation
-        # Note: don't clear the cache, as we may be using a cursor
+        # Cache tool output schemas for future validation; cursor pages only ever add.
         for tool in result.tools:
             self._tool_output_schemas[tool.name] = tool.output_schema
+
+        if complete:
+            # The listing is the full tool universe, so state for unlisted tools is stale
+            # (the server dropped them, or a shared-cache writer's filter did).
+            names = {tool.name for tool in result.tools}
+            self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
+            self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
 
         return result
 

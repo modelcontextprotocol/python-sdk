@@ -506,6 +506,100 @@ async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legac
         assert [t.name for t in result.tools] == ["ok", "dropme"]
 
 
+_RETIRED_TOOL = Tool(
+    name="retired",
+    input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+    output_schema={"type": "object"},
+)
+_SURVIVOR_TOOL = Tool(name="survivor", input_schema={"type": "object"})
+
+
+def _scripted_listing_server(listings: list[ListToolsResult]) -> Server:
+    """Serves the given listings in order, one per tools/list request."""
+
+    async def on_list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return listings.pop(0)
+
+    return Server("test", on_list_tools=on_list_tools)
+
+
+async def test_a_complete_listing_prunes_per_tool_state_for_tools_it_no_longer_contains() -> None:
+    """SDK-defined: a complete (uncursored, cursorless) listing is the full tool universe, so the
+    header map and output schema derived from an earlier listing of a now-absent tool are dropped."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"survivor"}
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_a_complete_listing_prunes_output_schemas_on_a_legacy_session_too() -> None:
+    """SDK-defined: the prune is era-independent -- legacy sessions cache output schemas the same
+    way (their header-map dict just stays empty, since the x-mcp-header filter is 2026-only)."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server, mode="legacy") as client:
+            await client.session.list_tools()
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+            assert client.session._x_mcp_header_maps == {}
+
+            await client.session.list_tools()
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_a_listing_with_a_next_cursor_prunes_no_per_tool_state() -> None:
+    """SDK-defined: a first page carrying next_cursor is not the full universe -- state for tools
+    expected on later pages must survive it."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL], next_cursor="2"),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+
+
+async def test_a_cursor_page_fetch_prunes_no_per_tool_state() -> None:
+    """SDK-defined: a continuation page is partial even when it ends the pagination (no
+    next_cursor) -- only an uncursored single-page listing prunes."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            await client.session.list_tools(params=types.PaginatedRequestParams(cursor="2"))
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+
+
 def test_client_rejects_handshake_era_mode_at_construction() -> None:
     """A handshake-era protocol-version string passed as `mode=` is rejected by
     `__post_init__` with a hint to use `mode='legacy'` — the version-pin path is

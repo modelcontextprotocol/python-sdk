@@ -139,14 +139,24 @@ def test_userinfo_variants_of_a_server_url_share_one_cache_identity() -> None:
         ("HTTPS://a@X.example/mcp", "HTTPS://X.example/mcp"),
         ("https://u@h/p?", "https://h/p?"),
         ("https://u@h/p#", "https://h/p#"),
+        ("https://u\tser:p@h.example/p", "https://h.example/p"),
+        ("https://u:p@h.example/pa\tth", "https://h.example/pa\tth"),
     ],
-    ids=["scheme-case", "empty-query", "empty-fragment"],
+    ids=["scheme-case", "empty-query", "empty-fragment", "tab-in-userinfo", "tab-in-path"],
 )
 def test_stripping_userinfo_changes_no_other_byte_of_the_url(with_userinfo: str, bare: str) -> None:
     """The removed `userinfo@` is the only byte difference: no scheme case-folding, no dropped
-    empty `?`/`#` delimiters. A userinfo-free URL passes through untouched, so arm equality
-    proves the stripped form is byte-identical to the bare URL."""
+    empty `?`/`#` delimiters, and control characters - which urlsplit would silently strip,
+    misaligning any parser-derived slice - stay byte-exact outside the removed span. A
+    userinfo-free URL passes through untouched, so arm equality proves the stripped form is
+    byte-identical to the bare URL."""
     assert _private_arm(Client(with_userinfo)) == _private_arm(Client(bare))
+
+
+def test_a_url_without_an_authority_passes_through_unchanged() -> None:
+    """No `//` means no authority span, so an `@` elsewhere strips nothing."""
+    arm_id = hashlib.sha256(b"mailto:a@b").hexdigest()
+    assert _private_arm(Client("mailto:a@b")) == json.dumps(["private", None, arm_id, ""])
 
 
 def test_the_server_url_is_sha256_hashed_before_it_enters_key_material() -> None:
@@ -861,6 +871,33 @@ async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -
             # One tools/list on the wire: the fresh client served from the store.
             assert [json.loads(request.content)["method"] for request in posts] == ["tools/list", "tools/call"]
             assert posts[-1].headers["mcp-param-region"] == "us-west1"
+
+
+async def test_a_shared_store_hit_prunes_a_header_map_the_writers_filter_dropped() -> None:
+    """Cached listings are post-filter: when another client's refresh wrote a listing whose
+    filter dropped tool `x` (its annotation went invalid), a hit on that entry must prune the
+    reader's stale arg-to-header map, or it would keep emitting Mcp-Param-* headers for `x`."""
+    valid = {"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}}
+    invalid = {"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "bad name"}}}
+    schema = valid
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="x", input_schema=schema)])
+
+    server = Server("filtering", on_list_tools=list_tools, cache_hints={"tools/list": CacheHint(ttl_ms=60_000)})
+    config = CacheConfig(store=InMemoryResponseCacheStore(), partition="p", target_id="svc", clock=_ManualClock())
+
+    with anyio.fail_after(5):
+        async with Client(server, cache=config) as reader, Client(server, cache=config) as writer:
+            await reader.list_tools()  # fetches while `x` is valid; the reader holds its header map
+            assert "x" in reader.session._x_mcp_header_maps
+
+            schema = invalid
+            await writer.list_tools(cache_mode="refresh")  # the writer's filter drops `x`; the entry is replaced
+
+            served = await reader.list_tools()  # hit on the writer's entry
+            assert served.tools == []
+            assert "x" not in reader.session._x_mcp_header_maps
 
 
 async def test_a_tools_list_changed_notification_makes_the_next_list_refetch() -> None:

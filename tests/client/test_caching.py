@@ -432,6 +432,8 @@ class _ArmDeleteFailingStore:
         raise NotImplementedError
 
 
+# The lax pragmas here and in the wedged-store tests: 3.11's settrace-based coverage loses
+# tracing in frames resumed after the coordinator's bounded-shield cleanup cancellation.
 class _WedgingDeleteStore:
     """Once `wedged` flips, every `delete` blocks forever (an Event nothing sets),
     modelling a remote store with no socket timeout of its own."""
@@ -449,7 +451,7 @@ class _WedgingDeleteStore:
 
     async def set(self, key: CacheKey, entry: CacheEntry) -> None:
         await self.before_set_commits()
-        await self.inner.set(key, entry)
+        await self.inner.set(key, entry)  # pragma: lax no cover
 
     async def delete(self, key: CacheKey) -> None:
         self.deletes_started += 1
@@ -805,8 +807,10 @@ async def test_evict_key_with_a_wedged_store_delete_returns_at_the_cleanup_bound
     cache = _coordinator(store, store_cleanup_timeout=0.01)
     with caplog.at_level(logging.WARNING, logger="mcp.client.caching"), anyio.fail_after(5):
         await cache.evict_key("tools/list", "")
-    assert store.deletes_started == 1  # the second arm's delete was abandoned with the first
-    assert caplog.messages == snapshot(["Response cache store delete timed out; the entry will age out by TTL"])
+    assert store.deletes_started == 1  # pragma: lax no cover  # the second arm's delete was abandoned with the first
+    assert caplog.messages == snapshot(  # pragma: lax no cover
+        ["Response cache store delete timed out; the entry will age out by TTL"]
+    )
 
 
 async def test_a_refresh_purge_with_a_wedged_store_delete_returns_at_the_cleanup_bound() -> None:
@@ -815,7 +819,7 @@ async def test_a_refresh_purge_with_a_wedged_store_delete_returns_at_the_cleanup
     gen = cache.capture("tools/list", "")
     with anyio.fail_after(5):
         await cache.write("tools/list", "", _wire_result(ttl_ms=0), gen, "refresh")
-    assert store.deletes_started == 1
+    assert store.deletes_started == 1  # pragma: lax no cover
 
 
 async def test_an_eviction_mid_set_with_a_wedged_store_delete_returns_at_the_cleanup_bound() -> None:
@@ -833,9 +837,9 @@ async def test_an_eviction_mid_set_with_a_wedged_store_delete_returns_at_the_cle
     with anyio.fail_after(5):
         await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
     # Opposite-arm delete, the eviction's first delete, the compensating delete.
-    assert store.deletes_started == 3
+    assert store.deletes_started == 3  # pragma: lax no cover
     # The accepted degradation: the unreaped entry stays until its TTL expires.
-    assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is not None
+    assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is not None  # pragma: lax no cover
 
 
 # --- Coordinator: store error discipline ---

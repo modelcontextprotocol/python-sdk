@@ -9,7 +9,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar, cast
-from urllib.parse import urlsplit
 
 import anyio
 import anyio.lowlevel
@@ -132,11 +131,19 @@ def _strip_userinfo(url: str) -> str:
 
     Credentials must not enter cache-key material; any further normalization could merge distinct servers.
     """
-    netloc = urlsplit(url).netloc  # raw authority bytes (urlsplit case-folds only `.scheme`), so slicing is exact
-    if "@" not in netloc:
+    # Pure text, no urlsplit: it strips embedded tab/CR/LF before parsing, which would misalign slices.
+    sep = url.find("//")
+    if sep == -1:
         return url
-    start = url.index("//") + 2
-    return url[:start] + netloc.rpartition("@")[2] + url[start + len(netloc) :]
+    start = sep + 2
+    end = len(url)
+    for delimiter in "/?#":
+        if (found := url.find(delimiter, start)) != -1:
+            end = min(end, found)
+    authority = url[start:end]
+    if "@" not in authority:
+        return url
+    return url[:start] + authority.rpartition("@")[2] + url[end:]
 
 
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
@@ -746,9 +753,12 @@ class Client:
             meta=meta,
             cache_mode=cache_mode,
             send=lambda: self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
-            # A cache hit skips session.list_tools, so the session re-absorbs the
-            # served listing to rebuild its derived per-tool state.
-            absorb=self.session._absorb_tool_listing,  # pyright: ignore[reportPrivateUsage]
+            # A cache hit skips session.list_tools, so the session re-absorbs the served
+            # listing to rebuild its derived per-tool state. Hits are cursorless, but a
+            # cached page 1 can carry next_cursor - never prune on a partial listing.
+            absorb=lambda hit: self.session._absorb_tool_listing(  # pyright: ignore[reportPrivateUsage]
+                hit, complete=hit.next_cursor is None
+            ),
         )
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
