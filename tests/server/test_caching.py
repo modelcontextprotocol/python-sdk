@@ -1,38 +1,23 @@
 """`mcp.server.caching`: `CacheHint` validation, per-field fills, and the
 `cache_hints` constructor map reaching the wire on both server tiers."""
 
-from types import UnionType
-from typing import Any, cast, get_args
+from typing import Any, cast
 
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
-    CacheableResult,
     ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
     Resource,
     Tool,
-    methods,
 )
 
 from mcp import Client
 from mcp.server import CacheHint, MCPServer, Server, ServerRequestContext
-from mcp.server.caching import CACHEABLE_METHODS, apply_cache_hint
+from mcp.server.caching import apply_cache_hint
 
 pytestmark = pytest.mark.anyio
-
-
-def test_cacheable_methods_match_the_result_models() -> None:
-    """Spec-mandated set (SEP-2549): `CACHEABLE_METHODS` mirrors exactly the
-    methods whose monolith result models mix in `CacheableResult` - if the
-    schema gains or loses a cacheable result, this weld breaks."""
-    derived: set[str] = set()
-    for method, model in methods.MONOLITH_RESULTS.items():
-        arms = get_args(model) if isinstance(model, UnionType) else (model,)
-        if any(isinstance(arm, type) and issubclass(arm, CacheableResult) for arm in arms):
-            derived.add(method)
-    assert CACHEABLE_METHODS == derived
 
 
 def test_cache_hint_defaults_match_the_conservative_model_defaults() -> None:

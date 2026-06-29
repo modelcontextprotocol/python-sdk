@@ -548,6 +548,14 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_cacheable_methods_mirror_the_cacheable_method_literal():
+    """Spec-mandated set (SEP-2549): the hand-written `CacheableMethod` Literal and
+    `CACHEABLE_METHODS` (derived from which `MONOLITH_RESULTS` rows have a
+    `CacheableResult` arm) name the same methods - if the schema gains or loses a
+    cacheable result, this weld breaks."""
+    assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
+
+
 def test_minimal_request_bodies_parse_through_every_request_row():
     for (method, version), surface_type in methods.CLIENT_REQUESTS.items():
         parsed = methods.parse_client_request(method, version, REQUEST_PARAMS_FIXTURES[surface_type])
