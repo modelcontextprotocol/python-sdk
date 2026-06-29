@@ -39,6 +39,7 @@ build-constraints = [
     { name = "trove-classifiers", specifier = "==2026.1.14.14" },
     { name = "uv-dynamic-versioning", specifier = "==0.14.0" },
 ]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
