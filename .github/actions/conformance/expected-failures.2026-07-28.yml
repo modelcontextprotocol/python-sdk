@@ -20,12 +20,7 @@
 # (the runner fails on stale entries), so the baseline burns down per
 # milestone.
 
-client:
-  []
-  # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
-  # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
-  # (it is an extension scenario not carried into the 2026 wire), so it is
-  # neither run nor evaluated on this leg.
+client: []
 
 server:
   # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
