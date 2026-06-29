@@ -37,19 +37,63 @@ One caveat on paginated lists: the protocol requires the **same `cacheScope` on 
 
 ## What the client sees
 
-On the client, the hints arrive as plain fields on every cacheable result — `ttl_ms` and `cache_scope`, already parsed:
+On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache — no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
 
-```python title="client.py" hl_lines="15"
+```python title="client.py" hl_lines="28 30 33"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
 
-The SDK parses; it does not (yet) act. There is no built-in response cache: calling `list_tools()` twice makes two round trips, whatever the TTL said. The spec makes honoring optional — a client that ignores the hints entirely is fully conformant — so until the SDK grows a response cache, the supported path is to read the fields and do your own bookkeeping:
+Four calls, three fetches. The second call found a fresh entry and never reached the server; advancing the (injected) clock past the TTL made the third fetch again; the fourth said `cache_mode="refresh"`. That kwarg exists on the five caching verbs — `list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`:
 
-* **Freshness** is `now < t_received + ttl_ms / 1000`: record the clock when the response arrives, and treat the result as reusable until the TTL runs out. `ttl_ms == 0` means *immediately stale* — don't reuse it at all.
-* **Scope is a sharing rule, not a suggestion.** A `"private"` result may be reused only within the same authorization context — same access token, same cache. Never put `"private"` results in a cache shared across users.
-* **Notifications beat TTL.** If the server sends `list_changed` while your copy is still fresh, the copy is stale now — re-fetch.
+* `"use"` (the default) serves a fresh entry if there is one, and stores the fetch if not.
+* `"refresh"` never serves: it fetches and stores the result, replacing whatever was cached.
+* `"bypass"` makes the round trip without touching the cache at all — no read, no write.
 
-Against an **older server** (pre-2026 protocol), the fields are simply absent from the wire, and the models show their conservative defaults: `ttl_ms == 0`, `cache_scope == "private"` — stale and unshared, the right assumption for a server that declared nothing. If you need to distinguish "the server said 0" from "the server said nothing", check `"ttl_ms" in result.model_fields_set`: it's only set when the field actually arrived.
+To turn caching off entirely, construct with `Client(server, cache=False)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
+
+Scope is honored automatically too — `"private"` entries are keyed to the cache's *partition* (below); `"public"` ones may opt into wider sharing — and **notifications beat TTL**: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read for its URI, however fresh they were.
+
+### Configuring it: `CacheConfig`
+
+```python
+from mcp.client import CacheConfig
+
+client = Client("https://api.example.com/mcp", cache=CacheConfig(default_ttl_ms=5_000))
+```
+
+* `store` — where entries live. The default is a fresh in-memory store per client; pass your own `ResponseCacheStore` implementation (Redis-backed, say) to share a cache across clients or processes. A custom store **requires** an explicit `partition`.
+* `partition` — the authorization-context label that keeps one principal's `"private"` entries from being served to another within a shared store.
+* `target_id` — explicit server identity, for custom transports and in-process servers (below).
+* `default_ttl_ms` — TTL applied to results that carry no `ttlMs` hint. The default `0` leaves hint-less results uncached.
+* `share_public` — serve server-asserted-`"public"` entries across partitions (below). Off by default.
+* `clock` — the wall-clock source, epoch seconds. Inject one, as the example above does, and expiry tests need no sleeping.
+
+!!! warning "Partition = verified principal"
+    Derive `partition` from a **verified credential** — a validated token's subject, for example. Never from request-supplied data, and never from the server URL (server identity is a separate key axis). The SDK is a library with no authentication of its own: whoever constructs the `CacheConfig` — the deployment, not the tenant — is the trust anchor. A multi-tenant gateway mints one `CacheConfig` per authenticated principal.
+
+    The partition is also fixed for the `Client`'s lifetime. If the connection's authorization context changes mid-session — a re-authentication as a different principal, say — the cache does not follow; construct a new `Client` for the new principal.
+
+Cache keys also carry the **server's identity**: the URL string you dialed, with any `user:pass@` userinfo stripped and otherwise byte-exact. No case folding, no query reordering, no trailing-slash cleanup — under-normalizing only costs sharing, while over-normalizing could merge two tenants (`?tenant=a` vs `?tenant=b`), so superficially different URLs simply don't share entries. When there is no URL — an in-process server, or a `Transport` instance — the client gets a random per-instance identity instead; set `CacheConfig.target_id` to name the server (with a custom store this is required, and construction says so). The identity is sha256-hashed before it enters key material, so a URL carrying secrets in its query string never appears in store keys — don't log the pre-hash form yourself, either.
+
+!!! warning "`share_public` trusts the server, fleet-wide"
+    By default even `"public"` entries stay within their partition. `share_public=True` serves entries the server marked `cacheScope: "public"` to **every** partition using the store — trusting the server's classification on behalf of all of them. A server that stamps `"public"` on per-tenant data (by bug or by malice) then leaks one tenant's response to the others. The flag is deliberately constructor-level only: the per-call `cache_mode` can narrow caching, but nothing per-call can widen sharing.
+
+### What the cache never does
+
+* **Session-tier calls bypass it.** `client.session.list_tools()` and friends always make the round trip; the cache lives on the `Client` verbs.
+* **`server/discover` stays out of it.** The discover result is delivered once, at connect, and never enters the response cache — even when it carries a `ttlMs`. If you persist one yourself to skip the reconnect probe ([`prior_discover`](../client/protocol-versions.md#reconnecting-with-prior_discover)), its freshness is your bookkeeping: `DiscoverResult` carries `ttl_ms` and `cache_scope`, already parsed, for exactly that purpose.
+* **Continuation pages are never cached.** Only cursor-less calls participate. A continuation page rejected for an expired cursor does *evict* the cached listing — the listing changed under it.
+* **Multi-round-trip reads are never cached.** A `read_resource` seeded with `input_responses`/`request_state`, or one that resolves through input rounds, never enters the cache (a spec MUST).
+* **Notification eviction needs notifications.** Eviction is only as good as the transport's delivery — the modern in-process path (`Client(server)` with the default `mode="auto"`) does not deliver standalone notifications today.
+* **No stale-if-error.** An expired entry is never served because the refetch failed; the error propagates.
+* **No coalescing.** Two concurrent identical calls are two fetches.
+* On a **shared persistent store**, a session that negotiated a different protocol era than the entry's writer may be served the writer's entry until TTL or eviction — accepted, and bounded by the cache's 24-hour TTL cap.
+
+### Reading the hints yourself
+
+The hints are also plain fields on every cacheable result — `result.ttl_ms` and `result.cache_scope`, already parsed — if you want to layer your own bookkeeping on top of (or instead of) the built-in cache.
+
+Against an **older server** (pre-2026 protocol), the fields are simply absent from the wire, and the models show their conservative defaults: `ttl_ms == 0`, `cache_scope == "private"` — stale and unshared, the right assumption for a server that declared nothing. The cache treats a legacy session the same way: hints are never consulted there (whatever keys appear on the wire), only `default_ttl_ms` applies, and its default of `0` caches nothing — a pre-2026 connection behaves exactly as it did before the cache existed. If you need to distinguish "the server said 0" from "the server said nothing", check `"ttl_ms" in result.model_fields_set`: it's only set when the field actually arrived.
 
 ## Older clients
 
@@ -61,4 +105,5 @@ Clients on pre-2026 protocol versions never see either field — the SDK strips 
 * `cache_hints={method: CacheHint(...)}` at construction (both `MCPServer` and `Server`) sets server-wide values per method.
 * A handler that sets the fields on its result overrides the map, per field.
 * `"public"` is a promise that the result is identical for every caller. It is not access control.
-* Clients read the hints as `result.ttl_ms` / `result.cache_scope` and own the caching decision themselves — the SDK has no built-in response cache yet.
+* `Client` honors the hints automatically: its response cache is on by default, serves fresh entries instead of refetching, and caches nothing for servers (or sessions) that provide no hints.
+* Per call, `cache_mode="refresh"` refetches and `"bypass"` skips the cache; `cache=False` at construction turns it off entirely.

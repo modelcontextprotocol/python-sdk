@@ -427,6 +427,10 @@ On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return th
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.
 
+### `Client` verbs may serve cached responses ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549))
+
+On protocol 2026-07-28, servers attach caching hints (`ttlMs`, `cacheScope`) to the cacheable results, and `Client` now honors them: `list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, and `read_resource` may serve a cached response instead of making a round trip, for as long as the server's `ttlMs` says the result is fresh. Servers that send no hints — including every pre-2026 server — see identical call-for-call behavior, because hint-less results are not cached. Pass `Client(..., cache=False)` to disable the cache and restore v1 behavior exactly; per-call control (`cache_mode`) and configuration (`CacheConfig`) are described in [Caching hints](advanced/caching.md).
+
 ### Server extensions API ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133))
 
 `MCPServer` now accepts opt-in extensions that bundle MCP behaviour behind a

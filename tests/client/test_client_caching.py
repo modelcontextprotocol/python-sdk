@@ -6,6 +6,7 @@ choke point, the `read_resource` sibling, and the tools/list absorption seam).
 The coordinator's own behavior is covered in `test_caching.py`.
 """
 
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator
@@ -146,6 +147,16 @@ def test_userinfo_variants_of_a_server_url_share_one_cache_identity() -> None:
     with_token = Client("https://token@example.com/mcp")
 
     assert _private_arm(bare) == _private_arm(with_password) == _private_arm(with_token)
+
+
+def test_the_server_url_is_sha256_hashed_before_it_enters_key_material() -> None:
+    """The arm carries sha256(url-sans-userinfo), not the URL itself, so a secret
+    in the query string never appears in store keys. SDK-defined; pins the docs'
+    secrets-never-in-keys claim — raw-URL key material would fail here."""
+    client = Client("https://user:pass@example.com/mcp?api_key=SECRET")
+
+    arm_id = hashlib.sha256(b"https://example.com/mcp?api_key=SECRET").hexdigest()
+    assert _private_arm(client) == json.dumps(["private", arm_id, ""])
 
 
 def test_urls_differing_only_in_query_have_distinct_cache_identities() -> None:
@@ -964,6 +975,56 @@ async def test_a_resource_updated_notification_evicts_that_uris_read_entry() -> 
     # The notification carried the exact string the entry was stored under.
     assert delivered == [uri]
     assert reads == [uri, uri]
+
+
+async def test_the_modern_in_process_path_drops_the_eviction_notification() -> None:
+    """Pins the documented transport gap: the default in-process connection
+    (mode="auto", DirectDispatcher) does not deliver standalone server notifications,
+    so a tools/list_changed emitted mid-call never reaches the cache - the warm entry
+    survives and the next `list_tools` is still served from it. Delivery on this path
+    would happen inline within the awaited `call_tool`, so asserting after it returns
+    is race-free. If this test starts failing, the path gained delivery: flip the
+    `docs/advanced/caching.md` eviction caveat and the legacy-mode notification tests."""
+    fetches: list[str | None] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        fetches.append(params.cursor if params is not None else None)
+        return ListToolsResult(tools=[Tool(name="touch", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "touch"
+        await ctx.session.send_tool_list_changed()
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server(
+        "notify",
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        cache_hints={"tools/list": CacheHint(ttl_ms=60_000)},
+    )
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        await client.list_tools()
+        await client.call_tool("touch", {})
+        await client.list_tools()  # still served from the warm entry: no eviction arrived
+
+    assert fetches == [None]
+
+
+async def test_a_discover_result_never_enters_the_response_cache() -> None:
+    """SDK ruling (documented): the response cache covers the five `Client` verbs
+    only. The connect-time server/discover result is never stored, even when it
+    carries a `ttlMs` hint - a persisted `prior_discover`'s freshness is the user's
+    bookkeeping (`DiscoverResult` carries the parsed hints for it)."""
+    server = Server("hinted", cache_hints={"server/discover": CacheHint(ttl_ms=60_000)})
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        discover = client.session.discover_result
+        assert discover is not None
+        assert discover.ttl_ms == 60_000  # the hint arrived with the probe result...
+        store = _coordinator(client)._store
+        assert isinstance(store, InMemoryResponseCacheStore)
+        assert store._entries == {}  # ...and nothing entered the cache
 
 
 # --- The inbound ttlMs clamp (parse seam) ---

@@ -137,6 +137,11 @@ class CacheConfig:
     authentication of its own: whoever constructs the `CacheConfig` - the
     deployment, not the tenant - is the trust anchor. Multi-tenant gateways
     mint one `CacheConfig` per authenticated principal.
+
+    The partition is fixed for the `Client`'s lifetime: if the connection's
+    authorization context changes mid-session (a re-authentication as a
+    different principal), the cache does not follow - construct a new
+    `Client` for the new principal.
     """
 
     target_id: str | None = None
