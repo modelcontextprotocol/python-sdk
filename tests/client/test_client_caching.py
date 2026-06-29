@@ -3,18 +3,21 @@ identity resolution (explicit `target_id`, URL, per-client random), the custom-s
 identity guard, the notification-eviction message-handler wrap, the lazy
 negotiated-version supplier, and the five cacheable verbs (the `_cached_fetch`
 choke point, the `read_resource` sibling, and the tools/list absorption seam).
-The coordinator's own behavior is covered in `test_caching.py`.
+Cross-cutting end-to-end hardening (eviction completeness, partition isolation,
+deep-copy isolation, era-gate injection, write/eviction races) lives at the
+bottom. The coordinator's own behavior is covered in `test_caching.py`.
 """
 
 import hashlib
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 import anyio
+import anyio.lowlevel
 import httpx
 import mcp_types as types
 import pytest
@@ -34,7 +37,9 @@ from mcp_types import (
     ListResourceTemplatesResult,
     ListToolsResult,
     ReadResourceResult,
+    ResourceListChangedNotification,
     ResourceUpdatedNotification,
+    ResourceUpdatedNotificationParams,
     ServerCapabilities,
     ServerNotification,
     TextContent,
@@ -383,7 +388,9 @@ class _ManualClock:
         return self.now
 
 
-def _varying_tools_server(*, ttl_ms: int = 60_000) -> tuple[Server[Any], list[str | None]]:
+def _varying_tools_server(
+    *, ttl_ms: int = 60_000, scope: Literal["public", "private"] = "private"
+) -> tuple[Server[Any], list[str | None]]:
     """In-process server whose every tools/list fetch returns a distinct tool name
     `t<n>`, so a served entry is distinguishable from a refetch by payload, not just
     by handler count. The fetch log records each request's cursor."""
@@ -393,7 +400,9 @@ def _varying_tools_server(*, ttl_ms: int = 60_000) -> tuple[Server[Any], list[st
         fetches.append(params.cursor if params is not None else None)
         return ListToolsResult(tools=[Tool(name=f"t{len(fetches) - 1}", input_schema={"type": "object"})])
 
-    server = Server("varying", on_list_tools=list_tools, cache_hints={"tools/list": CacheHint(ttl_ms=ttl_ms)})
+    server = Server(
+        "varying", on_list_tools=list_tools, cache_hints={"tools/list": CacheHint(ttl_ms=ttl_ms, scope=scope)}
+    )
     return server, fetches
 
 
@@ -1124,3 +1133,431 @@ async def test_a_negative_discover_ttl_still_connects_modern_in_auto_mode() -> N
             assert discover.ttl_ms == 0
 
     assert methods_seen == ["server/discover"]
+
+
+# --- Hardening e2e ---
+
+
+def _versioned_read_server(*, ttl_ms: int = 60_000) -> tuple[Server[Any], list[str]]:
+    """In-process server whose every resources/read fetch returns a distinct payload
+    `v<n>`, so a served entry is distinguishable from a refetch. The read log records
+    each request's uri."""
+    reads: list[str] = []
+
+    async def read(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        reads.append(params.uri)
+        return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=f"v{len(reads)}")], ttl_ms=ttl_ms)
+
+    return Server("versioned-reads", on_read_resource=read), reads
+
+
+def _resource_text(result: ReadResourceResult) -> str:
+    content = result.contents[0]
+    assert isinstance(content, TextResourceContents)
+    return content.text
+
+
+async def test_each_notification_evicts_exactly_its_entries_end_to_end() -> None:
+    """Spec SHOULD (notifications invalidate) plus its negative space, end to end.
+
+    Steps:
+      1. Prime all four list verbs and two resource reads; a second round of calls
+         is served entirely from the cache.
+      2. tools/list_changed -> only tools/list refetches.
+      3. resources/list_changed -> resources/list AND resources/templates/list
+         refetch; tools, prompts, and both reads stay served.
+      4. resources/updated(X) -> only the X read refetches; Y and every list stay
+         served.
+
+    Runs on a legacy session (the in-process transport that delivers standalone
+    notifications) with `default_ttl_ms` providing the cached entries.
+    """
+    uri_x, uri_y = "memo://x", "memo://y"
+    fetched: list[str] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        fetched.append("tools/list")
+        return ListToolsResult(tools=[Tool(name="notify", input_schema={"type": "object"})])
+
+    async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
+        fetched.append("prompts/list")
+        return ListPromptsResult(prompts=[])
+
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        fetched.append("resources/list")
+        return ListResourcesResult(resources=[])
+
+    async def list_templates(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        fetched.append("resources/templates/list")
+        return ListResourceTemplatesResult(resource_templates=[])
+
+    async def read(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        fetched.append(f"resources/read {params.uri}")
+        return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text="body")])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "notify"
+        kind = (params.arguments or {})["kind"]
+        if kind == "tools":
+            await ctx.session.send_tool_list_changed()
+        elif kind == "resources":
+            await ctx.session.send_resource_list_changed()
+        else:
+            assert kind == "updated-x"
+            await ctx.session.send_resource_updated(uri_x)
+        return CallToolResult(content=[TextContent(text="sent")])
+
+    server = Server(
+        "notifier",
+        on_list_tools=list_tools,
+        on_list_prompts=list_prompts,
+        on_list_resources=list_resources,
+        on_list_resource_templates=list_templates,
+        on_read_resource=read,
+        on_call_tool=call_tool,
+    )
+
+    delivered: list[IncomingMessage] = []
+    eviction_done = [anyio.Event() for _ in range(3)]
+
+    async def on_message(message: IncomingMessage) -> None:
+        # The wrap evicts before delegating, so each event implies its eviction completed.
+        delivered.append(message)
+        eviction_done[len(delivered) - 1].set()
+
+    client = Client(
+        server,
+        mode="legacy",
+        cache=CacheConfig(default_ttl_ms=60_000, clock=_ManualClock()),
+        message_handler=on_message,
+    )
+
+    async with client:
+
+        async def served_round() -> list[str]:
+            """Call every cacheable verb once; return the calls that reached the server."""
+            before = len(fetched)
+            await client.list_tools()
+            await client.list_prompts()
+            await client.list_resources()
+            await client.list_resource_templates()
+            await client.read_resource(uri_x)
+            await client.read_resource(uri_y)
+            return fetched[before:]
+
+        assert await served_round() == [
+            "tools/list",
+            "prompts/list",
+            "resources/list",
+            "resources/templates/list",
+            f"resources/read {uri_x}",
+            f"resources/read {uri_y}",
+        ]
+        assert await served_round() == []  # everything primed and served
+
+        await client.call_tool("notify", {"kind": "tools"})
+        with anyio.fail_after(5):
+            await eviction_done[0].wait()
+        assert await served_round() == ["tools/list"]
+
+        await client.call_tool("notify", {"kind": "resources"})
+        with anyio.fail_after(5):
+            await eviction_done[1].wait()
+        assert await served_round() == ["resources/list", "resources/templates/list"]
+
+        await client.call_tool("notify", {"kind": "updated-x"})
+        with anyio.fail_after(5):
+            await eviction_done[2].wait()
+        assert await served_round() == [f"resources/read {uri_x}"]
+
+    assert delivered == [
+        ToolListChangedNotification(),
+        ResourceListChangedNotification(),
+        ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri=uri_x)),
+    ]
+
+
+async def test_private_entries_never_cross_partitions_between_clients_sharing_a_store() -> None:
+    """Spec MUST (`"private"` never crosses authorization contexts), end to end: two
+    clients sharing one store and server identity but holding different partitions
+    each fetch their own listing - the second client is never served the first's
+    private-scoped entry."""
+    server, fetches = _varying_tools_server()
+    store = InMemoryResponseCacheStore()
+
+    def config(partition: str) -> CacheConfig:
+        return CacheConfig(store=store, partition=partition, target_id="svc", clock=_ManualClock())
+
+    async with Client(server, cache=config("tenant-a")) as tenant_a:
+        assert _tool_names(await tenant_a.list_tools()) == ["t0"]
+    async with Client(server, cache=config("tenant-b")) as tenant_b:
+        assert _tool_names(await tenant_b.list_tools()) == ["t1"]  # fetched, not tenant-a's entry
+
+    assert fetches == [None, None]
+
+
+async def test_a_server_stamped_public_entry_does_not_cross_partitions_by_default() -> None:
+    """SDK security default (deviates from the ts SDK), end to end: even when the
+    server stamps `cacheScope: "public"`, the default config keys the public arm by
+    partition - a same-partition client is served from the store, a different-
+    partition client fetches its own listing."""
+    server, fetches = _varying_tools_server(scope="public")
+    store = InMemoryResponseCacheStore()
+
+    def config(partition: str) -> CacheConfig:
+        return CacheConfig(store=store, partition=partition, target_id="svc", clock=_ManualClock())
+
+    async with Client(server, cache=config("tenant-a")) as tenant_a:
+        assert _tool_names(await tenant_a.list_tools()) == ["t0"]
+    async with Client(server, cache=config("tenant-a")) as same_partition:
+        assert _tool_names(await same_partition.list_tools()) == ["t0"]  # served from the store
+    async with Client(server, cache=config("tenant-b")) as tenant_b:
+        assert _tool_names(await tenant_b.list_tools()) == ["t1"]  # fetched
+
+    assert fetches == [None, None]
+
+
+async def test_share_public_serves_a_server_stamped_public_entry_across_partitions() -> None:
+    """SDK-defined opt-in, end to end: with `share_public=True` the public arm drops
+    the partition, so the second tenant's first list_tools is served from the first
+    tenant's server-asserted-public entry without a fetch."""
+    server, fetches = _varying_tools_server(scope="public")
+    store = InMemoryResponseCacheStore()
+
+    def config(partition: str) -> CacheConfig:
+        return CacheConfig(store=store, partition=partition, target_id="svc", share_public=True, clock=_ManualClock())
+
+    async with Client(server, cache=config("tenant-a")) as tenant_a:
+        assert _tool_names(await tenant_a.list_tools()) == ["t0"]
+    async with Client(server, cache=config("tenant-b")) as tenant_b:
+        assert _tool_names(await tenant_b.list_tools()) == ["t0"]  # served across partitions
+
+    assert fetches == [None]
+
+
+async def test_same_partition_clients_share_read_entries_through_the_store() -> None:
+    """SDK-defined sharing, end to end: two clients with the same store, server
+    identity, and partition share `resources/read` entries - the second client's
+    first read is served from the store without invoking the handler. (The
+    tools/list case, including its absorbed derived state, is pinned by the
+    shared-store absorption tests above.)"""
+    server, reads = _versioned_read_server()
+    store = InMemoryResponseCacheStore()
+
+    def config() -> CacheConfig:
+        return CacheConfig(store=store, partition="p", target_id="svc", clock=_ManualClock())
+
+    async with Client(server, cache=config()) as first:
+        first_result = await first.read_resource("memo://a")
+    async with Client(server, cache=config()) as second:
+        assert await second.read_resource("memo://a") == first_result
+
+    assert reads == ["memo://a"]
+
+
+async def test_mutating_returned_results_never_corrupts_the_cached_entry() -> None:
+    """SDK-defined deep-copy isolation, both directions, end to end: mutating the
+    result a verb returned (the very object the write deep-copied from) and mutating
+    a served hit (the object the read deep-copied out) both leave the stored entry
+    untouched - every later call serves the pristine listing from the single fetch."""
+    server, fetches = _varying_tools_server()
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        first = await client.list_tools()
+        first.tools[0].name = "tampered-after-fetch"
+        second = await client.list_tools()  # cache hit, unaffected by the mutation
+        assert _tool_names(second) == ["t0"]
+        second.tools[0].name = "tampered-after-serve"
+        assert _tool_names(await client.list_tools()) == ["t0"]  # still pristine
+
+    assert fetches == [None]
+
+
+async def test_a_legacy_peer_injecting_cache_hints_caches_nothing() -> None:
+    """SDK-defined era gate, end to end: `ttlMs`/`cacheScope` are 2026-07-28
+    assertions, but a 2025 peer can still put the keys on the wire. On a legacy
+    session with the default config nothing is cached - the second list_tools
+    reaches the peer and the store stays empty on both arms. The peer is scripted
+    over raw streams because an SDK server strips the hint fields when serializing
+    for a 2025 session, so the injection is not expressible through the server API."""
+    listings_served = 0
+
+    async def scripted_server(streams: MessageStream) -> None:
+        nonlocal listings_served
+        server_read, server_write = streams
+        async for message in server_read:
+            assert isinstance(message, SessionMessage)
+            frame = message.message
+            if isinstance(frame, types.JSONRPCNotification):
+                assert frame.method == "notifications/initialized"
+                continue
+            assert isinstance(frame, types.JSONRPCRequest)
+            if frame.method == "initialize":
+                result: dict[str, Any] = {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "serverInfo": {"name": "legacy-injector", "version": "0.0.1"},
+                }
+            else:
+                assert frame.method == "tools/list"
+                listings_served += 1
+                result = {"tools": [], "ttlMs": 60_000, "cacheScope": "public"}
+            await server_write.send(SessionMessage(types.JSONRPCResponse(jsonrpc="2.0", id=frame.id, result=result)))
+
+    @asynccontextmanager
+    async def scripted_transport() -> AsyncIterator[TransportStreams]:
+        async with (
+            create_client_server_memory_streams() as ((client_read, client_write), server_streams),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(scripted_server, server_streams)
+            yield client_read, client_write
+            tg.cancel_scope.cancel()
+
+    with anyio.fail_after(5):
+        async with Client(scripted_transport(), mode="legacy", cache=CacheConfig(clock=_ManualClock())) as client:
+            await client.list_tools()
+            await client.list_tools()
+            store = _coordinator(client)._store
+            assert isinstance(store, InMemoryResponseCacheStore)
+            assert store._entries == {}  # neither arm holds an entry
+
+    assert listings_served == 2
+
+
+class _CancelOnSetStore(InMemoryResponseCacheStore):
+    """Store whose next `set` awaits a one-shot hook before committing, modelling an
+    async store whose commit a cancellation interrupts."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.before_set: Callable[[], Awaitable[None]] | None = None
+
+    async def set(self, key: CacheKey, entry: CacheEntry) -> None:
+        if self.before_set is not None:
+            hook, self.before_set = self.before_set, None
+            await hook()
+        await super().set(key, entry)
+
+
+async def test_a_verb_cancelled_mid_write_leaves_no_stale_arm_pair() -> None:
+    """SDK-defined no-stale-pair invariant, end to end: a verb call cancelled while
+    its cache write is mid-set (after the opposite-arm delete) leaves at most one
+    entry for the key - here zero - so the superseded entry cannot be served.
+
+    Steps:
+      1. The first list_tools stores a public-scoped entry.
+      2. A refresh call fetches a private-scoped result; its write deletes the
+         public arm first, then the store's `set` is cancelled before committing.
+      3. Both arms are empty - never two entries answering for one key - and the
+         next call refetches.
+    """
+    fetches: list[str | None] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        fetches.append(params.cursor if params is not None else None)
+        scope: Literal["public", "private"] = "public" if len(fetches) == 1 else "private"
+        tool = Tool(name=f"t{len(fetches) - 1}", input_schema={"type": "object"})
+        return ListToolsResult(tools=[tool], ttl_ms=60_000, cache_scope=scope)
+
+    server = Server("scope-flip", on_list_tools=list_tools)
+    store = _CancelOnSetStore()
+    client = Client(server, cache=CacheConfig(store=store, partition="p", target_id="svc", clock=_ManualClock()))
+
+    async with client:
+        assert _tool_names(await client.list_tools()) == ["t0"]
+        assert len(store._entries) == 1  # the public-arm entry
+
+        with anyio.CancelScope() as scope:
+
+            async def cancel_mid_commit() -> None:
+                scope.cancel()
+                await anyio.lowlevel.checkpoint()  # the cancellation is delivered here, inside `set`
+
+            store.before_set = cancel_mid_commit
+            await client.list_tools(cache_mode="refresh")
+        assert scope.cancelled_caught
+
+        # The write deleted the opposite (public) arm before the cancelled set could
+        # commit: zero entries, and in particular not the stale pre-refresh one.
+        assert store._entries == {}
+        assert _tool_names(await client.list_tools()) == ["t2"]  # nothing cached: refetched
+
+    assert fetches == [None, None, None]
+
+
+async def test_an_eviction_landing_mid_fetch_discards_that_fetchs_write() -> None:
+    """Spec-aligned race rule, end to end: a tools/list_changed notification that
+    arrives while the tools/list fetch it concerns is still in flight discards that
+    fetch's cache write - the store is empty after the call returns and the next
+    list_tools refetches (and then caches normally). The server emits the
+    notification mid-fetch and waits for the client-side eviction before responding
+    (the handler wrap delegates only after evicting), so the interleaving is
+    deterministic, not scheduler-dependent."""
+    fetches: list[str | None] = []
+    evicted = anyio.Event()
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        fetches.append(params.cursor if params is not None else None)
+        if len(fetches) == 1:
+            await ctx.session.send_tool_list_changed()
+            with anyio.fail_after(5):
+                await evicted.wait()
+        return ListToolsResult(tools=[Tool(name=f"t{len(fetches) - 1}", input_schema={"type": "object"})])
+
+    async def on_message(message: IncomingMessage) -> None:
+        assert isinstance(message, ToolListChangedNotification)  # the only message this server emits
+        evicted.set()
+
+    server = Server("racer", on_list_tools=list_tools)
+    client = Client(
+        server,
+        mode="legacy",
+        cache=CacheConfig(default_ttl_ms=60_000, clock=_ManualClock()),
+        message_handler=on_message,
+    )
+
+    async with client:
+        assert _tool_names(await client.list_tools()) == ["t0"]
+        # Empty proves the write was SKIPPED, not stored-then-evicted: the eviction
+        # completed strictly before the response (the handler waited for it) and the
+        # write runs strictly after - had it landed, the entry would still be here.
+        store = _coordinator(client)._store
+        assert isinstance(store, InMemoryResponseCacheStore)
+        assert store._entries == {}
+        assert _tool_names(await client.list_tools()) == ["t1"]  # refetched...
+        assert _tool_names(await client.list_tools()) == ["t1"]  # ...and that fetch cached normally
+
+    assert fetches == [None, None]
+
+
+async def test_read_resource_bypass_neither_serves_nor_disturbs_a_warm_entry() -> None:
+    """`cache_mode="bypass"` on `read_resource` fetches fresh without reading the
+    warm entry and without storing over it - the following plain read still serves
+    the original value. SDK-defined mode semantics (the list-verb counterpart is
+    pinned above)."""
+    server, reads = _versioned_read_server()
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        assert _resource_text(await client.read_resource("memo://a")) == "v1"
+        assert _resource_text(await client.read_resource("memo://a", cache_mode="bypass")) == "v2"
+        assert _resource_text(await client.read_resource("memo://a")) == "v1"  # warm entry intact
+
+    assert reads == ["memo://a", "memo://a"]
+
+
+async def test_read_resource_refresh_refetches_and_restores() -> None:
+    """`cache_mode="refresh"` on `read_resource` skips the warm entry, fetches, and
+    re-stores: the following plain read serves the refreshed value."""
+    server, reads = _versioned_read_server()
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        assert _resource_text(await client.read_resource("memo://a")) == "v1"
+        assert _resource_text(await client.read_resource("memo://a", cache_mode="refresh")) == "v2"
+        assert _resource_text(await client.read_resource("memo://a")) == "v2"  # the refreshed value re-stored
+
+    assert reads == ["memo://a", "memo://a"]
