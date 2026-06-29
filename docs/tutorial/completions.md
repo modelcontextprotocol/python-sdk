@@ -39,7 +39,7 @@ Add **one** function decorated with `@mcp.completion()`:
 
 ### Try it
 
-Drive it with the in-memory `Client`, the same one you use in **Testing**. Call
+Drive it with the in-memory `Client`, the same one you use in **[Testing](testing.md)**. Call
 `client.complete()` with `ref=PromptReference(name="review_code")` and
 `argument={"name": "language", "value": "py"}`:
 
@@ -122,4 +122,4 @@ Drop `context_arguments=` and the same call returns `[]`. The handler can't know
 * `context.arguments` holds the already-resolved values; the client supplies them as `context_arguments=`.
 * The `completions` capability appears the moment you register the handler. Without it, the request is `Method not found`.
 
-Suggestions help *before* a tool runs. To ask the user a question in the *middle* of one, you want **Elicitation**.
+Suggestions help *before* a tool runs. To ask the user a question in the *middle* of one, you want **[Elicitation](elicitation.md)**.

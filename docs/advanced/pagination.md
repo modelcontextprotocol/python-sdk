@@ -6,7 +6,7 @@ Most servers never need this.
 
 Pagination is for the server whose resource list is really a database: thousands of rows it refuses to serialize in one response. The protocol's answer is a **cursor**: the server returns a page plus an opaque token, and the client sends that token back to get the next page.
 
-`@mcp.resource()` has no hook for any of that. To page, you write the list handler yourself, on the **low-level Server**.
+`@mcp.resource()` has no hook for any of that. To page, you write the list handler yourself, on the **[low-level Server](low-level-server.md)**.
 
 ## A server that pages
 
@@ -48,7 +48,7 @@ Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resourc
 
 Run its `main()` and it prints `100 resources`: ten pages of ten, stitched together by a loop that never knew there were ten pages.
 
-This is the same loop **The Client** chapter showed you, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
+This is the same loop **[The Client](../client/index.md)** chapter showed you, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 
 ## The three rules
 
@@ -77,4 +77,4 @@ This is the same loop **The Client** chapter showed you, and it costs nothing ag
 * The client loop: pass `cursor=`, accumulate, repeat until `next_cursor is None`.
 * Cursors are opaque, the server owns the page size, and a non-paging client still gets page one.
 
-The rest of the hand-written `Server` API (`on_call_tool`, `input_schema` dicts, `_meta`) is **The low-level Server**.
+The rest of the hand-written `Server` API (`on_call_tool`, `input_schema` dicts, `_meta`) is **[The low-level Server](low-level-server.md)**.

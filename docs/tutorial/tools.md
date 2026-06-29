@@ -49,7 +49,7 @@ result.structured_content  # {'result': "Found 3 books matching 'dune' (showing 
 
 `content` is the text the **model** reads. `structured_content` is typed data for the **client application**. It's there because you declared the return type as `-> str`.
 
-Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **Structured Output** chapter is all about it.
+Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **[Structured Output](structured-output.md)** chapter is all about it.
 
 ### Try it
 
@@ -169,4 +169,4 @@ A well-behaved client uses them to decide things like *"do I need to ask the use
 * Bad arguments are rejected for you, with an error the model can read and recover from.
 * `async def` for I/O, plain `def` for everything else.
 
-Next up, **Structured Output**: what happens to the value you `return`.
+Next up, **[Structured Output](structured-output.md)**: what happens to the value you `return`.

@@ -116,7 +116,7 @@ Notice the last one. Pre-filling an `assistant` turn is how you steer the model'
 ```
 
 * `title="Code review"` is the human-readable name, exactly like a tool's `title`.
-* `Annotated[str, Field(description=...)]` is the same pattern you used in **Tools**. Here the description lands on the argument instead of in a schema.
+* `Annotated[str, Field(description=...)]` is the same pattern you used in **[Tools](tools.md)**. Here the description lands on the argument instead of in a schema.
 * `language` has a default, so it stops being required.
 
 The `prompts/list` entry now carries everything a client needs to draw a good form:
@@ -134,7 +134,7 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 ```
 
 !!! info
-    If you have read **Tools**, you already know everything on this page. Same decorator, same
+    If you have read **[Tools](tools.md)**, you already know everything on this page. Same decorator, same
     docstring-as-description, same `Annotated`/`Field`. The only things that change are who
     triggers it (the user) and where the result goes (into the conversation).
 
@@ -147,4 +147,4 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 * `title=` and `Field(description=...)` are what a client puts in its UI.
 * A missing required argument fails the whole request. There is no per-prompt error result.
 
-Next up: the one extra parameter a tool, resource or prompt can ask the SDK for, **The Context**.
+Next up: the one extra parameter a tool, resource or prompt can ask the SDK for, **[The Context](context.md)**.

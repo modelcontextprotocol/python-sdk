@@ -92,9 +92,9 @@ Notice the `uri` in the result. It is the **concrete** URI the client asked for,
 
     A mismatch can only ever be a bug, so the SDK makes it impossible to start the server with one.
 
-The placeholder syntax is RFC 6570: `{+path}` for multi-segment values, `{?q,lang}` for optional query parameters, and more. The SDK also applies path-safety checks to extracted values by default. See **[URI templates and path safety](../advanced/uri-templates.md)** for the full reference.
+The placeholder syntax is [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570): `{+path}` for multi-segment values, `{?q,lang}` for optional query parameters, and more. The SDK also applies path-safety checks to extracted values by default. See **[URI templates and path safety](../advanced/uri-templates.md)** for the full reference.
 
-`get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **The Context** chapter covers what it gives you.
+`get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **[The Context](context.md)** chapter covers what it gives you.
 
 ## What you return
 
@@ -127,7 +127,7 @@ The same rule applies to anything else JSON-serialisable: a list, a Pydantic mod
     `BinaryResource`, `FileResource`, `HttpResource`, `DirectoryResource`) that you register
     with `mcp.add_resource(...)`.
 
-A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **The Client**.
+A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **[The Client](../client/index.md)**.
 
 ## Recap
 
@@ -138,4 +138,4 @@ A client can also **subscribe** to a resource and be notified when it changes; t
 * `str` becomes text, `bytes` becomes a base64 blob, anything else becomes JSON text. `mime_type=` is how you label it.
 * Tools are for the model to act. Resources are for the application to read.
 
-Next: the third primitive, the one a person picks from a menu, **Prompts**.
+Next: the third primitive, the one a person picks from a menu, **[Prompts](prompts.md)**.

@@ -35,7 +35,7 @@ Here is the input schema `tools/list` reports for `reserve_book`:
 }
 ```
 
-One property. Like the `Context` in **The Context**, a resolved parameter is a contract between you and the SDK: `stock` is not in the schema, the model is never told about it, and a client that sends a `stock` value anyway is ignored. The resolver's value is the only one your tool can receive.
+One property. Like the `Context` in **[The Context](context.md)**, a resolved parameter is a contract between you and the SDK: `stock` is not in the schema, the model is never told about it, and a client that sends a `stock` value anyway is ignored. The resolver's value is the only one your tool can receive.
 
 That last part is the point. A parameter the model cannot supply is a parameter the model cannot get wrong.
 
@@ -84,16 +84,16 @@ A resolver's parameters resolve exactly like a tool's: another `Resolve(...)`, t
 !!! warning
     On HTTP transports the `Context` includes `ctx.headers`. Headers are **client-supplied input**,
     like any tool argument: fine for a locale or a feature flag, never an identity. Who the caller
-    is comes from your authorization layer (**Authorization**), not from a header anyone can set.
+    is comes from your authorization layer (**[Authorization](../advanced/authorization.md)**), not from a header anyone can set.
 
 !!! tip
     *Once per call* means exactly that: the next `tools/call` runs `check_stock` again. A resource
-    that should outlive a request - a database pool, an HTTP client - belongs in **Lifespan**, and
+    that should outlive a request - a database pool, an HTTP client - belongs in **[Lifespan](lifespan.md)**, and
     a resolver can reach it through `ctx.request_context.lifespan_context`.
 
 ## Ask when you must
 
-A resolver doesn't have to know the answer. It can return `Elicit(message, Model)` and the SDK asks the user - the **Elicitation** machinery, run for you:
+A resolver doesn't have to know the answer. It can return `Elicit(message, Model)` and the SDK asks the user - the **[Elicitation](elicitation.md)** machinery, run for you:
 
 ```python title="server.py" hl_lines="26-32 39"
 --8<-- "docs_src/dependencies/tutorial003.py"
@@ -114,7 +114,7 @@ And if the user won't answer at all - declines the question, or cancels it?
     Error executing tool order_book: Resolver for parameter 'backorder' could not resolve: elicitation was decline
     ```
 
-That's the right default for a precondition: no answer, no order. When declining is an outcome your tool wants to handle - skip the backorder but still suggest another title - annotate `ElicitationResult[Backorder]` instead and the tool receives the full accept/decline/cancel outcome to branch on. **Elicitation** shows that form, and everything else about asking: the schema rules, the three answers, the client's side of the conversation.
+That's the right default for a precondition: no answer, no order. When declining is an outcome your tool wants to handle - skip the backorder but still suggest another title - annotate `ElicitationResult[Backorder]` instead and the tool receives the full accept/decline/cancel outcome to branch on. **[Elicitation](elicitation.md)** shows that form, and everything else about asking: the schema rules, the three answers, the client's side of the conversation.
 
 ## Recap
 
@@ -124,4 +124,4 @@ That's the right default for a precondition: no answer, no order. When declining
 * Bad graphs fail at registration with `InvalidSignature`, not mid-call.
 * Return `Elicit(message, Model)` to ask the user, only when you have to. Unwrapped annotations abort on decline; `ElicitationResult[T]` lets the tool branch.
 
-Next: what happens when your tool fails, and how to choose who finds out, in **Handling errors**.
+Next: what happens when your tool fails, and how to choose who finds out, in **[Handling errors](handling-errors.md)**.

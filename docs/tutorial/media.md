@@ -26,11 +26,11 @@ result.structured_content  # None
 Two things to notice:
 
 * `data` is base64. You returned raw `bytes`; the SDK did the encoding.
-* `structured_content` is `None`. An `Image` is content for the model to look at, not data for the application to parse: there is no output schema. (Contrast **Structured Output**, where the return annotation *is* the schema.)
+* `structured_content` is `None`. An `Image` is content for the model to look at, not data for the application to parse: there is no output schema. (Contrast **[Structured Output](structured-output.md)**, where the return annotation *is* the schema.)
 
 !!! info
     `ImageContent` and `AudioContent` live in `mcp_types`, right next to the `TextContent`
-    you met in **Tools**. A tool result is a list of content blocks; `Image` and `Audio` are
+    you met in **[Tools](tools.md)**. A tool result is a list of content blocks; `Image` and `Audio` are
     the shortest way to produce the two binary kinds.
 
 ### Try it
@@ -105,4 +105,4 @@ A tool's icons are on the `Tool` object from `tools/list`, a resource's on the `
 * An `Icon` is a pointer: a `src` URI plus optional `mime_type`, `sizes`, and `theme`.
 * `icons=[...]` works on the server, on tools, on resources, and on prompts, and clients find them on the matching objects.
 
-That is everything a tool can put *into* a result. Helping the user fill in a prompt's or a resource template's arguments *before* anything runs is **Completions**.
+That is everything a tool can put *into* a result. Helping the user fill in a prompt's or a resource template's arguments *before* anything runs is **[Completions](completions.md)**.

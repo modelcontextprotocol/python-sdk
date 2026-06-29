@@ -4,7 +4,7 @@ This is the reference for the URI-template syntax that
 [`@mcp.resource`](../tutorial/resources.md) accepts, and for the
 path-safety policy the SDK applies to extracted values. For an
 introduction to what resources are and when to use them, start with
-**Resources**; this page assumes you're already comfortable declaring a
+**[Resources](../tutorial/resources.md)**; this page assumes you're already comfortable declaring a
 resource and want the full operator set, the security knobs, or the
 low-level wiring.
 
@@ -17,7 +17,7 @@ details (message formats, lifecycle, pagination) see the
 
 ## The full operator set
 
-**Resources** showed one placeholder, `{user_id}`. There are four more
+**[Resources](../tutorial/resources.md)** showed one placeholder, `{user_id}`. There are four more
 operator forms; here they are on one server so you can see them next to
 each other:
 
@@ -201,13 +201,13 @@ These checks are a heuristic pre-filter; for filesystem access,
 !!! tip
     If your handler can't fulfil the request (the file doesn't exist,
     the id is unknown), raise an exception. The SDK turns it into an
-    error response. See **Handling errors** for the difference between a
+    error response. See **[Handling errors](../tutorial/handling-errors.md)** for the difference between a
     protocol error and a tool error.
 
 ## Resources on the low-level Server
 
-If you're building on the low-level `Server` (see **The low-level
-Server**), you register handlers for the `resources/list` and
+If you're building on the low-level `Server` (see **[The low-level
+Server](low-level-server.md)**), you register handlers for the `resources/list` and
 `resources/read` protocol methods directly. There's no decorator; you
 return the protocol types yourself.
 

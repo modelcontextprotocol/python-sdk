@@ -4,7 +4,7 @@ Some MCP servers are protected. Send them a request without a token and they ans
 
 **`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth`, the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
 
-This chapter is the client side. Making your own server demand a token is **Authorization**.
+This chapter is the client side. Making your own server demand a token is **[Authorization](authorization.md)**.
 
 ## The provider
 
@@ -23,7 +23,7 @@ Nothing else in the file mentions OAuth. `main()` never sees a token.
 
 ### Client metadata
 
-`OAuthClientMetadata` is the real RFC 7591 registration document, as a Pydantic model.
+`OAuthClientMetadata` is the real [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591) registration document, as a Pydantic model.
 
 You set three fields. The defaults fill in the rest: `grant_types` is already `["authorization_code", "refresh_token"]` and `response_types` is already `["code"]`, which is exactly the flow this provider runs.
 
@@ -70,7 +70,7 @@ A real client runs a small local HTTP server on the redirect URI instead of call
 
 Look at `main()`. The provider goes on the **httpx client**, the httpx client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
 
-`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **Client transports**.
+`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **[Client transports](../client/transports.md)**.
 
 ## What the provider does for you
 
@@ -119,7 +119,7 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
     the same pattern: construct one, put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
-There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own chapter, **Identity assertion**.
+There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own chapter, **[Identity assertion](identity-assertion.md)**.
 
 ## When it fails
 
@@ -136,4 +136,4 @@ Not everything is a flow error. The network can still fail; those are ordinary `
 * `ClientCredentialsOAuthProvider` is the no-human version: `client_id` + `client_secret`, no handlers, no browser.
 * Every OAuth failure is an `OAuthFlowError`; `OAuthRegistrationError` and `OAuthTokenError` are its subclasses.
 
-The other half of this handshake, making your *server* demand the token, is **Authorization**.
+The other half of this handshake, making your *server* demand the token, is **[Authorization](authorization.md)**.

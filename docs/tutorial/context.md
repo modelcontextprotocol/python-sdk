@@ -60,13 +60,13 @@ The number is whichever request this happened to be. Call the tool again and it 
 The injected object is small. Besides `request_id`:
 
 * `await ctx.read_resource(uri)`: read one of the server's **own** resources from inside a tool. The next section.
-* `await ctx.report_progress(progress, total, message)`: stream progress back to the caller during a long call. The whole story is in **Progress**.
-* `await ctx.elicit(message, schema)` and `await ctx.elicit_url(...)`: pause the tool and ask the user a question. That's **Elicitation**.
+* `await ctx.report_progress(progress, total, message)`: stream progress back to the caller during a long call. The whole story is in **[Progress](progress.md)**.
+* `await ctx.elicit(message, schema)` and `await ctx.elicit_url(...)`: pause the tool and ask the user a question. That's **[Elicitation](elicitation.md)**.
 * `ctx.session`: the server's side of the conversation with this client. Notifications you send to the client live here; the last section uses it.
 * `ctx.headers`: the request headers the transport carried, or `None` on stdio. Read a custom header with `(ctx.headers or {}).get("x-...")`. Headers are client-supplied input - fine for a locale or a feature flag, never an identity.
-* `ctx.request_context`: the raw per-request record. The field you'll reach for is `lifespan_context`, the object your startup code yielded (see **Lifespan**).
+* `ctx.request_context`: the raw per-request record. The field you'll reach for is `lifespan_context`, the object your startup code yielded (see **[Lifespan](lifespan.md)**).
 
-Logging is deliberately not on that list. A server logs with Python's `logging` module, like any other Python program. **Logging** is the short chapter on why.
+Logging is deliberately not on that list. A server logs with Python's `logging` module, like any other Python program. **[Logging](logging.md)** is the short chapter on why.
 
 !!! tip
     Injection only happens for the function you registered. A helper that your tool calls doesn't get
@@ -124,4 +124,4 @@ The siblings are `send_resource_list_changed()`, `send_prompt_list_changed()`, a
 * `ctx.session` is the channel back to the client: `send_tool_list_changed()` and its siblings tell it to re-fetch a list you changed.
 * Progress reporting and elicitation also start at `Context`; each has its own chapter.
 
-Next: parameters the model never sees, filled by your own functions, in **Dependencies**.
+Next: parameters the model never sees, filled by your own functions, in **[Dependencies](dependencies.md)**.

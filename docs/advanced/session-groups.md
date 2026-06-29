@@ -68,7 +68,7 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 
 ## The classic handshake
 
-`ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **Protocol versions**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
+`ClientSessionGroup` is built on `ClientSession`, not on `Client`. Each `connect_to_server` runs the classic `initialize` handshake. It never sends the `server/discover` probe described in **[Protocol versions](../client/protocol-versions.md)**. Every MCP server understands that handshake, so this costs you compatibility with nothing; it only means a group takes the older, slower path to a server that could do better.
 
 ## Recap
 
@@ -79,4 +79,4 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.
 * `connect_with_session` adds a session you already hold; `disconnect_from_server` removes one.
 
-The handshake a group speaks (and the faster one a `Client` prefers) is the subject of **Protocol versions**.
+The handshake a group speaks (and the faster one a `Client` prefers) is the subject of **[Protocol versions](../client/protocol-versions.md)**.

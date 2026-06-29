@@ -4,7 +4,7 @@ An **extension** is an opt-in bundle of MCP behaviour behind one identifier.
 
 It can contribute tools, resources, and new request methods, and it can wrap `tools/call`.
 The server advertises it under `capabilities.extensions`, the client opts in the same way,
-and nothing changes for anyone who didn't ask for it. That is the contract (SEP-2133), and
+and nothing changes for anyone who didn't ask for it. That is the contract ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)), and
 it has one golden rule: **extensions are off by default**.
 
 ## Using an extension
