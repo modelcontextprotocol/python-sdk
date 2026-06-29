@@ -5,7 +5,7 @@ from typing import Any, cast
 import pytest
 from inline_snapshot import snapshot
 
-from docs_src.caching import tutorial001, tutorial002
+from docs_src.caching import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.server import CacheHint, MCPServer
 
@@ -53,3 +53,18 @@ async def test_the_handler_value_wins_over_the_map_per_field() -> None:
         tools = await client.list_tools()
     assert tools.ttl_ms == 1_000
     assert tools.cache_scope == "public"
+
+
+async def test_the_client_program_on_the_page_reads_the_hints(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial003: `main()` is the literal client program on the page - the hints
+    arrive as parsed fields on the result."""
+    await tutorial003.main()
+    assert capsys.readouterr().out == "1 tools, fresh for 60s, scope=public\n"
+
+
+async def test_the_wire_presence_check_the_page_recommends_works() -> None:
+    """The page's claim: `"ttl_ms" in result.model_fields_set` distinguishes a
+    server that sent the field from one that said nothing (model defaults)."""
+    async with Client(tutorial003.mcp) as client:
+        tools = await client.list_tools()
+    assert "ttl_ms" in tools.model_fields_set
