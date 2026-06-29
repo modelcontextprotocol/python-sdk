@@ -351,7 +351,12 @@ class ServerRunner(Generic[LifespanT]):
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> InitializeResult:
         """Build the `initialize` result; state commits later in `_on_request`."""
-        _, negotiated = self._negotiate_initialize(params)
+        init, negotiated = self._negotiate_initialize(params)
+        if self.connection.client_params is not None and init != self.connection.client_params:
+            raise MCPError(
+                code=INVALID_PARAMS,
+                message="Session already initialized with different parameters",
+            )
         opts = self.init_options if self.init_options is not None else self.server.create_initialization_options()
         return InitializeResult(
             protocol_version=negotiated,

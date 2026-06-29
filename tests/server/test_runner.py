@@ -164,6 +164,25 @@ async def test_runner_handles_initialize_and_populates_connection(server: SrvT):
 
 
 @pytest.mark.anyio
+async def test_runner_rejects_changed_duplicate_initialize(server: SrvT):
+    async with connected_runner(server, initialized=False) as (client, runner):
+        first_params = _initialize_params()
+        await client.send_raw_request("initialize", first_params)
+        assert runner.connection.client_params is not None
+        assert runner.connection.client_params.client_info.name == "test-client"
+
+        second_params = _initialize_params()
+        second_params["clientInfo"] = {"name": "second-client", "version": "1.0"}
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("initialize", second_params)
+
+        assert exc.value.error.code == INVALID_PARAMS
+        assert "already initialized" in exc.value.error.message
+        assert runner.connection.client_params is not None
+        assert runner.connection.client_params.client_info.name == "test-client"
+
+
+@pytest.mark.anyio
 async def test_runner_initialize_opens_gate_but_event_fires_only_after_initialized_notification(server: SrvT):
     """`initialize` commits the gate flag and peer info, but the public
     `connection.initialized` event waits for `notifications/initialized` (the
