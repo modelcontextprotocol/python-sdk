@@ -41,7 +41,9 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         assert counts == {"scope": 0, "restock": 0}, counts
 
         # Full refund of a three-line order. The scope question fires exactly ONCE even though
-        # both refund_amount and ask_restock consume it — memoized within the call.
+        # both refund_amount and ask_restock consume it — asked at most once per call on either
+        # era. ask_restock needs the scope ANSWER, so at 2026 the two questions land in
+        # successive rounds, never one concurrent batch: counts and order are era-independent.
         receipt = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "arrived broken"})
         assert receipt.structured_content == {
             "order_id": "ORD-7002",
@@ -53,7 +55,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
 
         # Declining restock still refunds: the tool keeps the ElicitationResult union for
         # `restock`, sees the decline, and just skips the restock. The scope counter moves
-        # again — the memo cache is per tools/call, not per connection.
+        # again — questions are deduped per call, not per connection.
         declines.add("restock")
         answers["scope"] = {"full": False, "sku": "canvas-tote"}
         receipt = await client.call_tool("refund_order", {"order_id": "ORD-7002", "reason": "wrong colour"})

@@ -46,7 +46,7 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
 
 ## Spec
 
-[Multi-round results — server features](https://modelcontextprotocol.io/specification/draft/server/tools#multi-round-results)
+[Input required tool results — server features](https://modelcontextprotocol.io/specification/draft/server/tools#input-required-tool-results)
 
 ## See also
 

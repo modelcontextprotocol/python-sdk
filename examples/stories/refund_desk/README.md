@@ -7,9 +7,10 @@ reason)` refunds what the order record says — `cents` is resolver-computed and
 does not appear in the input schema at all, so the model cannot supply or
 inflate the amount. Resolvers form a DAG (`load_order` → `refund_scope` →
 `refund_amount` / `ask_restock`), may return `Elicit[...]` to ask the human,
-and run at most once per call. A resolver's own plain parameters are filled
-from the tool's arguments by name — `load_order(order_id)` receives the
-`order_id` the model passed to `refund_order`.
+and ask each question at most once per call. A resolver's own plain
+parameters are filled from the tool's arguments by name —
+`load_order(order_id)` receives the `order_id` the model passed to
+`refund_order`.
 
 ## Run it
 
@@ -18,9 +19,9 @@ from the tool's arguments by name — `load_order(order_id)` receives the
 uv run python -m stories.refund_desk.client
 
 # HTTP — the client self-hosts the server on a free port, runs, then tears it
-# down (--legacy: resolver elicitation rides the push request today; the
-# manifest pins this era, so bare --http runs the same leg)
-uv run python -m stories.refund_desk.client --http --legacy
+# down (2026 protocol: the questions ride embedded input_required round-trips;
+# add --legacy to ride synchronous push elicitation instead)
+uv run python -m stories.refund_desk.client --http
 ```
 
 ## What to look at
@@ -47,21 +48,36 @@ uv run python -m stories.refund_desk.client --http --legacy
 
 ## Caveats
 
+- **Transport per era.** The framework picks the elicitation transport from
+  the negotiated protocol: at >= 2026-07-28 the questions ride embedded
+  `input_required` round-trips (a resolver that depends on another's answer is
+  asked in a later round); at <= 2025-11-25 each is a synchronous
+  `elicitation/create` push request mid-call. Author code is identical on
+  both — this client runs unchanged on either era.
 - **Decline order.** A declined unwrapped dependency aborts resolution in
   tool-signature order — `cents` resolves before `restock`, so `ask_restock`
   never runs. Don't rely on a later resolver's side effects after an earlier
   consumer can abort.
-- **Memoization scope.** Each resolver runs at most once per `tools/call`,
-  keyed by function identity; nothing is cached across calls or connections.
+- **Memoization scope.** Each question is asked at most once per call, and
+  within a round each resolver runs at most once, keyed by function identity.
+  Across 2026 rounds only *elicited* outcomes persist (in `requestState`); a
+  resolver that resolves without eliciting is pure and may re-run each round.
+  An answer is matched back to its question when the call resumes, so an
+  eliciting resolver must derive its question deterministically from the
+  tool's arguments and earlier answers; a per-call generated value (a
+  `default_factory` id, a timestamp) is re-derived each round and must not
+  appear in a question the answer is meant to bind to. Nothing is cached
+  across calls or connections.
 - **Validate elicited values.** Elicited answers are human-typed; check them
   against your records (as `_scoped` does) before acting on them.
 
 ## Spec
 
-[Elicitation — client features](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
+[Elicitation — client features](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation),
+[Input required tool results — server features](https://modelcontextprotocol.io/specification/draft/server/tools#input-required-tool-results)
 
 ## See also
 
-`legacy_elicitation/` (the push mechanism resolver elicitation rides on today),
-`mrtr/` (the 2026 `input_required` carrier; resolver DI will ride it once the
-SDK wires them together).
+`mrtr/` (the 2026 `input_required` carrier these questions ride at
+>= 2026-07-28), `legacy_elicitation/` (the push mechanism they ride on
+handshake-era connections).
