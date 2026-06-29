@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar
@@ -26,11 +26,15 @@ from mcp_types import (
     ListToolsResult,
     LoggingLevel,
     PaginatedRequestParams,
+    Prompt,
     PromptReference,
     ReadResourceResult,
     RequestParamsMeta,
+    Resource,
+    ResourceTemplate,
     ResourceTemplateReference,
     ServerCapabilities,
+    Tool,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from typing_extensions import deprecated
@@ -367,7 +371,11 @@ class Client:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListResourcesResult:
-        """List available resources from the server."""
+        """List a single page of available resources from the server.
+
+        Returns one page only. The result may include a `next_cursor` if more
+        pages are available. Use `list_all_resources` to drain every page.
+        """
         return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def list_resource_templates(
@@ -376,7 +384,12 @@ class Client:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListResourceTemplatesResult:
-        """List available resource templates from the server."""
+        """List a single page of available resource templates from the server.
+
+        Returns one page only. The result may include a `next_cursor` if more
+        pages are available. Use `list_all_resource_templates` to drain every
+        page.
+        """
         return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def read_resource(
@@ -482,7 +495,11 @@ class Client:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListPromptsResult:
-        """List available prompts from the server."""
+        """List a single page of available prompts from the server.
+
+        Returns one page only. The result may include a `next_cursor` if more
+        pages are available. Use `list_all_prompts` to drain every page.
+        """
         return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def get_prompt(
@@ -566,8 +583,129 @@ class Client:
         return await self.session.complete(ref=ref, argument=argument, context_arguments=context_arguments)
 
     async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
-        """List available tools from the server."""
+        """List a single page of available tools from the server.
+
+        Returns one page only. The result may include a `next_cursor` if more
+        pages are available. Use `list_all_tools` to drain every page.
+        """
         return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+
+    async def iter_all_tools(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Tool]:
+        """Yield every tool from the server, paging through `next_cursor`.
+
+        Useful for streaming consumers that want to process tools without
+        materializing the full list in memory.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        cursor: str | None = None
+        while True:
+            result = await self.list_tools(cursor=cursor, meta=meta)
+            for tool in result.tools:
+                yield tool
+            if result.next_cursor is None:
+                return
+            if result.next_cursor == cursor:
+                raise RuntimeError(
+                    "Server returned a pagination cursor that did not advance; refusing to page forever."
+                )
+            cursor = result.next_cursor
+
+    async def list_all_tools(self, *, meta: RequestParamsMeta | None = None) -> list[Tool]:
+        """List every tool from the server, draining `next_cursor` across pages.
+
+        Unlike `list_tools`, which returns one page, this walks pagination
+        until the server reports no further pages and returns the combined
+        list.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        return [tool async for tool in self.iter_all_tools(meta=meta)]
+
+    async def iter_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Prompt]:
+        """Yield every prompt from the server, paging through `next_cursor`.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        cursor: str | None = None
+        while True:
+            result = await self.list_prompts(cursor=cursor, meta=meta)
+            for prompt in result.prompts:
+                yield prompt
+            if result.next_cursor is None:
+                return
+            if result.next_cursor == cursor:
+                raise RuntimeError(
+                    "Server returned a pagination cursor that did not advance; refusing to page forever."
+                )
+            cursor = result.next_cursor
+
+    async def list_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> list[Prompt]:
+        """List every prompt from the server, draining `next_cursor` across pages.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        return [prompt async for prompt in self.iter_all_prompts(meta=meta)]
+
+    async def iter_all_resources(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Resource]:
+        """Yield every resource from the server, paging through `next_cursor`.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        cursor: str | None = None
+        while True:
+            result = await self.list_resources(cursor=cursor, meta=meta)
+            for resource in result.resources:
+                yield resource
+            if result.next_cursor is None:
+                return
+            if result.next_cursor == cursor:
+                raise RuntimeError(
+                    "Server returned a pagination cursor that did not advance; refusing to page forever."
+                )
+            cursor = result.next_cursor
+
+    async def list_all_resources(self, *, meta: RequestParamsMeta | None = None) -> list[Resource]:
+        """List every resource from the server, draining `next_cursor` across pages.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        return [resource async for resource in self.iter_all_resources(meta=meta)]
+
+    async def iter_all_resource_templates(
+        self, *, meta: RequestParamsMeta | None = None
+    ) -> AsyncIterator[ResourceTemplate]:
+        """Yield every resource template from the server, paging through `next_cursor`.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        cursor: str | None = None
+        while True:
+            result = await self.list_resource_templates(cursor=cursor, meta=meta)
+            for template in result.resource_templates:
+                yield template
+            if result.next_cursor is None:
+                return
+            if result.next_cursor == cursor:
+                raise RuntimeError(
+                    "Server returned a pagination cursor that did not advance; refusing to page forever."
+                )
+            cursor = result.next_cursor
+
+    async def list_all_resource_templates(self, *, meta: RequestParamsMeta | None = None) -> list[ResourceTemplate]:
+        """List every resource template from the server, draining `next_cursor` across pages.
+
+        Raises:
+            RuntimeError: The server returned a pagination cursor that did not advance.
+        """
+        return [template async for template in self.iter_all_resource_templates(meta=meta)]
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
