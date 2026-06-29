@@ -216,7 +216,9 @@ async def test_identity_assertion_rejected_when_disabled(provider: IdentityAsser
 
 
 @pytest.mark.anyio
-async def test_identity_assertion_rejects_public_client(client: httpx2.AsyncClient, provider: IdentityAssertionProvider):
+async def test_identity_assertion_rejects_public_client(
+    client: httpx2.AsyncClient, provider: IdentityAssertionProvider
+):
     """A public (auth method 'none') client cannot use the grant, even if it presents a valid assertion."""
     provider.clients["public-client"] = OAuthClientInformationFull(
         client_id="public-client",
