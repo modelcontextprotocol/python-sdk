@@ -2118,6 +2118,57 @@ class TestWWWAuthenticate:
         result = extract_resource_metadata_from_www_auth(init_response)
         assert result is None
 
+    def test_extract_field_from_www_auth_ignores_param_like_text_inside_quoted_value(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test quoted values cannot shadow a later auth-param with the same name."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer realm="api, scope=decoy", scope="read write"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result == "read write"
+
+    def test_extract_field_from_www_auth_ignores_quoted_value_when_only_decoy_exists(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test a field-like string inside a quoted value is not an auth-param."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer realm="api scope=leaked"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result is None
+
+    def test_extract_resource_metadata_from_www_auth_ignores_quoted_value_decoy(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test resource_metadata is not extracted from another quoted param value."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": 'Bearer realm="api, resource_metadata=https://decoy.example.com", '
+                'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_resource_metadata_from_www_auth(init_response)
+        assert result == "https://api.example.com/.well-known/oauth-protected-resource"
+
 
 class TestCIMD:
     """Test Client ID Metadata Document (CIMD) support."""
