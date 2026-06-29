@@ -18,7 +18,7 @@ dependency is gone.
 The public API surface is unchanged in shape - `streamable_http_client` and
 `sse_client` still accept the same arguments - but the client type they expect
 is now `httpx2.AsyncClient`. If you construct your own client to pass as
-`http_client` (or build an `httpx.Auth` subclass for `auth`), import from
+`http_client` (or build an `httpx2.Auth` subclass for `auth`), import from
 `httpx2`:
 
 **Before (v1):**
@@ -40,6 +40,13 @@ http_client = httpx2.AsyncClient(follow_redirects=True)
 `httpx2` is API-compatible with `httpx`, so usually only the import name
 changes. To consume SSE directly, use `httpx2.EventSource` (or
 `AsyncClient.sse()`) instead of the `httpx-sse` helpers.
+
+TLS verification also changes: `httpx` validated certificates against the
+bundled `certifi` CA list, while `httpx2` validates against the operating
+system trust store via [`truststore`](https://pypi.org/project/truststore/).
+If your environment has no usable system CA store (some minimal containers),
+or you relied on certifi's bundle specifically, pass an explicit
+`verify=ssl_context` to your `httpx2.AsyncClient`.
 
 ### `MCPServer.call_tool()` returns `CallToolResult`
 
@@ -253,7 +260,7 @@ unchanged. Only the `mcp.types` submodule and `mcp.shared.version` were removed.
 package's API reference is at [`mcp_types`](api/mcp_types/index.md).
 
 **Why:** keeping the wire types in their own package lets tooling and lightweight clients
-depend on the protocol schema without pulling in `httpx`, `starlette`, `uvicorn`, and the
+depend on the protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the
 rest of the server/transport stack.
 
 **Before (v1):**
@@ -1604,7 +1611,7 @@ Under OIDC, omitting `application_type` defaults to `"web"`, which an authorizat
 
 The SDK now supports [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)'s enterprise identity-provider policy controls. The client presents an Identity Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise IdP - to the MCP authorization server using the [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) jwt-bearer grant (`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, the ID-JAG as `assertion`), and receives an MCP access token. This matches the SEP-990 normative profile and interoperates with the other MCP SDKs. (Leg 1 - exchanging the user's IdP ID token for the ID-JAG against the IdP - is deployment-specific and out of scope for the SDK.) This is additive and opt-in on both sides; existing flows are unchanged.
 
-On the client, `IdentityAssertionOAuthProvider` (in `mcp.client.auth.extensions.identity_assertion`) is an `httpx.Auth` that posts the jwt-bearer request. The ID-JAG is supplied lazily through an async `assertion_provider(audience, resource)` callback - `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's identifier (the ID-JAG `resource` claim):
+On the client, `IdentityAssertionOAuthProvider` (in `mcp.client.auth.extensions.identity_assertion`) is an `httpx2.Auth` that posts the jwt-bearer request. The ID-JAG is supplied lazily through an async `assertion_provider(audience, resource)` callback - `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's identifier (the ID-JAG `resource` claim):
 
 ```python
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider

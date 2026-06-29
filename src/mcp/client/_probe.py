@@ -67,7 +67,7 @@ async def negotiate_auto(session: ClientSession) -> None:
                     raise  # server is modern-only and disjoint — real incompatibility
             await session.initialize()  # every other rpc-error → legacy (the denylist)
             return
-        # any other exception (httpx.TransportError, ConnectionError, anyio errors,
+        # any other exception (httpx2.TransportError, ConnectionError, anyio errors,
         # RuntimeError from adopt) → propagate
         try:
             result = types.DiscoverResult.model_validate(raw)

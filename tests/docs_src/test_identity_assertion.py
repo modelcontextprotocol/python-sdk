@@ -3,7 +3,7 @@
 import inspect
 from urllib.parse import parse_qsl
 
-import httpx
+import httpx2
 import jwt
 import pytest
 from inline_snapshot import snapshot
@@ -27,21 +27,21 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 MCP_SERVER_URL = "http://localhost:8001/mcp"
 
 
-class RecordingASGITransport(httpx.ASGITransport):
-    """An `httpx.ASGITransport` that appends every (method, path, body) it carries to a shared log."""
+class RecordingASGITransport(httpx2.ASGITransport):
+    """An `httpx2.ASGITransport` that appends every (method, path, body) it carries to a shared log."""
 
     def __init__(self, app: Starlette, log: list[tuple[str, str, bytes]]) -> None:
         super().__init__(app=app)
         self.log = log
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         self.log.append((request.method, request.url.path, request.content))
         return await super().handle_async_request(request)
 
 
 async def test_the_provider_is_an_httpx_auth_but_not_an_oauth_client_provider() -> None:
     """tutorial001: same `auth=` slot as the rest of OAuth clients, but nothing is discovered or registered."""
-    assert isinstance(tutorial001.oauth, httpx.Auth)
+    assert isinstance(tutorial001.oauth, httpx2.Auth)
     assert not isinstance(tutorial001.oauth, OAuthClientProvider)
 
 
@@ -132,8 +132,8 @@ async def test_a_replayed_assertion_is_rejected() -> None:
 
 async def test_the_metadata_advertises_the_grant_type_and_the_id_jag_profile() -> None:
     """tutorial002: the flag turns on both the `jwt-bearer` grant type and the grant-profile advertisement."""
-    transport = httpx.ASGITransport(app=tutorial002.auth_app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://auth.example.com") as http_client:
+    transport = httpx2.ASGITransport(app=tutorial002.auth_app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://auth.example.com") as http_client:
         response = await http_client.get("/.well-known/oauth-authorization-server")
     assert response.status_code == 200
     metadata = response.json()
@@ -167,7 +167,7 @@ async def test_the_whole_grant_is_one_token_request() -> None:
     mounts = {"https://auth.example.com": RecordingASGITransport(tutorial002.auth_app, log)}
     async with mcp.session_manager.run():
         async with (
-            httpx.AsyncClient(auth=tutorial001.oauth, transport=transport, mounts=mounts) as http_client,
+            httpx2.AsyncClient(auth=tutorial001.oauth, transport=transport, mounts=mounts) as http_client,
             Client(streamable_http_client(MCP_SERVER_URL, http_client=http_client)) as client,
         ):
             result = await client.call_tool("whoami", {})

@@ -26,7 +26,7 @@ from typing import Literal
 from urllib.parse import quote, urlsplit
 
 import anyio
-import httpx
+import httpx2
 
 from mcp.client.auth import OAuthFlowError, OAuthTokenError, TokenStorage
 from mcp.client.auth.utils import (
@@ -56,8 +56,8 @@ def _origin(url: str) -> tuple[str, str, int | None]:
     return (parsed.scheme, parsed.hostname or "", port)
 
 
-class IdentityAssertionOAuthProvider(httpx.Auth):
-    """`httpx.Auth` for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant) against a configured AS.
+class IdentityAssertionOAuthProvider(httpx2.Auth):
+    """`httpx2.Auth` for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant) against a configured AS.
 
     The authorization server `issuer` is fixed at construction; metadata is fetched from its
     RFC 8414 well-known and the ID-JAG and client secret are sent only to that issuer's token
@@ -136,7 +136,7 @@ class IdentityAssertionOAuthProvider(httpx.Auth):
         self._lock = anyio.Lock()
         self._initialized = False
 
-    def _build_token_request(self, scope: str | None, assertion: str) -> httpx.Request:
+    def _build_token_request(self, scope: str | None, assertion: str) -> httpx2.Request:
         """Build the RFC 7523 jwt-bearer token request, applying confidential-client auth."""
         assert self._token_endpoint is not None
         assert self._client.client_id is not None and self._client.client_secret is not None
@@ -157,9 +157,9 @@ class IdentityAssertionOAuthProvider(httpx.Auth):
             headers["Authorization"] = f"Basic {credentials}"
         else:
             data["client_secret"] = self._client.client_secret
-        return httpx.Request("POST", self._token_endpoint, data=data, headers=headers)
+        return httpx2.Request("POST", self._token_endpoint, data=data, headers=headers)
 
-    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         async with self._lock:
             if not self._initialized:
                 self._tokens = await self._storage.get_tokens()

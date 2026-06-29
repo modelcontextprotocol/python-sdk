@@ -429,9 +429,9 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
     `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
     at the wire because the client never surfaces the outgoing headers.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -474,9 +474,9 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
     The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
     implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         if json.loads(request.content)["method"] == "tools/call":
             requests.append(request)
 
@@ -521,9 +521,9 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
 
     server = Server("evict", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    tool_calls: list[httpx.Request] = []
+    tool_calls: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         if json.loads(request.content)["method"] == "tools/call":
             tool_calls.append(request)
 
