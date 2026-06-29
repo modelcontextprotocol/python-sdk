@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Generic, Protocol, cast
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
@@ -20,11 +20,6 @@ from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
-
-
-class _HasHeaders(Protocol):
-    @property
-    def headers(self) -> Mapping[str, str]: ...
 
 
 class Context(BaseModel, Generic[LifespanContextT, RequestT]):
@@ -226,12 +221,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def headers(self) -> Mapping[str, str] | None:
         """Request headers carried by this message, when the transport has them.
 
-        Populated by HTTP-based transports; `None` on stdio.
+        Populated by HTTP-based transports; `None` on stdio or when the
+        transport's request object carries no headers. Headers are
+        client-supplied input - never treat one as an identity assertion.
         """
-        request = self.request_context.request
-        if request is None:
-            return None
-        return cast("_HasHeaders", request).headers
+        return cast("Mapping[str, str] | None", getattr(self.request_context.request, "headers", None))
 
     @property
     def request_id(self) -> str:

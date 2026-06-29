@@ -1823,6 +1823,12 @@ def test_context_headers_is_none_without_request():
     assert ctx.headers is None
 
 
+def test_context_headers_is_none_when_request_carries_no_headers():
+    """A transport may attach a custom request object that has no headers attribute."""
+    ctx = Context(request_context=_request_context(object()), mcp_server=MagicMock())
+    assert ctx.headers is None
+
+
 async def test_read_resource_template_error():
     """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
     mcp = MCPServer()
