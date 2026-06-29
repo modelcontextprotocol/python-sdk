@@ -10,13 +10,17 @@ from mcp_types import (
     CreateMessageRequestParams,
     ElicitRequest,
     ElicitRequestFormParams,
+    ElicitRequestParams,
     ElicitResult,
+    GetPromptResult,
     InputRequiredResult,
+    PromptMessage,
     TextContent,
 )
 
-from docs_src.mrtr import tutorial001, tutorial002, tutorial003
+from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client, MCPError
+from mcp.client import ClientRequestContext
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -109,3 +113,51 @@ def test_fulfil_refuses_a_request_it_cannot_answer() -> None:
     request = CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=64))
     with pytest.raises(NotImplementedError, match="sampling/createMessage"):
         tutorial002.fulfil(request)
+
+
+async def test_a_prompt_returns_an_input_required_result_on_the_first_round() -> None:
+    """tutorial004: `prompts/get` participates in the same flow — the `@mcp.prompt()` function
+    returns the `InputRequiredResult` itself."""
+    async with Client(tutorial004.mcp) as client:
+        result = await client.session.get_prompt("briefing", allow_input_required=True)
+        assert result == snapshot(
+            InputRequiredResult(
+                result_type="input_required",
+                input_requests={
+                    "audience": ElicitRequest(
+                        method="elicitation/create",
+                        params=ElicitRequestFormParams(
+                            mode="form",
+                            message="Who is the briefing for?",
+                            requested_schema={
+                                "type": "object",
+                                "properties": {"audience": {"type": "string"}},
+                                "required": ["audience"],
+                            },
+                        ),
+                    )
+                },
+            )
+        )
+
+
+async def _answer_audience(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+    return ElicitResult(action="accept", content={"audience": "the board"})
+
+
+async def test_the_prompt_auto_loop_returns_the_final_messages() -> None:
+    """tutorial004 + the page's client-side claim: `get_prompt` drives the same loop, so the
+    caller sees only the complete `GetPromptResult`."""
+    async with Client(tutorial004.mcp, elicitation_callback=_answer_audience) as client:
+        result = await client.get_prompt("briefing")
+        assert result == snapshot(
+            GetPromptResult(
+                description="Draft a briefing tuned to its audience.",
+                messages=[
+                    PromptMessage(
+                        role="user",
+                        content=TextContent(type="text", text="Write a briefing for the board."),
+                    )
+                ],
+            )
+        )

@@ -655,6 +655,30 @@ def test_prompt_with_image() -> list[UserMessage]:
     ]
 
 
+@mcp.prompt()
+async def test_input_required_result_prompt(ctx: Context) -> list[UserMessage] | InputRequiredResult:
+    """Tests InputRequiredResult from prompts/get (SEP-2322 non-tool request)"""
+    responses = ctx.input_responses
+    if responses and "user_context" in responses:
+        answer = responses["user_context"]
+        text = answer.content.get("context", "?") if isinstance(answer, ElicitResult) and answer.content else "?"
+        return [UserMessage(role="user", content=TextContent(type="text", text=f"Use the following context: {text}"))]
+    return InputRequiredResult(
+        input_requests={
+            "user_context": ElicitRequest(
+                params=ElicitRequestFormParams(
+                    message="What context should the prompt use?",
+                    requested_schema={
+                        "type": "object",
+                        "properties": {"context": {"type": "string"}},
+                        "required": ["context"],
+                    },
+                )
+            )
+        }
+    )
+
+
 # Custom request handlers
 # TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
 # and set_logging_level to avoid accessing protected _lowlevel_server attribute.

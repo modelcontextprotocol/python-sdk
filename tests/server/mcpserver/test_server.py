@@ -1311,6 +1311,7 @@ class TestServerPrompts:
             return "Hello, world!"
 
         result = await mcp.get_prompt("fn")
+        assert not isinstance(result, InputRequiredResult)
         content = result.messages[0].content
         assert isinstance(content, TextContent)
         assert content.text == "Hello, world!"
@@ -1328,6 +1329,7 @@ class TestServerPrompts:
         assert prompts[0].name == "fn"
         # Don't compare functions directly since validate_call wraps them
         content = await prompts[0].render(None, Context())
+        assert not isinstance(content, InputRequiredResult)
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1343,6 +1345,7 @@ class TestServerPrompts:
         assert len(prompts) == 1
         assert prompts[0].name == "custom_name"
         content = await prompts[0].render(None, Context())
+        assert not isinstance(content, InputRequiredResult)
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1358,6 +1361,7 @@ class TestServerPrompts:
         assert len(prompts) == 1
         assert prompts[0].description == "A custom description"
         content = await prompts[0].render(None, Context())
+        assert not isinstance(content, InputRequiredResult)
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1919,6 +1923,185 @@ async def test_tool_reads_input_responses_and_request_state_from_context_on_retr
     block = r2.content[0]
     assert isinstance(block, TextContent)
     assert block.text == "Hello, Alice! (state=r1)"
+
+
+def _ask_who() -> ElicitRequest:
+    return ElicitRequest(
+        params=ElicitRequestFormParams(
+            message="Who is this for?",
+            requested_schema={
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        )
+    )
+
+
+async def test_prompt_returning_input_required_result_reaches_client_unchanged():
+    """A prompt function may return an InputRequiredResult and the pipeline passes it
+    through to the client (spec-mandated: SEP-2322 allows it on prompts/get)."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
+        return InputRequiredResult(input_requests={"who": _ask_who()}, request_state="round-1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            result = await client.session.get_prompt("briefing", allow_input_required=True)
+
+    assert isinstance(result, InputRequiredResult)
+    assert result.request_state == "round-1"
+    assert result.input_requests is not None
+    assert result.input_requests["who"].method == "elicitation/create"
+
+
+async def test_prompt_reads_input_responses_and_request_state_from_context_on_retry():
+    """The prompts/get retry carries input_responses and request_state to the prompt
+    function via the Context, completing the SEP-2322 multi-round-trip flow."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "who" in responses:
+            who = responses["who"]
+            assert isinstance(who, ElicitResult) and who.content is not None
+            return [UserMessage(content=f"Brief {who.content['name']} (state={ctx.request_state})")]
+        return InputRequiredResult(input_requests={"who": _ask_who()}, request_state="r1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.session.get_prompt("briefing", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
+            assert r1.input_requests is not None and "who" in r1.input_requests
+
+            r2 = await client.session.get_prompt(
+                "briefing",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                request_state=r1.request_state,
+                allow_input_required=True,
+            )
+    assert isinstance(r2, GetPromptResult)
+    block = r2.messages[0].content
+    assert isinstance(block, TextContent)
+    assert block.text == "Brief Alice (state=r1)"
+
+
+async def test_prompt_input_required_result_on_legacy_session_is_a_serialization_error():
+    """Pins the shared era gate: a pre-2026 session has no input_required vocabulary, so
+    the runner rejects the frame with -32603 — the same posture the tools path has."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
+        return InputRequiredResult(input_requests={"who": _ask_who()})
+
+    async with Client(mcp, mode="legacy") as client:
+        with pytest.raises(MCPError) as exc:
+            await client.get_prompt("briefing")
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+
+
+async def test_resource_template_input_required_result_on_legacy_session_is_a_serialization_error():
+    """Pins the shared era gate for resources/read: a pre-2026 session has no
+    input_required vocabulary, so the runner rejects the frame with -32603."""
+    mcp = MCPServer()
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
+        return InputRequiredResult(input_requests={"who": _ask_who()})
+
+    async with Client(mcp, mode="legacy") as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("ask://databases")
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+
+
+async def test_resource_template_returning_input_required_result_reaches_client_unchanged():
+    """A resource template function may return an InputRequiredResult and the pipeline
+    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read)."""
+    mcp = MCPServer()
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
+        return InputRequiredResult(input_requests={"who": _ask_who()}, request_state="round-1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            result = await client.session.read_resource("ask://databases", allow_input_required=True)
+
+    assert isinstance(result, InputRequiredResult)
+    assert result.request_state == "round-1"
+    assert result.input_requests is not None
+    assert result.input_requests["who"].method == "elicitation/create"
+
+
+async def test_resource_template_reads_input_responses_from_context_on_retry():
+    """The resources/read retry carries input_responses to the template function via the
+    Context, completing the SEP-2322 multi-round-trip flow."""
+    mcp = MCPServer()
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "who" in responses:
+            who = responses["who"]
+            assert isinstance(who, ElicitResult) and who.content is not None
+            return f"{topic} notes for {who.content['name']}"
+        return InputRequiredResult(input_requests={"who": _ask_who()})
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.session.read_resource("ask://databases", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
+            assert r1.input_requests is not None and "who" in r1.input_requests
+
+            r2 = await client.session.read_resource(
+                "ask://databases",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                allow_input_required=True,
+            )
+    assert isinstance(r2, ReadResourceResult)
+    contents = r2.contents[0]
+    assert isinstance(contents, TextResourceContents)
+    assert contents.text == "databases notes for Alice"
+
+
+async def test_context_read_resource_raises_on_input_required_result_by_default():
+    """ctx.read_resource is a content reader: an InputRequiredResult from the template
+    raises with the opt-in hint instead of widening every caller (mirrors ClientSession)."""
+    mcp = MCPServer()
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
+        return InputRequiredResult(input_requests={"who": _ask_who()})
+
+    context = Context(mcp_server=mcp)
+    with pytest.raises(RuntimeError) as exc:
+        await context.read_resource("ask://databases")
+    assert str(exc.value) == snapshot(
+        "Resource returned InputRequiredResult; pass allow_input_required=True to receive it "
+        "and forward it as this handler's result."
+    )
+
+
+async def test_context_read_resource_with_allow_input_required_forwards_the_result():
+    """With allow_input_required=True the handler receives the template's
+    InputRequiredResult unchanged and may forward it as its own result."""
+    mcp = MCPServer()
+    sentinel = InputRequiredResult(input_requests={"who": _ask_who()})
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
+        return sentinel
+
+    context = Context(mcp_server=mcp)
+    result = await context.read_resource("ask://databases", allow_input_required=True)
+    assert result is sentinel
 
 
 async def test_context_exposes_client_capabilities_from_connection():

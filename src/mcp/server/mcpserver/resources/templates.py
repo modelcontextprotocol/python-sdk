@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
-from mcp_types import Annotations, Icon
+from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError
@@ -208,8 +208,13 @@ class ResourceTemplate(BaseModel):
         uri: str,
         params: dict[str, Any],
         context: Context[LifespanContextT, RequestT],
-    ) -> Resource:
+    ) -> Resource | InputRequiredResult:
         """Create a resource from the template with the given parameters.
+
+        An `InputRequiredResult` returned by the template function is passed
+        through unchanged (the 2026-07-28 multi-round-trip flow); the retry's
+        answers arrive on `ctx.input_responses`, with `ctx.request_state`
+        carrying the echoed opaque state.
 
         Raises:
             ResourceError: If creating the resource fails.
@@ -223,6 +228,9 @@ class ResourceTemplate(BaseModel):
                 result = await fn(**params)
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
+
+            if isinstance(result, InputRequiredResult):
+                return result
 
             return FunctionResource(
                 uri=uri,  # type: ignore

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from mcp_types import Annotations, Icon
+from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError
@@ -86,8 +86,14 @@ class ResourceManager:
         self._templates[template.uri_template] = template
         return template
 
-    async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
+    async def get_resource(
+        self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]
+    ) -> Resource | InputRequiredResult:
         """Get resource by URI, checking concrete resources first, then templates.
+
+        A template function may return an `InputRequiredResult` instead of
+        resource content (the 2026-07-28 multi-round-trip flow); it is passed
+        through unchanged.
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.

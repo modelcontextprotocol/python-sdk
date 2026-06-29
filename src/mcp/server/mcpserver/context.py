@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Generic, cast
+from typing import TYPE_CHECKING, Any, Generic, Literal, cast, overload
 
-from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
+from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
@@ -99,21 +99,49 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         await self.request_context.session.report_progress(progress, total, message)
 
-    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
+    @overload
+    async def read_resource(
+        self, uri: str | AnyUrl, *, allow_input_required: Literal[False] = False
+    ) -> Iterable[ReadResourceContents]: ...
+
+    @overload
+    async def read_resource(
+        self, uri: str | AnyUrl, *, allow_input_required: bool
+    ) -> Iterable[ReadResourceContents] | InputRequiredResult: ...
+
+    async def read_resource(
+        self, uri: str | AnyUrl, *, allow_input_required: bool = False
+    ) -> Iterable[ReadResourceContents] | InputRequiredResult:
         """Read a resource by URI.
 
         Args:
             uri: Resource URI to read
+            allow_input_required: When `False` (default), an
+                `InputRequiredResult` returned by a resource template function
+                (the 2026-07-28 multi-round-trip flow) raises instead of being
+                returned. Pass `True` to receive it — a handler may forward it
+                as its own result; the retry's answers then arrive on
+                `ctx.input_responses`.
 
         Returns:
-            The resource content as either text or bytes
+            The resource content as either text or bytes, or — only with
+            `allow_input_required=True` — the `InputRequiredResult` the
+            resource template function returned.
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
             ResourceError: If template creation or resource reading fails.
+            RuntimeError: If the resource returned an `InputRequiredResult`
+                and `allow_input_required` is `False`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
-        return await self._mcp_server.read_resource(uri, self)
+        result = await self._mcp_server.read_resource(uri, self)
+        if isinstance(result, InputRequiredResult) and not allow_input_required:
+            raise RuntimeError(
+                "Resource returned InputRequiredResult; pass allow_input_required=True to "
+                "receive it and forward it as this handler's result."
+            )
+        return result
 
     async def elicit(
         self,
