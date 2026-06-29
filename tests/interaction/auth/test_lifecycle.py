@@ -11,15 +11,16 @@ from collections import Counter
 from urllib.parse import parse_qsl, urlsplit
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import INTERNAL_ERROR, ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -176,6 +177,69 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     assert counts[("POST", "/register")] == 0
     assert counts[("GET", "/authorize")] == 2
     assert counts[("POST", "/token")] == 2
+
+
+@requirement("client-auth:403-scope-union")
+async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenged_scopes() -> None:
+    """The step-up re-authorize requests the union of the previously requested and challenged scopes.
+
+    The first authorization requests `mcp`; the 403 challenges a disjoint `write` (not naming
+    `mcp`). Per SEP-2350 the client must re-authorize with `mcp write`, not drop `mcp`. The client
+    is pre-registered with both scopes so the server's authorize handler accepts the wider request.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    challenge = 'Bearer error="insufficient_scope", scope="write"'
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=step_up_shim(challenge),
+        ) as (client, headless):
+            await client.list_tools()
+
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+
+@requirement("client-auth:as-binding")
+async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_client_re_registers() -> None:
+    """Credentials bound to a stale issuer are dropped and re-registered against the current AS.
+
+    The stored client is bound (SEP-2352) to a different issuer than the one the server's PRM
+    advertises, simulating an authorization-server migration. The client must discard it, perform
+    Dynamic Client Registration with the current AS, and never present the stale `client_id` at the
+    authorize or token endpoints.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    stale = seeded_client(provider, client_id="stale-as-client", issuer="https://old-as.example.com")
+    storage = InMemoryTokenStorage(client_info=stale)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (
+            client,
+            _,
+        ):
+            await client.list_tools()
+
+    # The client re-registered with the current AS...
+    assert path_counts(recorded)[("POST", "/register")] == 1
+    # ...and the stale client_id never reached the authorize or token endpoints.
+    authorize_and_token = find(recorded, "GET", "/authorize") + find(recorded, "POST", "/token")
+    assert all("stale-as-client" not in r.url.query.decode() for r in authorize_and_token)
+    assert all("stale-as-client" not in r.content.decode() for r in find(recorded, "POST", "/token"))
+    # The persisted client is now bound to the current AS.
+    assert storage.client_info is not None
+    assert storage.client_info.client_id != "stale-as-client"
+    assert storage.client_info.issuer == f"{BASE_URL}/"
 
 
 @requirement("client-auth:401-after-auth-throws")

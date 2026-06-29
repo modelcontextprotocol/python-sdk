@@ -20,15 +20,15 @@ from dataclasses import dataclass
 from urllib.parse import parse_qsl, quote, urlsplit
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp import types
 from mcp.client.auth import OAuthFlowError
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
-from mcp.types import ListToolsResult, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -184,6 +184,24 @@ async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
         ):
             # Entering the connect raises during the OAuth handshake (inside `Client.__aenter__`),
             # so an `async with` body would be unreachable; entering explicitly avoids dead code.
+            await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
+
+
+@requirement("client-auth:authorization-response:iss-verify")
+async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
+    """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
+
+    `iss_override` makes the headless callback return an issuer the AS never advertised; the SDK
+    compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    headless = HeadlessOAuth(iss_override="https://attacker.example.com")
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(
+            pytest.RaisesExc(OAuthFlowError, match="^Authorization response iss mismatch:"), flatten_subgroups=True
+        ):
             await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
 
 

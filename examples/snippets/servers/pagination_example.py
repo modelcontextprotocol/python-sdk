@@ -1,6 +1,7 @@
 """Example of implementing pagination with the low-level MCP server."""
 
-from mcp import types
+import mcp_types as types
+
 from mcp.server import Server, ServerRequestContext
 
 # Sample data to paginate

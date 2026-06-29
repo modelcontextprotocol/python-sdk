@@ -11,7 +11,12 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.client.auth import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthToken,
+)
 
 
 class MockTokenStorage:
@@ -48,8 +53,8 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     async def redirect_handler(url: str) -> None:
         pass  # pragma: no cover
 
-    async def callback_handler() -> tuple[str, str | None]:
-        return "test_auth_code", "test_state"  # pragma: no cover
+    async def callback_handler() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
     client_metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],

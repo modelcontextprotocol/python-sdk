@@ -28,11 +28,13 @@ import webbrowser
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp import ClientSession, types
+import mcp_types as types
+from mcp_types import URL_ELICITATION_REQUIRED
+
+from mcp import ClientSession
 from mcp.client.context import ClientRequestContext
 from mcp.client.sse import sse_client
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
-from mcp.types import URL_ELICITATION_REQUIRED
 
 
 async def handle_elicitation(

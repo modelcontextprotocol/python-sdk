@@ -2,9 +2,10 @@
 
 import asyncio
 
+from mcp_types import PaginatedRequestParams, Resource
+
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import PaginatedRequestParams, Resource
 
 
 async def list_all_resources() -> None:

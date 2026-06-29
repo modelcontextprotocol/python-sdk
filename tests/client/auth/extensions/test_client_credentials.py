@@ -13,7 +13,14 @@ from mcp.client.auth.extensions.client_credentials import (
     SignedJWTParameters,
     static_assertion_provider,
 )
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+)
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 class MockTokenStorage:
@@ -57,12 +64,12 @@ def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: M
         """Mock redirect handler."""
         pass
 
-    async def callback_handler() -> tuple[str, str | None]:  # pragma: no cover
+    async def callback_handler() -> AuthorizationCodeResult:  # pragma: no cover
         """Mock callback handler."""
-        return "test_auth_code", "test_state"
+        return AuthorizationCodeResult(code="test_auth_code", state="test_state")
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
         return RFC7523OAuthClientProvider(
             server_url="https://api.example.com/v1/mcp",
             client_metadata=client_metadata,

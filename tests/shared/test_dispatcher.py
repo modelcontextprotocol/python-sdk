@@ -12,12 +12,21 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
+from mcp_types import (
+    CONNECTION_CLOSED,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    REQUEST_TIMEOUT,
+    ErrorData,
+    Tool,
+)
 
+from mcp.shared._compat import resync_tracer
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
-from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, REQUEST_TIMEOUT, ErrorData, Tool
 
 from .conftest import PairFactory, direct_pair
 
@@ -72,6 +81,7 @@ async def running_pair(
             finally:
                 tg.cancel_scope.cancel()
     finally:
+        await resync_tracer()
         close()
 
 
@@ -228,13 +238,15 @@ async def test_ctx_message_metadata_is_none_when_transport_attaches_nothing(pair
 
 @pytest.mark.anyio
 async def test_ctx_request_id_exposes_inbound_id(pair_factory: PairFactory):
-    """JSON-RPC carries the wire id through; direct dispatch has none."""
+    """Every dispatcher assigns each inbound request a distinct int id; JSON-RPC carries
+    the wire id through, DirectDispatcher synthesizes one (SDK-defined)."""
     async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
             await client.send_raw_request("tools/call", None)
     a, b = (ctx.request_id for ctx in srec.contexts)
-    assert (a is None and b is None) or (isinstance(a, int) and isinstance(b, int) and a != b)
+    assert isinstance(a, int) and isinstance(b, int)
+    assert a != b
 
 
 @pytest.mark.anyio
@@ -259,18 +271,108 @@ async def test_direct_send_raw_request_issued_before_peer_run_blocks_until_peer_
     s_req, s_notify = echo_handlers(Recorder())
     c_req, c_notify = echo_handlers(Recorder())
 
-    async def late_start():
-        await anyio.sleep(0)
-        await server.run(s_req, s_notify)
-
     async with anyio.create_task_group() as tg:
-        tg.start_soon(client.run, c_req, c_notify)
-        tg.start_soon(late_start)
+        await tg.start(client.run, c_req, c_notify)
+        # start_soon: the server side only becomes ready once the request below has parked.
+        tg.start_soon(server.run, s_req, s_notify)
         with anyio.fail_after(5):
             result = await client.send_raw_request("ping", None)
         assert result == {"echoed": "ping", "params": {}}
         client.close()
         server.close()
+
+
+@pytest.mark.anyio
+async def test_direct_send_raw_request_before_run_raises_runtimeerror():
+    """The not-running guard fires immediately - before any waiting on the peer - matching JSONRPCDispatcher."""
+    client, _server = create_direct_dispatcher_pair()
+    with anyio.fail_after(5), pytest.raises(RuntimeError) as exc:
+        await client.send_raw_request("ping", None)
+    assert str(exc.value) == "DirectDispatcher.send_raw_request called before run()"
+
+
+@pytest.mark.anyio
+async def test_direct_send_raw_request_to_never_run_peer_honors_timeout():
+    """A configured timeout bounds the wait for a peer whose run() has not started."""
+    client, _server = create_direct_dispatcher_pair()
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
+            await client.send_raw_request("ping", None, {"timeout": 0})
+        assert exc.value.error.code == REQUEST_TIMEOUT
+        client.close()
+
+
+@pytest.mark.anyio
+async def test_direct_request_parked_waiting_for_peer_run_is_woken_by_peer_close():
+    """A request waiting on a never-run peer fails with CONNECTION_CLOSED when that peer closes."""
+    client, server = create_direct_dispatcher_pair()
+    c_req, c_notify = echo_handlers(Recorder())
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, c_req, c_notify)
+
+            async def send() -> None:
+                with pytest.raises(MCPError) as exc:
+                    await client.send_raw_request("ping", None)
+                assert exc.value.error.code == CONNECTION_CLOSED
+                client.close()
+
+            tg.start_soon(send)
+            await anyio.wait_all_tasks_blocked()
+            server.close()
+
+
+@pytest.mark.anyio
+async def test_direct_send_raw_request_after_local_close_raises_and_notify_is_dropped():
+    """After this side has closed, send_raw_request raises CONNECTION_CLOSED and notify
+    drops fire-and-forget, matching JSONRPCDispatcher (SDK-defined)."""
+    async with running_pair(direct_pair) as (client, _server, _crec, srec):
+        pass  # exiting cancels both run() loops, closing both sides
+    with pytest.raises(MCPError) as exc:
+        await client.send_raw_request("ping", None)
+    assert exc.value.error.code == CONNECTION_CLOSED
+    await client.notify("notifications/roots/list_changed", None)
+    assert srec.requests == []
+    assert srec.notifications == []
+
+
+@pytest.mark.anyio
+async def test_direct_inbound_after_peer_close_refuses_requests_and_drops_notifications():
+    """Dispatch to a closed side fails the peer's request with CONNECTION_CLOSED and silently
+    drops the peer's notify; the closed side's handlers are never invoked (SDK-defined)."""
+    client, server = create_direct_dispatcher_pair()
+    crec, srec = Recorder(), Recorder()
+    c_req, c_notify = echo_handlers(crec)
+    s_req, s_notify = echo_handlers(srec)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, c_req, c_notify)
+            await tg.start(server.run, s_req, s_notify)
+            client.close()
+            with pytest.raises(MCPError) as exc:
+                await server.send_raw_request("roots/list", None)
+            assert exc.value.error.code == CONNECTION_CLOSED
+            await server.notify("notifications/message", None)
+            server.close()
+    assert crec.requests == []
+    assert crec.notifications == []
+
+
+@pytest.mark.anyio
+async def test_direct_inbound_to_closed_never_run_peer_fails_with_connection_closed():
+    """A peer that closed without ever running refuses dispatch instead of parking the caller."""
+    client, server = create_direct_dispatcher_pair()
+    c_req, c_notify = echo_handlers(Recorder())
+    server.close()
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, c_req, c_notify)
+            with pytest.raises(MCPError) as exc:
+                await client.send_raw_request("ping", None)
+            assert exc.value.error.code == CONNECTION_CLOSED
+            client.close()
 
 
 @pytest.mark.anyio

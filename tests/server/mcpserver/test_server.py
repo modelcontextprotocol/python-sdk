@@ -3,33 +3,30 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
-
-from mcp.client import Client
-from mcp.server.context import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.server.mcpserver.prompts.base import Message, UserMessage
-from mcp.server.mcpserver.resources import FileResource, FunctionResource
-from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
+    CallToolResult,
+    ClientCapabilities,
     Completion,
     CompletionArgument,
     CompletionContext,
     ContentBlock,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmbeddedResource,
     GetPromptResult,
     Icon,
     ImageContent,
+    InputRequiredResult,
     ListPromptsResult,
+    ListRootsRequest,
     Prompt,
     PromptArgument,
     PromptMessage,
@@ -40,6 +37,20 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from pydantic import BaseModel
+from starlette.applications import Starlette
+from starlette.routing import Mount, Route
+
+from mcp.client import Client
+from mcp.server.context import ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
+from mcp.server.mcpserver.prompts.base import Message, UserMessage
+from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import InvalidUriTemplate
 
 pytestmark = pytest.mark.anyio
 
@@ -303,6 +314,29 @@ class TestServerTools:
             # Check structured content - int return type should have structured output
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
+
+    async def test_call_tool_always_returns_call_tool_result(self):
+        mcp = MCPServer()
+
+        @mcp.tool()
+        def direct() -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text="direct")])
+
+        @mcp.tool(structured_output=False)
+        def unstructured() -> str:
+            return "plain"
+
+        @mcp.tool()
+        def structured() -> int:
+            return 3
+
+        assert await mcp.call_tool("direct", {}) == CallToolResult(content=[TextContent(type="text", text="direct")])
+        assert await mcp.call_tool("unstructured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="plain")]
+        )
+        assert await mcp.call_tool("structured", {}) == CallToolResult(
+            content=[TextContent(type="text", text="3")], structured_content={"result": 3}
+        )
 
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image
@@ -694,7 +728,7 @@ class TestServerResources:
         mcp = MCPServer(resources=[resource])
 
         async with Client(mcp) as client:
-            assert client.initialize_result.capabilities.resources is not None
+            assert client.server_capabilities.resources is not None
 
             resources = await client.list_resources()
             assert len(resources.resources) == 1
@@ -726,12 +760,15 @@ class TestServerResources:
             assert result.contents[0].text == "Hello, world!"
 
     async def test_read_unknown_resource(self):
-        """Test that reading an unknown resource raises MCPError."""
+        """Test that reading an unknown resource returns -32602 with uri in data (SEP-2164)."""
         mcp = MCPServer()
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+            with pytest.raises(MCPError, match="Unknown resource: unknown://missing") as exc_info:
                 await client.read_resource("unknown://missing")
+
+            assert exc_info.value.error.code == INVALID_PARAMS
+            assert exc_info.value.error.data == {"uri": "unknown://missing"}
 
     async def test_read_resource_error(self):
         """Test that resource read errors are properly wrapped in MCPError."""
@@ -826,7 +863,7 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = MCPServer()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(ValueError, match="has no URI template variables"):
 
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:  # pragma: no cover
@@ -1081,16 +1118,16 @@ class TestContextInjection:
         mcp = MCPServer()
 
         async def logging_tool(msg: str, ctx: Context) -> str:
-            await ctx.debug("Debug message")
-            await ctx.info("Info message")
-            await ctx.warning("Warning message")
-            await ctx.error("Error message")
+            await ctx.debug("Debug message")  # pyright: ignore[reportDeprecated]
+            await ctx.info("Info message")  # pyright: ignore[reportDeprecated]
+            await ctx.warning("Warning message")  # pyright: ignore[reportDeprecated]
+            await ctx.error("Error message")  # pyright: ignore[reportDeprecated]
             return f"Logged messages for {msg}"
 
         mcp.add_tool(logging_tool)
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
-            async with Client(mcp) as client:
+            async with Client(mcp, mode="legacy") as client:
                 result = await client.call_tool("logging_tool", {"msg": "test"})
                 assert len(result.content) == 1
                 content = result.content[0]
@@ -1098,10 +1135,10 @@ class TestContextInjection:
                 assert "Logged messages for test" in content.text
 
                 assert mock_log.call_count == 4
-                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
-                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="2")
+                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="2")
 
     async def test_optional_context(self):
         """Test that context is optional."""
@@ -1437,7 +1474,7 @@ class TestServerPrompts:
         """Test error when getting unknown prompt."""
         mcp = MCPServer()
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
@@ -1448,9 +1485,261 @@ class TestServerPrompts:
         @mcp.prompt()
         def prompt_fn(name: str) -> str: ...  # pragma: no branch
 
-        async with Client(mcp) as client:
+        async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+async def test_resource_decorator_rfc6570_reserved_expansion():
+    # Regression: old regex-based param extraction couldn't see `path`
+    # in `{+path}` and failed with a confusing mismatch error.
+    mcp = MCPServer()
+
+    @mcp.resource("file://docs/{+path}")
+    def read_doc(path: str) -> str:
+        raise NotImplementedError
+
+    templates = await mcp.list_resource_templates()
+    assert [t.uri_template for t in templates] == ["file://docs/{+path}"]
+
+
+async def test_resource_decorator_rejects_malformed_template():
+    mcp = MCPServer()
+    with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
+        mcp.resource("file://{name")
+
+
+async def test_resource_optional_query_params_use_function_defaults():
+    """Omitted {?...} query params should fall through to the
+    handler's Python defaults. Partial and reordered params work."""
+    mcp = MCPServer()
+
+    @mcp.resource("logs://{service}{?since,level}")
+    def tail_logs(service: str, since: str = "1h", level: str = "info") -> str:
+        return f"{service}|{since}|{level}"
+
+    async with Client(mcp) as client:
+        # No query → all defaults
+        r = await client.read_resource("logs://api")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|1h|info"
+
+        # Partial query → one default
+        r = await client.read_resource("logs://api?since=15m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|15m|info"
+
+        # Reordered, both present
+        r = await client.read_resource("logs://api?level=error&since=5m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|5m|error"
+
+        # Extra param ignored
+        r = await client.read_resource("logs://api?since=2h&utm=x")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|2h|info"
+
+
+async def test_resource_query_param_without_default_rejected_at_decoration():
+    """A handler parameter bound to a {?...} query variable must have a
+    Python default: a client may omit a query parameter, so the handler has
+    to be callable without it. Omitting the default is an error when the
+    decorator runs, not on the first request that leaves the parameter out."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match=r"logs://.*\['level'\].*must declare a default"):
+
+        @mcp.resource("logs://{service}{?level}")
+        def tail_logs(service: str, level: str) -> str:
+            raise NotImplementedError
+
+
+async def test_resource_path_param_without_default_accepted():
+    """The default requirement applies only to query-bound parameters.
+    A path variable is always present in a matching URI, so its handler
+    parameter may be required."""
+    mcp = MCPServer()
+
+    @mcp.resource("logs://{service}{?level}")
+    def tail_logs(service: str, level: str = "info") -> str:
+        raise NotImplementedError
+
+    templates = await mcp.list_resource_templates()
+    assert [t.uri_template for t in templates] == ["logs://{service}{?level}"]
+
+
+async def test_resource_security_default_rejects_traversal():
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Safe value passes through to the handler
+        r = await client.read_resource("data://items/widget")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "item:widget"
+
+        # ".." as a path component is rejected by default policy
+        with pytest.raises(MCPError, match="Unknown resource"):
+            await client.read_resource("data://items/..")
+
+
+async def test_resource_template_non_match_is_unknown_resource():
+    """A URI that doesn't satisfy a registered template — including one
+    shorter than the template's literal segments — must surface as the
+    standard -32602 Unknown resource, not an internal error."""
+    mcp = MCPServer()
+
+    @mcp.resource("api://{+path}/{id}")
+    def get(path: str, id: str) -> str:
+        return f"{path}|{id}"
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("api://foo")
+        assert exc_info.value.error.code == INVALID_PARAMS
+        assert exc_info.value.error.message == "Unknown resource: api://foo"
+
+        # And a satisfying URI still routes to the handler.
+        r = await client.read_resource("api://a/b/c")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "a/b|c"
+
+
+async def test_resource_security_rejection_indistinguishable_from_not_found():
+    """A path-safety rejection must produce the same wire error as a
+    genuinely-absent resource: same code, same message shape, no hint
+    about which check failed."""
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:  # pragma: no cover - never reached
+        return name
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as rejected:
+            await client.read_resource("data://items/..")
+        with pytest.raises(MCPError) as absent:
+            await client.read_resource("nosuch://thing")
+
+        assert rejected.value.error.code == absent.value.error.code == INVALID_PARAMS
+        # Message echoes the requested URI and nothing else; no
+        # reference to which validation step rejected it.
+        assert rejected.value.error.message == "Unknown resource: data://items/.."
+        assert absent.value.error.message == "Unknown resource: nosuch://thing"
+        assert rejected.value.error.data == {"uri": "data://items/.."}
+        assert absent.value.error.data == {"uri": "nosuch://thing"}
+
+
+async def test_resource_security_per_resource_override():
+    mcp = MCPServer()
+
+    @mcp.resource(
+        "git://diff/{+range}",
+        security=ResourceSecurity(exempt_params={"range"}),
+    )
+    def git_diff(range: str) -> str:
+        return f"diff:{range}"
+
+    async with Client(mcp) as client:
+        # "../foo" would be rejected by default, but "range" is exempt
+        result = await client.read_resource("git://diff/../foo")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "diff:../foo"
+
+
+async def test_resource_security_server_wide_override():
+    mcp = MCPServer(resource_security=ResourceSecurity(reject_path_traversal=False))
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Server-wide policy disabled traversal check; ".." now allowed
+        result = await client.read_resource("data://items/..")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "item:.."
+
+
+async def test_resource_security_namespaced_identifier_requires_exempt():
+    """Single-letter-colon values like ``x:y`` are flagged by the
+    default absolute-path check (they parse as Windows drive-relative,
+    which discards the join base). A non-filesystem parameter that
+    legitimately accepts such values opts out via ``exempt_params``."""
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{id}")
+    def get_item(id: str) -> str:  # pragma: no cover - rejected before call
+        return f"item:{id}"
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="Unknown resource") as exc:
+            await client.read_resource("data://items/x:y")
+        assert exc.value.error.code == INVALID_PARAMS
+
+    # Exempting the parameter lets the value through.
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{id}", security=ResourceSecurity(exempt_params={"id"}))
+    def get_item_exempt(id: str) -> str:
+        return f"item:{id}"
+
+    async with Client(mcp) as client:
+        r = await client.read_resource("data://items/x:y")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "item:x:y"
+
+
+async def test_resource_security_rejection_halts_template_iteration():
+    """A strict template's security rejection must surface as
+    not-found and stop; a later permissive template must not be
+    reached."""
+    mcp = MCPServer()
+
+    @mcp.resource("file://docs/{name}")
+    def strict(name: str) -> str:  # pragma: no cover - never reached
+        return name
+
+    @mcp.resource(
+        "file://docs/{+path}",
+        security=ResourceSecurity(exempt_params={"path"}),
+    )
+    def lax(path: str) -> str:  # pragma: no cover - must not be reached
+        raise AssertionError("permissive template reached after security rejection")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("file://docs/..%2Fsecrets")
+        assert exc.value.error.code == INVALID_PARAMS
+        assert "Unknown resource" in exc.value.error.message
+
+
+async def test_static_resource_with_context_param_errors():
+    """A non-template URI with a Context-only handler should error
+    at decoration time with a clear message, not silently register
+    an unreachable resource."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="Context injection for static resources is not supported"):
+
+        @mcp.resource("weather://current")
+        def current_weather(ctx: Context) -> str:
+            raise NotImplementedError
+
+
+async def test_static_resource_with_extra_params_errors():
+    """A non-template URI with non-Context params should error at
+    decoration time."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="has no URI template variables"):
+
+        @mcp.resource("data://fixed")
+        def get_data(name: str) -> str:
+            raise NotImplementedError
 
 
 async def test_completion_decorator() -> None:
@@ -1486,31 +1775,153 @@ def test_streamable_http_no_redirect() -> None:
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
 
 
-async def test_report_progress_passes_related_request_id():
-    """Test that report_progress passes the request_id as related_request_id.
+async def test_report_progress_delegates_to_session_report_progress():
+    """Context.report_progress delegates to ServerSession.report_progress unconditionally.
 
-    Without related_request_id, the streamable HTTP transport cannot route
-    progress notifications to the correct SSE stream, causing them to be
-    silently dropped. See #953 and #2001.
+    Stream routing (related_request_id, progress-token gating) is encapsulated in the
+    per-request DispatchContext that ServerSession holds, so Context never inspects
+    request metadata itself. See #953 and #2001 for the original streamable-HTTP routing bug.
     """
     mock_session = AsyncMock()
-    mock_session.send_progress_notification = AsyncMock()
+    mock_session.report_progress = AsyncMock()
 
     request_context = ServerRequestContext(
         request_id="req-abc-123",
         session=mock_session,
-        meta={"progress_token": "tok-1"},
+        method="tools/call",
+        meta=None,
         lifespan_context=None,
+        protocol_version="2025-11-25",
     )
 
     ctx = Context(request_context=request_context, mcp_server=MagicMock())
 
     await ctx.report_progress(50, 100, message="halfway")
 
-    mock_session.send_progress_notification.assert_awaited_once_with(
-        progress_token="tok-1",
-        progress=50,
-        total=100,
-        message="halfway",
-        related_request_id="req-abc-123",
-    )
+    mock_session.report_progress.assert_awaited_once_with(50, 100, "halfway")
+
+
+async def test_read_resource_template_error():
+    """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://item/{item_id}")
+    def get_item(item_id: str) -> str:
+        raise RuntimeError("backend unavailable")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="Error creating resource from template") as exc_info:
+            await client.read_resource("resource://item/42")
+
+        assert exc_info.value.error.code == INTERNAL_ERROR
+
+
+async def test_read_resource_template_not_found():
+    """A template handler raising ResourceNotFoundError must surface as INVALID_PARAMS per SEP-2164."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://users/{user_id}")
+    def get_user(user_id: str) -> str:
+        raise ResourceNotFoundError(f"no user {user_id}")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="no user 999") as exc_info:
+            await client.read_resource("resource://users/999")
+
+        assert exc_info.value.error.code == INVALID_PARAMS
+        assert exc_info.value.error.data == {"uri": "resource://users/999"}
+
+
+async def test_tool_returning_input_required_result_reaches_client_unchanged():
+    mcp = MCPServer()
+
+    @mcp.tool()
+    async def ask(ctx: Context) -> str | InputRequiredResult:
+        return InputRequiredResult(input_requests={"roots": ListRootsRequest()}, request_state="round-1")
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            result = await client.session.call_tool("ask", allow_input_required=True)
+
+    assert isinstance(result, InputRequiredResult)
+    assert result.request_state == "round-1"
+    assert result.input_requests is not None
+    assert result.input_requests["roots"].method == "roots/list"
+
+
+async def test_tool_reads_input_responses_and_request_state_from_context_on_retry():
+    mcp = MCPServer()
+
+    @mcp.tool()
+    async def greet(ctx: Context) -> str | InputRequiredResult:
+        responses = ctx.input_responses
+        if responses and "who" in responses:
+            who = responses["who"]
+            assert isinstance(who, ElicitResult) and who.content is not None
+            return f"Hello, {who.content['name']}! (state={ctx.request_state})"
+        return InputRequiredResult(
+            input_requests={
+                "who": ElicitRequest(
+                    params=ElicitRequestFormParams(
+                        message="What is your name?",
+                        requested_schema={
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                            "required": ["name"],
+                        },
+                    )
+                )
+            },
+            request_state="r1",
+        )
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.session.call_tool("greet", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
+            assert r1.input_requests is not None and "who" in r1.input_requests
+
+            r2 = await client.session.call_tool(
+                "greet",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                request_state=r1.request_state,
+                allow_input_required=True,
+            )
+    assert isinstance(r2, CallToolResult)
+    block = r2.content[0]
+    assert isinstance(block, TextContent)
+    assert block.text == "Hello, Alice! (state=r1)"
+
+
+async def test_context_exposes_client_capabilities_from_connection():
+    mcp = MCPServer()
+    seen: list[ClientCapabilities | None] = []
+
+    @mcp.tool()
+    async def probe(ctx: Context) -> str:
+        seen.append(ctx.client_capabilities)
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            await client.call_tool("probe")
+
+    assert len(seen) == 1
+    assert isinstance(seen[0], ClientCapabilities)
+
+
+async def test_context_input_responses_and_request_state_are_none_on_initial_round():
+    mcp = MCPServer()
+    captured: dict[str, Any] = {}
+
+    @mcp.tool()
+    async def probe(ctx: Context) -> str:
+        captured["responses"] = ctx.input_responses
+        captured["state"] = ctx.request_state
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            await client.call_tool("probe")
+
+    assert captured == {"responses": None, "state": None}

@@ -1,9 +1,9 @@
 """Tests for MCP exception classes."""
 
 import pytest
+from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
-from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
 
 
 def test_url_elicitation_required_error_create_with_single_elicitation() -> None:
@@ -162,3 +162,14 @@ def test_url_elicitation_required_error_exception_message() -> None:
 
     # The exception's string representation should match the message
     assert str(error) == "URL elicitation required"
+
+
+def test_from_jsonrpc_error_preserves_code_message_and_data() -> None:
+    """Building an MCPError from a wire JSONRPCError keeps every error field."""
+    wire = JSONRPCError(
+        jsonrpc="2.0",
+        id=3,
+        error=ErrorData(code=URL_ELICITATION_REQUIRED, message="go elsewhere", data={"hint": "y"}),
+    )
+    error = MCPError.from_jsonrpc_error(wire)
+    assert error.error == ErrorData(code=URL_ELICITATION_REQUIRED, message="go elsewhere", data={"hint": "y"})

@@ -7,13 +7,11 @@ test-only-functions convention.
 """
 
 import sys
+import warnings
 
 import anyio
 import coverage
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.stdio import stdio_server
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -23,6 +21,10 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -40,7 +42,9 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     assert params.name == "echo"
     assert params.arguments is not None
     text = params.arguments["text"]
-    await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
+        await ctx.session.send_log_message(level="info", data=f"echoing {text}", logger="echo")  # pyright: ignore[reportDeprecated]
     return CallToolResult(content=[TextContent(text=text)])
 
 
@@ -49,7 +53,11 @@ async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestPa
     raise NotImplementedError
 
 
-server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", MCPDeprecationWarning)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
 
 async def main() -> None:

@@ -9,12 +9,12 @@ them.
 from types import TracebackType
 
 import anyio
+from mcp_types import ClientResult, ServerNotification, ServerRequest
 from typing_extensions import Self
 
 from mcp.client._transport import ReadStream, Transport, TransportStreams, WriteStream
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import ClientResult, ServerNotification, ServerRequest
 
 # TODO: this union is the parameter type of every client message handler (MessageHandlerFnT),
 # but the SDK does not export a name for it -- writing a correctly-typed handler requires
@@ -67,8 +67,9 @@ class _RecordingWriteStream:
         self._log = log
 
     async def send(self, item: SessionMessage, /) -> None:
-        self._log.append(item)
+        # Record only after the inner send returns: a failed or cancelled send never reached the transport.
         await self._inner.send(item)
+        self._log.append(item)
 
     async def aclose(self) -> None:
         await self._inner.aclose()

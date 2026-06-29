@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import httpx
 import pytest
+from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 from starlette.types import Message, Scope
 
 from mcp import Client
@@ -17,7 +18,6 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 
 
 @pytest.mark.anyio
@@ -103,11 +103,12 @@ async def running_manager():
 
 @pytest.mark.anyio
 async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
-    manager, app = running_manager
+    manager, _app = running_manager
 
-    mock_mcp_run = AsyncMock(return_value=None)
-    # This will be called by StreamableHTTPSessionManager's run_server -> self.app.run
-    app.run = mock_mcp_run
+    # The manager's `run_server` task drives `serve_loop` directly (the manager
+    # owns lifespan); patch that seam so the loop returns immediately and we
+    # can observe the cleanup that follows.
+    mock_serve = AsyncMock(return_value=None)
 
     sent_messages: list[Message] = []
 
@@ -125,7 +126,8 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    await manager.handle_request(scope, mock_receive, mock_send)
+    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+        await manager.handle_request(scope, mock_receive, mock_send)
 
     # Extract session ID from response headers
     session_id = None
@@ -140,10 +142,9 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
 
     assert session_id is not None, "Session ID not found in response headers"
 
-    # Ensure MCPServer.run was called
-    mock_mcp_run.assert_called_once()
+    mock_serve.assert_called_once()
 
-    # At this point, mock_mcp_run has completed, and the finally block in
+    # At this point, mock_serve has completed, and the finally block in
     # StreamableHTTPSessionManager's run_server should have executed.
 
     # To ensure the task spawned by handle_request finishes and cleanup occurs:
@@ -158,10 +159,9 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
 
 @pytest.mark.anyio
 async def test_stateful_session_cleanup_on_exception(running_manager: tuple[StreamableHTTPSessionManager, Server]):
-    manager, app = running_manager
+    manager, _app = running_manager
 
-    mock_mcp_run = AsyncMock(side_effect=TestException("Simulated crash"))
-    app.run = mock_mcp_run
+    mock_serve = AsyncMock(side_effect=TestException("Simulated crash"))
 
     sent_messages: list[Message] = []
 
@@ -184,7 +184,8 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    await manager.handle_request(scope, mock_receive, mock_send)
+    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+        await manager.handle_request(scope, mock_receive, mock_send)
 
     session_id = None
     for msg in sent_messages:  # pragma: no branch
@@ -198,7 +199,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
     assert session_id is not None, "Session ID not found in response headers"
 
-    mock_mcp_run.assert_called_once()
+    mock_serve.assert_called_once()
 
     # Give other tasks a chance to run to ensure the finally block executes
     await anyio.sleep(0.01)
@@ -229,9 +230,6 @@ async def test_stateless_requests_memory_cleanup():
 
     with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
         async with manager.run():
-            # Mock app.run to complete immediately
-            app.run = AsyncMock(return_value=None)
-
             # Send a simple request
             sent_messages: list[Message] = []
 
@@ -335,7 +333,7 @@ async def test_e2e_streamable_http_server_cleanup():
         mcp_app.router.lifespan_context(mcp_app),
         httpx.ASGITransport(mcp_app) as transport,
         httpx.AsyncClient(transport=transport) as http_client,
-        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client), mode="legacy") as client,
     ):
         await client.list_tools()
 

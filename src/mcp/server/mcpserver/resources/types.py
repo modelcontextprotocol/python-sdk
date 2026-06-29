@@ -12,11 +12,11 @@ import anyio.to_thread
 import httpx
 import pydantic
 import pydantic_core
+from mcp_types import Annotations, Icon
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.types import Annotations, Icon
 
 
 class TextResource(Resource):

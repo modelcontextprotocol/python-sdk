@@ -5,12 +5,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import Annotations, Icon
 from pydantic import AnyUrl
 
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.server.mcpserver.resources.base import Resource
-from mcp.server.mcpserver.resources.templates import ResourceTemplate
+from mcp.server.mcpserver.resources.templates import (
+    DEFAULT_RESOURCE_SECURITY,
+    ResourceSecurity,
+    ResourceSecurityError,
+    ResourceTemplate,
+)
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -62,6 +68,7 @@ class ResourceManager:
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ) -> ResourceTemplate:
         """Add a template from a function."""
         template = ResourceTemplate.from_function(
@@ -74,12 +81,27 @@ class ResourceManager:
             icons=icons,
             annotations=annotations,
             meta=meta,
+            security=security,
         )
         self._templates[template.uri_template] = template
         return template
 
     async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
-        """Get resource by URI, checking concrete resources first, then templates."""
+        """Get resource by URI, checking concrete resources first, then templates.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If a matching template fails to create the resource.
+
+        Note:
+            Pydantic's ``AnyUrl`` normalises percent-encoding and
+            resolves ``..`` segments during validation, so a value
+            constructed as ``AnyUrl("file:///a/%2E%2E/b")`` arrives
+            here as ``file:///b``. The JSON-RPC protocol layer passes
+            raw ``str`` values and is unaffected, but internal callers
+            wrapping URIs in ``AnyUrl`` should be aware that security
+            checks see the already-normalised form.
+        """
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 
@@ -89,13 +111,14 @@ class ResourceManager:
 
         # Then check templates
         for template in self._templates.values():
-            if params := template.matches(uri_str):
-                try:
-                    return await template.create_resource(uri_str, params, context=context)
-                except Exception as e:  # pragma: no cover
-                    raise ValueError(f"Error creating resource from template: {e}")
+            try:
+                params = template.matches(uri_str)
+            except ResourceSecurityError as e:
+                raise ResourceNotFoundError(f"Unknown resource: {uri}") from e
+            if params is not None:
+                return await template.create_resource(uri_str, params, context=context)
 
-        raise ValueError(f"Unknown resource: {uri}")
+        raise ResourceNotFoundError(f"Unknown resource: {uri}")
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""

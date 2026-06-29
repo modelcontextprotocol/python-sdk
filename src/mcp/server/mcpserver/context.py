@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Generic
 
+from mcp_types import ClientCapabilities, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
+from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
@@ -14,7 +16,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.types import LoggingLevel
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -56,6 +58,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
+    _input_params: InputResponseRequestParams | None
 
     # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
@@ -63,12 +66,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         *,
         request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
+        input_params: InputResponseRequestParams | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server
+        self._input_params = input_params
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -80,7 +85,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     @property
     def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
         """Access to the underlying request context."""
-        if self._request_context is None:  # pragma: no cover
+        if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
@@ -92,18 +97,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             total: Optional total value (e.g., 100)
             message: Optional message (e.g., "Starting render...")
         """
-        progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
-
-        if progress_token is None:
-            return
-
-        await self.request_context.session.send_progress_notification(
-            progress_token=progress_token,
-            progress=progress,
-            total=total,
-            message=message,
-            related_request_id=self.request_id,
-        )
+        await self.request_context.session.report_progress(progress, total, message)
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.
@@ -113,6 +107,10 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         Returns:
             The resource content as either text or bytes
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
         return await self._mcp_server.read_resource(uri, self)
@@ -185,6 +183,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(
         self,
         level: LoggingLevel,
@@ -201,7 +200,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
                 (string, dict, list, number, bool, etc.) per the MCP specification.
             logger_name: Optional logger name
         """
-        await self.request_context.session.send_log_message(
+        await self.request_context.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level=level,
             data=data,
             logger=logger_name,
@@ -222,6 +221,33 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)
+
+    @property
+    def input_responses(self) -> InputResponses | None:
+        """Client responses to a prior `InputRequiredResult.input_requests`.
+
+        `None` on the initial round, or when the client retried without
+        responses.
+        """
+        return self._input_params.input_responses if self._input_params else None
+
+    @property
+    def request_state(self) -> str | None:
+        """Opaque state echoed from a prior `InputRequiredResult.request_state`.
+
+        `None` on the initial round.
+        """
+        return self._input_params.request_state if self._input_params else None
+
+    @property
+    def client_capabilities(self) -> ClientCapabilities | None:
+        """The client's declared capabilities for this connection.
+
+        `None` when the client supplied no client info (e.g. an anonymous
+        stateless request without the reserved `_meta` keys).
+        """
+        client_params = self.request_context.session.client_params
+        return client_params.capabilities if client_params else None
 
     @property
     def session(self):
@@ -261,18 +287,22 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", data, logger_name=logger_name)
+        await self.log("debug", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", data, logger_name=logger_name)
+        await self.log("info", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message."""
-        await self.log("warning", data, logger_name=logger_name)
+        await self.log("warning", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]
 
+    @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", data, logger_name=logger_name)
+        await self.log("error", data, logger_name=logger_name)  # pyright: ignore[reportDeprecated]

@@ -5,14 +5,7 @@ from contextlib import asynccontextmanager
 
 import anyio
 import pytest
-from pydantic import TypeAdapter
-
-from mcp.server import ServerRequestContext
-from mcp.server.lowlevel.server import NotificationOptions, Server
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage
-from mcp.types import (
+from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
@@ -24,6 +17,13 @@ from mcp.types import (
     JSONRPCResponse,
     TextContent,
 )
+from pydantic import TypeAdapter
+
+from mcp.server import ServerRequestContext
+from mcp.server.lowlevel.server import NotificationOptions, Server
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio

@@ -13,11 +13,11 @@ import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import EmptyResult
 
 from mcp.client.client import Client
 from mcp.client.sse import sse_client
 from mcp.server import Server
-from mcp.types import EmptyResult
 from tests.interaction._connect import BASE_URL, build_sse_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -51,10 +51,10 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
         f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory, on_session_created=captured_session_id.append
     )
     with anyio.fail_after(5):
-        async with Client(transport) as client:
+        async with Client(transport, mode="legacy") as client:
             assert len(captured_session_id) == 1
             assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
-            assert await client.send_ping() == snapshot(EmptyResult())
+            assert await client.send_ping() == snapshot(EmptyResult())  # pyright: ignore[reportDeprecated]
 
     assert sse._read_stream_writers == {}
 

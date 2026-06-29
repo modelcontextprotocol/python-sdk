@@ -37,20 +37,23 @@ handler callables by method string.
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, overload
 
+import mcp_types as types
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import Mount, Route
-from typing_extensions import TypeVar
+from typing_extensions import TypeVar, deprecated
 
-from mcp import types
+from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
@@ -58,14 +61,13 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_auth_rout
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import ServerRunner, otel_middleware
+from mcp.server.runner import serve_loop
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
-from mcp.shared.transport_context import TransportContext
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,17 @@ async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestPar
     return types.EmptyResult()
 
 
+def _package_version(package: str) -> str:
+    try:
+        return importlib_version(package)
+    except Exception:  # pragma: no cover
+        pass
+
+    return "unknown"  # pragma: no cover
+
+
 class Server(Generic[LifespanResultT]):
+    @overload
     def __init__(
         self,
         name: str,
@@ -140,7 +152,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -155,7 +167,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_read_resource: Callable[
             [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
-            Awaitable[types.ReadResourceResult],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
         ]
         | None = None,
         on_subscribe_resource: Callable[
@@ -168,6 +180,11 @@ class Server(Generic[LifespanResultT]):
             Awaitable[types.EmptyResult],
         ]
         | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
         on_list_prompts: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListPromptsResult],
@@ -175,7 +192,89 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_get_prompt: Callable[
             [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
-            Awaitable[types.GetPromptResult],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+    ) -> None: ...
+    @overload
+    @deprecated(
+        "on_set_logging_level (Logging) and on_roots_list_changed (Roots) are deprecated as of 2026-07-28 "
+        "(SEP-2577); on_progress (client-to-server progress) is deprecated as of 2026-07-28. Passing any of "
+        "them emits an MCPDeprecationWarning at runtime.",
+        category=MCPDeprecationWarning,
+    )
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
         ]
         | None = None,
         on_completion: Callable[
@@ -203,7 +302,117 @@ class Server(Generic[LifespanResultT]):
             Awaitable[None],
         ]
         | None = None,
-    ):
+    ) -> None: ...
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_set_logging_level: Callable[
+            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+        # Notification handlers
+        on_roots_list_changed: Callable[
+            [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
+            Awaitable[None],
+        ]
+        | None = None,
+        on_progress: Callable[
+            [ServerRequestContext[LifespanResultT], types.ProgressNotificationParams],
+            Awaitable[None],
+        ]
+        | None = None,
+    ) -> None:
+        if on_set_logging_level is not None:
+            warnings.warn(
+                "The logging capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_roots_list_changed is not None:
+            warnings.warn(
+                "The roots capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_progress is not None:
+            warnings.warn(
+                "Client-to-server progress is deprecated as of 2026-07-28.",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+
         self.name = name
         self.version = version
         self.title = title
@@ -217,15 +426,19 @@ class Server(Generic[LifespanResultT]):
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
-        # `(ctx, method, params, call_next)`. Applied in `ServerRunner._on_request`.
-        # TODO(maxisbey): provisional - signature and semantics change with the
+        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
+        # `OpenTelemetryMiddleware` ships on by default so every server emits a
+        # SERVER span per message; it is a no-op until an OTel exporter is
+        # installed. Drop it from this list to opt out.
+        # TODO(L54): provisional - signature and semantics change with the
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.
-        self.middleware: list[ServerMiddleware[LifespanResultT]] = []
+        self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
         logger.debug("Initializing server %r", name)
 
         _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
             ("ping", types.RequestParams, on_ping),
+            ("server/discover", types.RequestParams, self._handle_discover),
             ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
             ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
             ("resources/list", types.PaginatedRequestParams, on_list_resources),
@@ -233,6 +446,7 @@ class Server(Generic[LifespanResultT]):
             ("resources/read", types.ReadResourceRequestParams, on_read_resource),
             ("resources/subscribe", types.SubscribeRequestParams, on_subscribe_resource),
             ("resources/unsubscribe", types.UnsubscribeRequestParams, on_unsubscribe_resource),
+            ("subscriptions/listen", types.SubscriptionsListenRequestParams, on_subscriptions_listen),
             ("tools/list", types.PaginatedRequestParams, on_list_tools),
             ("tools/call", types.CallToolRequestParams, on_call_tool),
             ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),
@@ -298,7 +512,7 @@ class Server(Generic[LifespanResultT]):
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
-    # TODO: Rethink capabilities API. Currently capabilities are derived from registered
+    # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
     # entirely from server state (e.g. constructor params for list_changed) instead of
@@ -309,18 +523,9 @@ class Server(Generic[LifespanResultT]):
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
-
-        def pkg_version(package: str) -> str:
-            try:
-                return importlib_version(package)
-            except Exception:  # pragma: no cover
-                pass
-
-            return "unknown"  # pragma: no cover
-
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else pkg_version("mcp"),
+            server_version=self.version if self.version else _package_version("mcp"),
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -334,10 +539,11 @@ class Server(Generic[LifespanResultT]):
 
     def get_capabilities(
         self,
-        notification_options: NotificationOptions,
-        experimental_capabilities: dict[str, dict[str, Any]],
+        notification_options: NotificationOptions | None = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object."""
+        notification_options = notification_options or NotificationOptions()
         prompts_capability = None
         resources_capability = None
         tools_capability = None
@@ -378,6 +584,40 @@ class Server(Generic[LifespanResultT]):
         return capabilities
 
     @property
+    def server_info(self) -> types.Implementation:
+        """The `serverInfo` block describing this implementation.
+
+        Derived from the constructor's identity fields. `version` falls back to
+        the installed `mcp` package version when not supplied explicitly.
+        """
+        return types.Implementation(
+            name=self.name,
+            version=self.version if self.version else _package_version("mcp"),
+            title=self.title,
+            description=self.description,
+            website_url=self.website_url,
+            icons=self.icons,
+        )
+
+    async def _handle_discover(
+        self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
+    ) -> types.DiscoverResult:
+        """Default `server/discover` handler.
+
+        Auto-derived from server state at call time, so capabilities reflect
+        whatever has been registered (constructor `on_*` kwargs and later
+        `add_request_handler` calls). Operators can replace it wholesale via
+        `add_request_handler("server/discover", ...)`. Reachability for legacy
+        peers is decided at the boundary (`types.methods`), not here.
+        """
+        return types.DiscoverResult(
+            supported_versions=list(MODERN_PROTOCOL_VERSIONS),
+            capabilities=self.get_capabilities(),
+            server_info=self.server_info,
+            instructions=self.instructions,
+        )
+
+    @property
     def session_manager(self) -> StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
@@ -401,36 +641,22 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
-        # When True, the server is stateless and
-        # clients can perform initialization with any node. The client must still follow
-        # the initialization lifecycle, but can do so with any available node
-        # rather than requiring initialization for each connection.
-        stateless: bool = False,
     ) -> None:
+        """Serve a single connection over the given streams until the read side closes.
+
+        Thin wrapper over `serve_loop`: enters the server lifespan,
+        then drives the loop. Transports with their own lifespan owner
+        (the streamable-HTTP manager) call `serve_loop` directly instead.
+        """
         async with self.lifespan(self) as lifespan_context:
-            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+            await serve_loop(
+                self,
                 read_stream,
                 write_stream,
-                raise_handler_exceptions=raise_exceptions,
-                # Handle `initialize` inline so a client that pipelines it with
-                # the next request (spec says SHOULD NOT, not MUST NOT) sees
-                # the initialized state instead of failing the init-gate.
-                inline_methods=frozenset({"initialize"}),
-            )
-            runner = ServerRunner(
-                server=self,
-                dispatcher=dispatcher,
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
-                # Stateless HTTP has no standalone GET stream, so server-initiated
-                # requests on `runner.connection` must fail fast with
-                # `NoBackChannelError` rather than write to a channel that will
-                # never deliver a response.
-                has_standalone_channel=not stateless,
-                stateless=stateless,
-                dispatch_middleware=[otel_middleware],
+                raise_exceptions=raise_exceptions,
             )
-            await runner.run()
 
     def streamable_http_app(
         self,
@@ -498,6 +724,7 @@ class Server(Generic[LifespanResultT]):
                         service_documentation_url=auth.service_documentation_url,
                         client_registration_options=auth.client_registration_options,
                         revocation_options=auth.revocation_options,
+                        identity_assertion_enabled=auth.identity_assertion_enabled,
                     )
                 )
 
@@ -534,7 +761,7 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-        if custom_starlette_routes:  # pragma: no cover
+        if custom_starlette_routes:
             routes.extend(custom_starlette_routes)
 
         return Starlette(

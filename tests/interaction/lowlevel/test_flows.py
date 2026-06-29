@@ -9,14 +9,10 @@ individual features are pinned by their own tests; these prove they compose.
 from collections.abc import Awaitable, Callable
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, UrlElicitationRequiredError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
-from mcp.server.session import ServerSession
-from mcp.types import (
+from mcp_types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitCompleteNotification,
@@ -31,6 +27,11 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+
+from mcp import MCPError, UrlElicitationRequiredError
+from mcp.client import ClientRequestContext
+from mcp.server import Server, ServerRequestContext
+from mcp.server.session import ServerSession
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -156,7 +157,7 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
         if not authorised[0]:
             # The log line gives the message handler a non-completion notification, so the test's
             # filtering branch is exercised in both directions and the wait remains specific.
-            await ctx.session.send_log_message(level="warning", data="authorisation required", logger="gate")
+            await ctx.session.send_log_message(level="warning", data="authorisation required", logger="gate")  # pyright: ignore[reportDeprecated]
             raise UrlElicitationRequiredError(
                 [
                     ElicitRequestURLParams(
@@ -172,7 +173,7 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
         """Registered so the logging capability is advertised; the client never sets a level."""
         raise NotImplementedError
 
-    server = Server(
+    server = Server(  # pyright: ignore[reportDeprecated]
         "gatekeeper",
         on_list_tools=_list_tools("read_files"),
         on_call_tool=call_tool,

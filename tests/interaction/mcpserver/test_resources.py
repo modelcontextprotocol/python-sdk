@@ -2,10 +2,7 @@
 
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     ErrorData,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -14,6 +11,9 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+
+from mcp import MCPError
+from mcp.server.mcpserver import MCPServer
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -112,10 +112,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:unknown-uri")
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
-    """Reading a URI that matches no registered resource fails with a JSON-RPC error.
-
-    The spec reserves -32002 for resource-not-found; see the divergence note on the requirement.
-    """
+    """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")
@@ -127,16 +124,17 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown resource: config://missing"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32602, message="Unknown resource: config://missing", data={"uri": "config://missing"})
+    )
 
 
 @requirement("mcpserver:resource:read-throws-surfaced")
 async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(connect: Connect) -> None:
     """An exception raised by a resource function reaches the caller as a JSON-RPC error.
 
-    MCPServer wraps the failure in a generic error that names only the URI, so the original
-    exception text is not leaked to the client. The wrapped exception becomes error code 0 the
-    same way every other unhandled server-side exception does.
+    MCPServer wraps the failure in a generic ResourceError that names only the URI, so the original
+    exception text is not leaked to the client. The wrapped exception surfaces as -32603 Internal error.
     """
     mcp = MCPServer("library")
 
@@ -148,7 +146,9 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("res://boom")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource res://boom"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32603, message="Error reading resource res://boom", data={"uri": "res://boom"})
+    )
 
 
 @requirement("mcpserver:resource:duplicate-name")

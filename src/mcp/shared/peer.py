@@ -12,10 +12,7 @@ model. Gating (and `NoBackChannelError`) is the wrapped `Outbound`'s job.
 from collections.abc import Mapping
 from typing import Any, cast, overload
 
-from pydantic import BaseModel
-
-from mcp.shared.dispatcher import CallOptions, Outbound
-from mcp.types import (
+from mcp_types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -32,6 +29,11 @@ from mcp.types import (
     Tool,
     ToolChoice,
 )
+from pydantic import BaseModel
+from typing_extensions import deprecated
+
+from mcp.shared.dispatcher import CallOptions, Outbound
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 __all__ = ["ClientPeer", "Meta"]
 
@@ -79,10 +81,11 @@ class ClientPeer:
     ) -> dict[str, Any]:
         return await self._outbound.send_raw_request(method, params, opts)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
-        await self._outbound.notify(method, params)
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        await self._outbound.notify(method, params, opts)
 
     @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -100,6 +103,7 @@ class ClientPeer:
         opts: CallOptions | None = None,
     ) -> CreateMessageResult: ...
     @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -116,6 +120,7 @@ class ClientPeer:
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def sample(
         self,
         messages: list[SamplingMessage],
@@ -195,6 +200,7 @@ class ClientPeer:
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result, by_name=False)
 
+    @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def list_roots(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> ListRootsResult:
         """Send a `roots/list` request.
 

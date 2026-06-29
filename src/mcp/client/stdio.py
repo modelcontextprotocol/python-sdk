@@ -18,11 +18,11 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+import mcp_types as types
 from anyio.abc import AsyncResource, Process
 from anyio.streams.text import TextReceiveStream
 from pydantic import BaseModel, Field
 
-from mcp import types
 from mcp.client._transport import TransportStreams
 from mcp.os.posix.utilities import terminate_posix_process_tree
 from mcp.os.win32.utilities import (

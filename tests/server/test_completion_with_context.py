@@ -1,16 +1,16 @@
 """Tests for completion handler with context functionality."""
 
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     CompleteRequestParams,
     CompleteResult,
     Completion,
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 
 @pytest.mark.anyio
@@ -137,7 +137,7 @@ async def test_completion_error_on_missing_context():
 
     server = Server("test-server", on_completion=handle_completion)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         # Try to complete table without database context - should raise error
         with pytest.raises(Exception) as exc_info:
             await client.complete(

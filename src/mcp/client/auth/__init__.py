@@ -9,8 +9,10 @@ from mcp.client.auth.oauth2 import (
     PKCEParameters,
     TokenStorage,
 )
+from mcp.shared.auth import AuthorizationCodeResult
 
 __all__ = [
+    "AuthorizationCodeResult",
     "OAuthClientProvider",
     "OAuthFlowError",
     "OAuthRegistrationError",

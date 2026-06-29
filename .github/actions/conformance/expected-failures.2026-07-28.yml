@@ -1,0 +1,33 @@
+# Expected failures for the carried-forward 2026-07-28 legs
+# (`--suite all --spec-version 2026-07-28` for both server and client).
+#
+# This baseline is separate from expected-failures.yml because entries are
+# keyed by scenario name only: a scenario that passes at its default version
+# in the 2025 legs but fails when forced to 2026-07-28 (or vice versa) cannot
+# be expressed in a shared file (the passing leg would flag the entry as
+# stale). Like expected-failures.yml, this single file covers both
+# directions: the client 2026 leg reads the `client:` section and the server
+# 2026 leg reads the `server:` section. Both burn down independently of the
+# 2025 legs.
+#
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.yml in the same change.
+#
+# Entries are grouped by what unblocks them. As each gap closes the
+# corresponding scenarios start passing and MUST be removed from this list
+# (the runner fails on stale entries), so the baseline burns down per
+# milestone.
+
+client:
+  []
+  # auth/enterprise-managed-authorization (SEP-990) is in the 2025 baseline but
+  # NOT here: the harness skips it as inapplicable at --spec-version 2026-07-28
+  # (it is an extension scenario not carried into the 2026 wire), so it is
+  # neither run nor evaluated on this leg.
+
+server:
+  # SEP-2322 (multi-round-trip requests / IncompleteResult): the prompt pipeline
+  # cannot return InputRequiredResult from MCPServer yet (tools/call can).
+  - input-required-result-non-tool-request

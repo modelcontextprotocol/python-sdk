@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, TextContent, TextResourceContents
 from pytest_examples import CodeExample, EvalExample, find_examples
 
 from mcp import Client
-from mcp.types import CallToolResult, TextContent, TextResourceContents
 
 
 @pytest.mark.anyio
@@ -93,8 +93,25 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert "file2.txt" in content.text
 
 
-# TODO(v2): Change back to README.md when v2 is released
-@pytest.mark.parametrize("example", find_examples("README.v2.md"), ids=str)
+# TODO(v2): Change back to README.md when v2 is released.
+# `--8<--` include directives lint clean as Python, so pages built from
+# `docs_src/` includes cost nothing here; the real validation of those files is
+# pyright + ruff + tests/docs_src/.
+@pytest.mark.parametrize(
+    "example",
+    list(
+        find_examples(
+            "README.v2.md",
+            "docs/index.md",
+            "docs/installation.md",
+            "docs/tutorial",
+            "docs/run",
+            "docs/client",
+            "docs/advanced",
+        )
+    ),
+    ids=str,
+)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
 
