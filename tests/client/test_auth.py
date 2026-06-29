@@ -2150,6 +2150,22 @@ class TestWWWAuthenticate:
         result = extract_field_from_www_auth(init_response, "scope")
         assert result is None
 
+    def test_extract_field_from_www_auth_handles_escaped_quote_inside_quoted_value(
+        self,
+        client_metadata: OAuthClientMetadata,
+        mock_storage: MockTokenStorage,
+    ):
+        """Test escaped characters inside a quoted value do not break splitting."""
+
+        init_response = httpx.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer realm="api \\"scope\\", still realm", scope="read write"'},
+            request=httpx.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_field_from_www_auth(init_response, "scope")
+        assert result == "read write"
+
     def test_extract_resource_metadata_from_www_auth_ignores_quoted_value_decoy(
         self,
         client_metadata: OAuthClientMetadata,
