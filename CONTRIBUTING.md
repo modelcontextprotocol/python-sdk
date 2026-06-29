@@ -105,7 +105,7 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-7. Update README snippets if you modified example code:
+7. Update README snippets if you modified `docs_src/` code embedded in the README:
 
 ```bash
 uv run scripts/update_readme_snippets.py
