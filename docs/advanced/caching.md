@@ -95,7 +95,7 @@ Cache keys also carry the **server's identity**: the URL string you dialed, with
 * **No coalescing.** Two concurrent identical calls are two fetches.
 * **No TTL beyond 24 hours.** A larger `ttlMs`, whether server-sent or configured, is clamped down on store (`mcp.client.caching.MAX_TTL_MS`), bounding how long any entry, however generously hinted, can be served.
 * On a **shared store**, clients race each other. Each client drops its own write when an eviction overtook the fetch in flight, but a *co-tenant* client can still write back an entry that an eviction it never saw had removed; and that race bookkeeping is itself bounded: past 4096 tracked keys the oldest key's guard is dropped first. Both windows are accepted, and closed by the TTL cap above.
-* On a **shared persistent store**, a session that negotiated a different protocol era than the entry's writer may be served the writer's entry until TTL or eviction. Accepted, and likewise bounded by the TTL cap.
+* **No serving across protocol eras.** Entries are scoped to the negotiated protocol version: on a shared persistent store, a session never serves an entry written under a different negotiated version (the same listing genuinely differs by era, since the SDK strips the 2026 fields for older sessions). Eviction likewise touches only the current era's entries; another era's entries simply age out by TTL.
 
 ### Reading the hints yourself
 

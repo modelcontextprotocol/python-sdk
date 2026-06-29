@@ -214,11 +214,11 @@ def test_a_negative_default_ttl_is_rejected_at_construction() -> None:
     assert str(exc.value) == snapshot("default_ttl_ms must be >= 0, got -1")
 
 
-# --- InMemoryResponseCacheStore read cap ---
+# --- InMemoryResponseCacheStore LRU cap ---
 
 
-async def test_a_new_read_key_at_the_cap_evicts_the_oldest_read_key() -> None:
-    store = InMemoryResponseCacheStore(max_read_entries=2)
+async def test_a_new_entry_past_the_cap_evicts_the_least_recently_used_one() -> None:
+    store = InMemoryResponseCacheStore(max_entries=2)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.set(_read_key("file:///b"), _entry("b"))
     await store.set(_read_key("file:///c"), _entry("c"))
@@ -227,51 +227,42 @@ async def test_a_new_read_key_at_the_cap_evicts_the_oldest_read_key() -> None:
     assert await store.get(_read_key("file:///c")) == _entry("c")
 
 
-async def test_replacing_a_read_key_at_the_cap_neither_evicts_nor_refreshes_its_age() -> None:
-    """Eviction order is first-insertion order (FIFO), not recency (LRU)."""
-    store = InMemoryResponseCacheStore(max_read_entries=2)
+async def test_a_get_refreshes_an_entrys_recency() -> None:
+    """Eviction order is recency (LRU), not insertion order: serving an entry keeps it alive."""
+    store = InMemoryResponseCacheStore(max_entries=2)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.set(_read_key("file:///b"), _entry("b"))
-    await store.set(_read_key("file:///a"), _entry("a-replaced"))
-    assert await store.get(_read_key("file:///a")) == _entry("a-replaced")
-    assert await store.get(_read_key("file:///b")) == _entry("b")
-    await store.set(_read_key("file:///c"), _entry("c"))
-    assert await store.get(_read_key("file:///a")) is None
-    assert await store.get(_read_key("file:///b")) == _entry("b")
-
-
-async def test_only_read_keys_count_toward_the_cap_and_only_read_keys_are_evicted() -> None:
-    """The non-read cacheable methods are a small closed key set, so they are never capped."""
-    store = InMemoryResponseCacheStore(max_read_entries=1)
-    list_keys = [
-        CacheKey("tools/list"),
-        CacheKey("prompts/list"),
-        CacheKey("resources/list"),
-        CacheKey("resources/templates/list"),
-        CacheKey("server/discover"),
-    ]
-    for key in list_keys:
-        await store.set(key, _entry(key.method))
-    await store.set(_read_key("file:///a"), _entry("a"))
-    for key in list_keys:
-        assert await store.get(key) == _entry(key.method)
-    await store.set(_read_key("file:///b"), _entry("b"))
-    assert await store.get(_read_key("file:///a")) is None
-    assert await store.get(_read_key("file:///b")) == _entry("b")
-    for key in list_keys:
-        assert await store.get(key) == _entry(key.method)
-
-
-async def test_a_non_read_set_never_triggers_eviction_even_with_reads_at_the_cap() -> None:
-    store = InMemoryResponseCacheStore(max_read_entries=1)
-    await store.set(_read_key("file:///a"), _entry("a"))
-    await store.set(CacheKey("tools/list"), _entry("tools"))
+    assert await store.get(_read_key("file:///a")) == _entry("a")  # a is now the most recent
+    await store.set(_read_key("file:///c"), _entry("c"))  # evicts b, not a
     assert await store.get(_read_key("file:///a")) == _entry("a")
+    assert await store.get(_read_key("file:///b")) is None
+    assert await store.get(_read_key("file:///c")) == _entry("c")
+
+
+async def test_replacing_an_entry_at_the_cap_refreshes_its_recency_without_evicting() -> None:
+    store = InMemoryResponseCacheStore(max_entries=2)
+    await store.set(_read_key("file:///a"), _entry("a"))
+    await store.set(_read_key("file:///b"), _entry("b"))
+    await store.set(_read_key("file:///a"), _entry("a-replaced"))  # still two entries; a is now the most recent
+    await store.set(_read_key("file:///c"), _entry("c"))  # evicts b
+    assert await store.get(_read_key("file:///a")) == _entry("a-replaced")
+    assert await store.get(_read_key("file:///b")) is None
+    assert await store.get(_read_key("file:///c")) == _entry("c")
+
+
+async def test_a_touched_list_entry_survives_read_key_churn_through_the_cap() -> None:
+    """The reason the cap is LRU over all entries: a hot list singleton each principal
+    keeps re-reading must survive churn from per-uri resources/read keys."""
+    store = InMemoryResponseCacheStore(max_entries=3)
+    await store.set(CacheKey("tools/list"), _entry("tools"))
+    for i in range(10):
+        assert await store.get(CacheKey("tools/list")) == _entry("tools")  # each serve re-touches it
+        await store.set(_read_key(f"file:///{i}"), _entry(i))
     assert await store.get(CacheKey("tools/list")) == _entry("tools")
 
 
-async def test_a_zero_cap_disables_read_eviction() -> None:
-    store = InMemoryResponseCacheStore(max_read_entries=0)
+async def test_a_zero_cap_disables_eviction() -> None:
+    store = InMemoryResponseCacheStore(max_entries=0)
     uris = [f"file:///{i}" for i in range(5)]
     for uri in uris:
         await store.set(_read_key(uri), _entry(uri))
@@ -279,18 +270,18 @@ async def test_a_zero_cap_disables_read_eviction() -> None:
         assert await store.get(_read_key(uri)) == _entry(uri)
 
 
-async def test_deleting_a_read_key_frees_its_cap_slot() -> None:
-    store = InMemoryResponseCacheStore(max_read_entries=1)
+async def test_deleting_an_entry_frees_its_cap_slot() -> None:
+    store = InMemoryResponseCacheStore(max_entries=1)
     await store.set(_read_key("file:///a"), _entry("a"))
     await store.delete(_read_key("file:///a"))
     await store.set(_read_key("file:///b"), _entry("b"))
     assert await store.get(_read_key("file:///b")) == _entry("b")
 
 
-def test_a_negative_read_cap_is_rejected_at_construction() -> None:
+def test_a_negative_cap_is_rejected_at_construction() -> None:
     with pytest.raises(ValueError) as exc:
-        InMemoryResponseCacheStore(max_read_entries=-1)
-    assert str(exc.value) == snapshot("max_read_entries must be >= 0, got -1")
+        InMemoryResponseCacheStore(max_entries=-1)
+    assert str(exc.value) == snapshot("max_entries must be >= 0, got -1")
 
 
 # --- ClientResponseCache coordinator ---
@@ -319,6 +310,7 @@ def _coordinator(
     share_public: bool = False,
     version: str | None = MODERN_VERSION,
     generation_map_cap: int = 4096,
+    store_cleanup_timeout: float = 5,
 ) -> ClientResponseCache:
     return ClientResponseCache(
         store=store,
@@ -329,15 +321,16 @@ def _coordinator(
         share_public=share_public,
         negotiated_version=lambda: version,
         generation_map_cap=generation_map_cap,
+        store_cleanup_timeout=store_cleanup_timeout,
     )
 
 
-def _private_arm(arm_id: str = "arm", partition: str = "") -> str:
-    return json.dumps(["private", arm_id, partition])
+def _private_arm(arm_id: str = "arm", partition: str = "", era: str | None = MODERN_VERSION) -> str:
+    return json.dumps(["private", era, arm_id, partition])
 
 
-def _public_arm(arm_id: str = "arm", partition: str = "") -> str:
-    return json.dumps(["public", arm_id, partition])
+def _public_arm(arm_id: str = "arm", partition: str = "", era: str | None = MODERN_VERSION) -> str:
+    return json.dumps(["public", era, arm_id, partition])
 
 
 def _wire_result(ttl_ms: int | None = None, cache_scope: str | None = None) -> ListToolsResult:
@@ -439,6 +432,35 @@ class _ArmDeleteFailingStore:
         raise NotImplementedError
 
 
+class _WedgingDeleteStore:
+    """Once `wedged` flips, every `delete` blocks forever (an Event nothing sets),
+    modelling a remote store with no socket timeout of its own."""
+
+    before_set_commits: Callable[[], Awaitable[None]]
+    """Awaited before `set` commits; assigned by the one test whose write reaches `set`."""
+
+    def __init__(self, *, wedged: bool = False) -> None:
+        self.inner = InMemoryResponseCacheStore()
+        self.wedged = wedged
+        self.deletes_started = 0
+
+    async def get(self, key: CacheKey) -> CacheEntry | None:
+        raise NotImplementedError
+
+    async def set(self, key: CacheKey, entry: CacheEntry) -> None:
+        await self.before_set_commits()
+        await self.inner.set(key, entry)
+
+    async def delete(self, key: CacheKey) -> None:
+        self.deletes_started += 1
+        if self.wedged:
+            await anyio.Event().wait()
+        await self.inner.delete(key)
+
+    async def clear(self) -> None:
+        raise NotImplementedError
+
+
 class _RehydratingStore:
     """`get` returns whatever a persistent store's deserializer produced - not necessarily what `set` received."""
 
@@ -470,8 +492,8 @@ async def test_hints_from_a_non_modern_session_are_ignored(version: str | None) 
     gen = cache.capture("tools/list", "")
     await cache.write("tools/list", "", _wire_result(ttl_ms=60_000, cache_scope="public"), gen, "use")
     assert await cache.read("tools/list", "") is None
-    assert await store.get(CacheKey("tools/list", "", _private_arm())) is None
-    assert await store.get(CacheKey("tools/list", "", _public_arm())) is None
+    assert await store.get(CacheKey("tools/list", "", _private_arm(era=version))) is None
+    assert await store.get(CacheKey("tools/list", "", _public_arm(era=version))) is None
 
 
 async def test_a_legacy_session_with_a_default_ttl_caches_on_the_private_arm_only() -> None:
@@ -481,12 +503,50 @@ async def test_a_legacy_session_with_a_default_ttl_caches_on_the_private_arm_onl
     cache = _coordinator(store, version=LEGACY_VERSION, default_ttl_ms=60_000, clock=clock)
     gen = cache.capture("tools/list", "")
     await cache.write("tools/list", "", _wire_result(ttl_ms=5, cache_scope="public"), gen, "use")
-    private_entry = await store.get(CacheKey("tools/list", "", _private_arm()))
+    private_entry = await store.get(CacheKey("tools/list", "", _private_arm(era=LEGACY_VERSION)))
     assert private_entry is not None
     assert private_entry.scope == "private"
-    assert await store.get(CacheKey("tools/list", "", _public_arm())) is None
+    assert await store.get(CacheKey("tools/list", "", _public_arm(era=LEGACY_VERSION))) is None
     clock.now += 1.0  # well past the injected 5ms; the default 60s governs
     assert await cache.read("tools/list", "") == _wire_result(ttl_ms=5, cache_scope="public")
+
+
+async def test_entries_never_cross_negotiated_eras_on_a_shared_store() -> None:
+    """Arms fold in the negotiated version: the same listing genuinely differs by era
+    (the SDK strips the 2026 fields for legacy sessions), so a 2025-negotiated session
+    is never served an entry a 2026 session wrote - on either arm - nor vice versa."""
+    store = InMemoryResponseCacheStore()
+    modern = _coordinator(store, partition="p", default_ttl_ms=60_000)
+    legacy = _coordinator(store, partition="p", version=LEGACY_VERSION, default_ttl_ms=60_000)
+
+    gen = modern.capture("tools/list", "")
+    await modern.write("tools/list", "", _wire_result(ttl_ms=60_000, cache_scope="public"), gen, "use")  # public arm
+    private_result = ListPromptsResult.model_validate({"prompts": [], "ttlMs": 60_000})
+    gen = modern.capture("prompts/list", "")
+    await modern.write("prompts/list", "", private_result, gen, "use")  # private arm
+    assert await legacy.read("tools/list", "") is None
+    assert await legacy.read("prompts/list", "") is None
+
+    gen = legacy.capture("resources/read", "file:///a")
+    await legacy.write("resources/read", "file:///a", _read_result(ttl_ms=60_000), gen, "use")
+    assert await legacy.read("resources/read", "file:///a") is not None  # cached for legacy itself...
+    assert await modern.read("resources/read", "file:///a") is None  # ...but invisible across the era boundary
+
+
+async def test_coordinators_negotiating_the_same_era_share_entries_through_the_store() -> None:
+    """Era scoping splits eras only: same-era clients sharing a store still share both arms."""
+    store = InMemoryResponseCacheStore()
+    writer = _coordinator(store, partition="p")
+    reader = _coordinator(store, partition="p")
+
+    gen = writer.capture("tools/list", "")
+    await writer.write("tools/list", "", _wire_result(ttl_ms=60_000, cache_scope="public"), gen, "use")
+    private_result = ListPromptsResult.model_validate({"prompts": [], "ttlMs": 60_000})
+    gen = writer.capture("prompts/list", "")
+    await writer.write("prompts/list", "", private_result, gen, "use")
+
+    assert await reader.read("tools/list", "") == _wire_result(ttl_ms=60_000, cache_scope="public")
+    assert await reader.read("prompts/list", "") == private_result
 
 
 # --- Coordinator: TTL and scope resolution ---
@@ -550,15 +610,19 @@ async def test_arm_key_layout_is_pinned_for_shared_store_compatibility() -> None
     """Arm strings are cross-process store key material; changing their layout breaks shared stores."""
     store = InMemoryResponseCacheStore()
     cache = _coordinator(store, partition="tenant-a", arm_id="abc123", default_ttl_ms=60_000)
+    assert cache._arm("private") == snapshot('["private", "2026-07-28", "abc123", "tenant-a"]')
+    assert cache._arm("public") == snapshot('["public", "2026-07-28", "abc123", "tenant-a"]')
+    shared = _coordinator(store, partition="tenant-a", arm_id="abc123", share_public=True)
+    assert shared._arm("public") == snapshot('["public", "2026-07-28", "abc123"]')
+    # And entries genuinely land under those strings.
     gen = cache.capture("tools/list", "")
     await cache.write("tools/list", "", _wire_result(), gen, "use")
-    assert await store.get(CacheKey("tools/list", "", snapshot('["private", "abc123", "tenant-a"]'))) is not None
+    assert await store.get(CacheKey("tools/list", "", '["private", "2026-07-28", "abc123", "tenant-a"]')) is not None
     await cache.write("tools/list", "", _wire_result(ttl_ms=60_000, cache_scope="public"), gen, "use")
-    assert await store.get(CacheKey("tools/list", "", snapshot('["public", "abc123", "tenant-a"]'))) is not None
-    shared = _coordinator(store, partition="tenant-a", arm_id="abc123", share_public=True)
+    assert await store.get(CacheKey("tools/list", "", '["public", "2026-07-28", "abc123", "tenant-a"]')) is not None
     gen = shared.capture("tools/list", "")
     await shared.write("tools/list", "", _wire_result(ttl_ms=60_000, cache_scope="public"), gen, "use")
-    assert await store.get(CacheKey("tools/list", "", snapshot('["public", "abc123"]'))) is not None
+    assert await store.get(CacheKey("tools/list", "", '["public", "2026-07-28", "abc123"]')) is not None
 
 
 async def test_public_entries_do_not_cross_partitions_by_default() -> None:
@@ -726,6 +790,54 @@ async def test_a_cancellation_during_an_eviction_still_evicts_both_arms() -> Non
     assert await store.inner.get(public_key) is None
 
 
+# --- Coordinator: bounded must-complete cleanup ---
+# These tests inject a tiny `store_cleanup_timeout` because the bound itself is the
+# behavior under test; the wedged delete only ever blocks for that injected bound.
+
+
+async def test_evict_key_with_a_wedged_store_delete_returns_at_the_cleanup_bound(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A store delete that never completes cannot make eviction - and with it client
+    teardown - hang uncancellably: the must-complete cleanup is bounded, the remaining
+    deletes are abandoned, and the unreaped entries age out by TTL."""
+    store = _WedgingDeleteStore(wedged=True)
+    cache = _coordinator(store, store_cleanup_timeout=0.01)
+    with caplog.at_level(logging.WARNING, logger="mcp.client.caching"), anyio.fail_after(5):
+        await cache.evict_key("tools/list", "")
+    assert store.deletes_started == 1  # the second arm's delete was abandoned with the first
+    assert caplog.messages == snapshot(["Response cache store delete timed out; the entry will age out by TTL"])
+
+
+async def test_a_refresh_purge_with_a_wedged_store_delete_returns_at_the_cleanup_bound() -> None:
+    store = _WedgingDeleteStore(wedged=True)
+    cache = _coordinator(store, store_cleanup_timeout=0.01)
+    gen = cache.capture("tools/list", "")
+    with anyio.fail_after(5):
+        await cache.write("tools/list", "", _wire_result(ttl_ms=0), gen, "refresh")
+    assert store.deletes_started == 1
+
+
+async def test_an_eviction_mid_set_with_a_wedged_store_delete_returns_at_the_cleanup_bound() -> None:
+    """The post-set compensating delete is bounded like every other must-complete delete;
+    the entry it could not reap stays in the store and ages out by TTL."""
+    store = _WedgingDeleteStore()
+    cache = _coordinator(store, store_cleanup_timeout=0.01)
+    gen = cache.capture("tools/list", "")
+
+    async def wedge_then_evict() -> None:
+        store.wedged = True
+        await cache.evict_method("tools/list")  # its own cleanup hits the bound too
+
+    store.before_set_commits = wedge_then_evict
+    with anyio.fail_after(5):
+        await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
+    # Opposite-arm delete, the eviction's first delete, the compensating delete.
+    assert store.deletes_started == 3
+    # The accepted degradation: the unreaped entry stays until its TTL expires.
+    assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is not None
+
+
 # --- Coordinator: store error discipline ---
 
 
@@ -786,6 +898,22 @@ async def test_a_raising_store_set_caches_nothing_and_does_not_raise() -> None:
     cache = _coordinator(store)
     gen = cache.capture("tools/list", "")
     await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
+    assert await cache.read("tools/list", "") is None
+
+
+async def test_a_failed_set_purges_the_pre_existing_own_arm_entry() -> None:
+    """The fetch superseded the warm own-arm entry, and the failed set left it in place:
+    without the purge it would keep serving the superseded value for its full TTL."""
+    store = _FailingStore()
+    cache = _coordinator(store)
+    gen = cache.capture("tools/list", "")
+    await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
+    assert await cache.read("tools/list", "") is not None  # the warm own-arm entry
+    store.fail_set = True
+    gen = cache.capture("tools/list", "")
+    await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")  # the caller's fetch is unaffected
+    assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is None
+    assert await store.inner.get(CacheKey("tools/list", "", _public_arm())) is None
     assert await cache.read("tools/list", "") is None
 
 

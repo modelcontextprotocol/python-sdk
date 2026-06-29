@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol
 
 import anyio
+import anyio.lowlevel
 from mcp_types import (
     CacheableResult,
     PromptListChangedNotification,
@@ -135,35 +136,32 @@ class InMemoryResponseCacheStore:
     """Default in-process `ResponseCacheStore`.
 
     Method bodies are synchronous, so concurrent tasks never observe a torn
-    write. Non-read methods form a small closed key set; `max_read_entries`
-    caps the `resources/read` keys, FIFO-evicting at the cap (`0` disables it).
+    write. `max_entries` caps the whole store, evicting least-recently-used
+    at the cap (`0` disables it); `get` and `set` both refresh recency, so a
+    hot entry survives churn from other keys.
 
     Raises:
-        ValueError: If `max_read_entries` is negative.
+        ValueError: If `max_entries` is negative.
     """
 
-    def __init__(self, *, max_read_entries: int = 512) -> None:
-        if max_read_entries < 0:
-            raise ValueError(f"max_read_entries must be >= 0, got {max_read_entries}")
-        self._max_read_entries = max_read_entries
+    def __init__(self, *, max_entries: int = 1024) -> None:
+        if max_entries < 0:
+            raise ValueError(f"max_entries must be >= 0, got {max_entries}")
+        self._max_entries = max_entries
         self._entries: dict[CacheKey, CacheEntry] = {}
 
     async def get(self, key: CacheKey) -> CacheEntry | None:
-        return self._entries.get(key)
+        entry = self._entries.get(key)
+        if entry is not None:
+            # Pop-and-reinsert moves the key to the back: the dict's insertion order is the LRU ledger.
+            self._entries[key] = self._entries.pop(key)
+        return entry
 
     async def set(self, key: CacheKey, entry: CacheEntry) -> None:
-        if (
-            self._max_read_entries
-            and key.method == "resources/read"
-            and key not in self._entries
-            # Total size below the cap implies the read subset is below it too - skip the scan.
-            and len(self._entries) >= self._max_read_entries
-        ):
-            # Insertion order (replacement keeps position) makes the dict itself the FIFO ledger.
-            read_keys = [k for k in self._entries if k.method == "resources/read"]
-            if len(read_keys) >= self._max_read_entries:
-                del self._entries[read_keys[0]]
+        self._entries.pop(key, None)
         self._entries[key] = entry
+        if self._max_entries and len(self._entries) > self._max_entries:
+            del self._entries[next(iter(self._entries))]
 
     async def delete(self, key: CacheKey) -> None:
         self._entries.pop(key, None)
@@ -174,6 +172,10 @@ class InMemoryResponseCacheStore:
 
 _GENERATION_MAP_CAP: Final[int] = 4096
 """Cap on the generation map; at the cap the oldest key's eviction-race guard is dropped (FIFO)."""
+
+_STORE_CLEANUP_TIMEOUT: Final[float] = 5
+"""Bound for must-complete store cleanup deletes (mirrors the dispatcher's final-write bound);
+a wedged store delete must not hold client teardown uncancellably."""
 
 
 class ClientResponseCache:
@@ -190,27 +192,43 @@ class ClientResponseCache:
         share_public: bool,
         negotiated_version: Callable[[], str | None],
         generation_map_cap: int = _GENERATION_MAP_CAP,
+        store_cleanup_timeout: float = _STORE_CLEANUP_TIMEOUT,
     ) -> None:
         self._store = store
+        self._partition = partition
+        self._arm_id = arm_id
+        self._share_public = share_public
         self._default_ttl_ms = default_ttl_ms
         self._clock = clock
         self._negotiated_version = negotiated_version
-        # JSON arrays so crafted arm_id/partition values cannot collide across field boundaries.
-        self._private_arm = json.dumps(["private", arm_id, partition])
-        self._public_arm = json.dumps(["public", arm_id] if share_public else ["public", arm_id, partition])
         # A key is eviction-race-guarded iff registered here.
         self._generations: dict[tuple[str, str], int] = {}
         self._generation_map_cap = generation_map_cap
+        self._store_cleanup_timeout = store_cleanup_timeout
         self._warned_store_ops: set[str] = set()
+
+    def _arm(self, scope: Literal["public", "private"]) -> str:
+        # JSON arrays so crafted arm_id/partition values cannot collide across field boundaries.
+        # The negotiated version era-scopes every arm: a session never serves an entry written
+        # under a different protocol era (its content differs - sieve-stripped fields, header
+        # filtering). Every caller runs post-connect; were that ever untrue, the supplier's
+        # None still partitions harmlessly.
+        fields: list[str | None] = [scope, self._negotiated_version(), self._arm_id]
+        if scope == "private" or not self._share_public:
+            fields.append(self._partition)
+        return json.dumps(fields)
 
     async def read(self, method: str, params_key: str) -> CacheableResult | None:
         """Serve a fresh entry for the key, or `None`; the served result is a deep copy."""
+        # A hit completes without any other yielding await, so checkpoint here: a poll
+        # loop over a fresh entry must not starve spawned tasks (eviction dispatch).
+        await anyio.lowlevel.checkpoint()
         # A wrong-shape entry raises as late as the copy, so the boundary wraps the whole read path.
         try:
-            entry = await self._get_fresh(CacheKey(method, params_key, self._private_arm))
+            entry = await self._get_fresh(CacheKey(method, params_key, self._arm("private")))
             if entry is None:
                 # After a scope flip, a stale private entry must not shadow a fresh public one.
-                entry = await self._get_fresh(CacheKey(method, params_key, self._public_arm))
+                entry = await self._get_fresh(CacheKey(method, params_key, self._arm("public")))
                 if entry is not None and entry.scope != "public":
                     # Never serve an entry the server scoped "private" out of the shared arm.
                     entry = None
@@ -250,49 +268,52 @@ class ClientResponseCache:
         if self._generation_moved(gen_key, gen_at_capture):
             return  # the key was evicted while the fetch was in flight
         ttl_ms, scope = self._resolve(result)
-        private_key = CacheKey(method, params_key, self._private_arm)
-        public_key = CacheKey(method, params_key, self._public_arm)
+        private_key = CacheKey(method, params_key, self._arm("private"))
+        public_key = CacheKey(method, params_key, self._arm("public"))
         if ttl_ms <= 0:
             if mode == "refresh":
-                # The refetch superseded the warm entry; shielded so a cancellation cannot leave one arm warm.
-                with anyio.CancelScope(shield=True):
-                    await self._delete(private_key)
-                    await self._delete(public_key)
+                # The refetch superseded the warm entry, which a cancellation must not leave serving.
+                await self._cleanup_delete(private_key, public_key)
             return
         own, opposite = (public_key, private_key) if scope == "public" else (private_key, public_key)
         # Opposite arm first: a failed delete aborts before the set - never two arms answering for one key.
         if not await self._delete(opposite):
-            # The own arm's entry is superseded too: shielded best-effort delete, degrading to a full miss.
-            with anyio.CancelScope(shield=True):
-                await self._delete(own)
+            # The own arm's entry is superseded too: best-effort delete, degrading to a full miss.
+            await self._cleanup_delete(own)
             return
         entry = CacheEntry(value=result.model_copy(deep=True), scope=scope, expires_at=self._clock() + ttl_ms / 1000)
         try:
-            await self._set(own, entry)
+            if not await self._set(own, entry):
+                # The fetch superseded any pre-existing own-arm entry, and the failed set
+                # left it in place: purge it (mirrors the opposite-arm-failure path).
+                await self._cleanup_delete(own)
         finally:
             # An eviction can land while the set commits - even when the await
-            # is cancelled - so re-check on every exit; the delete is shielded
+            # is cancelled - so re-check on every exit; the delete must complete
             # so the pending cancellation cannot resurrect the evicted entry.
             if self._generation_moved(gen_key, gen_at_capture):
-                with anyio.CancelScope(shield=True):
-                    await self._delete(own)
+                await self._cleanup_delete(own)
 
     async def evict_method(self, method: str) -> None:
         """Evict the method's cursor-less entry."""
         await self.evict_key(method, "")
 
     async def evict_key(self, method: str, params_key: str) -> None:
-        """Evict one key from both arms."""
+        """Evict one key from both arms.
+
+        Only the current era's arms are touched; other-era entries in a persistent store age out by TTL.
+        """
         gen_key = (method, params_key)
         # Bump first so an in-flight fetch cannot write the evicted entry back.
         # Unregistered keys skip the bump (uris must not grow the map) but not
         # the deletes - a persistent store may hold uncaptured entries.
         if gen_key in self._generations:
             self._generations[gen_key] += 1
-        # Shielded: a cancellation between the deletes would leave one arm serving the evicted entry.
-        with anyio.CancelScope(shield=True):
-            await self._delete(CacheKey(method, params_key, self._private_arm))
-            await self._delete(CacheKey(method, params_key, self._public_arm))
+        # Must complete: a cancellation between the deletes would leave one arm serving the evicted entry.
+        await self._cleanup_delete(
+            CacheKey(method, params_key, self._arm("private")),
+            CacheKey(method, params_key, self._arm("public")),
+        )
 
     async def evict_for_notification(self, notification: ServerNotification) -> None:
         """Map a server notification to the entries it makes stale.
@@ -339,6 +360,15 @@ class ClientResponseCache:
             return False
         self._warned_store_ops.discard("set")
         return True
+
+    async def _cleanup_delete(self, *keys: CacheKey) -> None:
+        # Must-complete cleanup: shielded so a pending cancellation cannot skip the deletes,
+        # bounded so a wedged store delete cannot hold client teardown uncancellably.
+        with anyio.move_on_after(self._store_cleanup_timeout, shield=True) as scope:
+            for key in keys:
+                await self._delete(key)
+        if scope.cancelled_caught:
+            logger.warning("Response cache store delete timed out; the entry will age out by TTL")
 
     async def _delete(self, key: CacheKey) -> bool:
         try:

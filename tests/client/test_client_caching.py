@@ -74,7 +74,7 @@ def _coordinator(client: Client) -> ClientResponseCache:
 
 def _private_arm(client: Client) -> str:
     """The identity arm stamped into store keys; only equality between clients matters here."""
-    return _coordinator(client)._private_arm
+    return _coordinator(client)._arm("private")
 
 
 def _tools_list_key(client: Client) -> CacheKey:
@@ -138,7 +138,8 @@ def test_the_server_url_is_sha256_hashed_before_it_enters_key_material() -> None
     client = Client("https://user:pass@example.com/mcp?api_key=SECRET")
 
     arm_id = hashlib.sha256(b"https://example.com/mcp?api_key=SECRET").hexdigest()
-    assert _private_arm(client) == json.dumps(["private", arm_id, ""])
+    # The era slot is None pre-connect; only the identity hash matters here.
+    assert _private_arm(client) == json.dumps(["private", None, arm_id, ""])
 
 
 def test_urls_differing_only_in_query_have_distinct_cache_identities() -> None:
@@ -1274,6 +1275,23 @@ async def test_mutating_returned_results_never_corrupts_the_cached_entry() -> No
         assert _tool_names(await client.list_tools()) == ["t0"]  # still pristine
 
     assert fetches == [None]
+
+
+async def test_a_cache_hit_still_yields_to_the_event_loop() -> None:
+    """A hit completes without a wire await, so the verb checkpoints explicitly: a poll
+    loop over a fresh entry would otherwise starve spawned tasks (eviction dispatch).
+    Pinned by calling a warm verb inside an already-cancelled scope: only a yield can
+    observe the cancellation."""
+    server, fetches = _varying_tools_server()
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        assert _tool_names(await client.list_tools()) == ["t0"]  # warm the entry
+        with anyio.CancelScope() as scope:
+            scope.cancel()
+            await client.list_tools()  # would be a hit; must yield and observe the cancellation
+        assert scope.cancelled_caught
+
+    assert fetches == [None]  # the cancelled call neither fetched nor served
 
 
 async def test_a_legacy_peer_injecting_cache_hints_caches_nothing() -> None:
