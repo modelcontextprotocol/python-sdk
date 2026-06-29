@@ -105,7 +105,10 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         This is a content reader: an `InputRequiredResult` returned by a
         resource template function (the 2026-07-28 multi-round-trip flow)
         raises here. A handler that wants to receive and forward one as its
-        own result calls `MCPServer.read_resource(uri, context)` instead.
+        own result calls `MCPServer.read_resource(uri, context)` instead —
+        but not from a tool whose dependencies elicit via `Resolve(...)`:
+        the resolver owns that tool's `request_state` channel, and a
+        forwarded result's state would clobber it.
 
         Args:
             uri: Resource URI to read

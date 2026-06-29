@@ -10,6 +10,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     AudioContent,
     BlobResourceContents,
     CallToolResult,
@@ -2102,6 +2103,69 @@ async def test_mcpserver_read_resource_returns_input_required_result_for_handler
     context = Context(mcp_server=mcp)
     result = await mcp.read_resource("ask://databases", context)
     assert result is sentinel
+
+
+async def test_prompt_raising_mcp_error_surfaces_code_and_data_to_client():
+    """A handler-raised MCPError keeps its code and data through the prompt pipeline —
+    the same parity tools/call has, needed for self-service capability rejection."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    async def briefing(ctx: Context) -> str:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="needs elicitation",
+            data={"requiredCapabilities": ["elicitation"]},
+        )
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.get_prompt("briefing")
+    assert exc.value.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc.value.error.message == "needs elicitation"
+    assert exc.value.error.data == {"requiredCapabilities": ["elicitation"]}
+
+
+async def test_resource_template_raising_mcp_error_surfaces_code_and_data_to_client():
+    """A handler-raised MCPError keeps its code and data through the resource template
+    pipeline instead of being wrapped into a generic ResourceError."""
+    mcp = MCPServer()
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="needs elicitation",
+            data={"requiredCapabilities": ["elicitation"]},
+        )
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("ask://databases")
+    assert exc.value.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc.value.error.message == "needs elicitation"
+    assert exc.value.error.data == {"requiredCapabilities": ["elicitation"]}
+
+
+async def test_static_resource_raising_mcp_error_surfaces_code_and_data_to_client():
+    """A handler-raised MCPError keeps its code and data through the static resource
+    read path too — parity with the template path above."""
+    mcp = MCPServer()
+
+    @mcp.resource("static://thing")
+    def thing() -> str:
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message="needs elicitation",
+            data={"requiredCapabilities": ["elicitation"]},
+        )
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("static://thing")
+    assert exc.value.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc.value.error.message == "needs elicitation"
+    assert exc.value.error.data == {"requiredCapabilities": ["elicitation"]}
 
 
 async def test_context_exposes_client_capabilities_from_connection():

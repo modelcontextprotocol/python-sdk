@@ -17,6 +17,7 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 from mcp.shared.path_security import contains_path_traversal, is_absolute_path
 from mcp.shared.uri_template import UriTemplate
 
@@ -243,7 +244,7 @@ class ResourceTemplate(BaseModel):
                 meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
-        except ResourceError:
+        except (ResourceError, MCPError):
             raise
         except Exception as exc:
             logger.exception(f"Error creating resource from template {uri}")

@@ -519,6 +519,8 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
+        except MCPError:
+            raise
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
             # If an exception happens when reading the resource, we should not leak the exception to the client.
@@ -1232,6 +1234,8 @@ class MCPServer(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(rendered),
             )
+        except MCPError:
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e

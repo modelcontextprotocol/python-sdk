@@ -17,6 +17,7 @@ from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 
 
 class TextResource(Resource):
@@ -79,6 +80,8 @@ class FunctionResource(Resource):
                 return result
             else:
                 return pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        except MCPError:
+            raise
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, TypeAdapter, validate_call
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -193,5 +194,7 @@ class Prompt(BaseModel):
                     raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
+        except MCPError:
+            raise
         except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")

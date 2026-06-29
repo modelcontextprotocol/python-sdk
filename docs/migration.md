@@ -36,7 +36,9 @@ resource functions never return one). `Prompt.render()` and
 `ctx.read_resource()` inside a handler is unchanged: it still returns content,
 and raises `RuntimeError` if the resource requests input. A handler that wants
 to receive the `InputRequiredResult` and forward it as its own result calls
-`MCPServer.read_resource(uri, context)` directly.
+`MCPServer.read_resource(uri, context)` directly — but not from a tool whose
+dependencies elicit via `Resolve(...)`: the resolver owns that tool's
+`request_state` channel, and a forwarded result's state would clobber it.
 
 ### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
 
