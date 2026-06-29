@@ -62,9 +62,9 @@ uv run python -m stories.refund_desk.client --http
   within a round each resolver runs at most once, keyed by function identity.
   Across 2026 rounds only *elicited* outcomes persist (in `requestState`); any
   resolver's body may run again on each round the call passes through. A
-  recorded answer is consulted only when the resolver asks its question again —
-  it satisfies the question without re-prompting the user, and never stands in
-  for a value the resolver computes itself.
+  recorded answer is consulted only when the resolver asks its question again:
+  it satisfies the question without re-prompting the user, and it never stands
+  in for a value the resolver computes itself.
   An answer is matched back to its question when the call resumes, so an
   eliciting resolver must derive its question deterministically from the
   tool's arguments and earlier answers; a per-call generated value (a

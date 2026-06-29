@@ -126,10 +126,10 @@ That's the right default for a precondition: no answer, no order. When declining
     multi-round-trip form any resolver may run again whenever the call resumes after a question,
     so code before a `return Elicit(...)` runs on each of those rounds; the recorded answer then
     satisfies the repeated question without prompting the user again. A recorded answer is only
-    ever consulted when the resolver asks - a resolver that answers *without* asking, like
+    ever consulted when the resolver asks; a resolver that answers *without* asking, like
     `check_stock`, always supplies its own computed value. Because each answer is matched back to
     its question, an eliciting resolver must derive its question deterministically from the
-    tool's arguments and earlier answers - a per-call generated value (a `default_factory` id, a
+    tool's arguments and earlier answers. A per-call generated value (a `default_factory` id, a
     timestamp) is re-derived on each round and must not appear in a question the answer is meant
     to bind to.
 
