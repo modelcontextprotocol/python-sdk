@@ -62,6 +62,8 @@ uv run python -m stories.refund_desk.client --http
   within a round each resolver runs at most once, keyed by function identity.
   Across 2026 rounds only *elicited* outcomes persist (in `requestState`); a
   resolver that resolves without eliciting is pure and may re-run each round.
+  An eliciting resolver's body runs again too — once to ask, once more to
+  consume its answer.
   An answer is matched back to its question when the call resumes, so an
   eliciting resolver must derive its question deterministically from the
   tool's arguments and earlier answers; a per-call generated value (a
