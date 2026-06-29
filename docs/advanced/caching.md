@@ -49,9 +49,13 @@ Four calls, three fetches. The second call found a fresh entry and never reached
 * `"refresh"` never serves: it fetches and stores the result, replacing whatever was cached.
 * `"bypass"` makes the round trip without touching the cache at all — no read, no write.
 
+One rule sits above `"use"`: **calls carrying `meta` always reach the server.** A request with `meta` set (a progress token, tracing fields) expects a wire request, so under `cache_mode="use"` it is treated as `"refresh"` — the cache read is skipped, and the fetched result still replaces the cached entry. `"bypass"` and an explicit `"refresh"` behave as they always do.
+
 To turn caching off entirely, construct with `Client(server, cache=False)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
 
-Scope is honored automatically too — `"private"` entries are keyed to the cache's *partition* (below); `"public"` ones may opt into wider sharing — and **notifications beat TTL**: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read for its URI, however fresh they were.
+Scope is honored automatically too — `"private"` entries are keyed to the cache's *partition* (below); `"public"` ones may opt into wider sharing — and **notifications beat TTL** for the exact entries they name: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read stored under exactly its URI, however fresh they were.
+
+One caveat on `resources/updated`: eviction is exact-URI only. The store contract has no enumerate or scan operation (same as the reference TypeScript implementation), so a notification carrying a *sub*-resource URI does not evict a cached read of its parent. If your server signals sub-resources this way, refetch the parent with `cache_mode="refresh"`.
 
 ### Configuring it: `CacheConfig`
 
@@ -61,7 +65,7 @@ from mcp.client import CacheConfig
 client = Client("https://api.example.com/mcp", cache=CacheConfig(default_ttl_ms=5_000))
 ```
 
-* `store` — where entries live. The default is a fresh in-memory store per client; pass your own `ResponseCacheStore` implementation (Redis-backed, say) to share a cache across clients or processes. A custom store **requires** an explicit `partition`.
+* `store` — where entries live. The default is a fresh in-memory store per client; pass your own `ResponseCacheStore` implementation (Redis-backed, say) to share a cache across clients or processes — the contract types (`ResponseCacheStore`, `CacheKey`, `CacheEntry`, and the default `InMemoryResponseCacheStore`) are importable from `mcp.client`. A lookup may issue up to two sequential store `get`s (the private arm, then the public one), so size a remote store's latency expectations accordingly. A custom store **requires** an explicit `partition`.
 * `partition` — the authorization-context label that keeps one principal's `"private"` entries from being served to another within a shared store.
 * `target_id` — explicit server identity, for custom transports and in-process servers (below).
 * `default_ttl_ms` — TTL applied to results that carry no `ttlMs` hint. The default `0` leaves hint-less results uncached.

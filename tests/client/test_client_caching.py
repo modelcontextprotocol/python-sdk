@@ -644,6 +644,47 @@ async def test_refresh_storing_a_ttl_zero_result_purges_the_warm_entry() -> None
     assert fetches == [None, None, None]
 
 
+async def test_a_list_call_carrying_meta_is_fetched_and_replaces_the_warm_entry() -> None:
+    """SDK-defined: a call carrying `meta` (a progress token, tracing fields)
+    expects a wire request, so under the default `cache_mode="use"` it behaves
+    as a refresh - the warm entry is not served, the handler runs, and the
+    fresh result replaces the entry for later meta-less calls."""
+    server, fetches = _varying_tools_server()
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        assert _tool_names(await client.list_tools()) == ["t0"]
+        assert _tool_names(await client.list_tools()) == ["t0"]  # warm, meta-less: served
+        assert _tool_names(await client.list_tools(meta={"progress_token": "tok"})) == ["t1"]  # meta: fetched
+        assert _tool_names(await client.list_tools()) == ["t1"]  # the fresh result replaced the entry
+
+    assert fetches == [None, None]
+
+
+async def test_a_read_resource_carrying_meta_is_fetched_and_replaces_the_warm_entry() -> None:
+    """`read_resource` counterpart of the meta rule: a read carrying `meta` is
+    never served from the warm entry, and its fetched result re-stores."""
+    reads: list[str] = []
+
+    async def read(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        reads.append(params.uri)
+        return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=f"v{len(reads)}")], ttl_ms=60_000)
+
+    server = Server("versioned-reads", on_read_resource=read)
+
+    def text(result: ReadResourceResult) -> str:
+        content = result.contents[0]
+        assert isinstance(content, TextResourceContents)
+        return content.text
+
+    async with Client(server, cache=CacheConfig(clock=_ManualClock())) as client:
+        assert text(await client.read_resource("memo://a")) == "v1"
+        assert text(await client.read_resource("memo://a")) == "v1"  # warm, meta-less: served
+        assert text(await client.read_resource("memo://a", meta={"progress_token": "tok"})) == "v2"  # meta: fetched
+        assert text(await client.read_resource("memo://a")) == "v2"  # the fresh result replaced the entry
+
+    assert reads == ["memo://a", "memo://a"]
+
+
 async def test_cache_mode_is_inert_when_caching_is_disabled() -> None:
     """With `cache=False` the verbs accept `cache_mode` but every call goes to the
     server — no reads, no writes, no eviction machinery. SDK-defined off switch."""
@@ -1563,3 +1604,78 @@ async def test_read_resource_refresh_refetches_and_restores() -> None:
         assert _resource_text(await client.read_resource("memo://a")) == "v2"  # the refreshed value re-stored
 
     assert reads == ["memo://a", "memo://a"]
+
+
+async def test_a_closed_client_raises_on_every_cacheable_verb_instead_of_serving_the_cache() -> None:
+    """SDK-defined: cache participation requires a live session. After the client
+    exits its context, each of the five cacheable verbs raises the same no-context
+    RuntimeError it raised before the cache existed - the still-warm entries are
+    never served, and nothing reaches the server."""
+    fetched: list[str] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        fetched.append("tools/list")
+        return ListToolsResult(tools=[])
+
+    async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
+        fetched.append("prompts/list")
+        return ListPromptsResult(prompts=[])
+
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        fetched.append("resources/list")
+        return ListResourcesResult(resources=[])
+
+    async def list_templates(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        fetched.append("resources/templates/list")
+        return ListResourceTemplatesResult(resource_templates=[])
+
+    async def read(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        fetched.append(f"resources/read {params.uri}")
+        return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text="body")])
+
+    hint = CacheHint(ttl_ms=60_000)
+    server = Server(
+        "warm",
+        on_list_tools=list_tools,
+        on_list_prompts=list_prompts,
+        on_list_resources=list_resources,
+        on_list_resource_templates=list_templates,
+        on_read_resource=read,
+        cache_hints={
+            "tools/list": hint,
+            "prompts/list": hint,
+            "resources/list": hint,
+            "resources/templates/list": hint,
+            "resources/read": hint,
+        },
+    )
+
+    client = Client(server, cache=CacheConfig(clock=_ManualClock()))
+    async with client:
+        await client.list_tools()
+        await client.list_prompts()
+        await client.list_resources()
+        await client.list_resource_templates()
+        await client.read_resource("memo://a")
+        # The entries are warm: a repeat round is served entirely from the cache.
+        await client.list_tools()
+        await client.read_resource("memo://a")
+        assert len(fetched) == 5
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await client.list_tools()
+    assert str(exc_info.value) == snapshot("Client must be used within an async context manager")
+    with pytest.raises(RuntimeError):
+        await client.list_prompts()
+    with pytest.raises(RuntimeError):
+        await client.list_resources()
+    with pytest.raises(RuntimeError):
+        await client.list_resource_templates()
+    with pytest.raises(RuntimeError):
+        await client.read_resource("memo://a")
+
+    assert len(fetched) == 5  # nothing was served from the cache and nothing reached the server

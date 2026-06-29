@@ -103,6 +103,10 @@ class ResponseCacheStore(Protocol):
     no rehydration hook to rebuild it from serialized data. An entry that
     comes back in the wrong shape (e.g. with a plain-dict value) degrades to
     a cache miss, never an error.
+
+    A cache lookup may issue up to two sequential `get` calls - the private
+    arm, then the public one - so remote-store implementers should size
+    latency expectations accordingly.
     """
 
     async def get(self, key: CacheKey) -> CacheEntry | None: ...
@@ -119,8 +123,8 @@ class CacheConfig:
     """Configuration for a `Client`'s response cache.
 
     Raises:
-        ValueError: If a custom `store` is given without a `partition`, or if
-            `default_ttl_ms` is negative.
+        ValueError: If a custom `store` is given without a `partition`, if
+            `target_id` is an empty string, or if `default_ttl_ms` is negative.
     """
 
     store: ResponseCacheStore | None = None
@@ -146,7 +150,9 @@ class CacheConfig:
 
     target_id: str | None = None
     """Explicit server-identity override, for custom transports and proxies
-    where the SDK cannot derive an identity from a server URL."""
+    where the SDK cannot derive an identity from a server URL. Must be
+    non-empty when provided - an empty string would collapse distinct servers
+    onto one identity."""
 
     default_ttl_ms: int = 0
     """Time-to-live, in milliseconds, applied to results that carry no `ttlMs`
@@ -172,6 +178,8 @@ class CacheConfig:
     def __post_init__(self) -> None:
         if self.store is not None and not self.partition:
             raise ValueError("a custom store requires an explicit partition")
+        if self.target_id == "":
+            raise ValueError("target_id must be a non-empty string or omitted")
         if self.default_ttl_ms < 0:
             raise ValueError(f"default_ttl_ms must be >= 0, got {self.default_ttl_ms}")
 
@@ -200,7 +208,14 @@ class InMemoryResponseCacheStore:
         return self._entries.get(key)
 
     async def set(self, key: CacheKey, entry: CacheEntry) -> None:
-        if self._max_read_entries and key.method == "resources/read" and key not in self._entries:
+        if (
+            self._max_read_entries
+            and key.method == "resources/read"
+            and key not in self._entries
+            # Strictly below the cap the read-key subset cannot be at the cap,
+            # so the scan only runs when an eviction is actually possible.
+            and len(self._entries) >= self._max_read_entries
+        ):
             # dict preserves insertion order and replacement keeps position, so
             # the dict itself is the FIFO ledger - no parallel structure to drift.
             read_keys = [k for k in self._entries if k.method == "resources/read"]
@@ -337,6 +352,12 @@ class ClientResponseCache:
         # Opposite arm first: a failed (or cancelled) delete aborts before the
         # set, leaving a miss - never two arms answering for one key.
         if not await self._delete(opposite):
+            # The fetch superseded whatever the own arm holds, so it must not
+            # keep serving either: best-effort delete it too (shielded like the
+            # other cleanup deletes), degrading the key to a full miss - no
+            # stale pair AND no superseded entry.
+            with anyio.CancelScope(shield=True):
+                await self._delete(own)
             return
         entry = CacheEntry(value=result.model_copy(deep=True), scope=scope, expires_at=self._clock() + ttl_ms / 1000)
         try:

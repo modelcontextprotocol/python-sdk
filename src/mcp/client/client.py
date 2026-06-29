@@ -464,6 +464,7 @@ class Client:
         method: str,
         *,
         cursor: str | None,
+        meta: RequestParamsMeta | None,
         cache_mode: CacheMode,
         send: Callable[[], Awaitable[_CacheableT]],
         absorb: Callable[[_CacheableT], _CacheableT] | None = None,
@@ -476,6 +477,15 @@ class Client:
         cache = self._response_cache
         if cache is None or cache_mode == "bypass":
             return await send()  # no read, no write, no eviction side-effects
+        # Cache participation requires a live session: a closed (or never-entered)
+        # client raises the no-context RuntimeError on every verb, exactly as the
+        # verbs did before the cache existed - never serving stale entries.
+        _ = self.session
+        if meta is not None and cache_mode == "use":
+            # A call carrying meta (a progress token, tracing fields) expects a
+            # wire request, so it is never served from the cache; the fetched
+            # result still replaces the entry, the same as an explicit refresh.
+            cache_mode = "refresh"
         if cursor is not None:
             # Continuation pages never read or write the (cursor-less) entry, but an
             # expired-cursor rejection signals the listing changed since the entry was
@@ -506,11 +516,13 @@ class Client:
     ) -> ListResourcesResult:
         """List available resources from the server.
 
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
+        calls carrying `meta` always reach the server.
         """
         return await self._cached_fetch(
             "resources/list",
             cursor=cursor,
+            meta=meta,
             cache_mode=cache_mode,
             send=lambda: self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
         )
@@ -524,11 +536,13 @@ class Client:
     ) -> ListResourceTemplatesResult:
         """List available resource templates from the server.
 
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
+        calls carrying `meta` always reach the server.
         """
         return await self._cached_fetch(
             "resources/templates/list",
             cursor=cursor,
+            meta=meta,
             cache_mode=cache_mode,
             send=lambda: self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
         )
@@ -554,7 +568,8 @@ class Client:
             input_responses: Responses to seed the first call with (e.g. when
                 resuming from a persisted `InputRequiredResult`).
             request_state: Opaque state to seed the first call with.
-            meta: Additional metadata for the request.
+            meta: Additional metadata for the request. Calls carrying `meta`
+                always reach the server.
             cache_mode: Adjusts the response cache's behavior for this call
                 (see `CacheMode`). Seeded calls (either `input_responses` or
                 `request_state` set) are resumptions of a multi-round-trip
@@ -581,6 +596,12 @@ class Client:
         cache = None if seeded else self._response_cache
         if cache is None or cache_mode == "bypass":
             return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        # Cache participation requires a live session: a closed (or never-entered)
+        # client raises the no-context RuntimeError here, never serving stale entries.
+        _ = self.session
+        if meta is not None and cache_mode == "use":
+            # Calls carrying meta always reach the server (mirrors `_cached_fetch`).
+            cache_mode = "refresh"
         if cache_mode == "use" and (hit := await cache.read("resources/read", uri)) is not None:
             # InputRequiredResult is never stored (only terminal first-round results
             # are written below), so a hit is always terminal and legitimately skips
@@ -669,11 +690,13 @@ class Client:
     ) -> ListPromptsResult:
         """List available prompts from the server.
 
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
+        calls carrying `meta` always reach the server.
         """
         return await self._cached_fetch(
             "prompts/list",
             cursor=cursor,
+            meta=meta,
             cache_mode=cache_mode,
             send=lambda: self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
         )
@@ -767,11 +790,13 @@ class Client:
     ) -> ListToolsResult:
         """List available tools from the server.
 
-        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`);
+        calls carrying `meta` always reach the server.
         """
         return await self._cached_fetch(
             "tools/list",
             cursor=cursor,
+            meta=meta,
             cache_mode=cache_mode,
             send=lambda: self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
             # A cache hit skips session.list_tools, so the session re-absorbs the

@@ -229,6 +229,15 @@ def test_a_custom_store_with_an_explicit_partition_constructs() -> None:
     assert config.partition == "token-subject-1"
 
 
+def test_an_empty_target_id_is_rejected_at_construction() -> None:
+    """SDK-defined guard: an explicit empty `target_id` would hash to the one
+    shared `sha256("")` identity, collapsing distinct servers onto it -
+    rejected at construction; omit the field (None) to derive an identity."""
+    with pytest.raises(ValueError) as exc:
+        CacheConfig(target_id="")
+    assert str(exc.value) == snapshot("target_id must be a non-empty string or omitted")
+
+
 def test_a_negative_default_ttl_is_rejected_at_construction() -> None:
     """SDK-defined guard: a negative configured TTL is a programming error,
     rejected at construction (negative `ttlMs` from the wire is tolerated as 0
@@ -450,6 +459,30 @@ class _FailingStore:
 
     async def delete(self, key: CacheKey) -> None:
         if self.fail_delete:
+            raise RuntimeError("store delete failed")
+        await self.inner.delete(key)
+
+    async def clear(self) -> None:
+        raise NotImplementedError
+
+
+class _ArmDeleteFailingStore:
+    """In-memory store whose `delete` raises only for keys on the given arm,
+    modelling a write whose opposite-arm cleanup fails while everything else
+    works. A write hitting that failure never reaches `set`."""
+
+    def __init__(self, failing_arm: str) -> None:
+        self.inner = InMemoryResponseCacheStore()
+        self.failing_arm = failing_arm
+
+    async def get(self, key: CacheKey) -> CacheEntry | None:
+        return await self.inner.get(key)
+
+    async def set(self, key: CacheKey, entry: CacheEntry) -> None:
+        raise NotImplementedError
+
+    async def delete(self, key: CacheKey) -> None:
+        if key.partition == self.failing_arm:
             raise RuntimeError("store delete failed")
         await self.inner.delete(key)
 
@@ -830,6 +863,25 @@ async def test_a_raising_opposite_arm_delete_aborts_the_write() -> None:
     await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
     assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is None
     assert await store.inner.get(CacheKey("tools/list", "", _public_arm())) is None
+
+
+async def test_a_failed_opposite_arm_delete_degrades_the_key_to_a_full_miss() -> None:
+    """SDK error discipline: when only the opposite-arm delete fails, the write
+    cannot set its own arm (two arms might answer) - but the warm own-arm
+    entry was superseded by the fetch, so it is best-effort deleted too: both
+    arms read as misses, and the write itself never raises."""
+    store = _ArmDeleteFailingStore(failing_arm=_public_arm())
+    cache = _coordinator(store)
+    await store.inner.set(
+        CacheKey("tools/list", "", _private_arm()),
+        CacheEntry(value=_wire_result(), scope="private", expires_at=2_000_000.0),
+    )
+    assert await cache.read("tools/list", "") is not None  # the warm own-arm entry
+    gen = cache.capture("tools/list", "")
+    await cache.write("tools/list", "", _wire_result(ttl_ms=60_000), gen, "use")
+    assert await store.inner.get(CacheKey("tools/list", "", _private_arm())) is None
+    assert await store.inner.get(CacheKey("tools/list", "", _public_arm())) is None
+    assert await cache.read("tools/list", "") is None
 
 
 async def test_a_raising_store_set_caches_nothing_and_does_not_raise() -> None:
