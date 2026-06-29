@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Generic, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
@@ -99,47 +99,31 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         await self.request_context.session.report_progress(progress, total, message)
 
-    @overload
-    async def read_resource(
-        self, uri: str | AnyUrl, *, allow_input_required: Literal[False] = False
-    ) -> Iterable[ReadResourceContents]: ...
-
-    @overload
-    async def read_resource(
-        self, uri: str | AnyUrl, *, allow_input_required: bool
-    ) -> Iterable[ReadResourceContents] | InputRequiredResult: ...
-
-    async def read_resource(
-        self, uri: str | AnyUrl, *, allow_input_required: bool = False
-    ) -> Iterable[ReadResourceContents] | InputRequiredResult:
+    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.
+
+        This is a content reader: an `InputRequiredResult` returned by a
+        resource template function (the 2026-07-28 multi-round-trip flow)
+        raises here. A handler that wants to receive and forward one as its
+        own result calls `MCPServer.read_resource(uri, context)` instead.
 
         Args:
             uri: Resource URI to read
-            allow_input_required: When `False` (default), an
-                `InputRequiredResult` returned by a resource template function
-                (the 2026-07-28 multi-round-trip flow) raises instead of being
-                returned. Pass `True` to receive it — a handler may forward it
-                as its own result; the retry's answers then arrive on
-                `ctx.input_responses`.
 
         Returns:
-            The resource content as either text or bytes, or — only with
-            `allow_input_required=True` — the `InputRequiredResult` the
-            resource template function returned.
+            The resource content as either text or bytes
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
             ResourceError: If template creation or resource reading fails.
-            RuntimeError: If the resource returned an `InputRequiredResult`
-                and `allow_input_required` is `False`.
+            RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
         result = await self._mcp_server.read_resource(uri, self)
-        if isinstance(result, InputRequiredResult) and not allow_input_required:
+        if isinstance(result, InputRequiredResult):
             raise RuntimeError(
-                "Resource returned InputRequiredResult; pass allow_input_required=True to "
-                "receive it and forward it as this handler's result."
+                "Resource returned InputRequiredResult; ctx.read_resource() only returns "
+                "content — use MCPServer.read_resource(uri, context) to receive and forward it."
             )
         return result
 

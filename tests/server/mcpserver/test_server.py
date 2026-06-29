@@ -2071,9 +2071,9 @@ async def test_resource_template_reads_input_responses_from_context_on_retry():
     assert contents.text == "databases notes for Alice"
 
 
-async def test_context_read_resource_raises_on_input_required_result_by_default():
+async def test_context_read_resource_raises_on_input_required_result():
     """ctx.read_resource is a content reader: an InputRequiredResult from the template
-    raises with the opt-in hint instead of widening every caller (mirrors ClientSession)."""
+    raises with a pointer at the forwarding path instead of widening every caller."""
     mcp = MCPServer()
 
     @mcp.resource("ask://{topic}")
@@ -2084,14 +2084,14 @@ async def test_context_read_resource_raises_on_input_required_result_by_default(
     with pytest.raises(RuntimeError) as exc:
         await context.read_resource("ask://databases")
     assert str(exc.value) == snapshot(
-        "Resource returned InputRequiredResult; pass allow_input_required=True to receive it "
-        "and forward it as this handler's result."
+        "Resource returned InputRequiredResult; ctx.read_resource() only returns "
+        "content — use MCPServer.read_resource(uri, context) to receive and forward it."
     )
 
 
-async def test_context_read_resource_with_allow_input_required_forwards_the_result():
-    """With allow_input_required=True the handler receives the template's
-    InputRequiredResult unchanged and may forward it as its own result."""
+async def test_mcpserver_read_resource_returns_input_required_result_for_handler_forwarding():
+    """MCPServer.read_resource hands the template's InputRequiredResult to a direct caller
+    unchanged — the composition path for a handler that forwards it as its own result."""
     mcp = MCPServer()
     sentinel = InputRequiredResult(input_requests={"who": _ask_who()})
 
@@ -2100,7 +2100,7 @@ async def test_context_read_resource_with_allow_input_required_forwards_the_resu
         return sentinel
 
     context = Context(mcp_server=mcp)
-    result = await context.read_resource("ask://databases", allow_input_required=True)
+    result = await mcp.read_resource("ask://databases", context)
     assert result is sentinel
 
 

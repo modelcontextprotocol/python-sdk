@@ -33,10 +33,10 @@ methods directly, narrow with `isinstance` (or
 resource functions never return one). `Prompt.render()` and
 `ResourceTemplate.create_resource()` carry the same union.
 
-`ctx.read_resource()` inside a handler is unchanged by default: it still
-returns content and raises `RuntimeError` if the resource requests input; pass
-`allow_input_required=True` to receive the `InputRequiredResult` and forward it
-as the handler's own result.
+`ctx.read_resource()` inside a handler is unchanged: it still returns content,
+and raises `RuntimeError` if the resource requests input. A handler that wants
+to receive the `InputRequiredResult` and forward it as its own result calls
+`MCPServer.read_resource(uri, context)` directly.
 
 ### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
 
