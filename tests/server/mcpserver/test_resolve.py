@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
 import anyio
 import pytest
@@ -18,7 +18,8 @@ from mcp_types import (
     InputResponses,
     TextContent,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, create_model
+from typing_extensions import TypeAliasType
 
 from mcp import Client, InputRequiredRoundsExceededError
 from mcp.client import ClientRequestContext
@@ -34,8 +35,8 @@ from mcp.server.mcpserver import (
 )
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.resolve import (
+    _check_elicit_return,
     _decode_state,
-    _elicit_return_schema,
     _encode_state,
     _outcome_from_state,
     _resolver_key,
@@ -43,6 +44,7 @@ from mcp.server.mcpserver.resolve import (
     _StateEntry,
     _uses_input_required,
     find_resolved_parameters,
+    returns_input_required,
 )
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError
@@ -54,6 +56,26 @@ class Login(BaseModel):
 
 class Confirm(BaseModel):
     ok: bool
+
+
+class Restock(BaseModel):
+    needed: bool
+
+
+# The `type X = ...` spelling of an InputRequiredResult-bearing return annotation,
+# bare and generic (a subscripted alias forwards `__value__` to its origin).
+IRRAlias = TypeAliasType("IRRAlias", InputRequiredResult | str)
+T_alias = TypeVar("T_alias")
+IRRAliasGeneric = TypeAliasType("IRRAliasGeneric", InputRequiredResult | T_alias, type_params=(T_alias,))
+
+
+class _UnevaluableAlias:
+    """Stand-in for `type X = GhostType | str` whose names exist only under
+    TYPE_CHECKING: accessing `__value__` evaluates the alias and raises."""
+
+    @property
+    def __value__(self) -> Any:
+        raise NameError("name 'GhostType' is not defined")
 
 
 class Handle(BaseModel):
@@ -700,7 +722,7 @@ async def test_input_required_empty_folder_completes_without_eliciting():
 
 
 @pytest.mark.anyio
-async def test_input_required_resolver_asks_and_consumes_then_never_reruns():
+async def test_input_required_asks_each_question_once_while_bodies_rerun():
     mcp = MCPServer(name="ExactlyOnceMRTR")
     counts = {"login": 0, "confirm": 0}
 
@@ -735,12 +757,13 @@ async def test_input_required_resolver_asks_and_consumes_then_never_reruns():
     # `confirm` can only form its question from `login`'s answer, so the auto-driver
     # sees the questions in two successive rounds and answers each exactly once.
     assert asked == ["Username?", "As octocat?"]
-    # An eliciting resolver runs twice - once to ask, once to consume the answer -
-    # then its outcome is carried in `request_state` and it never runs again. `login`
-    # asks in round 1 and is consumed in round 2; `confirm` (which depends on
-    # `login`) only forms its question once `login` is known, so it asks in round 2
-    # and is consumed in round 3. Neither re-runs beyond consuming its own answer.
-    assert counts == {"login": 2, "confirm": 2}
+    # The once-per-call guarantee is about the question, not the body: a recorded
+    # answer is consulted only after the body asks again, so `login` runs on every
+    # round the call passes through (asks in round 1, consumes its answer in round 2,
+    # re-asks-and-restores in round 3) while the user is prompted exactly once.
+    # `confirm` only forms its question once `login` is known: it asks in round 2
+    # and consumes in round 3.
+    assert counts == {"login": 3, "confirm": 2}
 
 
 @pytest.mark.anyio
@@ -863,24 +886,23 @@ def test_state_round_trips_accept_decline_cancel():
 
     accepted = _outcome_from_state(decoded["a"], Login)
     assert isinstance(accepted, AcceptedElicitation) and accepted.data == Login(username="octocat")
-    assert isinstance(_outcome_from_state(decoded["b"], None), DeclinedElicitation)
-    assert isinstance(_outcome_from_state(decoded["c"], None), CancelledElicitation)
-    raw = _outcome_from_state(decoded["d"], None)
-    assert isinstance(raw, AcceptedElicitation) and raw.data == "raw-token"
+    # Decline/cancel entries carry no data; the schema is not consulted for them.
+    assert isinstance(_outcome_from_state(decoded["b"], Login), DeclinedElicitation)
+    assert isinstance(_outcome_from_state(decoded["c"], Login), CancelledElicitation)
+    # An accepted restore always validates against the question's live schema -
+    # data that doesn't fit is rejected, never passed through raw.
+    with pytest.raises(ValidationError):
+        _outcome_from_state(decoded["d"], Login)
 
 
-def test_elicit_return_schema_extraction():
-    assert _elicit_return_schema(Elicit[Login], "r") is Login  # bare Elicit[T]
-    assert _elicit_return_schema(Login | Elicit[Login], "r") is Login  # union arm
-    assert _elicit_return_schema(Login, "r") is None  # no Elicit arm
-    assert _elicit_return_schema(None, "r") is None
-    # The bound on `Elicit`'s parameter is unenforced at runtime, so a non-model
-    # subscription is constructible and must yield no schema rather than crash.
-    unbounded_elicit: Any = Elicit
-    assert _elicit_return_schema(unbounded_elicit[int], "r") is None
-    # Two distinct Elicit arms are ambiguous: the runtime can honor only one schema.
+def test_check_elicit_return_allows_one_arm_and_rejects_two():
+    _check_elicit_return(Elicit[Login], "r")  # bare Elicit[T]
+    _check_elicit_return(Login | Elicit[Login], "r")  # union arm
+    _check_elicit_return(Login, "r")  # no Elicit arm
+    _check_elicit_return(None, "r")  # unannotated
+    # A resolver asks one question: two distinct Elicit arms mean it should be split.
     with pytest.raises(InvalidSignature, match="'r' return annotation has multiple Elicit arms"):
-        _elicit_return_schema(Elicit[Login] | Elicit[Confirm], "r")
+        _check_elicit_return(Elicit[Login] | Elicit[Confirm], "r")
 
 
 @pytest.mark.anyio
@@ -1195,13 +1217,14 @@ async def test_factory_closures_get_distinct_wire_keys():
 
 @pytest.mark.anyio
 async def test_eliciting_resolver_without_elicit_arm_restores_a_typed_model():
-    # A resolver annotated `-> Login` that actually returns `Elicit(...)` has no
-    # `Elicit[T]` return arm, so `elicit_schema` is None. Its answer, restored from
-    # request_state in a 3+ round flow, must still come back as a Login model (not a
-    # raw dict) so a dependent resolver/tool can use its attributes.
+    # A resolver annotated `-> object` that actually returns `Elicit(...)` declares
+    # no `Elicit[T]` return arm. Its answer, restored from request_state in a 3+
+    # round flow, must still come back as a Login model (not a raw dict): restore
+    # validates against the live `Elicit.schema` the body produced, not the lying
+    # annotation, so a dependent resolver/tool can use its attributes.
     mcp = MCPServer(name="LyingAnnotation")
 
-    # Annotated without an `Elicit[T]` return arm, so `elicit_schema` is None.
+    # Annotated without an `Elicit[T]` return arm; the body asks anyway.
     async def login(ctx: Context) -> object:
         return Elicit("user?", Login)
 
@@ -1591,3 +1614,181 @@ async def test_divergent_validation_and_serialization_aliases_round_trip():
         assert isinstance(final, CallToolResult)
         assert isinstance(final.content[0], TextContent)
         assert final.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_state_entry_never_replaces_a_resolver_computed_value():
+    # `request_state` is client-echoed: an accept entry under a resolver's wire key
+    # must only satisfy a question the resolver is actually asking, never stand in
+    # for the body's own computation on a branch that does not ask.
+    mcp = MCPServer(name="StateVsBody")
+    calls = {"decide": 0}
+
+    async def decide(ctx: Context) -> Restock | Elicit[Restock]:
+        calls["decide"] += 1
+        return Restock(needed=False)  # this branch computes server-side; no question
+
+    @mcp.tool()
+    async def plan_restock(restock: Annotated[Restock, Resolve(decide)]) -> str:
+        return str(restock.needed)
+
+    wire_key = f"{decide.__module__}:{decide.__qualname__}"
+    crafted = json.dumps({"v": 1, "outcomes": {wire_key: {"action": "accept", "data": {"needed": True}}}})
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        result = await client.session.call_tool("plan_restock", {}, request_state=crafted, allow_input_required=True)
+        assert isinstance(result, CallToolResult)
+        assert isinstance(result.content[0], TextContent)
+        # The body ran and its computation won; the crafted entry was never consulted.
+        assert result.content[0].text == "False"
+        assert calls["decide"] == 1
+
+
+@pytest.mark.anyio
+async def test_state_decline_entry_for_a_pure_resolver_is_ignored():
+    # A decline/cancel entry can only answer a question; a resolver with no Elicit
+    # arm never asks one, so such an entry cannot suppress its computed value.
+    mcp = MCPServer(name="PureVsDecline")
+
+    async def lookup(ctx: Context) -> Login:
+        return Login(username="server-side")
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(lookup)]) -> str:
+        return login.username
+
+    wire_key = f"{lookup.__module__}:{lookup.__qualname__}"
+    crafted = json.dumps({"v": 1, "outcomes": {wire_key: {"action": "decline"}}})
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        result = await client.session.call_tool("whoami", {}, request_state=crafted, allow_input_required=True)
+        assert isinstance(result, CallToolResult)
+        assert not result.is_error
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "server-side"
+
+
+@pytest.mark.anyio
+async def test_dynamic_schema_resolver_restores_across_rounds():
+    # `-> Elicit[BaseModel]` is the natural annotation for `create_model(...)`
+    # schemas; the restored answer must validate against the live question's
+    # schema, so the dynamic shape works across a multi-question chain.
+    mcp = MCPServer(name="DynamicSchema")
+    dyn = create_model("Dyn", token=(str, ...))
+
+    async def first(ctx: Context) -> Elicit[BaseModel]:
+        return Elicit("Q1?", dyn)
+
+    async def second(f: Annotated[BaseModel, Resolve(first)], ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Q2?", Confirm)
+
+    @mcp.tool()
+    async def chain(c: Annotated[Confirm, Resolve(second)]) -> str:
+        return str(c.ok)
+
+    def answer(key: str, params: ElicitRequestFormParams) -> ElicitResult:
+        if "Q1" in params.message:
+            return ElicitResult(action="accept", content={"token": "t"})
+        return ElicitResult(action="accept", content={"ok": True})
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        one = await client.session.call_tool("chain", {}, allow_input_required=True)
+        assert isinstance(one, InputRequiredResult)
+        two = await client.session.call_tool(
+            "chain",
+            {},
+            input_responses=_answer_round(one, answer),
+            request_state=one.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(two, InputRequiredResult)  # Q1 consumed, Q2 asked
+        final = await client.session.call_tool(
+            "chain",
+            {},
+            input_responses=_answer_round(two, answer),
+            request_state=two.request_state,
+            allow_input_required=True,
+        )
+        # Round 3 restores Q1's answer against the live dynamic schema and completes.
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "True"
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        InputRequiredResult,
+        InputRequiredResult | str,
+        Annotated[InputRequiredResult | str, "meta"],
+        str | Annotated[InputRequiredResult, "meta"],  # Annotated as a union member
+        IRRAlias,  # `type X = ...` alias
+        IRRAliasGeneric[str],  # subscripted generic alias
+    ],
+)
+def test_tool_combining_resolvers_with_input_required_return_is_rejected(annotation: Any):
+    # A call has one input_responses/request_state channel: resolver elicitation
+    # and a hand-rolled InputRequiredResult body cannot share it.
+    mcp = MCPServer(name="ChannelOwnership")
+
+    async def lookup(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover - registration is rejected
+
+    async def combo(login: Annotated[Login, Resolve(lookup)]):
+        raise NotImplementedError  # pragma: no cover
+
+    combo.__annotations__["return"] = annotation
+    with pytest.raises(InvalidSignature, match="combines Resolve\\(\\.\\.\\.\\) parameters"):
+        mcp.tool()(combo)
+
+    # Without resolver parameters the hand-rolled form remains available.
+    @mcp.tool()
+    async def manual() -> InputRequiredResult:
+        raise NotImplementedError  # pragma: no cover - only registration is exercised
+
+    assert returns_input_required(manual)
+
+
+def test_unevaluable_alias_and_parameterized_generics_declare_no_arm():
+    # A `type X = ...` alias is evaluated lazily, so one naming TYPE_CHECKING-only
+    # imports raises NameError on `__value__` access: it declares no arm the check
+    # can see and must not break registration (the in-call guard still covers a
+    # body that returns an InputRequiredResult anyway). A parameterized generic
+    # return is never the InputRequiredResult class either.
+    mcp = MCPServer(name="RegistrationTolerance")
+
+    async def lookup(ctx: Context) -> Login:
+        return Login(username="x")  # pragma: no cover - only registration is exercised
+
+    async def lazy(login: Annotated[Login, Resolve(lookup)]):
+        raise NotImplementedError  # pragma: no cover
+
+    lazy.__annotations__["return"] = _UnevaluableAlias()
+    assert not returns_input_required(lazy)
+
+    @mcp.tool()
+    async def listy(login: Annotated[Login, Resolve(lookup)]) -> list[str]:
+        raise NotImplementedError  # pragma: no cover
+
+    assert not returns_input_required(listy)
+
+
+@pytest.mark.anyio
+async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_error():
+    # The annotated form of this combination is rejected at registration; a body
+    # that returns an InputRequiredResult without declaring it fails loudly at the
+    # same boundary instead of silently fighting the resolvers for the channel.
+    mcp = MCPServer(name="DynamicChannelClash")
+
+    async def lookup(ctx: Context) -> Login:
+        return Login(username="x")
+
+    @mcp.tool()
+    async def sneaky(login: Annotated[Login, Resolve(lookup)]):
+        return InputRequiredResult(input_requests={}, request_state="opaque")
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sneaky", {})
+        assert result.is_error
+        assert isinstance(result.content[0], TextContent)
+        assert "the multi-round flow is driven either by resolvers or by the tool body" in result.content[0].text

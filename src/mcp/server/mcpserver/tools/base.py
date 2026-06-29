@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Any
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
 from pydantic import BaseModel, Field
 
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.mcpserver.resolve import (
     build_resolver_plans,
     find_resolved_parameters,
     resolve_arguments,
+    returns_input_required,
 )
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
@@ -81,6 +82,12 @@ class Tool(BaseModel):
             context_kwarg = find_context_parameter(fn)
 
         resolved_params = find_resolved_parameters(fn)
+        if resolved_params and returns_input_required(fn):
+            raise InvalidSignature(
+                f"Tool {func_name!r} combines Resolve(...) parameters with an InputRequiredResult "
+                "return; a call has one input_required channel, so the multi-round flow is driven "
+                "either by resolvers or by the tool body, not both"
+            )
 
         skip_names = [context_kwarg] if context_kwarg is not None else []
         skip_names.extend(resolved_params)
@@ -149,6 +156,15 @@ class Tool(BaseModel):
                 pass_directly or None,
                 pre_validated=pre_validated,
             )
+
+            # Registration rejects the annotated form of this combination; this covers
+            # a body that returns an InputRequiredResult without declaring it.
+            if self.resolved_params and isinstance(result, InputRequiredResult):
+                raise ToolError(
+                    "the tool returned an InputRequiredResult but its parameters use Resolve(...); "
+                    "a call has one input_required channel, so the multi-round flow is driven "
+                    "either by resolvers or by the tool body, not both"
+                )
 
             if convert_result:
                 result = self.fn_metadata.convert_result(result)
