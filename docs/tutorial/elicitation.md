@@ -95,7 +95,7 @@ A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` befo
 
 Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
 
-Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **Dependencies** chapter.
+Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** chapter.
 
 ## Send the user to a URL
 
