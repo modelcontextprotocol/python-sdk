@@ -2,7 +2,7 @@
 
 Some MCP servers are protected. Send them a request without a token and they answer `401 Unauthorized`.
 
-**`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth`, the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
+**`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx2.Auth`, the standard httpx2 hook for "do something to every request". You attach it to an `httpx2.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
 
 This page is the client side. Making your own server demand a token is **[Authorization](../run/authorization.md)**.
 
@@ -68,9 +68,9 @@ A real client runs a small local HTTP server on the redirect URI instead of call
 
 ### Into the `Client`
 
-Look at `main()`. The provider goes on the **httpx client**, the httpx client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
+Look at `main()`. The provider goes on the **httpx2 client**, the httpx2 client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
 
-`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **[Client transports](transports.md)**.
+`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx2.AsyncClient` you bring. That layering is **[Client transports](transports.md)**.
 
 ## What the provider does for you
 
@@ -103,7 +103,7 @@ The URL must be HTTPS with a non-root path; anything else is a `ValueError` at c
 
 A nightly job, a CI step, another service. There is no browser and nobody to click "allow". That is the **client credentials** grant: you already hold a `client_id` and a `client_secret`, and the token endpoint is the whole flow.
 
-`ClientCredentialsOAuthProvider` is the same `httpx.Auth`, minus the human:
+`ClientCredentialsOAuthProvider` is the same `httpx2.Auth`, minus the human:
 
 ```python title="client.py" hl_lines="4 27-33"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
@@ -113,7 +113,7 @@ What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
 * `scopes` is a space-separated string, the OAuth wire format.
-* Everything downstream is identical: the same `TokenStorage`, the same `httpx.AsyncClient(auth=...)`, the same `streamable_http_client`.
+* Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
 By default the secret travels as HTTP Basic auth on the token request (`client_secret_basic`). Pass `token_endpoint_auth_method="client_secret_post"` to put it in the form body instead. Some authorization servers only accept one of the two.
 
@@ -133,11 +133,11 @@ There is one more no-human situation: the client belongs to an enterprise whose 
 
 When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means the authorization server refused to register you. `OAuthTokenError` means the token endpoint said no. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.
 
-Not everything is a flow error. The network can still fail; those are ordinary `httpx` exceptions and pass through untouched.
+Not everything is a flow error. The network can still fail; those are ordinary `httpx2` exceptions and pass through untouched.
 
 ## Recap
 
-* `OAuthClientProvider` is an `httpx.Auth`. Put it on an `httpx.AsyncClient`, pass that to `streamable_http_client(url, http_client=...)`, and `Client` never knows OAuth happened.
+* `OAuthClientProvider` is an `httpx2.Auth`. Put it on an `httpx2.AsyncClient`, pass that to `streamable_http_client(url, http_client=...)`, and `Client` never knows OAuth happened.
 * You supply four things: the server URL, an `OAuthClientMetadata`, a `TokenStorage`, and the redirect/callback handler pair.
 * `TokenStorage` is a `Protocol`: four async methods, no base class. Persist `client_info` as well as the tokens.
 * Discovery, registration (dynamic, or via a **Client ID Metadata Document**), PKCE, the `state` and `iss` checks, and token refresh are the provider's job, not yours.

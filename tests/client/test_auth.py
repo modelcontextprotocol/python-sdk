@@ -2862,10 +2862,10 @@ async def test_handle_token_response_backfills_omitted_scope_from_request(
 
 @pytest.mark.anyio
 async def test_handle_token_response_raises_on_non_2xx_with_body(oauth_provider: OAuthClientProvider):
-    response = httpx.Response(
+    response = httpx2.Response(
         400,
         json={"error": "invalid_grant"},
-        request=httpx.Request("POST", "https://auth.example.com/token"),
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
     )
     with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(400\).*invalid_grant"):
         await oauth_provider._handle_token_response(response)

@@ -1,6 +1,6 @@
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 from pydantic import AnyUrl
 
 from mcp import Client
@@ -55,7 +55,7 @@ oauth = OAuthClientProvider(
 
 
 async def main() -> None:
-    async with httpx.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
+    async with httpx2.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()
