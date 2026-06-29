@@ -27,6 +27,7 @@ from mcp_types import (
     Icon,
     ImageContent,
     InputRequiredResult,
+    InputResponses,
     ListPromptsResult,
     ListRootsRequest,
     Prompt,
@@ -2103,6 +2104,41 @@ async def test_mcpserver_read_resource_returns_input_required_result_for_handler
     context = Context(mcp_server=mcp)
     result = await mcp.read_resource("ask://databases", context)
     assert result is sentinel
+
+
+async def test_context_read_resource_keeps_outer_input_responses_from_the_nested_template():
+    """ctx.read_resource never participates in the multi-round-trip flow, so the nested
+    template must not see the outer request's input_responses/request_state — a colliding
+    key would otherwise consume an answer meant for the outer handler's own question."""
+    mcp = MCPServer()
+    seen_responses: list[InputResponses | None] = []
+    seen_state: list[str | None] = []
+
+    @mcp.resource("ask://{topic}")
+    async def ask(topic: str, ctx: Context) -> str:
+        seen_responses.append(ctx.input_responses)
+        seen_state.append(ctx.request_state)
+        return f"{topic} content"
+
+    @mcp.tool()
+    async def outer(ctx: Context) -> str:
+        contents = list(await ctx.read_resource("ask://databases"))
+        assert isinstance(contents[0].content, str)
+        return contents[0].content
+
+    with anyio.fail_after(5):
+        async with Client(mcp, mode="2026-07-28") as client:
+            result = await client.session.call_tool(
+                "outer",
+                input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
+                request_state="outer-state",
+            )
+    assert isinstance(result, CallToolResult)
+    block = result.content[0]
+    assert isinstance(block, TextContent)
+    assert block.text == "databases content"
+    assert seen_responses == [None]
+    assert seen_state == [None]
 
 
 async def test_prompt_raising_mcp_error_surfaces_code_and_data_to_client():

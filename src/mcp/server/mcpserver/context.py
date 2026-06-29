@@ -89,6 +89,16 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
+    def _nested_invocation(self) -> Context[LifespanContextT, RequestT]:
+        """A Context for invoking another handler's function from inside this request.
+
+        Shares the request infrastructure (session, request metadata, lifespan) but
+        carries no `input_responses`/`request_state`: those are addressed to the wire
+        request's own target — their keys are ones that handler minted — so a nested
+        invocation always starts on round one.
+        """
+        return Context(request_context=self._request_context, mcp_server=self._mcp_server)
+
     async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         """Report progress for the current operation.
 
@@ -104,11 +114,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         This is a content reader: an `InputRequiredResult` returned by a
         resource template function (the 2026-07-28 multi-round-trip flow)
-        raises here. A handler that wants to receive and forward one as its
-        own result calls `MCPServer.read_resource(uri, context)` instead —
-        but not from a tool whose dependencies elicit via `Resolve(...)`:
-        the resolver owns that tool's `request_state` channel, and a
-        forwarded result's state would clobber it.
+        raises here, and the nested template never sees this request's
+        `input_responses`/`request_state` — those answer the outer handler's
+        own questions, so the template always behaves as round one. A handler
+        that wants to receive and forward an `InputRequiredResult` as its own
+        result calls `MCPServer.read_resource(uri, context)` instead — but
+        not from a tool whose dependencies elicit via `Resolve(...)`: the
+        resolver owns that tool's `request_state` channel, and a forwarded
+        result's state would clobber it.
 
         Args:
             uri: Resource URI to read
@@ -122,7 +135,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
-        result = await self._mcp_server.read_resource(uri, self)
+        result = await self._mcp_server.read_resource(uri, self._nested_invocation())
         if isinstance(result, InputRequiredResult):
             raise RuntimeError(
                 "Resource returned InputRequiredResult; ctx.read_resource() only returns "
