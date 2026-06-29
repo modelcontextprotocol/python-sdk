@@ -183,21 +183,30 @@ def _contains_resolve(annotation: Any) -> bool:
     return any(_contains_resolve(arg) for arg in get_args(annotation))
 
 
-def _elicit_return_schema(return_annotation: Any) -> type[BaseModel] | None:
+def _elicit_return_schema(return_annotation: Any, name: str) -> type[BaseModel] | None:
     """Extract `T` from a resolver return type's `Elicit[T]` arm, if present.
 
     Handles a bare `-> Elicit[T]` and a `-> T | Elicit[T]` union. Lets an elicited
     outcome restored from `request_state` (a plain dict) be re-validated into its
     model so dependent resolvers and tools receive a typed value.
+
+    Raises:
+        InvalidSignature: If the annotation has more than one `Elicit[...]` arm;
+            the runtime can honor only one static question schema per resolver.
     """
     # A bare `Elicit[T]` is itself a candidate; a union contributes its members.
     candidates = get_args(return_annotation) if _is_union(return_annotation) else (return_annotation,)
-    for candidate in candidates:
-        if get_origin(candidate) is Elicit:
-            schema = get_args(candidate)[0]
-            if isinstance(schema, type) and issubclass(schema, BaseModel):
-                return schema
-    return None
+    # Typing dedupes equal union members, so two arms here are genuinely distinct.
+    arms = [c for c in candidates if get_origin(c) is Elicit]
+    if len(arms) > 1:
+        raise InvalidSignature(
+            f"Resolver {name!r} return annotation has multiple Elicit arms; "
+            "a resolver asks one question - split it into separate resolvers"
+        )
+    if not arms:
+        return None
+    schema = get_args(arms[0])[0]
+    return schema if isinstance(schema, type) and issubclass(schema, BaseModel) else None
 
 
 def _is_union(annotation: Any) -> bool:
@@ -290,9 +299,8 @@ def build_resolver_plans(
                 "expected a Context, an Annotated[_, Resolve(...)], or a tool argument by name"
             )
 
-        plans[key] = _ResolverPlan(
-            fn, params, is_async_callable(fn), _elicit_return_schema(hints.get("return")), wire_key
-        )
+        elicit_schema = _elicit_return_schema(hints.get("return"), _resolver_name(fn))
+        plans[key] = _ResolverPlan(fn, params, is_async_callable(fn), elicit_schema, wire_key)
         for dep in nested:
             analyze(dep, stack + (key,))
 
@@ -342,11 +350,13 @@ class _Resolution:
         self.answers: InputResponses = context.input_responses or {} if input_required else {}
         self.state = _decode_state(context.request_state) if input_required else {}
         # In-call dedup keyed by resolver identity (distinguishes two instances of
-        # the same bound method); `elicited` holds only outcomes that came from an
-        # elicitation, keyed by their wire key - these are what `request_state`
-        # persists, since pure resolvers are cheap to re-run each round.
+        # the same bound method); `persist` holds the wire-shaped record of each
+        # elicited outcome, keyed by its wire key - exactly what the next round's
+        # `request_state` carries. Entries are the client's own (validated) wire
+        # data, never re-derived from a model, so encode-restore is the identity.
+        # Pure resolvers are cheap to re-run each round and are not persisted.
         self.cache: dict[Hashable, ElicitationResult[Any]] = {}
-        self.elicited: dict[str, ElicitationResult[Any]] = {}
+        self.persist: dict[str, _StateEntry] = {}
         self.pending: InputRequests = {}
 
 
@@ -399,7 +409,7 @@ async def resolve_arguments(
         injected[name] = outcome if wants_union else _unwrap(outcome, name)
 
     if res.pending:
-        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.elicited))
+        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.persist))
     return injected
 
 
@@ -456,7 +466,6 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
 
     if _is_elicit(result):
         outcome = await _elicit(result, wire_key, res)
-        res.elicited[wire_key] = outcome
     else:
         # A resolver may return any type (not just `BaseModel`), so accept it as the
         # outcome without validating against the schema bound. Plain outcomes are not
@@ -496,9 +505,14 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
             raise ToolError(
                 f"Resolver {key!r} received an accepted elicitation whose content does not match the requested schema"
             ) from e
+        # Persist the exact wire content that just passed validation - never the
+        # model - so restoring next round revalidates the same bytes the client sent.
+        res.persist[key] = _StateEntry(action="accept", data=answer.content)
         return AcceptedElicitation(data=data)
     if answer.action == "decline":
+        res.persist[key] = _StateEntry(action="decline")
         return DeclinedElicitation()
+    res.persist[key] = _StateEntry(action="cancel")
     return CancelledElicitation()
 
 
@@ -591,18 +605,13 @@ def _decode_state(request_state: str | None) -> dict[str, _StateEntry]:
     return state.outcomes if state.v == _STATE_VERSION else {}
 
 
-def _encode_state(outcomes: Mapping[str, ElicitationResult[Any]]) -> str:
-    """Encode resolved outcomes (keyed by resolver path) for the next round."""
-    entries: dict[str, _StateEntry] = {}
-    for path, outcome in outcomes.items():
-        data = outcome.data if isinstance(outcome, AcceptedElicitation) else None
-        if isinstance(data, BaseModel):
-            # By alias: the stored shape must round-trip through
-            # `schema.model_validate` on restore, which expects the alias-keyed
-            # form the client answered with (the rendered schema is alias-keyed).
-            data = data.model_dump(mode="json", by_alias=True)
-        entries[path] = _StateEntry(action=outcome.action, data=data)
-    return _State(v=_STATE_VERSION, outcomes=entries).model_dump_json()
+def _encode_state(outcomes: Mapping[str, _StateEntry]) -> str:
+    """Encode recorded elicitation outcomes (keyed by wire key) for the next round.
+
+    Entries already hold the client's wire-shaped data exactly as it was sent (and
+    validated), so encoding is pure wrapping: encode-restore is the identity.
+    """
+    return _State(v=_STATE_VERSION, outcomes=dict(outcomes)).model_dump_json()
 
 
 def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel] | None) -> ElicitationResult[Any]:
@@ -629,9 +638,10 @@ def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel] | None)
     the `_decode_state` treatment - dropped as if no progress was recorded, so the
     question is asked again - rather than surfacing a validation error.
 
-    Carries a restored outcome forward in `res.elicited`: if a later resolver is
-    still pending, the next round's `request_state` is built from `res.elicited`,
-    so an earlier answer must stay there or it would be dropped and re-asked.
+    Carries the original decoded entry forward unchanged in `res.persist`: if a
+    later resolver is still pending, the next round's `request_state` is built from
+    `res.persist`, so an earlier answer must stay there - byte-identical, never
+    re-derived - or it would be dropped and re-asked.
     """
     entry = res.state.get(key)
     if entry is None:
@@ -641,7 +651,7 @@ def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel] | None)
     except ValidationError:
         del res.state[key]
         return None
-    res.elicited[key] = outcome
+    res.persist[key] = entry
     return outcome
 
 

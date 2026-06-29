@@ -116,7 +116,8 @@ async def elicit_with_validation(
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
 
     Raises:
-        ValueError: If the client accepted the elicitation without supplying content.
+        ValueError: If the client accepted the elicitation without supplying
+            content, or with content that does not match the requested schema.
     """
     json_schema = render_elicitation_schema(schema)
 
@@ -129,8 +130,12 @@ async def elicit_with_validation(
     if result.action == "accept":
         if result.content is None:
             raise ValueError("Received an accepted elicitation with no content")
-        # Validate and parse the content using the schema
-        validated_data = schema.model_validate(result.content)
+        try:
+            validated_data = schema.model_validate(result.content)
+        except ValidationError as e:
+            raise ValueError(
+                "Received an accepted elicitation whose content does not match the requested schema"
+            ) from e
         return AcceptedElicitation(data=validated_data)
     if result.action == "decline":
         return DeclinedElicitation()

@@ -40,6 +40,7 @@ from mcp.server.mcpserver.resolve import (
     _outcome_from_state,
     _resolver_key,
     _state_key,
+    _StateEntry,
     _uses_input_required,
     find_resolved_parameters,
 )
@@ -57,6 +58,10 @@ class Confirm(BaseModel):
 
 class Handle(BaseModel):
     user_name: str = Field(alias="userName")
+
+
+class Account(BaseModel):
+    user_name: str = Field(validation_alias="vUser", serialization_alias="sUser")
 
 
 async def _alias_login(ctx: Context) -> Login:
@@ -334,6 +339,20 @@ def test_unresolvable_resolver_param_raises_at_registration():
         return login.username  # pragma: no cover
 
     with pytest.raises(InvalidSignature, match="cannot be resolved"):
+        Tool.from_function(tool)
+
+
+def test_multiple_elicit_arms_raise_at_registration():
+    # The runtime can honor only one static question schema per resolver, so an
+    # ambiguous `-> Elicit[A] | Elicit[B]` must not register (the second arm used
+    # to be silently ignored).
+    async def ambiguous(ctx: Context) -> Elicit[Login] | Elicit[Confirm]:
+        raise NotImplementedError  # pragma: no cover
+
+    async def tool(login: Annotated[Login, Resolve(ambiguous)]) -> str:
+        return login.username  # pragma: no cover
+
+    with pytest.raises(InvalidSignature, match="multiple Elicit arms"):
         Tool.from_function(tool)
 
 
@@ -833,13 +852,14 @@ def test_decode_state_tolerates_malformed_request_state(request_state: str | Non
 
 
 def test_state_round_trips_accept_decline_cancel():
-    outcomes: dict[str, ElicitationResult[BaseModel]] = {
-        "a": AcceptedElicitation(data=Login(username="octocat")),
-        "b": DeclinedElicitation(),
-        "c": CancelledElicitation(),
-        "d": AcceptedElicitation.model_construct(data="raw-token"),  # non-model value
+    entries = {
+        "a": _StateEntry(action="accept", data={"username": "octocat"}),
+        "b": _StateEntry(action="decline"),
+        "c": _StateEntry(action="cancel"),
+        "d": _StateEntry(action="accept", data="raw-token"),  # non-dict wire value
     }
-    decoded = _decode_state(_encode_state(outcomes))
+    decoded = _decode_state(_encode_state(entries))
+    assert decoded == entries  # encode-restore is the identity on the stored entries
 
     accepted = _outcome_from_state(decoded["a"], Login)
     assert isinstance(accepted, AcceptedElicitation) and accepted.data == Login(username="octocat")
@@ -850,14 +870,17 @@ def test_state_round_trips_accept_decline_cancel():
 
 
 def test_elicit_return_schema_extraction():
-    assert _elicit_return_schema(Elicit[Login]) is Login  # bare Elicit[T]
-    assert _elicit_return_schema(Login | Elicit[Login]) is Login  # union arm
-    assert _elicit_return_schema(Login) is None  # no Elicit arm
-    assert _elicit_return_schema(None) is None
+    assert _elicit_return_schema(Elicit[Login], "r") is Login  # bare Elicit[T]
+    assert _elicit_return_schema(Login | Elicit[Login], "r") is Login  # union arm
+    assert _elicit_return_schema(Login, "r") is None  # no Elicit arm
+    assert _elicit_return_schema(None, "r") is None
     # The bound on `Elicit`'s parameter is unenforced at runtime, so a non-model
     # subscription is constructible and must yield no schema rather than crash.
     unbounded_elicit: Any = Elicit
-    assert _elicit_return_schema(unbounded_elicit[int]) is None
+    assert _elicit_return_schema(unbounded_elicit[int], "r") is None
+    # Two distinct Elicit arms are ambiguous: the runtime can honor only one schema.
+    with pytest.raises(InvalidSignature, match="'r' return annotation has multiple Elicit arms"):
+        _elicit_return_schema(Elicit[Login] | Elicit[Confirm], "r")
 
 
 @pytest.mark.anyio
@@ -1385,10 +1408,11 @@ async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(for
 
 
 @pytest.mark.anyio
-async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_leakage():
-    # An accepted answer whose content fails the requested schema fails the call with
-    # the resolver's own message; pydantic's error text (which carries a
-    # "For further information" link) must not leak to the client.
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_leakage(mode: Literal["legacy", "auto"]):
+    # An accepted answer whose content fails the requested schema fails the call
+    # with the framework's own message on both transports; pydantic's error text
+    # (which carries an "errors.pydantic.dev" link) must not leak to the client.
     mcp = MCPServer(name="MismatchedAnswer")
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1398,12 +1422,17 @@ async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_le
     async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
         raise NotImplementedError  # pragma: no cover - the mismatched answer never reaches the body
 
-    async with Client(mcp, elicitation_callback=_accept({"nope": "x"})) as client:
+    async with Client(mcp, mode=mode, elicitation_callback=_accept({"nope": "x"})) as client:
         result = await client.call_tool("whoami", {})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "does not match the requested schema" in result.content[0].text
-        assert "For further information" not in result.content[0].text
+        text = result.content[0].text
+        assert "does not match the requested schema" in text
+        assert "errors.pydantic.dev" not in text
+        if mode == "auto":
+            assert "Resolver" in text  # the input_required transport names the offending resolver key
+        else:
+            assert "Received an accepted elicitation" in text  # the legacy path has no wire key to name
 
 
 @pytest.mark.anyio
@@ -1458,10 +1487,10 @@ async def test_auto_driver_gives_up_when_the_chain_outlasts_its_round_budget():
 
 @pytest.mark.anyio
 async def test_aliased_elicitation_model_round_trips_through_request_state():
-    # `_encode_state` must dump accepted models by alias: restore re-validates
-    # against the alias-keyed shape the client answered with (the rendered
-    # elicitation schema is alias-keyed). A field-name dump would fail validation
-    # on the round after next, drop the stored answer, and re-ask the user forever.
+    # The stored entry is the client's raw wire content, so it restores through
+    # the same validation the answer originally passed - aliases and all. A
+    # re-derived (field-name) shape would fail validation on the round after
+    # next, drop the stored answer, and re-ask the user forever.
     mcp = MCPServer(name="AliasState")
 
     async def who(ctx: Context) -> Elicit[Handle]:
@@ -1499,6 +1528,63 @@ async def test_aliased_elicitation_model_round_trips_through_request_state():
             "act",
             {},
             input_responses={confirm_key: ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_divergent_validation_and_serialization_aliases_round_trip():
+    # `request_state` must carry the client's answer exactly as it was sent: the
+    # rendered question is validation-aliased, so re-deriving the stored shape from
+    # the validated model (which serializes under the *serialization* alias) would
+    # produce data the schema's own validation rejects, dropping the stored answer
+    # on the round after next and re-asking the user.
+    mcp = MCPServer(name="DivergentAliases")
+
+    async def who(ctx: Context) -> Elicit[Account]:
+        return Elicit("account?", Account)
+
+    async def confirm(a: Annotated[Account, Resolve(who)]) -> Elicit[Confirm]:
+        return Elicit(f"go as {a.user_name}?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        a: Annotated[Account, Resolve(who)],
+        c: Annotated[Confirm, Resolve(confirm)],
+    ) -> str:
+        return f"{a.user_name}:{c.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (who_key,) = first.input_requests
+        question = first.input_requests[who_key].params
+        assert isinstance(question, ElicitRequestFormParams)
+        assert "vUser" in question.requested_schema["properties"]  # the client answers validation-aliased
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={who_key: ElicitResult(action="accept", content={"vUser": "octocat"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        (go_key,) = second.input_requests  # only the dependent question; the stored answer holds
+        assert go_key != who_key
+        # The stored entry is the client's wire content, not a re-serialization of it.
+        assert _decode_state(second.request_state)[who_key].data == {"vUser": "octocat"}
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={go_key: ElicitResult(action="accept", content={"ok": True})},
             request_state=second.request_state,
             allow_input_required=True,
         )
