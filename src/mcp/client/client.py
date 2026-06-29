@@ -8,13 +8,15 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
 from mcp_types import (
+    INVALID_PARAMS,
+    CacheableResult,
     CallToolResult,
     CompleteResult,
     EmptyResult,
@@ -44,7 +46,7 @@ from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_in
 from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
-from mcp.client.caching import CacheConfig, ClientResponseCache, InMemoryResponseCacheStore
+from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -60,7 +62,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.session import RequestResponder
 
@@ -73,6 +75,7 @@ forward-compat; ``Client.__post_init__`` rejects anything outside that set at co
 
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
+_CacheableT = TypeVar("_CacheableT", bound=CacheableResult)
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -275,7 +278,9 @@ class Client:
     `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
     in-memory store; results carrying no hints are not cached. Pass a `CacheConfig`
     to customize (shared store, partition, default TTL), or `False` to disable
-    caching entirely.
+    caching entirely. The cacheable verbs (`list_tools`, `list_prompts`,
+    `list_resources`, `list_resource_templates`, `read_resource`) take a per-call
+    `cache_mode` to narrow caching for one call; with `cache=False` it is inert.
 
     Construction raises `ValueError` for a `CacheConfig` with a custom `store` when
     no server identity can be derived (an in-process server or a `Transport`
@@ -454,23 +459,79 @@ class Client:
         """Set the logging level on the server."""
         return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]
 
+    async def _cached_fetch(
+        self,
+        method: str,
+        *,
+        cursor: str | None,
+        cache_mode: CacheMode,
+        send: Callable[[], Awaitable[_CacheableT]],
+        absorb: Callable[[_CacheableT], _CacheableT] | None = None,
+    ) -> _CacheableT:
+        """Serve one of the four list verbs through the response cache.
+
+        `send` performs the fetch via the session; `absorb` (tools/list only)
+        re-applies session-side derived state to a served cache hit.
+        """
+        cache = self._response_cache
+        if cache is None or cache_mode == "bypass":
+            return await send()  # no read, no write, no eviction side-effects
+        if cursor is not None:
+            # Continuation pages never read or write the (cursor-less) entry, but an
+            # expired-cursor rejection signals the listing changed since the entry was
+            # fetched, so it is evicted (spec SHOULD; over-eviction is harmless).
+            try:
+                return await send()
+            except MCPError as e:
+                if e.code == INVALID_PARAMS:
+                    await cache.evict_method(method)
+                raise
+        if cache_mode == "use" and (hit := await cache.read(method, "")) is not None:
+            # The store key carries the method, so the entry under it has `send`'s
+            # result type. The hit is already a private deep copy of the stored
+            # value, so absorption may mutate it freely.
+            served = cast(_CacheableT, hit)
+            return served if absorb is None else absorb(served)
+        gen = cache.capture(method, "")
+        result = await send()
+        await cache.write(method, "", result, gen, cache_mode)
+        return result
+
     async def list_resources(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourcesResult:
-        """List available resources from the server."""
-        return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        """List available resources from the server.
+
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        """
+        return await self._cached_fetch(
+            "resources/list",
+            cursor=cursor,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def list_resource_templates(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourceTemplatesResult:
-        """List available resource templates from the server."""
-        return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        """List available resource templates from the server.
+
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        """
+        return await self._cached_fetch(
+            "resources/templates/list",
+            cursor=cursor,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def read_resource(
         self,
@@ -479,6 +540,7 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ReadResourceResult:
         """Read a resource from the server.
 
@@ -493,6 +555,11 @@ class Client:
                 resuming from a persisted `InputRequiredResult`).
             request_state: Opaque state to seed the first call with.
             meta: Additional metadata for the request.
+            cache_mode: Adjusts the response cache's behavior for this call
+                (see `CacheMode`). Seeded calls (either `input_responses` or
+                `request_state` set) are resumptions of a multi-round-trip
+                read and ignore it entirely: no cache read, no write, no
+                refresh purge.
 
         Returns:
             The resource content.
@@ -507,7 +574,31 @@ class Client:
                 uri, input_responses=r, request_state=s, meta=meta, allow_input_required=True
             )
 
-        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        # Results of requests carrying inputResponses or requestState must never be
+        # cached (spec MUST), and a seeded call exists to resume a specific exchange -
+        # serving it from the cache would skip the resumption.
+        seeded = input_responses is not None or request_state is not None
+        cache = None if seeded else self._response_cache
+        if cache is None or cache_mode == "bypass":
+            return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        if cache_mode == "use" and (hit := await cache.read("resources/read", uri)) is not None:
+            # InputRequiredResult is never stored (only terminal first-round results
+            # are written below), so a hit is always terminal and legitimately skips
+            # the driver.
+            return cast(ReadResourceResult, hit)
+        gen = cache.capture("resources/read", uri)
+        first = await retry(None, None)
+        if not isinstance(first, InputRequiredResult):
+            await cache.write("resources/read", uri, first, gen, cache_mode)
+        elif cache_mode == "refresh":
+            # An input_required resolution can never be stored, but the explicit
+            # refresh still superseded whatever was cached: purge the warm entry
+            # so it cannot be served again (the same supersession rule as a
+            # refreshed ttl<=0 result in `ClientResponseCache.write`).
+            await cache.evict_key("resources/read", uri)
+        # A terminal result reached through driver rounds is never cached: the rounds
+        # carried inputResponses (the same spec MUST as the seeded skip above).
+        return await self._drive_input_required(first, retry)
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
@@ -574,9 +665,18 @@ class Client:
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListPromptsResult:
-        """List available prompts from the server."""
-        return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        """List available prompts from the server.
+
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        """
+        return await self._cached_fetch(
+            "prompts/list",
+            cursor=cursor,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def get_prompt(
         self,
@@ -658,9 +758,27 @@ class Client:
         """
         return await self.session.complete(ref=ref, argument=argument, context_arguments=context_arguments)
 
-    async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
-        """List available tools from the server."""
-        return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+    async def list_tools(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
+    ) -> ListToolsResult:
+        """List available tools from the server.
+
+        `cache_mode` adjusts the response cache's behavior for this call (see `CacheMode`).
+        """
+        return await self._cached_fetch(
+            "tools/list",
+            cursor=cursor,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+            # A cache hit skips session.list_tools, so the session re-absorbs the
+            # served listing to rebuild its derived per-tool state (header maps,
+            # output schemas) - idempotent on the already-filtered stored value.
+            absorb=self.session._absorb_tool_listing,  # pyright: ignore[reportPrivateUsage]
+        )
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:

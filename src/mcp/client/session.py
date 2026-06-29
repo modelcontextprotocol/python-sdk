@@ -895,7 +895,17 @@ class ClientSession:
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
+        return self._absorb_tool_listing(result)
 
+    def _absorb_tool_listing(self, result: types.ListToolsResult) -> types.ListToolsResult:
+        """Filter a tool listing per the 2026 x-mcp-header MUST and rebuild the derived
+        per-tool state (arg→header maps, output schemas) from it.
+
+        Idempotent, so the client response cache can re-absorb a served listing: stored
+        values are already post-filter, making the re-filter a no-op that rebuilds the
+        maps and schemas from the served value. `result` is mutated in place (the cache
+        only ever passes a private deep copy).
+        """
         if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
             # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
             kept: list[types.Tool] = []
