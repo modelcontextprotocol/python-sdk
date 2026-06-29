@@ -11,7 +11,6 @@ from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
-# Create MCP server
 mcp = MCPServer("My App")
 
 
@@ -21,14 +20,13 @@ def hello() -> str:
     return "Hello from MCP!"
 
 
-# Create a lifespan context manager to run the session manager
+# The session manager must be running for the transport to handle requests
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     async with mcp.session_manager.run():
         yield
 
 
-# Mount the StreamableHTTP server to the existing ASGI server
 # Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[

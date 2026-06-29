@@ -78,15 +78,12 @@ def test_parse_multiple_expressions():
         ("logs://{service}{?a,b}", frozenset({"a", "b"})),
         ("logs://{service}{?a,b}{&c}", frozenset({"a", "b", "c"})),
         ("logs://{service}", frozenset[str]()),
-        # A lone {&...} never emits the leading ? that lenient query
-        # matching splits on, so it is matched strictly: c must be
-        # present in the URI and is not an optional query variable.
+        # A lone {&...} emits no leading ? for lenient matching to split on, so c is matched strictly.
         ("logs://{service}{&c}", frozenset[str]()),
     ],
 )
 def test_query_variable_names(template: str, expected: frozenset[str]):
-    """query_variable_names is exactly the set match() treats as optional:
-    the trailing {?...}/{&...} variables a client may omit from the URI."""
+    """query_variable_names is exactly the set of variables match() treats as optional."""
     assert UriTemplate.parse(template).query_variable_names == expected
 
 
@@ -178,7 +175,6 @@ def test_parse_rejects_unsupported_explode(template: str):
         "{/a*}/x{/b*}",  # two explode vars: a literal between them doesn't help
         # Multi-var + expression: each var is greedy (',' separates them)
         "{+a,b}",
-        # Two {+var}/{#var} anywhere
         "{+a}/x/{+b}",
         "{+a},{+b}",
         "{#a}/x/{+b}",
@@ -186,11 +182,8 @@ def test_parse_rejects_unsupported_explode(template: str):
     ],
 )
 def test_parse_rejects_multiple_multi_segment_variables(template: str):
-    # Two multi-segment variables make matching inherently ambiguous:
-    # there is no principled way to decide which one absorbs an extra
-    # segment. The linear scan can only partition the URI around a
-    # single greedy slot. (Two ADJACENT multi-segment variables are
-    # caught by the adjacency rule first; see the test below.)
+    # The linear scan can only partition the URI around one greedy slot, so two multi-segment
+    # variables are inherently ambiguous. (Two ADJACENT ones hit the adjacency rule first.)
     with pytest.raises(InvalidUriTemplate, match="more than one multi-segment"):
         UriTemplate.parse(template)
 
@@ -198,7 +191,6 @@ def test_parse_rejects_multiple_multi_segment_variables(template: str):
 @pytest.mark.parametrize(
     "template",
     [
-        # Two bounded variables
         "{a}{b}",
         "{.a}{b}",
         "{/a}{b}",
@@ -206,7 +198,6 @@ def test_parse_rejects_multiple_multi_segment_variables(template: str):
         "{a}{b}X{+p}",
         "{+p}X{a}{b}",
         "pre{a}{b}post",
-        # A bounded variable adjacent to the multi-segment variable
         "{a}{+b}",
         "{+a}{b}",
         "{#a}{b}",
@@ -217,23 +208,19 @@ def test_parse_rejects_multiple_multi_segment_variables(template: str):
         "{+p}{n}",
         "{x}Y{+p}{n}",
         "{?a}{+b}x",
-        # ... on either side, with a literal on the OTHER side
         "{a}-{+p}{b}",
         "{a}{+p}-{b}",
         "{name}{+path}{.ext}",
         "{base}{+p}{;k}",
-        # ... or on both sides
         "{a}{+b}{c}",
         "{a}{+p}{b}Y{c}",
         "X{a}{+p}{b}Y{c}",
         "{a}{/p*}{b}",
-        # An explode variable carries its operator's separators inside
-        # the capture, so it emits no lead literal that could anchor it
+        # An explode var keeps its separators inside the capture, so it emits no anchoring lead literal
         "{a}{/p*}",
         "{/seg}{;k*}",
         "item://{id}{;opts*}",
-        # ifemp: the ';key' literal anchors the LEFT edge of {;key}, but
-        # nothing separates its right edge from the multi-segment var
+        # ifemp: ';key' anchors the LEFT edge of {;key}, but nothing separates its right edge
         "api{;key}{+rest}",
         # Two multi-segment variables that are ALSO adjacent
         "{/a*}{/b*}",
@@ -244,9 +231,7 @@ def test_parse_rejects_multiple_multi_segment_variables(template: str):
     ],
 )
 def test_parse_rejects_adjacent_variables(template: str) -> None:
-    # Two captures with no literal between them give the scan nothing to
-    # anchor the boundary on — whether or not one of them is the
-    # multi-segment variable.
+    # Two captures with no literal between them give the scan nothing to anchor the boundary on.
     with pytest.raises(InvalidUriTemplate, match="adjacent with no literal separator"):
         UriTemplate.parse(template)
 
@@ -254,17 +239,16 @@ def test_parse_rejects_adjacent_variables(template: str) -> None:
 @pytest.mark.parametrize(
     "template",
     [
-        "file://docs/{+path}",  # + at end of template
-        "file://{+path}.txt",  # + followed by literal only
-        "file://{+path}/edit",  # + followed by literal only
-        "api/{+path}{?v,page}",  # + followed by query tail (split off before scan)
-        "api/{+path}{&next}",  # + followed by query-continuation
-        "page{#section}",  # # at end
+        "file://docs/{+path}",
+        "file://{+path}.txt",
+        "file://{+path}/edit",
+        "api/{+path}{?v,page}",  # query tail is split off before the scan
+        "api/{+path}{&next}",
+        "page{#section}",
         "{a}{#b}",  # # emits a literal '#' that anchors the boundary
-        "{+a}/sep/{b}",  # + with bounded vars after
+        "{+a}/sep/{b}",
         "{+a},{b}",
-        # Operators that emit their own lead character ('.', '/', ';name')
-        # supply the literal anchor, so these are NOT adjacent variables.
+        # Operators that emit their own lead char ('.', '/', ';name') supply the literal anchor
         "{+a}{/b}",
         "{+a}{.b}",
         "{+a}{;b}",
@@ -275,9 +259,7 @@ def test_parse_rejects_adjacent_variables(template: str) -> None:
     ],
 )
 def test_parse_allows_single_multi_segment_variable(template: str):
-    # One multi-segment variable is fine: the linear scan isolates it
-    # between the prefix and suffix boundaries, and the scan never
-    # backtracks so match time stays O(n) regardless of URI content.
+    # The scan isolates one greedy slot between prefix/suffix boundaries and never backtracks.
     t = UriTemplate.parse(template)
     assert t is not None
 
@@ -315,14 +297,13 @@ def test_invalid_uri_template_is_value_error():
     "template",
     [
         "{{name}}",  # nested open: body becomes "{name"
-        "{a{b}c}",  # brace inside expression
-        "{{]{}}{}",  # garbage soup
-        "{a,{b}",  # brace in comma list
+        "{a{b}c}",
+        "{{]{}}{}",
+        "{a,{b}",
     ],
 )
 def test_parse_rejects_nested_braces(template: str):
-    # Nested/stray { inside an expression lands in the varname and
-    # fails the varname regex rather than needing special handling.
+    # A stray { inside an expression lands in the varname and fails the varname regex.
     with pytest.raises(InvalidUriTemplate, match="Invalid variable name"):
         UriTemplate.parse(template)
 
@@ -348,10 +329,7 @@ def test_parse_rejects_unclosed_brace(template: str, position: int):
     ["}}", "}", "a}b", "{a}}{b}"],
 )
 def test_parse_treats_stray_close_brace_as_literal(template: str):
-    # RFC 6570 §2.1 strictly excludes } from literals, but we accept it
-    # for TypeScript SDK parity. A stray } almost always indicates a
-    # typo; rejecting would be more helpful but would also break
-    # cross-SDK behavior.
+    # RFC 6570 §2.1 excludes } from literals; accepted as a literal anyway for TypeScript SDK parity.
     tmpl = UriTemplate.parse(template)
     assert str(tmpl) == template
 
@@ -373,8 +351,7 @@ def test_parse_rejects_too_many_variables():
 
 
 def test_parse_counts_variables_not_expressions():
-    # A single {v0,v1,...} expression packs many variables under one
-    # brace pair. Counting expressions would miss this.
+    # A single {v0,v1,...} expression packs many variables under one brace pair.
     template = "{" + ",".join(f"v{i}" for i in range(11)) + "}"
     with pytest.raises(InvalidUriTemplate, match="maximum of 10 variables"):
         UriTemplate.parse(template, max_variables=10)
@@ -412,15 +389,13 @@ def test_frozen():
         # Level 2: reserved expansion keeps / ? # etc.
         ("{+var}", {"var": "a/b/c"}, "a/b/c"),
         ("{+var}", {"var": "a?b#c"}, "a?b#c"),
-        # RFC §3.2.3: reserved expansion passes through existing
-        # pct-triplets unchanged; bare % is still encoded.
+        # RFC §3.2.3: reserved expansion passes existing pct-triplets through; bare % is still encoded.
         ("{+var}", {"var": "path%2Fto"}, "path%2Fto"),
         ("{+var}", {"var": "50%"}, "50%25"),
         ("{+var}", {"var": "50%2"}, "50%252"),
         ("{+var}", {"var": "a%2Fb%20c"}, "a%2Fb%20c"),
         ("{#var}", {"var": "a%2Fb"}, "#a%2Fb"),
-        # Simple expansion still encodes % unconditionally (triplet
-        # preservation is reserved-only).
+        # Simple expansion still encodes % unconditionally (triplet preservation is reserved-only).
         ("{var}", {"var": "path%2Fto"}, "path%252Fto"),
         ("file://docs/{+path}", {"path": "src/main.py"}, "file://docs/src/main.py"),
         # Level 2: fragment
@@ -439,10 +414,8 @@ def test_frozen():
         ("/search{?q,lang}", {"q": "mcp", "lang": "en"}, "/search?q=mcp&lang=en"),
         # Level 3: query continuation
         ("?a=1{&b}", {"b": "2"}, "?a=1&b=2"),
-        # Multi-var in one expression
         ("{x,y}", {"x": "1", "y": "2"}, "1,2"),
-        # {+x,y} is rejected at parse time: each var in a + expression
-        # is multi-segment, and a template may only have one.
+        # ({+x,y} is absent: rejected at parse time as two multi-segment variables.)
         # Sequence values, non-explode (comma-join)
         ("{/list}", {"list": ["a", "b", "c"]}, "/a,b,c"),
         ("{?list}", {"list": ["a", "b"]}, "?list=a,b"),
@@ -462,9 +435,7 @@ def test_frozen():
         ("{?q,page}", {"q": "x"}, "?q=x"),
         ("{a,b}", {"a": "x"}, "x"),
         ("{?page}", {}, ""),
-        # Empty sequence omitted
         ("{/path*}", {"path": []}, ""),
-        # Literal-only template
         ("file://static", {}, "file://static"),
     ],
 )
@@ -504,15 +475,12 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("{+var}", "a/b/c", {"var": "a/b/c"}),
         # Level 2: fragment
         ("page{#section}", "page#intro", {"section": "intro"}),
-        # A multi-segment var next to an operator that emits its own
-        # lead character: the lead ('.', '/', '#') is a literal anchor,
-        # so these are NOT two adjacent variables.
+        # An operator's emitted lead char ('.', '/', '#') is the literal anchor after a multi-segment var.
         ("{+path}{/name}", "a/b/c/readme", {"path": "a/b/c", "name": "readme"}),
         ("{+path}{.ext}", "src/main.py", {"path": "src/main", "ext": "py"}),
         ("prefix/{+path}{.ext}", "prefix/a/b.txt", {"path": "a/b", "ext": "txt"}),
         ("{#section}{/page}", "#intro/1", {"section": "intro", "page": "1"}),
-        # Bounded vars before the multi-segment var match lazily (first
-        # anchor); those after match greedily (last anchor).
+        # Bounded vars before the multi-segment var match lazily; those after match greedily.
         ("{owner}@{+path}", "alice@src/main", {"owner": "alice", "path": "src/main"}),
         ("{+path}@{name}", "src@main@v1", {"path": "src@main", "name": "v1"}),
         # Level 3: label
@@ -526,8 +494,7 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("item{;keys*}", "item;keys=a;keys=b", {"keys": ["a", "b"]}),
         ("item{;keys*}", "item;keys=a;keys;keys=b", {"keys": ["a", "", "b"]}),
         ("item{;keys*}", "item", {"keys": []}),
-        # Level 3: query. Lenient matching: partial, reordered, and
-        # extra params are all accepted. Absent params stay absent.
+        # Level 3: query. Lenient: partial, reordered, and extra params accepted; absent stay absent.
         ("search{?q}", "search?q=hello", {"q": "hello"}),
         ("search{?q}", "search?q=", {"q": ""}),
         ("search{?q}", "search", {}),
@@ -536,7 +503,6 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("search{?q,lang}", "search?q=mcp", {"q": "mcp"}),
         ("search{?q,lang}", "search", {}),
         ("search{?q}", "search?q=mcp&utm=x&ref=y", {"q": "mcp"}),
-        # URL-encoded query values are decoded
         ("search{?q}", "search?q=hello%20world", {"q": "hello world"}),
         # + is a literal sub-delim per RFC 3986, not a space (form-encoding)
         ("search{?q}", "search?q=C++", {"q": "C++"}),
@@ -544,36 +510,26 @@ def test_expand_rejects_invalid_value_types(value: object):
         # Fragment is stripped before query parsing
         ("logs://{service}{?level}", "logs://api?level=error#section1", {"service": "api", "level": "error"}),
         ("search{?q}", "search#frag", {}),
-        # Multiple ?/& expressions collected together
         ("api{?v}{&page,limit}", "api?limit=10&v=2", {"v": "2", "limit": "10"}),
-        # Standalone {&var} falls through to the strict scan (expands
-        # with & prefix, no ? for lenient matching to split on)
+        # Standalone {&var} emits no ? to split on, so it falls through to the strict scan
         ("api{&page}", "api&page=2", {"page": "2"}),
         # Literal ? in path portion falls through to the strict scan
         ("api?x{?page}", "api?x?page=2", {"page": "2"}),
-        # {#...} or literal # in path portion falls through: lenient
-        # matching would strip the fragment before the path scan sees it
+        # {#...} or literal # in the path falls through: lenient matching would strip the fragment
         ("page{#section}{?q}", "page#intro?q=x", {"section": "intro", "q": "x"}),
         ("page#lit{?q}", "page#lit?q=x", {"q": "x"}),
-        # Empty & segments in query are skipped
         ("search{?q}", "search?&q=hello&", {"q": "hello"}),
-        # Duplicate query keys keep first value
         ("search{?q}", "search?q=first&q=second", {"q": "first"}),
-        # Percent-encoded parameter names are NOT decoded: RFC 6570
-        # expansion never encodes names, so an encoded name cannot be
-        # a legitimate match. Prevents HTTP parameter pollution.
+        # Encoded param names are NOT decoded: RFC 6570 expansion never encodes names, so an
+        # encoded name cannot be a legitimate match. Prevents HTTP parameter pollution.
         ("api://x{?token}", "api://x?%74oken=evil&token=real", {"token": "real"}),
         ("api://x{?token}", "api://x?%74oken=evil", {}),
-        # Level 3: query continuation with literal ? falls back to
-        # the strict scan (template-order, all-present required)
+        # Query continuation with a literal ? falls back to the strict scan (template-order, all present)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),
-        # Explode: path segments as list
         ("/files{/path*}", "/files/a/b/c", {"path": ["a", "b", "c"]}),
         ("/files{/path*}", "/files", {"path": []}),
         ("/files{/path*}/edit", "/files/a/b/edit", {"path": ["a", "b"]}),
-        # Explode: labels
         ("host{.labels*}", "host.example.com", {"labels": ["example", "com"]}),
-        # Repeated-slash literals preserved exactly
         ("///{a}////{b}////", "///x////y////", {"a": "x", "b": "y"}),
     ],
 )
@@ -588,8 +544,7 @@ def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
         ("{a}/{b}", "foo"),
         ("file{.ext}", "file"),
         ("static", "different"),
-        # Anchoring: trailing extra component must not match. Guards
-        # against a refactor from fullmatch() to match() or search().
+        # Anchoring: a trailing extra component must not match (guards against fullmatch -> search).
         ("/users/{id}", "/users/123/extra"),
         ("/users/{id}/posts/{pid}", "/users/1/posts/2/extra"),
         # Repeated-slash literal with wrong slash count
@@ -611,9 +566,8 @@ def test_match_no_match(template: str, uri: str):
 
 
 def test_match_explode_preserves_empty_list_items():
-    # Splitting the explode capture on its separator yields a leading
-    # empty item from the operator prefix; only that one is stripped.
-    # Subsequent empties are legitimate values from the input list.
+    # Splitting the capture yields a leading empty item from the operator prefix; only that
+    # one is stripped — later empties are real values from the input list.
     t = UriTemplate.parse("{/path*}")
     assert t.match("/a//c") == {"path": ["a", "", "c"]}
     assert t.match("//a") == {"path": ["", "a"]}
@@ -624,7 +578,6 @@ def test_match_explode_preserves_empty_list_items():
 
 
 def test_match_adjacent_vars_disambiguated_by_literal():
-    # A literal between vars resolves the ambiguity.
     t = UriTemplate.parse("{a}-{b}")
     assert t.match("foo-bar") == {"a": "foo", "b": "bar"}
 
@@ -632,24 +585,19 @@ def test_match_adjacent_vars_disambiguated_by_literal():
 @pytest.mark.parametrize(
     ("template", "variables"),
     [
-        # Leading literal appears inside the value: must anchor at
-        # position 0, not rfind to the rightmost occurrence.
+        # Leading literal appears inside the value: must anchor at position 0, not rfind.
         ("prefix-{id}", {"id": "prefix-123"}),
         ("u{s}", {"s": "xu"}),
         ("_{x}", {"x": "_"}),
         ("~{v}~", {"v": "~~~"}),
-        # Multi-occurrence with two vars: rfind correctly picks the
-        # rightmost literal BETWEEN vars, first literal anchors at 0.
+        # rfind picks the rightmost literal BETWEEN vars; the first literal still anchors at 0.
         ("L{a}L{b}", {"a": "xLy", "b": "z"}),
         # Leading literal with stop-char: earliest bound still applies.
         ("api/{name}", {"name": "api"}),
     ],
 )
 def test_match_leading_literal_appears_in_value(template: str, variables: dict[str, str]):
-    # Regression: the R->L scan used rfind for the preceding literal,
-    # which lands inside the value when the template's leading literal
-    # is a substring of the expanded value. The first atom must anchor
-    # at position 0, not search.
+    # Regression: rfind for the leading literal landed inside the value instead of anchoring at 0.
     t = UriTemplate.parse(template)
     uri = t.expand(variables)
     assert t.match(uri) == variables
@@ -665,10 +613,8 @@ def test_match_leading_literal_appears_in_value(template: str, variables: dict[s
     ],
 )
 def test_match_no_backtracking_on_pathological_input(template: str, uri: str):
-    # These patterns caused O(n²) or worse backtracking under the regex
-    # matcher. The linear scan returns None without retrying splits.
-    # (Correctness check only; we benchmark separately to avoid flaky
-    # timing assertions in CI.)
+    # These patterns caused O(n²)+ backtracking under the regex matcher; the linear scan returns
+    # None without retrying splits. (No timing assertions here — those flake in CI.)
     assert UriTemplate.parse(template).match(uri) is None
 
 
@@ -689,12 +635,10 @@ def test_match_no_backtracking_on_pathological_input(template: str, uri: str):
         ("X{/path*}", "Xnoslash"),
         # Explode body contains a non-separator stop-char
         ("X{/path*}", "X/a?b"),
-        # ifemp name continuation: the literal after {;key} doesn't start
-        # at pos and there's no '=', so the URI's name kept going.
+        # ifemp name continuation: no '=' and the next literal doesn't follow, so the name kept going
         ("api{;key}suffix/{+p}", "api;keyZ/x"),
-        # Regression: suffix scan must not walk back into prefix territory.
-        # Input is shorter than prefix+suffix literals — these used to
-        # raise AssertionError instead of returning None.
+        # Regression: input shorter than prefix+suffix literals raised AssertionError — the
+        # suffix scan must not walk back into prefix territory.
         ("api://{+path}/{id}", "api://foo"),
         ("docs/{+path}/v/{name}", "docs/v/x"),
     ],
@@ -706,8 +650,7 @@ def test_match_greedy_rejection_paths(template: str, uri: str):
 @pytest.mark.parametrize(
     ("template", "uri", "expected"),
     [
-        # ifemp before a literal that itself starts with '=': the literal
-        # check runs first so '=' is not mistaken for the ifemp separator.
+        # ifemp before a literal that starts with '=': the literal check runs first, so '=' is not the separator.
         ("api{;key}=base/{+path}", "api;key=base/a/b", {"key": "", "path": "a/b"}),
         ("api{;key}=base/{+path}", "api;key=v=base/x", {"key": "v", "path": "x"}),
     ],
@@ -719,8 +662,7 @@ def test_match_prefix_scan_edge_cases(template: str, uri: str, expected: dict[st
 @pytest.mark.parametrize(
     ("template", "uri", "expected"),
     [
-        # Suffix-side ifemp: '=' inside the value is preserved — the
-        # value '=' is the first one after ;name, not the last.
+        # Suffix-side ifemp: the separator is the FIRST '=' after ;name, so '=' in the value survives.
         ("item{;id}", "item;id=a=b", {"id": "a=b"}),
         ("{;a}{;b}", ";a=x=y;b=z", {"a": "x=y", "b": "z"}),
     ],
@@ -730,12 +672,9 @@ def test_match_suffix_ifemp_equals_in_value(template: str, uri: str, expected: d
 
 
 def test_match_prefix_ifemp_empty_before_non_stop_literal():
-    # Regression: _scan_prefix rejected the empty-value case when the
-    # following template literal starts with a non-stop-char. The
-    # name-continuation guard saw 'X' after ';key' and assumed the
-    # name continued, but 'X' is the template's next literal.
+    # Regression: the name-continuation guard saw 'X' after ';key' and assumed the name kept
+    # going, but 'X' is the template's next literal — empty values were wrongly rejected.
     t = UriTemplate.parse("api{;key}X{+rest}")
-    # Non-empty round-trips fine:
     assert t.match(t.expand({"key": "abc", "rest": "/tail"})) == {"key": "abc", "rest": "/tail"}
     # Empty value (ifemp → bare ;key, then X) must also round-trip:
     uri = t.expand({"key": "", "rest": "/tail"})
@@ -746,9 +685,7 @@ def test_match_prefix_ifemp_empty_before_non_stop_literal():
 
 
 def test_match_large_uri_against_greedy_template():
-    # Large payload against a greedy template — the scan visits each
-    # character once for the suffix anchor and once for the greedy
-    # validation, so this is O(n) not O(n²).
+    # The scan visits each char once for the suffix anchor and once for greedy validation: O(n).
     t = UriTemplate.parse("{+path}/end")
     body = "seg/" * 15000
     result = t.match(body + "end")
@@ -763,8 +700,7 @@ def test_match_decodes_percent_encoding():
 
 
 def test_match_escapes_template_literals():
-    # Regression: previous impl didn't escape . in literals, making it
-    # a regex wildcard. "fileXtxt" should NOT match "file.txt/{id}".
+    # Regression: unescaped '.' in literals acted as a regex wildcard, so "fileXtxt" matched.
     t = UriTemplate.parse("file.txt/{id}")
     assert t.match("file.txt/42") == {"id": "42"}
     assert t.match("fileXtxt/42") is None
@@ -773,8 +709,7 @@ def test_match_escapes_template_literals():
 @pytest.mark.parametrize(
     ("template", "uri", "expected"),
     [
-        # Percent-encoded delimiters round-trip through match/expand.
-        # Path-safety validation belongs to ResourceSecurity, not here.
+        # Encoded delimiters round-trip; path-safety validation belongs to ResourceSecurity, not here.
         ("file://docs/{name}", "file://docs/a%2Fb", {"name": "a/b"}),
         ("{var}", "a%3Fb", {"var": "a?b"}),
         ("{var}", "a%23b", {"var": "a#b"}),
@@ -797,8 +732,7 @@ def test_match_reserved_expansion_handles_slash():
 
 
 def test_match_double_encoding_decoded_once():
-    # %252F is %2F encoded again. Single decode gives "%2F" (a literal
-    # percent sign, a '2', and an 'F'). Guards against over-decoding.
+    # %252F is %2F encoded again; a single decode yields literal "%2F", guarding against over-decoding.
     t = UriTemplate.parse("file://docs/{name}")
     assert t.match("file://docs/..%252Fetc") == {"name": "..%2Fetc"}
 
@@ -815,15 +749,12 @@ def test_match_accepts_uri_within_custom_limit():
 
 def test_match_default_uri_length_limit():
     t = UriTemplate.parse("{+var}")
-    # Just at the limit: should match
     assert t.match("x" * DEFAULT_MAX_URI_LENGTH) is not None
-    # One over: should reject
     assert t.match("x" * (DEFAULT_MAX_URI_LENGTH + 1)) is None
 
 
 def test_match_explode_encoded_separator_in_segment():
-    # An encoded separator inside a segment decodes as part of the value,
-    # not as a split point. The split happens at literal separators only.
+    # An encoded separator decodes as part of the value; splits happen at literal separators only.
     t = UriTemplate.parse("/files{/path*}")
     assert t.match("/files/a%2Fb/c") == {"path": ["a/b", "c"]}
 
@@ -840,8 +771,7 @@ def test_match_explode_encoded_separator_in_segment():
         ("{var}", {"var": "hello world"}),
         ("item{;id}", {"id": "42"}),
         ("item{;id}", {"id": ""}),
-        # Defined-but-empty values still emit the operator prefix; match
-        # must accept the empty capture after it.
+        # Defined-but-empty values still emit the operator prefix; match accepts the empty capture.
         ("page{#section}", {"section": ""}),
         ("file{.ext}", {"ext": ""}),
         ("api{/v}", {"v": ""}),
@@ -852,8 +782,7 @@ def test_match_explode_encoded_separator_in_segment():
         ("{/path*}", {"path": ["a", "", "c"]}),
         ("{/path*}", {"path": ["", "a"]}),
         ("host{.labels*}", {"labels": ["a", "", "c"]}),
-        # Partial query expansion round-trips: expand omits undefined
-        # vars, match leaves them absent from the result.
+        # Partial query expansion: expand omits undefined vars, match leaves them absent.
         ("logs://{service}{?since,level}", {"service": "api"}),
         ("logs://{service}{?since,level}", {"service": "api", "since": "1h"}),
         ("logs://{service}{?since,level}", {"service": "api", "since": "1h", "level": "error"}),
@@ -874,22 +803,14 @@ def test_match_simple_var_accepts_empty() -> None:
     assert t.match("tickets://42") == {"ticket_id": "42"}
 
 
-# --- Property tests over the generated template space ------------------------
-#
-# The two tests below generate template strings instead of enumerating
-# examples, so the contracts they state are checked over the whole space
-# `parse()` accepts in a single deterministic run. The generator deliberately
-# produces strings the parser rejects (adjacent variables, two greedy
-# variables, unsupported explode placements, a second `{?...}` expression) and
-# relies on `parse()` to filter them: pre-selecting "known good" shapes would
-# only ever exercise the shapes someone already thought of.
+# The property tests below generate templates instead of enumerating examples. The generator
+# deliberately emits strings the parser rejects and relies on `parse()` to filter them:
+# pre-selecting "known good" shapes would only exercise shapes someone already thought of.
 
 _PROPERTY_SEED = 20260626
 _PROPERTY_OPERATORS = ["", "+", "#", ".", "/", ";", "?", "&"]
-# Literal runs draw from URI punctuation (`- . / ~ _`) plus uppercase letters.
-# Values draw only from lowercase letters and digits. The two alphabets are
-# disjoint, so a round-trip failure can never be explained away as a value
-# colliding with a literal, an operator prefix, or a separator.
+# Literal and value alphabets are disjoint, so a round-trip failure can never be explained
+# away as a value colliding with a literal, an operator prefix, or a separator.
 _LITERAL_CHARS = "XY-._~/Z"
 _VALUE_CHARS = string.ascii_lowercase + string.digits
 _FUZZ_CHARS = string.printable
@@ -905,8 +826,6 @@ def _random_template(rng: random.Random) -> tuple[str, list[tuple[str, bool]]]:
             continue
         operator = rng.choice(_PROPERTY_OPERATORS)
         names: list[str] = []
-        # Multi-variable expressions and the explode modifier are produced for
-        # every operator; `parse()` rejects the combinations it does not allow.
         for _ in range(2 if rng.random() < 0.2 else 1):
             name = f"v{len(specs)}"
             explode = rng.random() < 0.25
@@ -947,13 +866,10 @@ def _mangled_inputs(uri: str, rng: random.Random) -> list[str]:
 
 
 def test_match_inverts_expand_for_every_parseable_template() -> None:
-    """For every template the parser accepts, matching the template's own expansion
-    yields a value set that re-expands to the same URI.
+    """Matching a template's own expansion yields values that re-expand to the same URI.
 
-    Exact equality with the original values is not required: a different
-    pre-image (e.g. an explode list that flattens) is a correct answer as long
-    as it re-expands identically. SDK-defined contract — RFC 6570 specifies
-    only expansion, so `match()` is the inverse the SDK promises.
+    Exact value equality is not required: a different pre-image is correct if it re-expands
+    identically. RFC 6570 specifies only expansion, so `match()` is an SDK-defined inverse.
     """
     rng = random.Random(_PROPERTY_SEED)
     accepted = 0
@@ -970,19 +886,12 @@ def test_match_inverts_expand_for_every_parseable_template() -> None:
             got = t.match(uri)
             assert got is not None, f"{template!r} did not match its own expansion {uri!r} of {values!r}"
             assert t.expand(got) == uri, f"{template!r}: match({uri!r}) -> {got!r}, which re-expands differently"
-    # Floor the accepted count so the property can never go vacuous: a future
-    # change that rejects every generated template would otherwise pass silently.
+    # Floor so the property can't go vacuous if a change starts rejecting every template.
     assert accepted >= 150
 
 
 def test_match_never_raises() -> None:
-    """`match()` returns a dict or None for every input string; it never raises.
-
-    Each accepted template's own expansion is mangled (a character inserted,
-    deleted, or replaced from a wide printable alphabet; emptied; reversed;
-    doubled) alongside fully random strings. SDK-defined contract — a URI that
-    does not fit the template is a non-match, not an error.
-    """
+    """match() returns a dict or None for every input; a non-fitting URI is a non-match, not an error."""
     rng = random.Random(_PROPERTY_SEED)
     calls = 0
     for _ in range(600):
@@ -996,6 +905,5 @@ def test_match_never_raises() -> None:
             result = t.match(candidate)
             assert result is None or isinstance(result, dict), f"{template!r}: match({candidate!r}) -> {result!r}"
             calls += 1
-    # Floor the call count so the property can never go vacuous: a future
-    # change that rejects every generated template would otherwise pass silently.
+    # Floor so the property can't go vacuous if a change starts rejecting every template.
     assert calls >= 4000

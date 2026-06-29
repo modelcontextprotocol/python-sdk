@@ -129,16 +129,14 @@ class Tool(BaseModel):
             if self.context_kwarg is not None:
                 pass_directly[self.context_kwarg] = context
 
-            # Resolvers see the same validated arguments the tool body receives:
-            # validate once and reuse it, so a `default_factory`/stateful validator
-            # can't hand a by-name resolver a different value than the body.
+            # Validate once and reuse: a `default_factory`/stateful validator must not
+            # hand a by-name resolver a different value than the tool body sees.
             pre_validated: dict[str, Any] | None = None
             if self.resolved_params:
                 pre_validated = self.fn_metadata.validate_arguments(arguments)
                 resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, pre_validated, context)
                 if isinstance(resolved, InputRequiredResult):
-                    # A resolver still needs client input (>= 2026-07-28): surface the
-                    # batched questions instead of running the tool body this round.
+                    # A resolver still needs client input (>= 2026-07-28): surface it instead of running the body.
                     return self.fn_metadata.convert_result(resolved) if convert_result else resolved
                 pass_directly |= resolved
 
@@ -155,11 +153,8 @@ class Tool(BaseModel):
 
             return result
         except MCPError:
-            # `MCPError` (and subclasses such as `UrlElicitationRequiredError`)
-            # carries a JSON-RPC `ErrorData(code, message, data)` and means
-            # "respond with a protocol error" - re-raise so the kernel surfaces
-            # it as a top-level JSON-RPC error rather than wrapping it as a
-            # `CallToolResult(isError=True)` execution failure.
+            # `MCPError` means "respond with a protocol error": re-raise so the kernel surfaces it
+            # as a top-level JSON-RPC error, not a `CallToolResult(isError=True)` execution failure.
             raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e

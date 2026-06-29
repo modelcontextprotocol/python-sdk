@@ -9,14 +9,7 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_progress_token_zero_first_call():
-    """Regression: progress reporting must not be gated on a falsy token.
-
-    Issue #176: the original Context.report_progress treated token 0 as "no token" and
-    silently dropped progress. Context now delegates unconditionally to
-    ServerSession.report_progress (which calls DispatchContext.progress, whose JSONRPC
-    implementation gates on `is None`, not truthiness), so a request whose meta carries
-    a 0-valued token still emits all three reports.
-    """
+    """Regression for issue #176: a 0-valued progress token must not be treated as falsy and dropped."""
     mock_session = AsyncMock()
     mock_session.report_progress = AsyncMock()
 

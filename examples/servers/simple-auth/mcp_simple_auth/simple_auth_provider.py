@@ -1,11 +1,7 @@
 """Simple OAuth provider for MCP servers.
 
-This module contains a basic OAuth implementation using hardcoded user credentials
-for demonstration purposes. No external authentication provider is required.
-
-NOTE: this is a simplified example for demonstration purposes.
-This is not a production-ready implementation.
-
+Demo-only implementation using hardcoded user credentials and no external
+authentication provider. Not production-ready.
 """
 
 import secrets
@@ -34,22 +30,14 @@ class SimpleAuthSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="MCP_")
 
-    # Demo user credentials
     demo_username: str = "demo_user"
     demo_password: str = "demo_password"
 
-    # MCP OAuth scope
     mcp_scope: str = "user"
 
 
 class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
-    """Simple OAuth provider for demo purposes.
-
-    This provider handles the OAuth flow by:
-    1. Providing a simple login form for demo credentials
-    2. Issuing MCP tokens after successful authentication
-    3. Maintaining token state for introspection
-    """
+    """Demo OAuth provider: serves a login form, issues MCP tokens, and keeps token state in memory."""
 
     def __init__(self, settings: SimpleAuthSettings, auth_callback_url: str, server_url: str):
         self.settings = settings
@@ -59,24 +47,21 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         self.auth_codes: dict[str, AuthorizationCode] = {}
         self.tokens: dict[str, AccessToken] = {}
         self.state_mapping: dict[str, dict[str, str | None]] = {}
-        # Store authenticated user information
         self.user_data: dict[str, dict[str, Any]] = {}
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """Get OAuth client information."""
         return self.clients.get(client_id)
 
     async def register_client(self, client_info: OAuthClientInformationFull):
-        """Register a new OAuth client."""
         if not client_info.client_id:
             raise ValueError("No client_id provided")
         self.clients[client_info.client_id] = client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        """Generate an authorization URL for simple login flow."""
+        """Generate an authorization URL pointing at the demo login page."""
         state = params.state or secrets.token_hex(16)
 
-        # Store state mapping for callback
+        # Stash the OAuth params so the login callback can complete the flow
         self.state_mapping[state] = {
             "redirect_uri": str(params.redirect_uri),
             "code_challenge": params.code_challenge,
@@ -85,17 +70,14 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             "resource": params.resource,  # RFC 8707
         }
 
-        # Build simple login URL that points to login page
         auth_url = f"{self.auth_callback_url}?state={state}&client_id={client.client_id}"
 
         return auth_url
 
     async def get_login_page(self, state: str) -> HTMLResponse:
-        """Generate login page HTML for the given state."""
         if not state:
             raise HTTPException(400, "Missing state parameter")
 
-        # Create simple login form HTML
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -133,7 +115,6 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         return HTMLResponse(content=html_content)
 
     async def handle_login_callback(self, request: Request) -> Response:
-        """Handle login form submission callback."""
         form = await request.form()
         username = form.get("username")
         password = form.get("password")
@@ -150,7 +131,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         return RedirectResponse(url=redirect_uri, status_code=302)
 
     async def handle_simple_callback(self, username: str, password: str, state: str) -> str:
-        """Handle simple authentication callback and return redirect URI."""
+        """Validate demo credentials and redirect back to the client with an authorization code."""
         state_data = self.state_mapping.get(state)
         if not state_data:
             raise HTTPException(400, "Invalid state parameter")
@@ -166,11 +147,9 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         assert code_challenge is not None
         assert client_id is not None
 
-        # Validate demo credentials
         if username != self.settings.demo_username or password != self.settings.demo_password:
             raise HTTPException(401, "Invalid credentials")
 
-        # Create MCP authorization code
         new_code = f"mcp_{secrets.token_hex(16)}"
         auth_code = AuthorizationCode(
             code=new_code,
@@ -185,7 +164,6 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         )
         self.auth_codes[new_code] = auth_code
 
-        # Store user data
         self.user_data[username] = {
             "username": username,
             "user_id": f"user_{secrets.token_hex(8)}",
@@ -198,22 +176,18 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCode | None:
-        """Load an authorization code."""
         return self.auth_codes.get(authorization_code)
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
     ) -> OAuthToken:
-        """Exchange authorization code for tokens."""
         if authorization_code.code not in self.auth_codes:
             raise ValueError("Invalid authorization code")
         if not client.client_id:
             raise ValueError("No client_id provided")
 
-        # Generate MCP access token
         mcp_token = f"mcp_{secrets.token_hex(32)}"
 
-        # Store MCP token
         self.tokens[mcp_token] = AccessToken(
             token=mcp_token,
             client_id=client.client_id,
@@ -223,7 +197,6 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             subject=authorization_code.subject,
         )
 
-        # Store user data mapping for this token
         self.user_data[mcp_token] = {
             "username": self.settings.demo_username,
             "user_id": f"user_{secrets.token_hex(8)}",
@@ -245,7 +218,6 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         if not access_token:
             return None
 
-        # Check if expired
         if access_token.expires_at and access_token.expires_at < time.time():
             del self.tokens[token]
             return None
@@ -262,11 +234,9 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         refresh_token: RefreshToken,
         scopes: list[str],
     ) -> OAuthToken:
-        """Exchange refresh token - not supported in this example."""
         raise NotImplementedError("Refresh tokens not supported")
 
     # TODO(Marcelo): The type hint is wrong. We need to fix, and test to check if it works.
     async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:  # type: ignore
-        """Revoke a token."""
         if token in self.tokens:
             del self.tokens[token]

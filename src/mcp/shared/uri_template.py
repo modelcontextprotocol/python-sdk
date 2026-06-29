@@ -1,46 +1,26 @@
 """RFC 6570 URI Templates with bidirectional support.
 
-Provides both expansion (template + variables → URI) and matching
-(URI → variables). RFC 6570 only specifies expansion; matching is the
-inverse operation needed by MCP servers to route ``resources/read``
-requests to handlers.
+RFC 6570 only specifies expansion (template + variables → URI); matching
+(URI → variables) is the inverse operation MCP servers need to route
+`resources/read` requests. Levels 1-3 are supported fully, plus the Level 4
+explode modifier for path-like operators (`{/var*}`, `{.var*}`, `{;var*}`);
+the prefix modifier (`{var:N}`) and query-explode (`{?var*}`) are not.
 
-Supports Levels 1-3 fully, plus Level 4 explode modifier for path-like
-operators (``{/var*}``, ``{.var*}``, ``{;var*}``). The Level 4 prefix
-modifier (``{var:N}``) and query-explode (``{?var*}``) are not supported.
+Matching (which RFC 6570 §1.4 leaves to regex languages) uses a two-ended
+scan that never backtracks: O(n·v) in URI length and variable count, so no
+input produces superpolynomial time. A template may contain at most one
+multi-segment variable — `{+var}`, `{#var}`, or an exploded variable — which
+greedily consumes whatever the surrounding bounded variables and literals do
+not; bounded variables before it match lazily, those after it greedily
+(templates without one are greedy throughout, like regex). Variables
+adjacent with no literal between them are rejected at parse time; operators
+that emit a lead character supply that literal, so `{+path}{.ext}` is fine
+while `{+path}{ext}` is not.
 
-Matching semantics
-------------------
-
-Matching is not specified by RFC 6570 (§1.4 explicitly defers to regex
-languages). This implementation uses a two-ended scan that never
-backtracks: match time is O(n·v) where n is URI length and v is the
-number of template variables. Realistic templates have v < 10, making
-this effectively linear; there is no input that produces
-superpolynomial time.
-
-A template may contain **at most one multi-segment variable** —
-``{+var}``, ``{#var}``, or an explode-modified variable (``{/var*}``,
-``{.var*}``, ``{;var*}``). This variable greedily consumes whatever the
-surrounding bounded variables and literals do not. Two such variables
-in one template are inherently ambiguous (which one gets the extra
-segment?) and are rejected at parse time. So are any two variables
-adjacent with no literal between them — including a variable adjacent
-to the multi-segment variable: the scan has nothing to anchor the
-boundary on. Operators that emit their own lead character supply that
-literal themselves, so ``{+path}{.ext}`` and ``{a}{.b}`` are fine
-while ``{+path}{ext}`` and ``{a}{b}`` are not.
-
-Bounded variables before the multi-segment variable match **lazily**
-(first occurrence of the following literal); those after match
-**greedily** (last occurrence of the preceding literal). Templates
-without a multi-segment variable match greedily throughout, identical
-to regex semantics.
-
-Reserved expansion ``{+var}`` leaves ``?`` and ``#`` unencoded, but
-the scan stops at those characters so ``{+path}{?q}`` can separate path
-from query. A value containing a literal ``?`` or ``#`` expands fine
-but will not round-trip through ``match()``.
+Reserved expansion `{+var}` leaves `?` and `#` unencoded, but the scan stops
+at those characters so `{+path}{?q}` can separate path from query; a value
+containing a literal `?` or `#` expands fine but will not round-trip through
+`match()`.
 """
 
 from __future__ import annotations
@@ -65,9 +45,8 @@ Operator = Literal["", "+", "#", ".", "/", ";", "?", "&"]
 
 _OPERATORS: frozenset[str] = frozenset({"+", "#", ".", "/", ";", "?", "&"})
 
-# RFC 6570 §2.3: varname = varchar *(["."] varchar), varchar = ALPHA / DIGIT / "_"
-# Dots appear only between varchar groups — not consecutive, not trailing.
-# (Percent-encoded varchars are technically allowed but unseen in practice.)
+# RFC 6570 §2.3: varname = varchar *(["."] varchar), varchar = ALPHA / DIGIT / "_".
+# Percent-encoded varchars are technically allowed but unseen in practice.
 _VARNAME_RE = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$")
 
 DEFAULT_MAX_TEMPLATE_LENGTH = 8_192
@@ -87,11 +66,11 @@ class _OperatorSpec:
     separator: str
     """Character between variables (and between exploded list items)."""
     named: bool
-    """Emit ``name=value`` pairs (query/path-param style) rather than bare values."""
+    """Emit `name=value` pairs (query/path-param style) rather than bare values."""
     allow_reserved: bool
     """Keep reserved characters unencoded ({+var}, {#var})."""
     ifemp: str
-    """Suffix after a named variable whose expanded value is empty (RFC §A): '' for ;, '=' for ?/&."""
+    """Suffix after a named variable with empty value (RFC §A): '' for ;, '=' for ?/&."""
 
 
 _OPERATOR_SPECS: dict[Operator, _OperatorSpec] = {
@@ -105,10 +84,8 @@ _OPERATOR_SPECS: dict[Operator, _OperatorSpec] = {
     "&": _OperatorSpec(prefix="&", separator="&", named=True, allow_reserved=False, ifemp="="),
 }
 
-# Per-operator stop characters for the linear scan. A bounded variable's
-# value ends at the first occurrence of any character in its stop set,
-# mirroring the character-class boundaries a regex would use but without
-# the backtracking.
+# Per-operator stop set: a bounded variable's value ends at the first stop
+# character — the character-class boundary a regex would use, minus backtracking.
 _STOP_CHARS: dict[Operator, str] = {
     "": "/?#&,",  # simple: everything structural is pct-encoded
     "+": "?#",  # reserved: / allowed, stop at query/fragment
@@ -126,8 +103,7 @@ class InvalidUriTemplate(ValueError):
 
     Attributes:
         template: The template string that failed to parse.
-        position: Character offset where the error was detected, or None
-            if the error is not tied to a specific position.
+        position: Character offset of the error, or None if not positional.
     """
 
     def __init__(self, message: str, *, template: str, position: int | None = None) -> None:
@@ -147,7 +123,7 @@ class Variable:
 
 @dataclass
 class _Expression:
-    """A parsed ``{...}`` expression: one operator, one or more variables."""
+    """A parsed `{...}` expression: one operator, one or more variables."""
 
     operator: Operator
     variables: list[Variable]
@@ -167,9 +143,8 @@ class _Lit:
 class _Cap:
     """A single-variable capture in the flattened match-atom sequence.
 
-    ``ifemp`` marks the ``;`` operator's optional-equals quirk: ``{;id}``
-    expands to ``;id=value`` or bare ``;id`` when the value is empty, so
-    the scan must accept both forms.
+    `ifemp` marks the `;` operator's quirk: `{;id}` expands to `;id=value`
+    or bare `;id` when the value is empty, so the scan must accept both.
     """
 
     var: Variable
@@ -180,12 +155,7 @@ _Atom: TypeAlias = _Lit | _Cap
 
 
 def _is_greedy(var: Variable) -> bool:
-    """Return True if this variable can span multiple path segments.
-
-    Reserved/fragment expansion and explode variables are the only
-    constructs whose match range is not bounded by a single structural
-    delimiter. A template may contain at most one such variable.
-    """
+    """True if the variable's match range is unbounded by a single delimiter (at most one per template)."""
     return var.explode or var.operator in ("+", "#")
 
 
@@ -203,18 +173,14 @@ _PCT_TRIPLET_RE = re.compile(r"%[0-9A-Fa-f]{2}")
 def _encode(value: str, *, allow_reserved: bool) -> str:
     """Percent-encode a value per RFC 6570 §3.2.1.
 
-    Simple expansion encodes everything except unreserved characters.
-    Reserved expansion (``{+var}``, ``{#var}``) additionally keeps
-    RFC 3986 reserved characters intact and passes through existing
-    ``%XX`` pct-triplets unchanged (RFC 6570 §3.2.3). A bare ``%`` not
-    followed by two hex digits is still encoded to ``%25``.
+    Reserved expansion ({+var}, {#var}) keeps RFC 3986 reserved characters
+    and existing `%XX` triplets intact (§3.2.3); a bare `%` not followed by
+    two hex digits is still encoded to `%25`.
     """
     if not allow_reserved:
         return quote(value, safe="")
 
-    # Reserved expansion: walk the string, pass through triplets as-is,
-    # quote the gaps between them. A bare % with no triplet lands in a
-    # gap and gets encoded normally.
+    # Pass triplets through as-is, quote the gaps; a bare % lands in a gap.
     out: list[str] = []
     last = 0
     for m in _PCT_TRIPLET_RE.finditer(value):
@@ -226,25 +192,22 @@ def _encode(value: str, *, allow_reserved: bool) -> str:
 
 
 def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence[str]]) -> str:
-    """Expand a single ``{...}`` expression into its URI fragment.
+    """Expand a single `{...}` expression into its URI fragment.
 
-    Walks the expression's variables, encoding and joining defined ones
-    according to the operator's spec. Undefined variables are skipped
-    (RFC 6570 §2.3); if all are undefined, the expression contributes
-    nothing (no prefix is emitted).
+    Undefined variables are skipped (RFC 6570 §2.3); if all are undefined,
+    the expression contributes nothing (no prefix is emitted).
     """
     spec = _OPERATOR_SPECS[expr.operator]
     rendered: list[str] = []
 
     for var in expr.variables:
         if var.name not in variables:
-            # Undefined: skip entirely, no placeholder.
             continue
 
         value = variables[var.name]
 
-        # Explicit type guard: reject non-str scalars with a clear message
-        # rather than a confusing "not iterable" from the sequence branch.
+        # Reject non-str scalars here for a clear message rather than a
+        # confusing "not iterable" from the sequence branch.
         if not isinstance(value, str) and not _is_str_sequence(value):
             raise TypeError(f"Variable {var.name!r} must be str or a sequence of str, got {type(value).__name__}")
 
@@ -255,12 +218,10 @@ def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence
             else:
                 rendered.append(encoded)
         else:
-            # Sequence value.
             items = [_encode(v, allow_reserved=spec.allow_reserved) for v in value]
             if not items:
                 continue
             if var.explode:
-                # Each item gets the operator's separator; named ops repeat the key.
                 if spec.named:
                     rendered.append(
                         spec.separator.join(f"{var.name}{spec.ifemp}" if v == "" else f"{var.name}={v}" for v in items)
@@ -268,9 +229,7 @@ def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence
                 else:
                     rendered.append(spec.separator.join(items))
             else:
-                # Non-explode: comma-join into a single value, then apply
-                # ifemp to the joined result (RFC §3.2.1: behaves as if the
-                # value were the joined string).
+                # Non-explode: comma-join, then ifemp applies to the joined value (RFC 6570 §3.2.1).
                 joined = ",".join(items)
                 if spec.named:
                     rendered.append(f"{var.name}{spec.ifemp}" if joined == "" else f"{var.name}={joined}")
@@ -286,8 +245,8 @@ def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence
 class UriTemplate:
     """A parsed RFC 6570 URI template.
 
-    Construct via :meth:`parse`. Instances are immutable and hashable;
-    equality is based on the template string alone.
+    Construct via :meth:`parse`. Immutable and hashable; equality is based
+    on the template string alone.
     """
 
     template: str
@@ -300,22 +259,10 @@ class UriTemplate:
 
     @staticmethod
     def is_template(value: str) -> bool:
-        """Check whether a string contains URI template expressions.
+        """Check whether a string contains at least one `{...}` pair.
 
-        A cheap heuristic for distinguishing concrete URIs from templates
-        without the cost of full parsing. Returns ``True`` if the string
-        contains at least one ``{...}`` pair.
-
-        Example::
-
-            >>> UriTemplate.is_template("file://docs/{name}")
-            True
-            >>> UriTemplate.is_template("file://docs/readme.txt")
-            False
-
-        Note:
-            This does not validate the template. A ``True`` result does
-            not guarantee :meth:`parse` will succeed.
+        A cheap heuristic for distinguishing concrete URIs from templates;
+        `True` does not guarantee :meth:`parse` will succeed.
         """
         open_i = value.find("{")
         return open_i != -1 and value.find("}", open_i) != -1
@@ -331,14 +278,10 @@ class UriTemplate:
         """Parse a URI template string.
 
         Args:
-            template: An RFC 6570 URI template.
-            max_length: Maximum permitted length of the template string.
-                Guards against resource exhaustion.
-            max_variables: Maximum number of variables permitted across
-                all expressions. Counting variables rather than
-                ``{...}`` expressions closes the gap where a single
-                ``{v0,v1,...,vN}`` expression packs arbitrarily many
-                variables under one expression count.
+            max_length: Maximum template length; guards resource exhaustion.
+            max_variables: Maximum variables across all expressions —
+                counted per variable, not per expression, so `{v0,...,vN}`
+                cannot pack arbitrarily many under one expression.
 
         Raises:
             InvalidUriTemplate: If the template is malformed, exceeds the
@@ -352,9 +295,7 @@ class UriTemplate:
 
         parts, variables = _parse(template, max_variables=max_variables)
 
-        # Trailing {?...}/{&...} expressions are split off and matched as
-        # a query string (order-agnostic, partial, extras ignored) rather
-        # than via the linear scan.
+        # Trailing {?...}/{&...} runs are matched as a lenient query string, not via the linear scan.
         path_parts, query_vars = _split_query_tail(parts)
         atoms = _flatten(path_parts)
         prefix, greedy, suffix = _partition_greedy(atoms, template)
@@ -383,28 +324,22 @@ class UriTemplate:
     def query_variable_names(self) -> frozenset[str]:
         """Names of variables that :meth:`match` treats as optional query parameters.
 
-        These are the variables in a trailing run of ``{?...}``/``{&...}``
-        expressions, which are matched leniently: a URI that omits some
-        (or all) of them still matches, and the omitted names are simply
-        absent from the result. Any value bound to such a name therefore
-        needs a fallback for the omitted case.
-
-        Every other variable is bound on every successful :meth:`match`
-        (possibly to an empty string) and is *not* in this set. That
-        includes a ``{&...}`` expression with no preceding ``{?...}``: it
-        never emits the ``?`` the lenient query split keys on, so it is
-        matched strictly.
+        Variables in a trailing run of `{?...}`/`{&...}` expressions are
+        matched leniently: a URI may omit any of them, and omitted names are
+        absent from the result. Every other variable is bound on every
+        successful match (possibly to an empty string) — including a
+        `{&...}` with no preceding `{?...}`, which never emits the `?` the
+        lenient split keys on and is therefore matched strictly.
         """
         return frozenset(v.name for v in self._query_variables)
 
     def expand(self, variables: Mapping[str, str | Sequence[str]]) -> str:
         """Expand the template by substituting variable values.
 
-        String values are percent-encoded according to their operator:
-        simple ``{var}`` encodes reserved characters; ``{+var}`` and
-        ``{#var}`` leave them intact. Sequence values are joined with
-        commas for non-explode variables, or with the operator's
-        separator for explode variables.
+        String values are percent-encoded per their operator: simple `{var}`
+        encodes reserved characters; `{+var}` and `{#var}` leave them
+        intact. Sequence values are comma-joined, or joined with the
+        operator's separator for explode variables.
 
         Example::
 
@@ -412,41 +347,20 @@ class UriTemplate:
             >>> t.expand({"name": "hello world.txt"})
             'file://docs/hello%20world.txt'
 
-            >>> t = UriTemplate.parse("file://docs/{+path}")
-            >>> t.expand({"path": "src/main.py"})
-            'file://docs/src/main.py'
-
             >>> t = UriTemplate.parse("/search{?q,lang}")
             >>> t.expand({"q": "mcp", "lang": "en"})
             '/search?q=mcp&lang=en'
 
-            >>> t = UriTemplate.parse("/files{/path*}")
-            >>> t.expand({"path": ["a", "b", "c"]})
-            '/files/a/b/c'
-
-        Args:
-            variables: Values for each template variable. Keys must be
-                strings; values must be ``str`` or a sequence of ``str``.
-
-        Returns:
-            The expanded URI string.
-
         Note:
-            Per RFC 6570, variables absent from the mapping are
-            **silently omitted**. This is the correct behavior for
-            optional query parameters (``{?page}`` with no page yields
-            no ``?page=``), but for required path segments it produces
-            a structurally incomplete URI. If you need all variables
-            present, validate before calling::
-
-                missing = set(t.variable_names) - variables.keys()
-                if missing:
-                    raise ValueError(f"Missing: {missing}")
+            Per RFC 6570, variables absent from the mapping are silently
+            omitted — correct for optional query parameters, but a missing
+            path variable yields a structurally incomplete URI. Check
+            `set(t.variable_names) - variables.keys()` first if you need
+            all variables present.
 
         Raises:
-            TypeError: If a value is neither ``str`` nor an iterable of
-                ``str``. Non-string scalars (``int``, ``None``) are not
-                coerced.
+            TypeError: If a value is neither `str` nor an iterable of
+                `str`; non-string scalars (`int`, `None`) are not coerced.
         """
         out: list[str] = []
         for part in self._parts:
@@ -459,71 +373,47 @@ class UriTemplate:
     def match(self, uri: str, *, max_uri_length: int = DEFAULT_MAX_URI_LENGTH) -> dict[str, str | list[str]] | None:
         """Match a concrete URI against this template and extract variables.
 
-        This is the inverse of :meth:`expand`. The URI is matched via a
-        linear scan of the template and captured values are
-        percent-decoded. The round-trip ``match(expand({k: v})) == {k: v}``
-        holds when ``v`` does not contain its operator's separator
-        unencoded: ``{.ext}`` with ``ext="tar.gz"`` expands to
-        ``.tar.gz`` but does not match — the scan stops ``ext`` at the
-        first ``.`` and the trailing ``.gz`` has nothing to consume it.
-        RFC 6570 §1.4 notes this is an inherent reversal limitation.
+        The inverse of :meth:`expand`; captured values are percent-decoded.
+        The round-trip `match(expand({k: v})) == {k: v}` holds when `v` does
+        not contain its operator's separator unencoded: `{.ext}` with
+        `ext="tar.gz"` expands but does not match back — an inherent
+        reversal limitation noted by RFC 6570 §1.4.
 
-        Matching is structural at the URI level only: a simple ``{name}``
-        will not match across a literal ``/`` in the URI (the scan stops
-        there), but a percent-encoded ``%2F`` that decodes to ``/`` is
-        accepted as part of the value. Path-safety validation belongs at
-        a higher layer; see :mod:`mcp.shared.path_security`.
+        Matching is structural at the URI level only: a simple `{name}`
+        will not match across a literal `/`, but a percent-encoded `%2F`
+        that decodes to `/` is accepted as part of the value. Path-safety
+        validation belongs at a higher layer; see
+        :mod:`mcp.shared.path_security`.
+
+        Trailing query expressions (`{?q,lang}`) match leniently:
+        order-agnostic, partial, unrecognized params ignored, and absent
+        params omitted from the result so downstream defaults can apply.
 
         Example::
 
             >>> t = UriTemplate.parse("file://docs/{name}")
-            >>> t.match("file://docs/readme.txt")
-            {'name': 'readme.txt'}
             >>> t.match("file://docs/hello%20world.txt")
             {'name': 'hello world.txt'}
 
-            >>> t = UriTemplate.parse("file://docs/{+path}")
-            >>> t.match("file://docs/src/main.py")
-            {'path': 'src/main.py'}
-
-            >>> t = UriTemplate.parse("/files{/path*}")
-            >>> t.match("/files/a/b/c")
-            {'path': ['a', 'b', 'c']}
-
-        **Query parameters** (``{?q,lang}`` at the end of a template)
-        are matched leniently: order-agnostic, partial, and unrecognized
-        params are ignored. Absent params are omitted from the result so
-        downstream function defaults can apply::
-
             >>> t = UriTemplate.parse("logs://{service}{?since,level}")
-            >>> t.match("logs://api")
-            {'service': 'api'}
             >>> t.match("logs://api?level=error")
             {'service': 'api', 'level': 'error'}
-            >>> t.match("logs://api?level=error&since=5m&utm=x")
-            {'service': 'api', 'since': '5m', 'level': 'error'}
 
         Args:
-            uri: A concrete URI string.
-            max_uri_length: Maximum permitted length of the input URI.
-                Oversized inputs return ``None`` without scanning,
+            max_uri_length: Oversized inputs return None without scanning,
                 guarding against resource exhaustion.
 
         Returns:
-            A mapping from variable names to decoded values (``str`` for
-            scalar variables, ``list[str]`` for explode variables), or
-            ``None`` if the URI does not match the template or exceeds
-            ``max_uri_length``.
+            Variable names mapped to decoded values (`str`, or `list[str]`
+            for explode variables), or None if the URI does not match or
+            exceeds `max_uri_length`.
         """
         if len(uri) > max_uri_length:
             return None
 
         if self._query_variables:
-            # Two-phase: scan matches the path, the query is split and
-            # decoded manually. Query params may be partial, reordered,
-            # or include extras; absent params stay absent so downstream
-            # defaults can apply. Fragment is stripped first since the
-            # template's {?...} tail never describes a fragment.
+            # Scan the path, then decode the query separately. Fragment is
+            # stripped first: the template's {?...} tail never describes one.
             before_fragment, _, _ = uri.partition("#")
             path, _, query = before_fragment.partition("?")
             result = self._scan(path)
@@ -551,11 +441,9 @@ class UriTemplate:
             suffix_result, suffix_start = suffix
             return suffix_result if suffix_start == 0 else None
 
-        # Greedy var present. The parser rejects a capture adjacent to
-        # the greedy slot, so a non-empty suffix begins with a _Lit whose
-        # rfind-derived anchor does not depend on how far the prefix
-        # scans. Scan the suffix first, then give the prefix that exact
-        # position as its ceiling so it cannot consume past the anchor.
+        # The parser rejects a capture adjacent to the greedy slot, so a
+        # non-empty suffix begins with a _Lit whose rfind anchor is independent
+        # of the prefix scan: scan the suffix first, then cap the prefix at it.
         suffix = _scan_suffix(self._suffix, uri, n, anchored=False)
         if suffix is None:
             return None
@@ -565,11 +453,9 @@ class UriTemplate:
             return None
         prefix_result, prefix_end = prefix
 
-        # Prefix consumed [0, prefix_end); suffix consumed [suffix_start, n);
-        # the greedy var takes the gap. The prefix scan is bounded by
-        # suffix_start, so this holds by construction; guard explicitly
-        # rather than asserting so a future regression surfaces as a
-        # non-match, not an exception.
+        # The greedy var takes [prefix_end, suffix_start). The prefix scan is
+        # bounded by suffix_start, so this holds by construction; guard rather
+        # than assert so a future regression surfaces as a non-match.
         if suffix_start < prefix_end:
             return None  # pragma: no cover - unreachable while bounds hold
         middle = uri[prefix_end:suffix_start]
@@ -586,19 +472,12 @@ class UriTemplate:
 def _parse_query(query: str) -> dict[str, str]:
     """Parse a query string into a name→value mapping.
 
-    Unlike ``urllib.parse.parse_qs``, this follows RFC 3986 semantics:
-    ``+`` is a literal sub-delim, not a space. Form-urlencoding treats
-    ``+`` as space for HTML form submissions, but RFC 6570 and MCP
-    resource URIs follow RFC 3986 where only ``%20`` encodes a space.
-
-    Parameter names are **not** percent-decoded. RFC 6570 expansion
-    never encodes variable names, so a legitimate match will always
-    have the name in literal form. Decoding names would let
-    ``%74oken=evil&token=real`` shadow the real ``token`` parameter
-    via first-wins.
-
-    Duplicate keys keep the first value. Pairs without ``=`` are
-    treated as empty-valued.
+    Unlike `urllib.parse.parse_qs`, this follows RFC 3986 rather than
+    form-urlencoding: `+` is a literal sub-delim, only `%20` is a space.
+    Names are not percent-decoded — RFC 6570 expansion never encodes them,
+    and decoding would let `%74oken=evil&token=real` shadow the real `token`
+    via first-wins. Duplicate keys keep the first value; pairs without `=`
+    are empty-valued.
     """
     result: dict[str, str] = {}
     for pair in query.split("&"):
@@ -611,10 +490,9 @@ def _parse_query(query: str) -> dict[str, str]:
 def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
     """Decode the greedy variable's isolated middle span.
 
-    For scalar greedy (``{+var}``, ``{#var}``) this is a stop-char
-    validation and a single ``unquote``. For explode variables the span
-    is a run of separator-delimited segments (``/a/b/c`` or
-    ``;keys=a;keys=b``) that is split, validated, and decoded per item.
+    Scalar greedy ({+var}, {#var}): stop-char validation plus one unquote.
+    Explode: split the separator-delimited run (`/a/b/c`, `;keys=a;keys=b`),
+    validate, and decode per item.
     """
     spec = _OPERATOR_SPECS[var.operator]
     stops = _STOP_CHARS[var.operator]
@@ -627,27 +505,22 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
     sep = spec.separator
     if not raw:
         return []
-    # A non-empty explode span must begin with the separator: {/a*}
-    # expands to "/x/y", never "x/y". The scan does not consume the
-    # separator itself, so it must be the first character here.
+    # A non-empty explode span must begin with the separator: {/a*} expands
+    # to "/x/y", never "x/y", and the scan leaves the separator in the span.
     if raw[0] != sep:
         return None
-    # Segments must not contain the operator's non-separator stop
-    # characters (e.g. {/path*} segments may contain neither ? nor #).
+    # Segments must not contain the operator's other stop chars (e.g. ?/# under {/path*}).
     body_stops = set(stops) - {sep}
     if any(c in body_stops for c in raw):
         return None
 
     segments: list[str] = []
     prefix = f"{var.name}="
-    # split()[0] is always "" because raw starts with the separator;
-    # subsequent empties are legitimate values ({/path*} with
-    # ["a","","c"] expands to /a//c).
+    # split()[0] is always "" (raw starts with the separator); later
+    # empties are legitimate values (/a//c).
     for seg in raw.split(sep)[1:]:
         if spec.named:
-            # Named explode emits name=value per item (or bare name
-            # under ; with empty value). Validate the name and strip
-            # the prefix before decoding.
+            # Named explode emits name=value per item (bare name under ; when empty).
             if seg.startswith(prefix):
                 seg = seg[len(prefix) :]
             elif seg == var.name:
@@ -659,19 +532,11 @@ def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
 
 
 def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
-    """Separate trailing ``?``/``&`` expressions from the path portion.
+    """Separate trailing `?`/`&` expressions from the path portion.
 
-    Lenient query matching (order-agnostic, partial, ignores extras)
-    applies when a template ends with one or more consecutive ``?``/``&``
-    expressions and the preceding path portion contains no literal
-    ``?``. If the path has a literal ``?`` (e.g., ``?fixed=1{&page}``),
-    the URI's ``?`` split won't align with the template's expression
-    boundary, so the strict scan is used instead.
-
-    Returns:
-        A pair ``(path_parts, query_vars)``. If lenient matching does
-        not apply, ``query_vars`` is empty and ``path_parts`` is the
-        full input.
+    Lenient query matching applies when the template ends with consecutive
+    `?`/`&` expressions; when it does not apply, `query_vars` is empty and
+    `path_parts` is the full input.
     """
     split = len(parts)
     for i in range(len(parts) - 1, -1, -1):
@@ -684,18 +549,16 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     if split == len(parts):
         return parts, []
 
-    # The tail must start with a {?...} expression so that expand()
-    # emits a ? the URI can split on. A standalone {&page} expands
-    # with an & prefix, which partition("?") won't find.
+    # The tail must start with {?...} so expand() emits the ? the URI is
+    # split on; a leading {&page} expands with & and partition("?") misses it.
     first = parts[split]
     assert isinstance(first, _Expression)
     if first.operator != "?":
         return parts, []
 
-    # If the path portion contains a literal ?/# or a {?...}/{#...}
-    # expression, lenient matching's partition("#") then partition("?")
-    # would strip content the path scan expects to see. Fall back to
-    # the strict scan.
+    # A literal ?/# or a {?...}/{#...} expression in the path would be
+    # stripped by the lenient partitions before the path scan sees it;
+    # fall back to the strict scan.
     for part in parts[:split]:
         if isinstance(part, str):
             if "?" in part or "#" in part:
@@ -714,14 +577,9 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
 def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Variable]]:
     """Split a template into an ordered sequence of literals and expressions.
 
-    Walks the string, alternating between collecting literal runs and
-    parsing ``{...}`` expressions. The resulting ``parts`` sequence
-    preserves positional interleaving so ``match()`` and ``expand()`` can
-    walk it in order.
-
     Raises:
-        InvalidUriTemplate: On unclosed braces, too many expressions, or
-            any error surfaced by :func:`_parse_expression`.
+        InvalidUriTemplate: On unclosed braces, too many variables, or any
+            error surfaced by :func:`_parse_expression`.
     """
     parts: list[_Part] = []
     variables: list[Variable] = []
@@ -729,16 +587,13 @@ def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Vari
     n = len(template)
 
     while i < n:
-        # Find the next expression opener from the current cursor.
         brace = template.find("{", i)
 
         if brace == -1:
-            # No more expressions; everything left is a trailing literal.
             parts.append(template[i:])
             break
 
         if brace > i:
-            # Literal text between cursor and the brace.
             parts.append(template[i:brace])
 
         end = template.find("}", brace)
@@ -749,7 +604,6 @@ def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Vari
                 position=brace,
             )
 
-        # Delegate body (between braces, exclusive) to the expression parser.
         expr = _parse_expression(template, template[brace + 1 : end], brace)
         parts.append(expr)
         variables.extend(expr.variables)
@@ -760,7 +614,6 @@ def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Vari
                 template=template,
             )
 
-        # Advance past the closing brace.
         i = end + 1
 
     _check_duplicate_variables(template, variables)
@@ -769,17 +622,11 @@ def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Vari
 
 
 def _parse_expression(template: str, body: str, pos: int) -> _Expression:
-    """Parse the body of a single ``{...}`` expression.
+    """Parse the body (between braces) of a single `{...}` expression.
 
-    The body is everything between the braces. It consists of an optional
-    leading operator character followed by one or more comma-separated
-    variable specifiers. Each specifier is a name with an optional
-    trailing ``*`` (explode modifier).
-
-    Args:
-        template: The full template string, for error reporting.
-        body: The expression body, braces excluded.
-        pos: Character offset of the opening brace, for error reporting.
+    The body is an optional leading operator followed by comma-separated
+    `name[*]` variable specifiers. `template` and `pos` (offset of the
+    opening brace) are for error reporting only.
 
     Raises:
         InvalidUriTemplate: On empty body, invalid variable names, or
@@ -800,7 +647,6 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
                 position=pos,
             )
 
-    # Remaining body is comma-separated variable specs: name[*]
     variables: list[Variable] = []
     for spec in body.split(","):
         if ":" in spec:
@@ -820,9 +666,8 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
                 position=pos,
             )
 
-        # Explode only makes sense for operators that repeat a separator.
-        # Simple/reserved/fragment have no per-item separator; query-explode
-        # needs order-agnostic dict matching which we don't support yet.
+        # Simple/reserved/fragment have no per-item separator to explode on;
+        # query-explode needs order-agnostic dict matching, unsupported so far.
         if explode and operator in ("", "+", "#", "?", "&"):
             raise InvalidUriTemplate(
                 f"Explode modifier on {{{operator}{name}*}} is not supported for matching",
@@ -838,10 +683,9 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
 def _check_duplicate_variables(template: str, variables: list[Variable]) -> None:
     """Reject templates that use the same variable name more than once.
 
-    RFC 6570 requires repeated variables to expand to the same value,
-    which would require backreference matching with potentially
-    exponential cost. Rather than silently returning only the last
-    captured value, we reject at parse time.
+    RFC 6570 requires repeated variables to expand to the same value, which
+    matching would need potentially-exponential backreference support for;
+    reject at parse time rather than silently keeping the last capture.
 
     Raises:
         InvalidUriTemplate: If any variable name appears more than once.
@@ -857,11 +701,10 @@ def _check_duplicate_variables(template: str, variables: list[Variable]) -> None
 
 
 def _check_single_query_expression(template: str, parts: list[_Part]) -> None:
-    """Reject templates with more than one ``{?...}`` expression.
+    """Reject templates with more than one `{?...}` expression.
 
-    The ``?`` operator emits a leading ``?``, so two such expressions
-    expand to a URI with two ``?`` characters — malformed per RFC 3986
-    §3.4. Use ``{?a,b}`` or ``{?a}{&b}`` for multiple query parameters.
+    Two would expand to a URI with two `?` characters — malformed per
+    RFC 3986 §3.4. Use `{?a,b}` or `{?a}{&b}` instead.
     """
     seen = False
     for part in parts:
@@ -878,14 +721,10 @@ def _check_single_query_expression(template: str, parts: list[_Part]) -> None:
 def _flatten(parts: list[_Part]) -> list[_Atom]:
     """Lower expressions into a flat sequence of literals and single-variable captures.
 
-    Operator prefixes and separators become explicit ``_Lit`` atoms so
-    the scan only ever sees two atom kinds. Adjacent literals are
-    coalesced so that anchor-finding (``find``/``rfind``) operates on
-    the longest possible literal, reducing false matches.
-
-    Explode variables emit no lead literal: the explode capture
-    includes its own separator-prefixed repetitions (``{/a*}`` →
-    ``/x/y/z``, not ``/`` then ``x/y/z``).
+    Operator prefixes and separators become explicit `_Lit` atoms; adjacent
+    literals are coalesced so find/rfind anchors on the longest run. Explode
+    variables emit no lead literal — the capture includes its own
+    separator-prefixed repetitions (`{/a*}` → `/x/y/z`).
     """
     atoms: list[_Atom] = []
 
@@ -907,8 +746,7 @@ def _flatten(parts: list[_Part]) -> list[_Atom]:
             if var.explode:
                 atoms.append(_Cap(var))
             elif spec.named:
-                # ; uses ifemp (bare name when empty); ? and & always
-                # emit name= so the equals is part of the literal.
+                # ; uses ifemp (bare name when empty); ?/& always emit name= as literal.
                 if part.operator == ";":
                     push_lit(f"{lead}{var.name}")
                     atoms.append(_Cap(var, ifemp=True))
@@ -924,19 +762,14 @@ def _flatten(parts: list[_Part]) -> list[_Atom]:
 def _partition_greedy(atoms: list[_Atom], template: str) -> tuple[list[_Atom], Variable | None, list[_Atom]]:
     """Split atoms at the single greedy variable, if any.
 
-    Returns ``(prefix, greedy_var, suffix)``. If there is no greedy
-    variable the entire atom list is returned as the suffix so that
-    the right-to-left scan (which matches regex-greedy semantics)
-    handles it.
+    With no greedy variable the entire atom list is returned as the suffix
+    so the right-to-left scan (regex-greedy semantics) handles it.
 
     Raises:
-        InvalidUriTemplate: If two variables are adjacent with no
-            literal between them — whether or not one is the
-            multi-segment variable, the scan has nothing to anchor the
-            boundary on — or if more than one multi-segment variable
-            is present (two are inherently ambiguous: there is no
-            principled way to decide which one absorbs an extra
-            segment).
+        InvalidUriTemplate: If two variables are adjacent with no literal
+            between them (the scan has nothing to anchor the boundary on),
+            or if more than one multi-segment variable is present (which
+            one absorbs an extra segment is inherently ambiguous).
     """
     greedy_idx: int | None = None
     prev: _Atom | None = None
@@ -969,16 +802,13 @@ def _partition_greedy(atoms: list[_Atom], template: str) -> tuple[list[_Atom], V
 def _scan_suffix(
     atoms: Sequence[_Atom], uri: str, end: int, *, anchored: bool
 ) -> tuple[dict[str, str | list[str]], int] | None:
-    """Scan atoms right-to-left from ``end``, returning captures and start position.
+    """Scan atoms right-to-left from `end`, returning captures and start position.
 
-    Each bounded variable takes the minimum span that lets its
-    preceding literal match (found via ``rfind``), which makes the
-    *first* variable in template order greedy — identical to Python
-    regex semantics for a sequence of greedy groups.
-
-    When ``anchored`` is true the atom sequence is the entire template
-    (no greedy variable), so ``atoms[0]`` must match at URI position 0
-    rather than at its rightmost occurrence.
+    Each bounded variable takes the minimum span that lets its preceding
+    literal match (rfind), making the first variable in template order
+    greedy — identical to Python regex semantics for greedy groups. When
+    `anchored`, the atoms are the entire template (no greedy variable) and
+    `atoms[0]` must match at position 0, not at its rightmost occurrence.
     """
     result: dict[str, str | list[str]] = {}
     pos = end
@@ -998,9 +828,8 @@ def _scan_suffix(
         prev = atoms[i - 1] if i > 0 else None
 
         if atom.ifemp:
-            # ;name or ;name=value. The preceding _Lit is ";name".
-            # Try empty first: if the lit ends at pos the value is
-            # absent (RFC ifemp). Otherwise require =value.
+            # ;name or ;name=value, preceding _Lit is ";name": try the
+            # empty (bare-name) form first, else require =value.
             assert isinstance(prev, _Lit)
             if uri.endswith(prev.text, 0, pos):
                 result[var.name] = ""
@@ -1017,8 +846,7 @@ def _scan_suffix(
             i -= 1
             continue
 
-        # Earliest valid start: the var cannot extend left past any
-        # stop-char, so scan backward to find that boundary.
+        # Earliest valid start: the var cannot extend left past a stop-char.
         earliest = pos
         while earliest > 0 and uri[earliest - 1] not in stops:
             earliest -= 1
@@ -1026,20 +854,17 @@ def _scan_suffix(
         if prev is None:
             start = earliest
         else:
-            # prev is a _Lit: the parser rejects two adjacent captures,
-            # so the only possible neighbour kind is a literal.
+            # The parser rejects adjacent captures, so prev can only be a _Lit.
             assert isinstance(prev, _Lit)
             if anchored and i - 1 == 0:
-                # First atom of the whole template: positionally fixed at
-                # 0, not rightmost occurrence. rfind would land inside the
-                # value when the literal repeats there (e.g. "prefix-{id}"
-                # against "prefix-prefix-123").
+                # First atom of the template is positionally fixed at 0;
+                # rfind would land inside the value when the literal repeats
+                # ("prefix-{id}" against "prefix-prefix-123").
                 start = len(prev.text)
                 if start < earliest or start > pos:
                     return None
             else:
-                # Rightmost occurrence of the preceding literal whose end
-                # falls within the var's valid range.
+                # Rightmost occurrence of the preceding literal ending within the var's range.
                 idx = uri.rfind(prev.text, 0, pos)
                 if idx == -1 or idx + len(prev.text) < earliest:
                     return None
@@ -1054,11 +879,10 @@ def _scan_suffix(
 def _scan_prefix(
     atoms: Sequence[_Atom], uri: str, start: int, limit: int
 ) -> tuple[dict[str, str | list[str]], int] | None:
-    """Scan atoms left-to-right from ``start``, not exceeding ``limit``.
+    """Scan atoms left-to-right from `start`, not exceeding `limit`.
 
-    Each bounded variable takes the minimum span that lets its
-    following literal match (found via ``find``), leaving the
-    greedy variable as much of the URI as possible.
+    Each bounded variable takes the minimum span that lets its following
+    literal match (find), leaving the greedy variable as much as possible.
     """
     result: dict[str, str | list[str]] = {}
     pos = start
@@ -1072,41 +896,33 @@ def _scan_prefix(
 
         var = atom.var
         stops = _STOP_CHARS[var.operator]
-        # Every capture here is followed by a literal: the parser rejects
-        # two adjacent captures, and a capture at the END of the prefix
-        # would be adjacent to the greedy variable.
+        # A literal always follows: the parser rejects adjacent captures, and a
+        # capture ending the prefix would be adjacent to the greedy variable.
         nxt = atoms[i + 1]
         assert isinstance(nxt, _Lit)
 
         if atom.ifemp:
-            # RFC §3.2.7 ifemp: ;name=val for non-empty, bare ;name for
-            # empty. Decide which form is present without falling through
-            # to the stop-char scan when the value is empty.
+            # RFC 6570 §3.2.7 ifemp: bare ;name when empty, ;name=val otherwise.
             if uri.startswith(nxt.text, pos):
-                # Following literal begins immediately: value is empty.
-                # Checked before '=' so a literal that itself starts
-                # with '=' is not mistaken for the ifemp separator.
+                # Empty value. Checked before '=' so a literal that itself
+                # starts with '=' is not mistaken for the ifemp separator.
                 result[var.name] = ""
                 continue
             if pos < limit and uri[pos] == "=":
                 pos += 1  # value follows; fall through to the scan
             else:
-                # The following literal does not start here and there is
-                # no '=': the URI's name continued past the template's
-                # (e.g. ;keys vs ;key) — no parse.
+                # No following literal and no '=': the URI's name continued
+                # past the template's (e.g. ;keys vs ;key) — no parse.
                 return None
 
-        # Latest valid end: the var stops at the first stop-char or
-        # the scan limit, whichever comes first.
+        # Latest valid end: first stop-char or the scan limit.
         latest = pos
         while latest < limit and uri[latest] not in stops:
             latest += 1
 
-        # First occurrence of the following literal: the capture takes
-        # the minimum span, leaving the greedy variable as much of the
-        # URI as possible. The search window's upper bound already
-        # forces any hit to start at or before ``latest``, so the var
-        # never extends past a stop-char.
+        # First occurrence of the following literal = minimum span. The search
+        # window's upper bound forces any hit to start at or before `latest`,
+        # so the var never extends past a stop-char.
         end = uri.find(nxt.text, pos, latest + len(nxt.text))
         if end == -1:
             return None

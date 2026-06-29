@@ -1,18 +1,8 @@
 """In-memory `Dispatcher` that wires two peers together with no transport.
 
-`DirectDispatcher` is the simplest possible `Dispatcher` implementation: a
-request on one side directly invokes the other side's `on_request`. There is no
-serialization, no JSON-RPC framing, and no streams. It exists to:
-
-* prove the `Dispatcher` Protocol is implementable without JSON-RPC
-* provide a fast substrate for testing the layers above the dispatcher
-  (`ServerRunner`, `Context`, `Connection`) without wire-level moving parts
-* embed a server in-process when the JSON-RPC overhead is unnecessary
-
-Like `JSONRPCDispatcher`, this is an exception-to-error boundary: a handler
-exception surfaces to the caller as `MCPError`. The `raise_handler_exceptions`
-knob controls whether unmapped exceptions are sanitized (matching the wire
-path) or chained as ``__cause__`` for in-process debugging.
+A request on one side directly invokes the other side's `on_request` — no
+serialization, no JSON-RPC framing, no streams. A fast substrate for testing
+the layers above the dispatcher and for embedding a server in-process.
 """
 
 from __future__ import annotations
@@ -46,11 +36,7 @@ _Notify = Callable[[str, Mapping[str, Any] | None], Awaitable[None]]
 
 @dataclass
 class _DirectDispatchContext:
-    """`DispatchContext` for an inbound request on a `DirectDispatcher`.
-
-    The back-channel callables target the *originating* side, so a handler's
-    `send_raw_request` reaches the peer that made the inbound request.
-    """
+    """`DispatchContext` for an inbound request; back-channel callables target the originating peer."""
 
     transport: TransportContext
     _back_request: _Request
@@ -87,16 +73,11 @@ class _DirectDispatchContext:
 class DirectDispatcher:
     """A `Dispatcher` that calls a peer's handlers directly, in-process.
 
-    Two instances are wired together with `create_direct_dispatcher_pair`; each
-    holds a reference to the other. `send_raw_request` on one awaits the peer's
-    `on_request`. `run` parks until `close` is called.
-
+    Two instances are wired together with `create_direct_dispatcher_pair`.
     Lifecycle mirrors `JSONRPCDispatcher`: `send_raw_request` requires `run()`
-    to have started, and once a side has closed - via `close()` or `run()`
-    ending - `send_raw_request` raises `MCPError` (`CONNECTION_CLOSED`) and
-    inbound requests fail the peer's call the same way instead of invoking the
-    handler. Notifications are fire-and-forget in both directions: after close
-    they are silently dropped.
+    to have started and raises `MCPError` (`CONNECTION_CLOSED`) once either
+    side has closed; notifications are fire-and-forget and silently dropped
+    after close.
     """
 
     def __init__(self, transport_ctx: TransportContext, *, raise_handler_exceptions: bool = True):
@@ -123,14 +104,11 @@ class DirectDispatcher:
         """Send a request by invoking the peer's `on_request` directly.
 
         Raises:
-            MCPError: The peer's handler raised; `REQUEST_TIMEOUT` if
-                `opts["timeout"]` elapsed; `CONNECTION_CLOSED` if either
-                side has closed.
+            MCPError: The handler raised; `REQUEST_TIMEOUT` on timeout; `CONNECTION_CLOSED` after close.
             RuntimeError: Called before `run()`.
         """
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
-        # Post-close sends get the same CONNECTION_CLOSED contract as JSONRPCDispatcher.
         if self._closed:
             raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
         if not self._running:
@@ -140,10 +118,8 @@ class DirectDispatcher:
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a notification by invoking the peer's `on_notify` directly.
 
-        Fire-and-forget: usable before `run()` (delivery waits for the peer to
-        start), and after close it is silently dropped, matching
-        `JSONRPCDispatcher.notify`. `opts` is accepted for `Dispatcher`
-        conformance; there is no HTTP layer here so `headers` is ignored.
+        Fire-and-forget: delivery waits for the peer's `run()`, and after close
+        it is silently dropped. `opts` is accepted for `Dispatcher` conformance only.
         """
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
@@ -159,11 +135,7 @@ class DirectDispatcher:
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
-        """Mark this side ready and park until `close()` is called.
-
-        Single-shot, like `JSONRPCDispatcher.run`: once it returns the
-        dispatcher stays closed and cannot be restarted.
-        """
+        """Mark this side ready and park until `close()`; single-shot like `JSONRPCDispatcher.run`."""
         try:
             self._on_request = on_request
             self._on_notify = on_notify
@@ -174,9 +146,7 @@ class DirectDispatcher:
         finally:
             self._running = False
             self._closed = True
-            # run() may end via cancellation without close() ever being
-            # called; setting the event wakes `_wait_ready` waiters so they
-            # observe the closed state instead of parking forever.
+            # Cancellation can end run() without close(); set the event so `_wait_ready` waiters see closed.
             self._close_event.set()
 
     def close(self) -> None:
@@ -197,11 +167,7 @@ class DirectDispatcher:
         )
 
     async def _wait_ready(self) -> None:
-        """Park until `run()` has started, waking early if this side closes.
-
-        Raises:
-            MCPError: `CONNECTION_CLOSED` if this side has closed.
-        """
+        """Park until `run()` has started; raises `MCPError` (`CONNECTION_CLOSED`) if this side closes."""
         if not self._ready.is_set() and not self._close_event.is_set():
             async with anyio.create_task_group() as tg:
 
@@ -223,8 +189,7 @@ class DirectDispatcher:
         opts = opts or {}
         try:
             with anyio.fail_after(opts.get("timeout")):
-                # Inside the timeout scope, so a configured timeout also bounds
-                # waiting on a peer whose run() has not started yet.
+                # Inside the timeout scope, so the timeout also bounds waiting for a peer whose run() hasn't started.
                 await self._wait_ready()
                 assert self._on_request is not None
                 # Synthesize an id: the DispatchContext contract reserves None for notifications.
@@ -235,14 +200,11 @@ class DirectDispatcher:
                 except MCPError:
                     raise
                 except ValidationError as e:
-                    # Same shape JSONRPCDispatcher writes, so runner-over-direct
-                    # tests see what runner-over-JSONRPC would.
+                    # Same shape JSONRPCDispatcher writes, so runner-over-direct tests match runner-over-JSONRPC.
                     raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="") from e
                 except Exception as e:
-                    # Single owner of the in-proc exception-to-error policy (mirrors
-                    # JSONRPCDispatcher / `_streamable_http_modern._to_jsonrpc_response`
-                    # for the wire paths). True chains the original for in-process
-                    # debugging; False sanitizes to match the wire path's leak guard.
+                    # True chains the original for in-process debugging; False sanitizes
+                    # to match the wire path's leak guard (JSONRPCDispatcher).
                     if self._raise_handler_exceptions:
                         raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
                     logger.exception("request handler raised")
@@ -259,8 +221,7 @@ class DirectDispatcher:
         try:
             await self._wait_ready()
         except MCPError:
-            # Notifications are fire-and-forget: a notify to a closed peer is
-            # dropped, not raised back into the sender's call.
+            # Fire-and-forget: a notify to a closed peer is dropped, not raised back to the sender.
             logger.debug("dropped notification %r to closed DirectDispatcher", method)
             return
         assert self._on_notify is not None
@@ -277,18 +238,13 @@ def create_direct_dispatcher_pair(
     """Create two `DirectDispatcher` instances wired to each other.
 
     Args:
-        can_send_request: Sets `TransportContext.can_send_request` on both
-            sides. Pass `False` to simulate a transport with no back-channel.
-        headers: Sets `TransportContext.headers` on both sides.
-        raise_handler_exceptions: When `True` (the default - this is an
-            in-process debugging substrate), an unmapped handler exception
-            reaches the caller as `MCPError` with the original chained as
-            ``__cause__``. When `False` it is sanitized to an opaque
-            `INTERNAL_ERROR` so the in-process path matches the wire.
+        can_send_request: Pass `False` to simulate a transport with no back-channel.
+        raise_handler_exceptions: When `True` (default), an unmapped handler exception
+            reaches the caller as `MCPError` with the original chained as `__cause__`;
+            when `False` it is sanitized to an opaque `INTERNAL_ERROR`, matching the wire path.
 
     Returns:
-        A `(client, server)` pair. The wiring is symmetric, so the roles
-        are conventional only.
+        A `(client, server)` pair; the wiring is symmetric, so the roles are conventional only.
     """
     ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request, headers=headers)
     client = DirectDispatcher(ctx, raise_handler_exceptions=raise_handler_exceptions)

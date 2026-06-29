@@ -17,10 +17,7 @@ def test_context_detected_in_union_annotation():
 
 @pytest.mark.anyio
 async def test_mcperror_raised_from_a_tool_surfaces_as_a_top_level_jsonrpc_error_with_code_and_data_intact():
-    """SDK-defined: ``MCPError`` carries JSON-RPC ``ErrorData(code, message, data)``
-    and means "respond with a protocol error". The tool wrapper re-raises it so
-    the kernel writes a top-level JSON-RPC error - ``code`` and ``data`` survive
-    the round-trip rather than being flattened into ``CallToolResult(isError=True)``."""
+    """`MCPError` means "respond with a protocol error"; it is not flattened into `CallToolResult(isError=True)`."""
     mcp = MCPServer(name="srv")
 
     @mcp.tool()
@@ -41,9 +38,7 @@ async def test_mcperror_raised_from_a_tool_surfaces_as_a_top_level_jsonrpc_error
 
 @pytest.mark.anyio
 async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_error_result():
-    """SDK-defined: ordinary exceptions from a tool body are execution failures
-    the LLM should see, so they become ``CallToolResult(isError=True)`` rather
-    than a protocol-level JSON-RPC error. Pins the other arm of the same branch."""
+    """Ordinary exceptions are execution failures the LLM should see, not protocol-level JSON-RPC errors."""
     mcp = MCPServer(name="srv")
 
     @mcp.tool()

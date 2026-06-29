@@ -1,9 +1,7 @@
 """Shared helpers for the interaction suite.
 
-Keep this module small: it exists only for (a) types that every test would otherwise have to
-assemble from the SDK's internals to annotate a client callback, and (b) the recording transport
-used by the wire-level tests. Server fixtures and assertion helpers belong in the test that uses
-them.
+Keep this small: client-callback typing aliases and the recording transport only. Server fixtures
+and assertion helpers belong in the test that uses them.
 """
 
 from types import TracebackType
@@ -16,11 +14,7 @@ from mcp.client._transport import ReadStream, Transport, TransportStreams, Write
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 
-# TODO: this union is the parameter type of every client message handler (MessageHandlerFnT),
-# but the SDK does not export a name for it -- writing a correctly-typed handler requires
-# importing RequestResponder from mcp.shared.session and assembling the union by hand. It
-# should be a named, exported alias next to MessageHandlerFnT (like ClientRequestContext is
-# for the request callbacks), at which point this alias can be deleted.
+# TODO: delete once the SDK exports a named alias for MessageHandlerFnT's parameter union (cf. ClientRequestContext).
 IncomingMessage = RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
 """Everything a client message handler can receive."""
 
@@ -85,12 +79,10 @@ class _RecordingWriteStream:
 
 
 class RecordingTransport:
-    """Wraps a Transport and records every message crossing the client's transport boundary.
+    """Wraps a Transport, logging client writes to `sent` and server deliveries to `received`.
 
-    `sent` holds everything the client wrote towards the server; `received` holds everything the
-    server delivered to the client. The recording sits at the transport seam -- the exact payloads
-    a real transport would serialise -- and never touches the session, so wire-level assertions
-    written against it survive changes to the receive path.
+    Recording sits at the transport seam, never the session, so wire-level assertions survive
+    changes to the receive path.
     """
 
     def __init__(self, inner: Transport) -> None:

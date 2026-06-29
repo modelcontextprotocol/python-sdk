@@ -1,37 +1,8 @@
-"""MCP Server Module
+"""Low-level MCP server framework.
 
-This module provides a framework for creating an MCP (Model Context Protocol) server.
-It allows you to easily define and handle various types of requests and notifications
-using constructor-based handler registration.
-
-Usage:
-1. Define handler functions:
-   async def my_list_tools(ctx, params):
-       return types.ListToolsResult(tools=[...])
-
-   async def my_call_tool(ctx, params):
-       return types.CallToolResult(content=[...])
-
-2. Create a Server instance with on_* handlers:
-   server = Server(
-       "your_server_name",
-       on_list_tools=my_list_tools,
-       on_call_tool=my_call_tool,
-   )
-
-3. Run the server:
-   async def main():
-       async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-           await server.run(
-               read_stream,
-               write_stream,
-               server.create_initialization_options(),
-           )
-
-   asyncio.run(main())
-
-The Server class dispatches incoming requests and notifications to registered
-handler callables by method string.
+The `Server` class dispatches incoming requests and notifications to handler
+callables registered by method string (constructor `on_*` kwargs or
+`add_request_handler`/`add_notification_handler`).
 """
 
 from __future__ import annotations
@@ -87,12 +58,10 @@ NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT]
 class HandlerEntry(Generic[LifespanResultT]):
     """A registered handler and the params model to validate incoming params against.
 
-    Stored in `Server._request_handlers` / `_notification_handlers` and consumed
-    by `ServerRunner` to validate, build `Context`, and invoke. The handler's
-    second-argument type is erased to `Any` in storage (each entry has a
-    different concrete params type and `Callable` parameters are contravariant);
-    the precise type is recoverable via `params_type`. The correlation is
-    enforced at registration time by `Server.add_request_handler`.
+    The handler's second-argument type is erased to `Any` in storage (each entry has
+    a different concrete params type and `Callable` parameters are contravariant);
+    `params_type` carries the precise type, correlated at registration time by
+    `Server.add_request_handler`.
     """
 
     params_type: type[BaseModel]
@@ -108,11 +77,7 @@ class NotificationOptions:
 
 @asynccontextmanager
 async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
-    """Default lifespan context manager that does nothing.
-
-    Returns:
-        An empty context object
-    """
+    """Default no-op lifespan: yields an empty context."""
     yield {}
 
 
@@ -146,7 +111,6 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
-        # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListToolsResult],
@@ -229,7 +193,6 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
-        # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListToolsResult],
@@ -294,7 +257,6 @@ class Server(Generic[LifespanResultT]):
             [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
         ] = _ping_handler,
-        # Notification handlers
         on_roots_list_changed: Callable[
             [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
             Awaitable[None],
@@ -321,7 +283,6 @@ class Server(Generic[LifespanResultT]):
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
-        # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListToolsResult],
@@ -386,7 +347,6 @@ class Server(Generic[LifespanResultT]):
             [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
         ] = _ping_handler,
-        # Notification handlers
         on_roots_list_changed: Callable[
             [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
             Awaitable[None],
@@ -431,19 +391,14 @@ class Server(Generic[LifespanResultT]):
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
-        # Context-tier middleware: wraps every inbound request (including
-        # `initialize`, lookup, validation, handler) with
-        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
-        # `OpenTelemetryMiddleware` ships on by default so every server emits a
-        # SERVER span per message; it is a no-op until an OTel exporter is
-        # installed. Drop it from this list to opt out.
-        # TODO(L54): provisional - signature and semantics change with the
-        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
-        # v2 final.
+        # Context-tier middleware: wraps every inbound request (including `initialize`)
+        # with `(ctx, call_next)`; applied in `ServerRunner._on_request`. OpenTelemetry
+        # ships on by default (no-op until an exporter is installed); drop it to opt out.
+        # TODO(L54): provisional - signature and semantics change with the Context/middleware
+        # rework (covariant `Context[L]`, outbound seam) before v2 final.
         self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
-        # SEP-2133 extension settings advertised under `ServerCapabilities.extensions`
-        # (identifier -> settings). Higher layers (e.g. `MCPServer(extensions=...)`)
-        # populate it; `get_capabilities` reads it when no explicit map is passed.
+        # SEP-2133 extension settings (identifier -> settings) for `ServerCapabilities.extensions`;
+        # higher layers populate it, `get_capabilities` reads it when no explicit map is passed.
         self.extensions: dict[str, dict[str, Any]] = {}
         logger.debug("Initializing server %r", name)
 
@@ -479,17 +434,14 @@ class Server(Generic[LifespanResultT]):
         params_type: type[_ParamsT],
         handler: RequestHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Register a request handler for `method`.
+        """Register a request handler for `method`, replacing any existing one.
 
-        `params_type` is the model incoming params are validated against
-        before the handler is invoked. It should subclass `RequestParams` so
-        `_meta` parses uniformly. A message with no `params` member validates
-        `{}` against `params_type`: models with required fields reject it as
-        INVALID_PARAMS, all-optional models reach the handler with their
-        defaults - the handler never receives `None`. Replaces any existing
-        handler for the same method, except `initialize`, which is reserved:
-        the runner owns the handshake, so registering it raises `ValueError`.
-        Use `Server.middleware` to observe or wrap initialization.
+        `params_type` validates incoming params before the handler is invoked; it
+        should subclass `RequestParams` so `_meta` parses uniformly. A message with
+        no `params` member validates `{}`: required fields reject as INVALID_PARAMS,
+        all-optional models reach the handler with their defaults - never `None`.
+        `initialize` is reserved (the runner owns the handshake) and raises
+        `ValueError`; use `Server.middleware` to observe or wrap initialization.
         """
         if method == "initialize":
             raise ValueError(
@@ -504,14 +456,12 @@ class Server(Generic[LifespanResultT]):
         params_type: type[_ParamsT],
         handler: NotificationHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Register a notification handler for `method`.
+        """Register a notification handler for `method`, replacing any existing one.
 
-        `params_type` should subclass `NotificationParams` so `_meta`
-        parses uniformly. Absent params follow the same contract as requests:
-        `{}` is validated, so the handler receives the model with its defaults,
-        never `None`. Replaces any existing handler. A handler for
-        `notifications/initialized` runs after the runner has marked the
-        connection initialized.
+        `params_type` should subclass `NotificationParams` so `_meta` parses
+        uniformly; absent params validate `{}` as for requests, so the handler never
+        receives `None`. A `notifications/initialized` handler runs after the runner
+        has marked the connection initialized.
         """
         self._notification_handlers[method] = HandlerEntry(params_type, handler)
 
@@ -523,11 +473,9 @@ class Server(Generic[LifespanResultT]):
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
 
-    # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
-    # handlers but require NotificationOptions to be passed externally for list_changed
-    # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
-    # entirely from server state (e.g. constructor params for list_changed) instead of
-    # requiring callers to assemble them at create_initialization_options() time.
+    # TODO(L53): rethink capabilities API - derive capabilities entirely from server state
+    # (e.g. constructor params for list_changed) instead of requiring callers to assemble
+    # NotificationOptions/experimental_capabilities at create_initialization_options() time.
     def create_initialization_options(
         self,
         notification_options: NotificationOptions | None = None,
@@ -536,10 +484,8 @@ class Server(Generic[LifespanResultT]):
     ) -> InitializationOptions:
         """Create initialization options from this server instance.
 
-        `extensions` advertises SEP-2133 extension support under
-        `ServerCapabilities.extensions`; keys are extension identifiers (e.g.
-        `io.modelcontextprotocol/ui`), values are per-extension settings.
-        Defaults to `self.extensions`, which higher layers populate.
+        `extensions` advertises SEP-2133 extension support (identifier -> settings)
+        under `ServerCapabilities.extensions`; defaults to `self.extensions`.
         """
         return InitializationOptions(
             server_name=self.name,
@@ -564,9 +510,8 @@ class Server(Generic[LifespanResultT]):
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object.
 
-        `extensions` is the SEP-2133 extension map (identifier -> settings)
-        advertised under `ServerCapabilities.extensions`; it defaults to
-        `self.extensions`.
+        `extensions` is the SEP-2133 extension map (identifier -> settings);
+        defaults to `self.extensions`.
         """
         notification_options = notification_options or NotificationOptions()
         prompts_capability = None
@@ -575,26 +520,21 @@ class Server(Generic[LifespanResultT]):
         logging_capability = None
         completions_capability = None
 
-        # Set prompt capabilities if handler exists
         if "prompts/list" in self._request_handlers:
             prompts_capability = types.PromptsCapability(list_changed=notification_options.prompts_changed)
 
-        # Set resource capabilities if handler exists
         if "resources/list" in self._request_handlers:
             resources_capability = types.ResourcesCapability(
                 subscribe="resources/subscribe" in self._request_handlers,
                 list_changed=notification_options.resources_changed,
             )
 
-        # Set tool capabilities if handler exists
         if "tools/list" in self._request_handlers:
             tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
 
-        # Set logging capabilities if handler exists
         if "logging/setLevel" in self._request_handlers:
             logging_capability = types.LoggingCapability()
 
-        # Set completions capabilities if handler exists
         if "completion/complete" in self._request_handlers:
             completions_capability = types.CompletionsCapability()
 
@@ -613,8 +553,7 @@ class Server(Generic[LifespanResultT]):
     def server_info(self) -> types.Implementation:
         """The `serverInfo` block describing this implementation.
 
-        Derived from the constructor's identity fields. `version` falls back to
-        the installed `mcp` package version when not supplied explicitly.
+        `version` falls back to the installed `mcp` package version when not supplied.
         """
         return types.Implementation(
             name=self.name,
@@ -630,9 +569,7 @@ class Server(Generic[LifespanResultT]):
     ) -> types.DiscoverResult:
         """Default `server/discover` handler.
 
-        Auto-derived from server state at call time, so capabilities reflect
-        whatever has been registered (constructor `on_*` kwargs and later
-        `add_request_handler` calls). Operators can replace it wholesale via
+        Capabilities derive from server state at call time; replace wholesale via
         `add_request_handler("server/discover", ...)`. Reachability for legacy
         peers is decided at the boundary (`types.methods`), not here.
         """
@@ -645,10 +582,10 @@ class Server(Generic[LifespanResultT]):
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
-        """Get the StreamableHTTP session manager.
+        """The StreamableHTTP session manager.
 
         Raises:
-            RuntimeError: If called before streamable_http_app() has been called.
+            RuntimeError: If accessed before `streamable_http_app()` has created it.
         """
         if self._session_manager is None:
             raise RuntimeError(  # pragma: no cover
@@ -662,10 +599,8 @@ class Server(Generic[LifespanResultT]):
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
         initialization_options: InitializationOptions,
-        # When False, exceptions are returned as messages to the client.
-        # When True, exceptions are raised, which will cause the server to shut down
-        # but also make tracing exceptions much easier during testing and when using
-        # in-process servers.
+        # True re-raises handler exceptions (shutting the server down) instead of
+        # returning error responses - eases tracing in tests and in-process servers.
         raise_exceptions: bool = False,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
@@ -719,19 +654,15 @@ class Server(Generic[LifespanResultT]):
         )
         self._session_manager = session_manager
 
-        # Create the ASGI handler
         streamable_http_app = StreamableHTTPASGIApp(session_manager)
 
-        # Create routes
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
         required_scopes: list[str] = []
 
-        # Set up auth if configured
         if auth:
             required_scopes = auth.required_scopes or []
 
-            # Add auth middleware if token verifier is available
             if token_verifier:
                 middleware = [
                     Middleware(
@@ -741,7 +672,6 @@ class Server(Generic[LifespanResultT]):
                     Middleware(AuthContextMiddleware),
                 ]
 
-            # Add auth endpoints if auth server provider is configured
             if auth_server_provider:
                 routes.extend(
                     create_auth_routes(
@@ -754,9 +684,7 @@ class Server(Generic[LifespanResultT]):
                     )
                 )
 
-        # Set up routes with or without auth
         if token_verifier:
-            # Determine resource metadata URL
             resource_metadata_url = None
             if auth and auth.resource_server_url:  # pragma: no branch
                 # Build compliant metadata URL for WWW-Authenticate header
@@ -769,7 +697,6 @@ class Server(Generic[LifespanResultT]):
                 )
             )
         else:
-            # Auth is disabled, no wrapper needed
             routes.append(
                 Route(
                     streamable_http_path,
@@ -777,7 +704,6 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-        # Add protected resource metadata endpoint if configured as RS
         if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(

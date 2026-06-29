@@ -38,9 +38,6 @@ pytestmark = pytest.mark.anyio
 @requirement("sampling:create:basic")
 @requirement("tools:call:sampling-roundtrip")
 async def test_create_message_round_trip(connect: Connect) -> None:
-    """A handler's sampling request is answered by the client callback, and the callback's result
-    (role, content, model, stop reason) is returned to the handler.
-    """
     received: list[CreateMessageRequestParams] = []
 
     async def list_tools(
@@ -92,9 +89,8 @@ async def test_create_message_round_trip(connect: Connect) -> None:
 async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged.
 
-    The client has not declared the sampling.context capability (Client cannot declare it), yet
-    include_context="thisServer" reaches the callback regardless: the spec's SHOULD NOT is not
-    enforced. See the divergence note on `sampling:context:server-gated-by-capability`.
+    include_context="thisServer" arrives even though Client cannot declare sampling.context: the
+    spec's SHOULD NOT is unenforced. See the divergence note on `sampling:context:server-gated-by-capability`.
     """
     received: list[CreateMessageRequestParams] = []
 
@@ -157,11 +153,6 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
 
 @requirement("sampling:create-message:image-content")
 async def test_create_message_request_with_image_content_reaches_callback(connect: Connect) -> None:
-    """A sampling request message carrying image content arrives at the client callback intact.
-
-    This is the server-to-client direction: the server includes an image in the conversation it
-    asks the client to sample from.
-    """
     received: list[CreateMessageRequestParams] = []
 
     async def list_tools(
@@ -209,11 +200,6 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
 
 @requirement("sampling:create-message:image-content")
 async def test_create_message_result_with_image_content_returns_to_handler(connect: Connect) -> None:
-    """A sampling result whose content is an image is returned to the requesting handler intact.
-
-    This is the client-to-server direction: the model's response is an image rather than text.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -248,11 +234,7 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
 
 @requirement("sampling:error:user-rejected")
 async def test_create_message_callback_error(connect: Connect) -> None:
-    """A sampling callback that answers with an error surfaces to the requesting handler as an MCPError.
-
-    The error here is the spec's own example for a user rejecting a sampling request (code -1);
-    the callback's code and message reach the handler verbatim, whatever they are.
-    """
+    """A callback ErrorData answer surfaces to the requesting handler as an MCPError, code and message verbatim."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -283,8 +265,6 @@ async def test_create_message_callback_error(connect: Connect) -> None:
 
 @requirement("sampling:create-message:not-supported")
 async def test_create_message_without_callback_is_error(connect: Connect) -> None:
-    """A sampling request to a client with no sampling callback fails with the SDK's default error."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -311,11 +291,7 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
 
 @requirement("sampling:tools:server-gated-by-capability")
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
-    """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
-
-    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
-    expose it), so the server-side validator rejects the request before anything reaches the wire.
-    """
+    """Client cannot declare sampling.tools, so the validator rejects before anything reaches the wire."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -352,12 +328,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
 
 @requirement("sampling:tool-result:no-mixed-content")
 async def test_create_message_with_mixed_tool_result_content_is_rejected(connect: Connect) -> None:
-    """A sampling request whose user message mixes tool_result with other content never leaves the server.
-
-    The message-structure validation runs inside create_message before the request is sent, even
-    when no tools are passed, so the client callback is never invoked and the handler observes the
-    ValueError directly.
-    """
+    """Rejected inside create_message before sending — validation runs even when no tools are passed."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -405,11 +376,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 
 @requirement("sampling:capability:declare")
 async def test_a_client_with_a_sampling_callback_declares_the_sampling_capability(connect: Connect) -> None:
-    """A client connecting with a sampling callback advertises the sampling capability to the server.
-
-    Client cannot declare any sub-capabilities (it does not expose ClientSession's
-    sampling_capabilities parameter), so the snapshot pins an empty SamplingCapability.
-    """
+    """The snapshot pins an empty SamplingCapability: Client exposes no sampling_capabilities parameter."""
     captured: list[SamplingCapability | None] = []
 
     async def list_tools(
@@ -439,11 +406,6 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
 
 @requirement("sampling:create-message:audio-content")
 async def test_create_message_request_with_audio_content_reaches_callback(connect: Connect) -> None:
-    """A sampling request message carrying audio content arrives at the client callback intact.
-
-    This is the server-to-client direction: the server includes audio in the conversation it asks
-    the client to sample from.
-    """
     received: list[CreateMessageRequestParams] = []
 
     async def list_tools(
@@ -491,11 +453,6 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
 
 @requirement("sampling:create-message:audio-content")
 async def test_create_message_result_with_audio_content_returns_to_handler(connect: Connect) -> None:
-    """A sampling result whose content is audio is returned to the requesting handler intact.
-
-    This is the client-to-server direction: the model's response is audio rather than text.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -530,7 +487,6 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
 
 @requirement("sampling:message:content-cardinality")
 async def test_create_message_with_list_valued_message_content_reaches_callback(connect: Connect) -> None:
-    """A sampling message whose content is a list of blocks arrives at the client callback as a list."""
     received: list[CreateMessageRequestParams] = []
 
     async def list_tools(
@@ -592,11 +548,9 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
 
 @requirement("sampling:tool-use:server-preflight")
 async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejected(connect: Connect) -> None:
-    """A sampling request whose tool_result ids do not match the preceding tool_use ids never leaves the server.
+    """The mismatch is rejected inside create_message, before the request is sent.
 
-    The message-structure validation runs inside create_message before the request is sent, so the
-    client callback is never invoked and the handler observes the ValueError directly. The spec's
-    client-side -32602 check is tracked separately at sampling:tool-use:result-balance.
+    The spec's client-side -32602 check is tracked separately at sampling:tool-use:result-balance.
     """
 
     async def list_tools(
@@ -648,11 +602,9 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
 
 @requirement("sampling:result:no-tools-single-content")
 async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_validation_error(connect: Connect) -> None:
-    """An array-content sampling result for a tool-free request is accepted by the client and fails server-side.
+    """Divergence (see the requirement): the client should reject this result; instead server-side parsing raises.
 
-    Only the exception type is asserted: the message is pydantic's, which changes across releases.
-    See the divergence note on the requirement: the intended behaviour is that the client rejects
-    the result; instead the client accepts it and the server's response parsing raises.
+    Only the exception type is asserted: the message is pydantic's and changes across releases.
     """
 
     async def list_tools(

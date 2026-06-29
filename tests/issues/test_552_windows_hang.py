@@ -16,12 +16,7 @@ from mcp.client.stdio import stdio_client
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")  # pragma: no cover
 @pytest.mark.anyio
 async def test_initialize_succeeds_and_shutdown_returns_after_the_server_exits_mid_session():
-    """Initialize completes and shutdown returns when the server exits mid-session.
-
-    This is the proactor pipe scenario that hung on Windows 11 (issue #552). The positive
-    assertion matters: a session that errors quickly would also "not hang".
-    """
-    # A minimal server: answer initialize correctly, then exit.
+    """Proactor pipe scenario from issue #552; the positive assertion guards against an error-fast false pass."""
     server_script = dedent(f"""
         import json
         import sys
@@ -53,5 +48,4 @@ async def test_initialize_succeeds_and_shutdown_returns_after_the_server_exits_m
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
                 assert result.server_info.name == "test-server"
-            # Exiting ClientSession and stdio_client must not hang even though the
-            # server process is already gone.
+            # Exiting both contexts must not hang even though the server process is already gone.

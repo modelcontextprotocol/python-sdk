@@ -1,14 +1,9 @@
 """Authorization-request, token-request, and PKCE wire-level invariants of the SDK's OAuth client.
 
-Every test connects a real `Client` end to end via `connect_with_oauth`; the assertions are on
-the parsed authorize URL and the recorded `/token` form body, because those wire shapes are what
-the spec mandates and `Client` cannot observe them. The recording uses `record_requests`, which
-snapshots each request at send time so the auth flow's in-place header mutation on retry never
-affects what was captured for the first attempt.
-
-Tests #1/#2/#4/#5 share one `recorded_oauth_flow` fixture (one connect, several disjoint
-assertions on its recording); the others connect fresh because each needs a different harness
-configuration.
+Each test runs a real `Client` through `connect_with_oauth` and asserts on the parsed authorize
+URL and the recorded `/token` form body — the spec-mandated wire shapes `Client` itself cannot
+observe. `record_requests` snapshots each request at send time, so the auth flow's in-place
+header mutation on retry never affects what was captured for the first attempt.
 """
 
 import base64
@@ -55,17 +50,14 @@ async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestPa
 
 
 def authorize_params(authorize_url: str) -> dict[str, str]:
-    """Parse the authorize URL's query string into a flat dict (one value per key)."""
     return dict(parse_qsl(urlsplit(authorize_url).query))
 
 
 def form_body(request: RecordedRequest) -> dict[str, str]:
-    """Parse an `application/x-www-form-urlencoded` request body into a flat dict."""
     return dict(parse_qsl(request.content.decode()))
 
 
 def find(recorded: list[RecordedRequest], method: str, path: str) -> list[RecordedRequest]:
-    """Filter recorded requests by method and exact path."""
     return [r for r in recorded if r.method == method and r.path == path]
 
 
@@ -89,11 +81,10 @@ class RecordedFlow:
 
 @pytest.fixture
 async def recorded_oauth_flow() -> AsyncIterator[RecordedFlow]:
-    """Run one full OAuth connect with default configuration and yield its recorded wire traffic.
+    """One full OAuth connect with default configuration, yielding its recorded wire traffic.
 
-    `valid_scopes` includes `offline_access` so the AS metadata advertises it and the SDK's
-    SEP-2207 auto-append (and the resulting `prompt=consent`) is exercised; `required_scopes`
-    stays at `["mcp"]` so the issued token still passes the bearer middleware.
+    `valid_scopes` adds `offline_access` to exercise the SEP-2207 auto-append (and the resulting
+    `prompt=consent`); `required_scopes` stays `["mcp"]` so the token still passes the bearer middleware.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -117,12 +108,6 @@ async def recorded_oauth_flow() -> AsyncIterator[RecordedFlow]:
 async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
-    """Every spec-mandated parameter appears on the authorize URL with the right value.
-
-    The full key set is snapshotted so a parameter added or dropped fails the test. The
-    `code_challenge` length bound is the RFC 7636 §4.2 grammar; an S256 challenge is in
-    practice always 43 characters, so the upper bound is never approached.
-    """
     params = recorded_oauth_flow.authorize
 
     assert sorted(params) == snapshot(
@@ -140,9 +125,9 @@ async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
     )
     assert params["response_type"] == "code"
     assert params["code_challenge_method"] == "S256"
+    # RFC 7636 §4.2 grammar; an S256 challenge is in practice always 43 characters.
     assert 43 <= len(params["code_challenge"]) <= 128
-    # The exact resource value depends on canonical-URI normalisation (a spec ambiguity); pin
-    # the stable prefix so the test does not lock in a trailing-slash decision.
+    # Prefix only: the exact resource value hangs on canonical-URI normalisation (a spec ambiguity).
     assert params["resource"].startswith(BASE_URL)
     assert params["state"] != ""
 
@@ -154,46 +139,33 @@ async def test_the_authorize_url_carries_s256_pkce_and_the_resource_indicator(
 async def test_the_code_verifier_on_the_token_request_hashes_to_the_code_challenge(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
-    """The PKCE verifier sent on /token is the S256 pre-image of the challenge sent on /authorize.
-
-    The verifier is also checked against RFC 7636 §4.1's length and `unreserved` charset.
-    """
     challenge = recorded_oauth_flow.authorize["code_challenge"]
     verifier = form_body(recorded_oauth_flow.token_request)["code_verifier"]
 
+    # RFC 7636 §4.1 length and `unreserved` charset.
     assert re.fullmatch(r"[A-Za-z0-9._~-]{43,128}", verifier)
     assert base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=") == challenge
 
 
 @requirement("client-auth:state:verify")
 async def test_a_mismatched_state_on_the_callback_aborts_the_flow() -> None:
-    """A callback whose state does not match the value sent on /authorize raises and stops the flow.
-
-    The auth flow runs inside the streamable-HTTP client's task group, so the `OAuthFlowError`
-    reaches the test wrapped in nested single-element exception groups; `pytest.RaisesGroup`
-    asserts the leaf type and the SDK-authored message prefix (the full message embeds two
-    random tokens).
-    """
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     headless = HeadlessOAuth(state_override="wrong-state")
 
     with anyio.fail_after(5):
+        # The flow runs inside the transport's task group, so the error arrives wrapped in nested
+        # exception groups; the match is a prefix because the full message embeds random tokens.
         with pytest.RaisesGroup(
             pytest.RaisesExc(OAuthFlowError, match="^State parameter mismatch:"), flatten_subgroups=True
         ):
-            # Entering the connect raises during the OAuth handshake (inside `Client.__aenter__`),
-            # so an `async with` body would be unreachable; entering explicitly avoids dead code.
+            # The handshake raises inside `Client.__aenter__`, so an `async with` body would be dead code.
             await connect_with_oauth(server, provider=provider, headless=headless).__aenter__()
 
 
 @requirement("client-auth:authorization-response:iss-verify")
 async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
-    """A callback whose RFC 9207 iss does not match the authorization server issuer aborts the flow.
-
-    `iss_override` makes the headless callback return an issuer the AS never advertised; the SDK
-    compares it to `oauth_metadata.issuer` and raises `OAuthFlowError` before the token exchange.
-    """
+    """The callback `iss` is checked against `oauth_metadata.issuer` (RFC 9207); mismatch aborts before /token."""
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     headless = HeadlessOAuth(iss_override="https://attacker.example.com")
@@ -209,14 +181,10 @@ async def test_a_mismatched_iss_on_the_callback_aborts_the_flow() -> None:
 async def test_the_authorization_code_token_request_carries_grant_type_code_redirect_and_resource(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
-    """The /token form body has exactly the auth-code grant fields, with redirect_uri and resource matching /authorize.
-
-    `client_secret` is present because the SDK's dynamic-registration handler issues a secret
-    and the client defaults to `client_secret_post`.
-    """
     token_req = recorded_oauth_flow.token_request
     body = form_body(token_req)
 
+    # Dynamic registration issues a secret and the client defaults to `client_secret_post`, hence `client_secret`.
     assert sorted(body) == snapshot(
         ["client_id", "client_secret", "code", "code_verifier", "grant_type", "redirect_uri", "resource"]
     )
@@ -231,15 +199,10 @@ async def test_the_authorization_code_token_request_carries_grant_type_code_redi
 async def test_every_mcp_request_after_auth_carries_the_bearer_header_and_never_a_query_token(
     recorded_oauth_flow: RecordedFlow,
 ) -> None:
-    """Every MCP request after the flow has `Authorization: Bearer ...` and never `?access_token=`.
-
-    The first /mcp POST is the unauthenticated trigger and is asserted to carry no Authorization
-    header; that assertion is only meaningful because the recording snapshots requests at send
-    time (the SDK mutates the same request object in place for the retry).
-    """
     mcp_posts = find(recorded_oauth_flow.requests, "POST", "/mcp")
     assert len(mcp_posts) >= 3
 
+    # The first POST is the unauthenticated trigger; meaningful only because requests are snapshotted at send time.
     assert "authorization" not in mcp_posts[0].headers
     for r in mcp_posts[1:]:
         assert r.headers["authorization"].startswith("Bearer ")
@@ -249,11 +212,6 @@ async def test_every_mcp_request_after_auth_carries_the_bearer_header_and_never_
 
 @requirement("client-auth:token-endpoint-auth-method")
 async def test_a_client_with_a_secret_authenticates_the_token_request_with_http_basic() -> None:
-    """A `client_secret_basic` client sends URL-encoded credentials in HTTP Basic, not the body.
-
-    Credentials are URL-encoded before base64 per RFC 6749 §2.3.1; the secret contains `/` so
-    the encoding is observable.
-    """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -276,6 +234,7 @@ async def test_a_client_with_a_secret_authenticates_the_token_request_with_http_
     assert find(recorded, "POST", "/register") == []
     [token_req] = find(recorded, "POST", "/token")
 
+    # URL-encoded before base64 per RFC 6749 §2.3.1; the secret's `/` makes the encoding observable.
     decoded = base64.b64decode(token_req.headers["authorization"].removeprefix("Basic ")).decode()
     assert decoded == f"{quote('cid', safe='')}:{quote('s/cret', safe='')}"
     assert "client_secret" not in form_body(token_req)
@@ -283,14 +242,9 @@ async def test_a_client_with_a_secret_authenticates_the_token_request_with_http_
 
 @requirement("client-auth:token-endpoint-auth-method")
 async def test_the_registered_auth_method_is_used_regardless_of_as_metadata_advertised_methods() -> None:
-    """The token-endpoint auth method comes from the registered client info, not from AS metadata.
-
-    The shim serves AS metadata advertising only `client_secret_basic`; the client dynamically
-    registers and the SDK's registration handler issues `client_secret_post`. The client uses
-    `client_secret_post` (secret in the body, no Basic header) because the SDK reads the
-    registered `token_endpoint_auth_method`, not `token_endpoint_auth_methods_supported`. Other
-    SDKs (TypeScript, Go) do consult the AS metadata; this test pins where the python SDK's
-    selection point lives.
+    """The shim advertises only `client_secret_basic`, yet the dynamically registered
+    `client_secret_post` wins: the SDK reads the registered `token_endpoint_auth_method`, not
+    `token_endpoint_auth_methods_supported`. TypeScript and Go consult the AS metadata instead.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -326,14 +280,9 @@ async def test_the_registered_auth_method_is_used_regardless_of_as_metadata_adve
 
 @requirement("client-auth:scope-selection:priority")
 async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_metadata() -> None:
-    """When the 401 challenge carries `scope=`, that value is requested instead of the PRM scopes.
-
-    The SDK's bearer middleware never emits `scope=` in WWW-Authenticate (see the divergence
-    on `hosting:auth:scope-403`), so the test supplies the first 401 itself via
-    `first_challenge_shim` and disables token verification so the post-auth retry succeeds
-    regardless of the granted scope. PRM advertises `["from-prm"]` (it mirrors
-    `required_scopes`); the challenge says `from-header`; the authorize URL must carry
-    `from-header`.
+    """`first_challenge_shim` supplies the 401 because the SDK's bearer middleware never emits
+    `scope=` (divergence `hosting:auth:scope-403`); token verification is off so the post-auth
+    retry succeeds regardless of the granted scope.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(default_scopes=["from-header"])
@@ -361,11 +310,7 @@ async def test_scope_is_selected_from_the_www_authenticate_challenge_over_prm_me
 
 @requirement("client-auth:pkce:refuse-if-unsupported")
 async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_supported() -> None:
-    """AS metadata without `code_challenge_methods_supported` does not stop the client sending PKCE.
-
-    The spec says the client MUST refuse to proceed in this case; the SDK proceeds and the flow
-    completes. See the divergence on the requirement.
-    """
+    """The spec says the client MUST refuse here; the SDK proceeds. See the divergence on the requirement."""
     override = OAuthMetadata(
         issuer=AnyHttpUrl(f"{BASE_URL}/"),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
@@ -395,12 +340,9 @@ async def test_pkce_is_still_sent_when_as_metadata_omits_code_challenge_methods_
 
 @requirement("client-auth:authorize:error-surfaces")
 async def test_an_authorize_error_on_the_callback_aborts_the_flow_before_the_token_request() -> None:
-    """An `error=` redirect from /authorize aborts the flow with no /token request issued.
-
-    The SDK's callback contract is `() -> (code, state)` with no error form, so the failure is
-    observed as an empty code reaching the SDK and `OAuthFlowError("No authorization code
-    received")` being raised. The actual `error` value from the redirect is not surfaced to the
-    caller; that gap is noted in the manifest.
+    """The callback contract is `() -> (code, state)` with no error form, so the failure surfaces
+    as an empty code and `OAuthFlowError("No authorization code received")`; the redirect's
+    `error` value is never surfaced to the caller (gap noted in the manifest).
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(deny_authorize=True)

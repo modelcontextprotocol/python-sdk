@@ -1,12 +1,8 @@
-"""Typed MCP request sugar over an `Outbound`.
+"""Typed server-to-client MCP request sugar over an `Outbound`.
 
-`ClientPeer` wraps any `Outbound` (anything with `send_raw_request` and
-`notify`) and exposes the server-to-client request methods (sampling,
-elicitation, roots, ping) as typed methods.
-
-`ClientPeer` does no capability gating: it builds the params, calls
-`send_raw_request(method, params)`, and parses the result into the typed
-model. Gating (and `NoBackChannelError`) is the wrapped `Outbound`'s job.
+`ClientPeer` gives a bare dispatcher (or any `Outbound`) typed `sample`, `elicit_form`,
+`elicit_url`, `list_roots`, and `ping` methods. It does no capability gating — gating
+(and `NoBackChannelError`) is the wrapped `Outbound`'s job.
 """
 
 from collections.abc import Mapping
@@ -42,17 +38,12 @@ Meta = dict[str, Any]
 
 
 def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, Any] | None:
-    """Serialize a params model to a wire dict, merging `meta` into `_meta`.
+    """Serialize a params model to a wire dict, merging `meta` into `_meta` (`meta` keys win).
 
-    Shared by `ClientPeer` and `Connection` so every typed convenience method
-    gets the same `_meta` handling. `meta` keys take precedence over any
-    `_meta` already present on the model.
-
-    `meta` is serialized through `RequestParams` so Python field names emit
-    their wire aliases: an inbound `ctx.meta` carries `progress_token` (the
-    key `_extract_meta` validation produces), and forwarding it outbound via
-    `meta=ctx.meta` must put `progressToken` back on the wire. Keys not
-    declared on `RequestParamsMeta` pass through unchanged.
+    `meta` round-trips through `RequestParams` so Python field names emit their wire
+    aliases: an inbound `ctx.meta` carries `progress_token`, and forwarding it outbound
+    must put `progressToken` back on the wire. Keys not declared on `RequestParamsMeta`
+    pass through unchanged.
     """
     out = model.model_dump(by_alias=True, mode="json", exclude_none=True) if model is not None else None
     if meta:
@@ -63,12 +54,7 @@ def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, 
 
 
 class ClientPeer:
-    """Typed server-to-client request methods over a wrapped `Outbound`.
-
-    Use this when you have a bare dispatcher (or any `Outbound`) and want the
-    typed methods (`sample`, `elicit_form`, `elicit_url`, `list_roots`,
-    `ping`) without writing your own host class.
-    """
+    """Typed server-to-client request methods over a wrapped `Outbound`."""
 
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
@@ -142,7 +128,7 @@ class ClientPeer:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
-            pydantic.ValidationError: The peer's result does not match the expected result type.
+            pydantic.ValidationError: The peer's result does not match the expected type.
         """
         params = CreateMessageRequestParams(
             messages=messages,
@@ -174,7 +160,7 @@ class ClientPeer:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
-            pydantic.ValidationError: The peer's result does not match the expected result type.
+            pydantic.ValidationError: The peer's result does not match the expected type.
         """
         params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
@@ -194,7 +180,7 @@ class ClientPeer:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
-            pydantic.ValidationError: The peer's result does not match the expected result type.
+            pydantic.ValidationError: The peer's result does not match the expected type.
         """
         params = ElicitRequestURLParams(message=message, url=url, elicitation_id=elicitation_id)
         result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
@@ -207,7 +193,7 @@ class ClientPeer:
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
-            pydantic.ValidationError: The peer's result does not match the expected result type.
+            pydantic.ValidationError: The peer's result does not match the expected type.
         """
         result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
         return ListRootsResult.model_validate(result, by_name=False)

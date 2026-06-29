@@ -1,4 +1,4 @@
-"""Resource-server-only bearer auth (lowlevel API): same gate, hand-built ``CallToolResult``."""
+"""Resource-server-only bearer auth (lowlevel API): same gate, hand-built `CallToolResult`."""
 
 from typing import Any
 

@@ -1,8 +1,4 @@
-"""Tests for Unicode handling in streamable HTTP transport.
-
-Verifies that Unicode text is correctly transmitted and received in both directions
-(server→client and client→server) using the streamable HTTP transport.
-"""
+"""Unicode round-trip tests (server→client and client→server) for the streamable HTTP transport."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,7 +19,6 @@ from tests.interaction.transports import StreamingASGITransport
 # The in-process app is mounted at this origin purely so URLs are well-formed; nothing listens here.
 BASE_URL = "http://127.0.0.1:8000"
 
-# Test constants with various Unicode characters
 UNICODE_TEST_STRINGS = {
     "cyrillic": "Слой хранилища, где располагаются",
     "cyrillic_short": "Привет мир",
@@ -97,8 +92,7 @@ async def handle_get_prompt(ctx: ServerRequestContext, params: types.GetPromptRe
 
 @asynccontextmanager
 async def unicode_session() -> AsyncIterator[ClientSession]:
-    """Yield an initialized ClientSession speaking streamable HTTP (SSE responses) to the
-    Unicode test server, entirely in process."""
+    """Yield an initialized in-process ClientSession speaking streamable HTTP to the Unicode test server."""
     server = Server(
         name="unicode_test_server",
         on_list_tools=handle_list_tools,
@@ -112,8 +106,7 @@ async def unicode_session() -> AsyncIterator[ClientSession]:
 
     async with (
         session_manager.run(),
-        # follow_redirects matches the SDK's own client factory; Starlette's Mount 307-redirects
-        # the bare /mcp path to /mcp/.
+        # follow_redirects matches the SDK's own client factory; Starlette's Mount 307-redirects /mcp to /mcp/.
         httpx.AsyncClient(
             transport=StreamingASGITransport(app), base_url=BASE_URL, follow_redirects=True
         ) as http_client,
@@ -126,24 +119,19 @@ async def unicode_session() -> AsyncIterator[ClientSession]:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_unicode_tool_call() -> None:
-    """Test that Unicode text is correctly handled in tool calls via streamable HTTP."""
     async with unicode_session() as session:
-        # Test 1: List tools (server→client Unicode in descriptions)
         tools = await session.list_tools()
         assert len(tools.tools) == 1
 
-        # Check Unicode in tool descriptions
         echo_tool = tools.tools[0]
         assert echo_tool.name == "echo_unicode"
         assert echo_tool.description is not None
         assert "🔤" in echo_tool.description
         assert "👋" in echo_tool.description
 
-        # Test 2: Send Unicode text in tool call (client→server→client)
         for test_name, test_string in UNICODE_TEST_STRINGS.items():
             result = await session.call_tool("echo_unicode", arguments={"text": test_string})
 
-            # Verify server correctly received and echoed back Unicode
             assert len(result.content) == 1
             content = result.content[0]
             assert content.type == "text"
@@ -152,9 +140,7 @@ async def test_streamable_http_client_unicode_tool_call() -> None:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_unicode_prompts() -> None:
-    """Test that Unicode text is correctly handled in prompts via streamable HTTP."""
     async with unicode_session() as session:
-        # Test 1: List prompts (server→client Unicode in descriptions)
         prompts = await session.list_prompts()
         assert len(prompts.prompts) == 1
 
@@ -163,7 +149,6 @@ async def test_streamable_http_client_unicode_prompts() -> None:
         assert prompt.description is not None
         assert "Слой хранилища, где располагаются" in prompt.description
 
-        # Test 2: Get prompt with Unicode content (server→client)
         result = await session.get_prompt("unicode_prompt", arguments={})
         assert len(result.messages) == 1
 

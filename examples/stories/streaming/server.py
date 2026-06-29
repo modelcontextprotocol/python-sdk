@@ -16,9 +16,8 @@ def build_server() -> MCPServer:
         try:
             for i in range(1, steps + 1):
                 await ctx.report_progress(float(i), float(steps), f"step {i}/{steps}")
-                # No non-deprecated logging helper on Context yet, so send the raw
-                # notification. `related_request_id` keeps it on this request's response
-                # stream (matters over streamable HTTP).
+                # No non-deprecated logging helper on Context yet, so send the raw notification.
+                # `related_request_id` keeps it on this request's response stream over streamable HTTP.
                 await ctx.request_context.session.send_notification(
                     types.LoggingMessageNotification(
                         params=types.LoggingMessageNotificationParams(
@@ -28,8 +27,7 @@ def build_server() -> MCPServer:
                     related_request_id=ctx.request_context.request_id,
                 )
         except anyio.get_cancelled_exc_class():
-            # The client abandoned the call. Release resources here, then re-raise so
-            # the dispatcher unwinds the request — never swallow cancellation.
+            # The client abandoned the call: clean up here, then re-raise — never swallow cancellation.
             raise
         return {"completed": steps, "total": steps}
 

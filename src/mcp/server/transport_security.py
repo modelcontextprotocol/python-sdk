@@ -11,25 +11,16 @@ logger = logging.getLogger(__name__)
 
 # TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
 class TransportSecuritySettings(BaseModel):
-    """Settings for MCP transport security features.
-
-    These settings help protect against DNS rebinding attacks by validating incoming request headers.
-    """
+    """Settings for protecting MCP transports against DNS rebinding via request header validation."""
 
     enable_dns_rebinding_protection: bool = True
     """Enable DNS rebinding protection (recommended for production)."""
 
     allowed_hosts: list[str] = Field(default_factory=list)
-    """List of allowed Host header values.
-
-    Only applies when `enable_dns_rebinding_protection` is `True`.
-    """
+    """Allowed Host header values; only applies when `enable_dns_rebinding_protection` is `True`."""
 
     allowed_origins: list[str] = Field(default_factory=list)
-    """List of allowed Origin header values.
-
-    Only applies when `enable_dns_rebinding_protection` is `True`.
-    """
+    """Allowed Origin header values; only applies when `enable_dns_rebinding_protection` is `True`."""
 
 
 # TODO(Marcelo): This should be a proper ASGI middleware. I'm sad to see this.
@@ -37,25 +28,21 @@ class TransportSecurityMiddleware:
     """Middleware to enforce DNS rebinding protection for MCP transport endpoints."""
 
     def __init__(self, settings: TransportSecuritySettings | None = None):
-        # If not specified, disable DNS rebinding protection by default for backwards compatibility
+        # Default to disabled for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
     def _validate_host(self, host: str | None) -> bool:
-        """Validate the Host header against allowed values."""
         if not host:
             logger.warning("Missing Host header in request")
             return False
 
-        # Check exact match first
         if host in self.settings.allowed_hosts:
             return True
 
-        # Check wildcard port patterns
+        # A "host:*" pattern allows any port on that host
         for allowed in self.settings.allowed_hosts:
             if allowed.endswith(":*"):
-                # Extract base host from pattern
                 base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
                 if host.startswith(base_host + ":"):
                     return True
 
@@ -63,21 +50,17 @@ class TransportSecurityMiddleware:
         return False
 
     def _validate_origin(self, origin: str | None) -> bool:
-        """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
             return True
 
-        # Check exact match first
         if origin in self.settings.allowed_origins:
             return True
 
-        # Check wildcard port patterns
+        # An "origin:*" pattern allows any port on that origin
         for allowed in self.settings.allowed_origins:
             if allowed.endswith(":*"):
-                # Extract base origin from pattern
                 base_origin = allowed[:-2]
-                # Check if the actual origin starts with base origin and has a port
                 if origin.startswith(base_origin + ":"):
                     return True
 
@@ -85,7 +68,6 @@ class TransportSecurityMiddleware:
         return False
 
     def _validate_content_type(self, content_type: str | None) -> bool:
-        """Validate the Content-Type header for POST requests."""
         return content_type is not None and content_type.lower().startswith("application/json")
 
     async def validate_request(self, request: Request, is_post: bool = False) -> Response | None:
@@ -93,22 +75,19 @@ class TransportSecurityMiddleware:
 
         Returns None if validation passes, or an error Response if validation fails.
         """
-        # Always validate Content-Type for POST requests
+        # Content-Type is checked even when DNS rebinding protection is disabled
         if is_post:
             content_type = request.headers.get("content-type")
             if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
 
-        # Skip remaining validation if DNS rebinding protection is disabled
         if not self.settings.enable_dns_rebinding_protection:
             return None
 
-        # Validate Host header
         host = request.headers.get("host")
         if not self._validate_host(host):
             return Response("Invalid Host header", status_code=421)
 
-        # Validate Origin header
         origin = request.headers.get("origin")
         if not self._validate_origin(origin):
             return Response("Invalid Origin header", status_code=403)

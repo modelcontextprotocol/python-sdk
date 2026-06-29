@@ -1,6 +1,4 @@
-"""This module provides simplified types to use with the server for managing prompts
-and tools.
-"""
+"""Simplified types for use with the server."""
 
 from mcp_types import Icon, ServerCapabilities
 from pydantic import BaseModel

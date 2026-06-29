@@ -44,8 +44,7 @@ def build_app() -> Starlette:
         return types.CallToolResult(content=[types.TextContent(text=token.client_id)], structured_content=payload)
 
     server = Server("oauth-example", on_list_tools=list_tools, on_call_tool=call_tool)
-    # Unlike MCPServer (auth on the constructor), lowlevel.Server takes auth as
-    # streamable_http_app() kwargs — same wired routes, different entry point.
+    # Unlike MCPServer (auth on the constructor), lowlevel.Server takes auth as streamable_http_app() kwargs.
     return server.streamable_http_app(
         auth=auth_settings(required_scopes=["mcp"]),
         token_verifier=ProviderTokenVerifier(provider),

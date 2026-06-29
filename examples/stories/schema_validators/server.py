@@ -5,8 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-# pydantic requires typing_extensions.TypedDict (not typing.TypedDict) on Python < 3.12
-# when a TypedDict is used as a field/parameter type.
+# pydantic requires typing_extensions.TypedDict (not typing.TypedDict) for parameter types on Python < 3.12.
 from typing_extensions import TypedDict
 
 from mcp.server.mcpserver import MCPServer

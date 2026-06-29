@@ -8,15 +8,13 @@ from stories._harness import Target, run_client
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # `logging_callback` is constructor-only on `Client`, so the list it fills
-    # has to exist before the connection does.
+    # `logging_callback` is constructor-only on `Client`, so the list it fills must exist first.
     logs: list[LoggingMessageNotificationParams] = []
 
     async def on_log(params: LoggingMessageNotificationParams) -> None:
         logs.append(params)
 
     async with Client(target, mode=mode, logging_callback=on_log) as client:
-        # ── progress + logging: a short countdown delivers exactly `steps` of each, in order ──
         updates: list[tuple[float, float | None, str | None]] = []
 
         async def collect(progress: float, total: float | None, message: str | None) -> None:
@@ -31,7 +29,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             ("info", "countdown", "step 3/3"),
         ]
 
-        # ── cancellation: abandon the awaiting scope once the call is provably in flight ──
+        # Cancel mid-flight by abandoning the awaiting scope once the call is provably started.
         in_flight = anyio.Event()
         with anyio.fail_after(5):
             with anyio.CancelScope() as scope:

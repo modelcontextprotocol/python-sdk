@@ -1,14 +1,7 @@
 """Client connect-time negotiation: mode selection, server/discover, and the per-request envelope.
 
-These tests pin what `Client(..., mode=...)` puts on the wire BEFORE the caller's first call --
-the legacy initialize handshake, the modern `server/discover` probe, or nothing at all -- and
-that a modern-negotiated session stamps the three-key `io.modelcontextprotocol/*` `_meta`
-envelope on every subsequent request. Each test drives the highest public surface (`Client`)
-and observes traffic at a recording seam: `RecordingTransport` for the legacy stream pair, and
-`mounted_app`'s httpx event hook for the in-process streamable-HTTP transport.
-
-The fallback test alone hand-plays the server's side of the wire, because no real `Server`
-answers `server/discover` with -32601.
+Each test drives `Client` and observes traffic at a recording seam: `RecordingTransport` for the
+legacy stream pair, `mounted_app`'s httpx event hook for in-process streamable HTTP.
 """
 
 import json
@@ -54,8 +47,6 @@ pytestmark = pytest.mark.anyio
 
 
 def _tools_server(name: str = "negotiator") -> Server:
-    """A low-level server with one list-tools handler, so a feature request has something to reach."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -65,7 +56,6 @@ def _tools_server(name: str = "negotiator") -> Server:
 
 
 def _request_recorder() -> tuple[list[httpx.Request], Callable[[httpx.Request], Awaitable[None]]]:
-    """Return a list and an `on_request` hook that appends each outgoing httpx request to it."""
     captured: list[httpx.Request] = []
 
     async def on_request(request: httpx.Request) -> None:
@@ -76,11 +66,7 @@ def _request_recorder() -> tuple[list[httpx.Request], Callable[[httpx.Request], 
 
 @requirement("lifecycle:mode:legacy-never-probes")
 async def test_legacy_mode_sends_initialize_and_never_probes_discover() -> None:
-    """`Client(server, mode='legacy')` opens with `initialize` and never sends `server/discover`.
-
-    Requirement `lifecycle:mode:legacy-never-probes` (sdk-defined): ``mode='legacy'`` must remain
-    byte-identical to the pre-2026 client so a 2025-era server never observes modern vocabulary.
-    """
+    """`mode='legacy'` stays byte-identical to the pre-2026 client: a 2025-era server never sees modern vocabulary."""
     recording = RecordingTransport(InMemoryTransport(_tools_server()))
 
     with anyio.fail_after(5):
@@ -96,12 +82,7 @@ async def test_legacy_mode_sends_initialize_and_never_probes_discover() -> None:
 
 @requirement("lifecycle:mode:pin-never-handshakes")
 async def test_pinned_mode_sends_no_connect_time_traffic() -> None:
-    """`Client(..., mode='2026-07-28')` sends nothing on entry; the caller's first call is the first wire request.
-
-    Requirement `lifecycle:mode:pin-never-handshakes` (sdk-defined): a version pin adopts a
-    synthesized DiscoverResult locally, so no `initialize` and no `server/discover` ever cross
-    the wire. Asserted at the in-process streamable-HTTP seam via the httpx event hook.
-    """
+    """A version pin adopts a synthesized DiscoverResult locally; nothing crosses the wire until the first call."""
     requests, on_request = _request_recorder()
 
     with anyio.fail_after(5):
@@ -109,7 +90,7 @@ async def test_pinned_mode_sends_no_connect_time_traffic() -> None:
             mounted_app(_tools_server(), on_request=on_request) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode=LATEST_MODERN_VERSION) as client,
         ):
-            assert requests == []  # entering the Client produced zero HTTP traffic
+            assert requests == []
             result = await client.list_tools()
 
     bodies = [json.loads(r.content) for r in requests]
@@ -120,12 +101,6 @@ async def test_pinned_mode_sends_no_connect_time_traffic() -> None:
 
 @requirement("lifecycle:mode:prior-discover-zero-rtt")
 async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -> None:
-    """`Client(..., mode=<pin>, prior_discover=...)` sends nothing on entry and exposes the prior server_info.
-
-    Requirement `lifecycle:mode:prior-discover-zero-rtt` (sdk-defined): a previously-obtained
-    DiscoverResult is installed via `adopt()` so server_info and capabilities are available
-    immediately with zero round trips.
-    """
     prior = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(tools=ToolsCapability(list_changed=False)),
@@ -152,12 +127,6 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
 
 @requirement("lifecycle:discover:basic")
 async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
-    """`Client(..., mode='auto')` sends `server/discover` first and adopts the returned version and server_info.
-
-    Requirement `lifecycle:discover:basic` (spec basic/lifecycle#discover): the probe is a
-    single `server/discover` request whose result carries supported versions, capabilities,
-    server_info and the cache-hint fields, after which the session is modern-negotiated.
-    """
     requests, on_request = _request_recorder()
     server = _tools_server("discoverable")
 
@@ -177,13 +146,7 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
 
 @requirement("lifecycle:discover:retry-on-32022")
 async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version() -> None:
-    """A -32022 from `server/discover` triggers exactly one retry at the highest mutual modern version.
-
-    Requirement `lifecycle:discover:retry-on-32022` (spec basic/lifecycle#version-errors): the
-    client intersects `error.data.supported` with its own modern versions and re-probes once;
-    the second success is adopted. The server's `server/discover` handler is overridden to fail
-    the first call and succeed on the second.
-    """
+    """The client re-probes once at the intersection of `error.data.supported` and its own modern versions."""
     calls: list[str | None] = []
 
     async def discover(ctx: ServerRequestContext, params: types.RequestParams | None) -> DiscoverResult:
@@ -218,16 +181,11 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
 
 @requirement("lifecycle:discover:network-error-raises")
 async def test_auto_mode_propagates_a_network_error_from_discover_without_initializing() -> None:
-    """A network/connection error during `server/discover` propagates to the caller without falling back.
+    """Rpc-errors and 4xx fall back to `initialize`; only real outages and the disjoint-modern -32022
+    propagate — an outage is never an era verdict.
 
-    Requirement `lifecycle:discover:network-error-raises` (sdk-defined): under the denylist policy
-    every server-sent rpc-error and every transport-layer 4xx falls back to `initialize()`; the
-    only probe failures that reach the caller are real outages — network errors, anyio resource
-    errors, and the disjoint-modern -32022 case. Exercised here as an `httpx.ConnectError` from
-    the underlying transport, which the policy must not classify as an era verdict. The error
-    reaches the test wrapped in the streamable-http transport's task-group teardown, so
-    `pytest.RaisesGroup` flattens before matching. The probe POST is recorded before the
-    transport raises, so the `initialize` fallback observably did not happen.
+    The error arrives wrapped in the transport's task-group teardown, so `RaisesGroup` flattens before
+    matching. The probe POST is recorded before the raise, proving the `initialize` fallback never ran.
     """
     requests: list[httpx.Request] = []
 
@@ -256,16 +214,11 @@ async def test_auto_mode_propagates_a_network_error_from_discover_without_initia
 async def test_auto_mode_falls_back_to_initialize_on_a_legacy_probe_rejection(
     probe_code: int, probe_message: str
 ) -> None:
-    """A legacy server's rejection of `server/discover` makes an auto-negotiating client fall back to `initialize`.
+    """A real `Server` always implements `server/discover`, so the server side is scripted by hand.
 
-    Requirement `lifecycle:discover:fallback-method-not-found` (spec stdio#backward-compatibility):
-    a legacy-era server that does not implement `server/discover` is connected to via the
-    handshake, and the session lands at a handshake-era protocol version. The probe rejection
-    arrives as METHOD_NOT_FOUND from a server that routes the unknown method, or as
-    INVALID_REQUEST from a deployed v1.x stateful streamable-HTTP server that rejects the
-    session-id-less probe before dispatch. A real `Server` always implements `server/discover`,
-    so this test plays the server's side of the wire by hand. Reserve this pattern for behaviour
-    no real server can be made to produce.
+    METHOD_NOT_FOUND comes from a server that routes the unknown method; INVALID_REQUEST from a
+    deployed v1.x stateful streamable-HTTP server that rejects the session-id-less probe before
+    dispatch. Reserve the scripted pattern for behaviour no real server can be made to produce.
     """
     methods_seen: list[str] = []
 
@@ -316,12 +269,7 @@ async def test_auto_mode_falls_back_to_initialize_on_a_legacy_probe_rejection(
 
 @requirement("lifecycle:envelope:stamped-on-every-request")
 async def test_every_request_on_a_modern_session_carries_the_three_key_meta_envelope(connect: Connect) -> None:
-    """Each modern-session request's `params._meta` carries protocolVersion, clientInfo and clientCapabilities.
-
-    Requirement `lifecycle:envelope:stamped-on-every-request` (spec basic#_meta): the per-request
-    envelope replaces the initialize handshake's once-per-session exchange. Asserted server-side
-    by capturing `ctx.meta` inside the handler.
-    """
+    """The per-request envelope replaces the initialize handshake's once-per-session exchange."""
     observed: list[dict[str, object]] = []
 
     async def list_tools(
@@ -347,12 +295,7 @@ async def test_every_request_on_a_modern_session_carries_the_three_key_meta_enve
 
 @requirement("lifecycle:envelope:header-matches-meta")
 async def test_http_protocol_version_header_matches_meta_protocol_version_on_every_post() -> None:
-    """On streamable-HTTP, the `MCP-Protocol-Version` header on each POST equals `_meta.protocolVersion` in its body.
-
-    Requirement `lifecycle:envelope:header-matches-meta` (spec streamable-http#headers): the
-    body-derived header and the envelope's protocol version are kept in lockstep so the server's
-    header-based routing and body-based validation never disagree.
-    """
+    """Header and envelope stay in lockstep so header-based routing and body-based validation never disagree."""
     requests, on_request = _request_recorder()
 
     with anyio.fail_after(5):

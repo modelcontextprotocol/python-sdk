@@ -26,8 +26,7 @@ def build_app() -> Starlette:
     async def call_tool(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
         assert params.name == "long_operation"
         await ctx.session.report_progress(0.5, total=1.0, message="before-close")
-        # The transport only wires this callback when an event_store is configured and the
-        # negotiated version is in the 2025 era; it is None otherwise.
+        # Only wired when an event_store is configured and the negotiated version is in the 2025 era; None otherwise.
         if ctx.close_sse_stream is not None:
             await ctx.close_sse_stream()
         await ctx.session.report_progress(1.0, total=1.0, message="after-close")

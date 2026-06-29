@@ -20,20 +20,18 @@ def _arm(result: types.CallToolResult) -> str:
 
 
 async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
-    # ── modern arm: the caller's mode (the real-user "auto" default) probes
-    # ``server/discover`` → the stateless 2026 path.
+    # Modern arm: the default `auto` mode probes `server/discover` → the stateless 2026 path.
     async with Client(targets(), mode=mode) as modern:
         assert modern.protocol_version == LATEST_MODERN_VERSION
         assert _arm(await modern.call_tool("which_arm", {})) == "modern"
 
-    # ── legacy arm: the SAME /mcp endpoint, ``initialize`` handshake → sessionful 2025 path.
+    # Legacy arm: the SAME /mcp endpoint, `initialize` handshake → sessionful 2025 path.
     async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
         assert _arm(await legacy.call_tool("which_arm", {})) == "legacy"
 
-    # ── the exported predicate, shown directly. A 2026 _meta envelope whose
-    # `Mcp-Protocol-Version`/`Mcp-Method` headers mirror it is modern; a bare
-    # initialize body is legacy; a header that disagrees is a rejection (NOT legacy).
+    # The exported predicate: a 2026 _meta envelope with matching `Mcp-Protocol-Version`/`Mcp-Method`
+    # headers is modern; a bare initialize body is legacy; a header that disagrees is a rejection (NOT legacy).
     modern_body: dict[str, Any] = {
         "jsonrpc": "2.0",
         "id": 1,

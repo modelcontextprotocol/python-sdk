@@ -1,7 +1,4 @@
-"""OAuth2 Authentication implementation for HTTPX.
-
-Implements authorization code flow with PKCE and automatic token refresh.
-"""
+"""OAuth2 authentication for HTTPX: authorization code flow with PKCE and automatic token refresh."""
 
 import base64
 import hashlib
@@ -106,20 +103,16 @@ class OAuthContext:
     timeout: float = 300.0
     client_metadata_url: str | None = None
 
-    # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
     oauth_metadata: OAuthMetadata | None = None
     auth_server_url: str | None = None
     protocol_version: str | None = None
 
-    # Client registration
     client_info: OAuthClientInformationFull | None = None
 
-    # Token management
     current_tokens: OAuthToken | None = None
     token_expiry_time: float | None = None
 
-    # State
     lock: anyio.Lock = field(default_factory=anyio.Lock)
 
     def get_authorization_base_url(self, server_url: str) -> str:
@@ -128,11 +121,9 @@ class OAuthContext:
         return f"{parsed.scheme}://{parsed.netloc}"
 
     def update_token_expiry(self, token: OAuthToken) -> None:
-        """Update token expiry time using shared util function."""
         self.token_expiry_time = calculate_token_expiry(token.expires_in)
 
     def is_token_valid(self) -> bool:
-        """Check if current token is valid."""
         return bool(
             self.current_tokens
             and self.current_tokens.access_token
@@ -140,22 +131,16 @@ class OAuthContext:
         )
 
     def can_refresh_token(self) -> bool:
-        """Check if token can be refreshed."""
         return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
 
     def clear_tokens(self) -> None:
-        """Clear current tokens."""
         self.current_tokens = None
         self.token_expiry_time = None
 
     def get_resource_url(self) -> str:
-        """Get resource URL for RFC 8707.
-
-        Uses PRM resource if it's a valid parent, otherwise uses canonical server URL.
-        """
+        """Get the RFC 8707 resource URL, preferring the PRM resource when it's a valid parent."""
         resource = resource_url_from_server_url(self.server_url)
 
-        # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
             prm_resource = str(self.protected_resource_metadata.resource)
             if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
@@ -164,17 +149,10 @@ class OAuthContext:
         return resource
 
     def should_include_resource_param(self, protocol_version: str | None = None) -> bool:
-        """Determine if the resource parameter should be included in OAuth requests.
-
-        Returns True if:
-        - Protected resource metadata is available, OR
-        - MCP-Protocol-Version header is 2025-06-18 or later
-        """
-        # If we have protected resource metadata, include the resource param
+        """True when PRM is available or the protocol version is 2025-06-18 or later (RFC 8707)."""
         if self.protected_resource_metadata is not None:
             return True
 
-        # If no protocol version provided, don't include resource param
         if not protocol_version:
             return False
 
@@ -183,15 +161,7 @@ class OAuthContext:
     def prepare_token_auth(
         self, data: dict[str, str], headers: dict[str, str] | None = None
     ) -> tuple[dict[str, str], dict[str, str]]:
-        """Prepare authentication for token requests.
-
-        Args:
-            data: The form data to send
-            headers: Optional headers dict to update
-
-        Returns:
-            Tuple of (updated_data, updated_headers)
-        """
+        """Apply the client's token endpoint auth method; returns (updated_data, updated_headers)."""
         if headers is None:
             headers = {}  # pragma: no cover
 
@@ -210,19 +180,14 @@ class OAuthContext:
             # Don't include client_secret in body for basic auth
             data = {k: v for k, v in data.items() if k != "client_secret"}
         elif auth_method == "client_secret_post" and self.client_info.client_id and self.client_info.client_secret:
-            # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret
-        # For auth_method == "none", don't add any client_secret
 
         return data, headers
 
 
 class OAuthClientProvider(httpx.Auth):
-    """OAuth2 authentication for httpx.
-
-    Handles OAuth flow with automatic client registration and token storage.
-    """
+    """OAuth2 authentication for httpx with automatic client registration and token storage."""
 
     requires_response_body = True
 
@@ -240,26 +205,17 @@ class OAuthClientProvider(httpx.Auth):
         """Initialize OAuth2 authentication.
 
         Args:
-            server_url: The MCP server URL.
-            client_metadata: OAuth client metadata for registration.
-            storage: Token storage implementation.
-            redirect_handler: Handler for authorization redirects.
-            callback_handler: Handler for authorization callbacks.
-            timeout: Timeout for the OAuth flow.
-            client_metadata_url: URL-based client ID. When provided and the server
-                advertises client_id_metadata_document_supported=True, this URL will be
-                used as the client_id instead of performing dynamic client registration.
-                Must be a valid HTTPS URL with a non-root pathname.
-            validate_resource_url: Optional callback to override resource URL validation.
-                Called with (server_url, prm_resource) where prm_resource is the resource
-                from Protected Resource Metadata (or None if not present). If not provided,
-                default validation rejects mismatched resources per RFC 8707.
+            client_metadata_url: URL-based client ID (CIMD). When the server advertises
+                client_id_metadata_document_supported=True, this URL is used as the client_id
+                instead of dynamic client registration. Must be a valid HTTPS URL with a
+                non-root pathname.
+            validate_resource_url: Optional override for resource URL validation, called with
+                (server_url, prm_resource) where prm_resource may be None. Default validation
+                rejects mismatched resources per RFC 8707.
 
         Raises:
-            ValueError: If client_metadata_url is provided but not a valid HTTPS URL
-                with a non-root pathname.
+            ValueError: If client_metadata_url is not a valid HTTPS URL with a non-root pathname.
         """
-        # Validate client_metadata_url if provided
         if client_metadata_url is not None and not is_valid_client_metadata_url(client_metadata_url):
             raise ValueError(
                 f"client_metadata_url must be a valid HTTPS URL with a non-root pathname, got: {client_metadata_url}"
@@ -278,13 +234,7 @@ class OAuthClientProvider(httpx.Auth):
         self._initialized = False
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
-        """Handle protected resource metadata discovery response.
-
-        Per SEP-985, supports fallback when discovery fails at one URL.
-
-        Returns:
-            True if metadata was successfully discovered, False if we should try next URL
-        """
+        """Handle PRM discovery response; False means try the next URL (SEP-985 fallback)."""
         if response.status_code == 200:
             try:
                 content = await response.aread()
@@ -295,21 +245,17 @@ class OAuthClientProvider(httpx.Auth):
                 return True
 
             except ValidationError:  # pragma: no cover
-                # Invalid metadata - try next URL
                 logger.warning(f"Invalid protected resource metadata at {response.request.url}")
                 return False
         elif response.status_code == 404:  # pragma: no cover
-            # Not found - try next URL in fallback chain
             logger.debug(f"Protected resource metadata not found at {response.request.url}, trying next URL")
             return False
         else:
-            # Other error - fail immediately
             raise OAuthFlowError(
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
 
     async def _perform_authorization(self) -> httpx.Request:
-        """Perform the authorization flow."""
         auth_code, code_verifier = await self._perform_authorization_code_grant()
         token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
         return token_request
@@ -332,7 +278,6 @@ class OAuthClientProvider(httpx.Auth):
         if not self.context.client_info:
             raise OAuthFlowError("No client info available for authorization")  # pragma: no cover
 
-        # Generate PKCE parameters
         pkce_params = PKCEParameters.generate()
         state = secrets.token_urlsafe(32)
 
@@ -345,7 +290,6 @@ class OAuthClientProvider(httpx.Auth):
             "code_challenge_method": "S256",
         }
 
-        # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
             auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
@@ -360,7 +304,6 @@ class OAuthClientProvider(httpx.Auth):
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
         await self.context.redirect_handler(authorization_url)
 
-        # Wait for callback
         result = await self.context.callback_handler()
 
         if result.state is None or not secrets.compare_digest(result.state, state):
@@ -372,7 +315,6 @@ class OAuthClientProvider(httpx.Auth):
         if not result.code:
             raise OAuthFlowError("No authorization code received")
 
-        # Return auth code and code verifier for token exchange
         return result.code, pkce_params.code_verifier
 
     def _get_token_endpoint(self) -> str:
@@ -404,34 +346,28 @@ class OAuthClientProvider(httpx.Auth):
             }
         )
 
-        # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
             token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        # Prepare authentication based on preferred method
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
-        """Handle token exchange response."""
         if response.status_code not in {200, 201}:
             body = await response.aread()
             body_text = body.decode("utf-8")
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")
 
-        # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
 
-        # RFC 6749 §5.1: an omitted scope means the granted scope equals the requested
-        # scope. Record it explicitly so the persisted token is self-describing — the
-        # SEP-2350 step-up union reads it after a restart, when client_metadata.scope
-        # has reverted to its constructor value.
+        # RFC 6749 §5.1: omitted scope means granted == requested. Record it so the persisted
+        # token stays self-describing for the SEP-2350 step-up union after a restart, when
+        # client_metadata.scope has reverted to its constructor value.
         if token_response.scope is None:
             token_response.scope = self.context.client_metadata.scope
 
-        # Store tokens in context
         self.context.current_tokens = token_response
         self.context.update_token_expiry(token_response)
         await self.context.storage.set_tokens(token_response)
@@ -456,11 +392,9 @@ class OAuthClientProvider(httpx.Auth):
             "client_id": self.context.client_info.client_id,
         }
 
-        # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
-        # Prepare authentication based on preferred method
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
@@ -477,10 +411,9 @@ class OAuthClientProvider(httpx.Auth):
             content = await response.aread()
             token_response = OAuthToken.model_validate_json(content)
 
-            # RFC 6749 §6: a refresh response may omit scope (unchanged) and refresh_token
-            # (the AS does not rotate). Carry both forward so the persisted token stays
-            # self-describing for the SEP-2350 step-up union and the next expiry can
-            # still refresh instead of forcing a full re-authorization.
+            # RFC 6749 §6: a refresh response may omit scope (unchanged) and refresh_token (not
+            # rotated). Carry both forward so the persisted token stays self-describing for the
+            # SEP-2350 step-up union and the next expiry can refresh instead of fully re-authorizing.
             prior = self.context.current_tokens
             if token_response.scope is None and prior is not None:
                 token_response.scope = prior.scope
@@ -504,7 +437,6 @@ class OAuthClientProvider(httpx.Auth):
         self._initialized = True
 
     def _add_auth_header(self, request: httpx.Request) -> None:
-        """Add authorization header to request if we have valid tokens."""
         if self.context.current_tokens and self.context.current_tokens.access_token:  # pragma: no branch
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
@@ -533,16 +465,14 @@ class OAuthClientProvider(httpx.Auth):
             if not self._initialized:
                 await self._initialize()
 
-            # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
 
                 if not await self._handle_refresh_response(refresh_response):
-                    # Refresh failed, need full re-authentication
+                    # Refresh failed: force a full re-authentication
                     self._initialized = False
 
             if self.context.is_token_valid():
@@ -551,12 +481,11 @@ class OAuthClientProvider(httpx.Auth):
             response = yield request
 
             if response.status_code == 401:
-                # Perform full OAuth flow
+                # Full OAuth flow, written inline due to generator constraints
                 try:
-                    # OAuth flow must be inline due to generator constraints
                     www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
 
-                    # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
+                    # Step 1: discover protected resource metadata (SEP-985 fallback chain)
                     prm_discovery_urls = build_protected_resource_metadata_discovery_urls(
                         www_auth_resource_metadata_url, self.context.server_url
                     )
@@ -564,11 +493,10 @@ class OAuthClientProvider(httpx.Auth):
                     for url in prm_discovery_urls:  # pragma: no branch
                         discovery_request = create_oauth_metadata_request(url)
 
-                        discovery_response = yield discovery_request  # sending request
+                        discovery_response = yield discovery_request
 
                         prm = await handle_protected_resource_response(discovery_response)
                         if prm:
-                            # Validate PRM resource matches server URL (RFC 8707)
                             await self._validate_resource_match(prm)
                             self.context.protected_resource_metadata = prm
 
@@ -582,9 +510,8 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"Protected resource metadata discovery failed: {url}")
 
-                    # SEP-2352: stored credentials are bound to the issuer that registered them.
-                    # If the authorization server changed, drop them (and the old tokens) so the
-                    # flow re-registers instead of presenting another server's credentials.
+                    # SEP-2352: stored credentials are bound to their registering issuer. If the
+                    # authorization server changed, drop them (and the old tokens) so the flow re-registers.
                     if (
                         self.context.client_info is not None
                         and self.context.auth_server_url is not None
@@ -603,7 +530,7 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.auth_server_url, self.context.server_url
                     )
 
-                    # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
+                    # Step 2: discover Authorization Server Metadata (with fallback for legacy servers)
                     for url in asm_discovery_urls:  # pragma: no branch
                         oauth_metadata_request = create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
@@ -620,9 +547,8 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
-                    # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
-                    # discovery, so re-evaluate the binding here using the discovered metadata
-                    # issuer (mirroring the bound_issuer fallback in Step 4).
+                    # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM discovery,
+                    # so re-evaluate the binding using the discovered metadata issuer (mirrors Step 4).
                     if (
                         self.context.client_info is not None
                         and self.context.auth_server_url is None
@@ -637,7 +563,7 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.client_info = None
                         self.context.clear_tokens()
 
-                    # Step 3: Apply scope selection strategy
+                    # Step 3: apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
@@ -645,7 +571,7 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.client_metadata.grant_types,
                     )
 
-                    # Step 4: Register client or use URL-based client ID (CIMD)
+                    # Step 4: register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
                         # SEP-2352: the issuer to bind these credentials to, when known.
                         discovered_issuer: str | None = None
@@ -655,8 +581,8 @@ class OAuthClientProvider(httpx.Auth):
                         if should_use_client_metadata_url(
                             self.context.oauth_metadata, self.context.client_metadata_url
                         ):
-                            # Use URL-based client ID (CIMD). CIMD records are portable across
-                            # authorization servers, so the issuer stamp is informational.
+                            # CIMD records are portable across authorization servers, so the
+                            # issuer stamp is informational.
                             logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
                             client_information = create_client_info_from_metadata_url(
                                 self.context.client_metadata_url,  # type: ignore[arg-type]
@@ -666,19 +592,15 @@ class OAuthClientProvider(httpx.Auth):
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
                         else:
-                            # Fallback to Dynamic Client Registration
                             fallback_base = self.context.get_authorization_base_url(self.context.server_url)
                             registration_request = create_client_registration_request(
                                 self.context.oauth_metadata, self.context.client_metadata, fallback_base
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
-                            # Only record the issuer when the registration above actually targeted
-                            # the discovered AS — either via its published registration_endpoint,
-                            # or because the resource-origin /register fallback is on the issuer's
-                            # own host (legacy same-origin embedded AS). Otherwise the fallback hit
-                            # a different server and recording a binding to the PRM-advertised AS
-                            # would persist a binding that was never established.
+                            # Stamp the issuer only when registration actually targeted the discovered
+                            # AS — via its published registration_endpoint, or a same-origin /register
+                            # fallback. Otherwise the binding was never established with that issuer.
                             if (
                                 self.context.oauth_metadata is not None
                                 and discovered_issuer is not None
@@ -691,7 +613,7 @@ class OAuthClientProvider(httpx.Auth):
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
-                    # Step 5: Perform authorization and complete token exchange
+                    # Step 5: perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
                 except Exception:
@@ -702,16 +624,13 @@ class OAuthClientProvider(httpx.Auth):
                 self._add_auth_header(request)
                 yield request
             elif response.status_code == 403:
-                # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
-                # Step 2: Check if we need to step-up authorization
                 if error == "insufficient_scope":  # pragma: no branch
                     try:
-                        # Step 2a: Union previously requested scopes with the newly challenged
-                        # scopes (SEP-2350) so escalating one operation keeps the others' grants.
-                        # Fold in the stored token's scope too: on a restart the token is reloaded
-                        # but client_metadata.scope is not, so it would otherwise be the only basis.
+                        # SEP-2350 step-up: union previously requested scopes with the newly challenged
+                        # ones so escalating one operation keeps the others' grants. Fold in the stored
+                        # token's scope too: on a restart the token is reloaded but client_metadata.scope is not.
                         challenged_scope = get_client_metadata_scopes(
                             extract_scope_from_www_auth(response),
                             self.context.protected_resource_metadata,
@@ -722,7 +641,6 @@ class OAuthClientProvider(httpx.Auth):
                         prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
                         self.context.client_metadata.scope = union_scopes(prior_scope, challenged_scope)
 
-                        # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()
                         await self._handle_token_response(token_response)
                     except Exception:  # pragma: no cover

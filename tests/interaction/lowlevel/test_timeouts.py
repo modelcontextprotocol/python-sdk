@@ -1,11 +1,8 @@
 """Request timeouts against the low-level Server, driven through the public Client API.
 
-The handler blocks on an event that is never set, so the awaited response can never arrive and
-any positive timeout fires deterministically on the next event-loop pass. Per-request timeouts are
-set to an effectively-zero duration; the session-level test runs on trio's virtual clock instead
-(see the comment there). Either way the tests add no wall-clock time to the suite. (Zero would
-also time out immediately, but a tiny positive value keeps the duration visible in the
-cancellation reason these tests snapshot.)
+Handlers block on a never-set event, so any positive timeout fires deterministically at no
+wall-clock cost. Per-request timeouts are tiny but nonzero so the duration stays visible in the
+snapshotted cancellation reason; the session-level test runs on trio's virtual clock instead.
 """
 
 import anyio
@@ -30,10 +27,7 @@ pytestmark = pytest.mark.anyio
 @requirement("protocol:timeout:basic")
 @requirement("protocol:timeout:sends-cancellation")
 async def test_request_timeout_fails_the_pending_call() -> None:
-    """A request whose response does not arrive within its read timeout fails with a timeout error.
-
-    The timeout is followed by notifications/cancelled, which interrupts the server's handler.
-    """
+    """The timeout error is followed by notifications/cancelled, which interrupts the server's handler."""
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
 
@@ -69,10 +63,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
 @requirement("protocol:timeout:basic")
 @requirement("protocol:timeout:sends-cancellation")
 async def test_server_request_timeout_sends_cancellation_to_the_client() -> None:
-    """A server-initiated request that times out fails server-side and cancels the client's work.
-
-    The sampling callback answers only after the server gave up; the late response is discarded.
-    """
+    """The sampling callback answers only after the server gave up; the late response is discarded."""
     release = anyio.Event()
     callback_started = anyio.Event()
     errors: list[ErrorData] = []
@@ -128,8 +119,6 @@ async def test_server_request_timeout_sends_cancellation_to_the_client() -> None
 
 @requirement("protocol:timeout:session-survives")
 async def test_session_serves_requests_after_timeout() -> None:
-    """A timed-out request does not poison the session: the next request succeeds."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -157,14 +146,9 @@ async def test_session_serves_requests_after_timeout() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="still alive")]))
 
 
-# A session-level timeout cannot use the effectively-zero pattern above: it also governs the
-# initialize handshake, which must complete before the blocked tool call can wait the timeout
-# out in full. Any real-clock margin is a bet against CI scheduler stalls (a 50ms value lost
-# that bet in CI; the in-process handshake tail reaches ~190ms on a loaded windows runner), so
-# this test runs on trio's virtual clock instead. With autojump, time advances only when every
-# task is blocked: the handshake always has a runnable task and therefore cannot time out no
-# matter how slow the runner, and once the tool call blocks on the never-answered request the
-# run goes idle and the clock jumps straight to the deadline — deterministic, with no real wait.
+# The session-level timeout also governs the initialize handshake, so the effectively-zero pattern can't work here,
+# and real-clock margins lose to CI scheduler stalls (50ms did; windows handshake tails hit ~190ms). Trio's autojump
+# clock advances only when all tasks block: the handshake can't time out, and the blocked call jumps to its deadline.
 @requirement("protocol:timeout:session-default")
 @pytest.mark.parametrize(
     "anyio_backend",

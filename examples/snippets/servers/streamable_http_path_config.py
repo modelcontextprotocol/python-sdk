@@ -9,7 +9,6 @@ from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
-# Create a simple MCPServer server
 mcp_at_root = MCPServer("My Server")
 
 

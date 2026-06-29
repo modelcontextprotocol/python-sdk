@@ -17,7 +17,6 @@ from mcp import Client
 
 @pytest.mark.anyio
 async def test_simple_echo():
-    """Test the simple echo server"""
     from examples.mcpserver.simple_echo import mcp
 
     async with Client(mcp) as client:
@@ -29,7 +28,6 @@ async def test_simple_echo():
 
 @pytest.mark.anyio
 async def test_complex_inputs():
-    """Test the complex inputs server"""
     from examples.mcpserver.complex_inputs import mcp
 
     async with Client(mcp) as client:
@@ -49,7 +47,6 @@ async def test_complex_inputs():
 
 @pytest.mark.anyio
 async def test_direct_call_tool_result_return():
-    """Test the CallToolResult echo server"""
     from examples.mcpserver.direct_call_tool_result_return import mcp
 
     async with Client(mcp) as client:
@@ -65,11 +62,8 @@ async def test_direct_call_tool_result_return():
 
 @pytest.mark.anyio
 async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Test the desktop server"""
-    # Build a real Desktop directory under tmp_path rather than patching
-    # Path.iterdir — a class-level patch breaks jsonschema_specifications'
-    # import-time schema discovery when this test happens to be the first
-    # tool call in an xdist worker.
+    # Real Desktop dir instead of patching Path.iterdir — a class-level patch breaks
+    # jsonschema_specifications' import-time schema discovery when this test runs first in an xdist worker.
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
     (desktop / "file1.txt").touch()
@@ -79,11 +73,9 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from examples.mcpserver.desktop import mcp
 
     async with Client(mcp) as client:
-        # Test the sum function
         result = await client.call_tool("sum", {"a": 1, "b": 2})
         assert result == snapshot(CallToolResult(content=[TextContent(text="3")], structured_content={"result": 3}))
 
-        # Test the desktop resource
         result = await client.read_resource("dir://desktop")
         assert len(result.contents) == 1
         content = result.contents[0]
@@ -93,9 +85,8 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert "file2.txt" in content.text
 
 
-# `--8<--` include directives lint clean as Python, so pages built from
-# `docs_src/` includes cost nothing here; the real validation of those files is
-# pyright + ruff + tests/docs_src/.
+# `--8<--` include directives lint clean as Python, so pages built from `docs_src/` includes cost nothing
+# here; the real validation of those files is pyright + ruff + tests/docs_src/.
 @pytest.mark.parametrize(
     "example",
     list(
@@ -114,7 +105,6 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
 
-    # Use project's actual line length of 120
     eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)
 
     # Use Ruff for both formatting and linting (skip Black)

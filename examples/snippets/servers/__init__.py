@@ -1,10 +1,6 @@
-"""MCP Snippets.
+"""MCP server snippets, each demonstrating a single feature.
 
-This package contains simple examples of MCP server features.
-Each server demonstrates a single feature and can be run as a standalone server.
-
-To run a server, use the command:
-    uv run server basic_tool sse
+Run one standalone: `uv run server basic_tool sse`
 """
 
 import importlib
@@ -13,11 +9,7 @@ from typing import Literal, cast
 
 
 def run_server():
-    """Run a server by name with optional transport.
-
-    Usage: server <server-name> [transport]
-    Example: server basic_tool sse
-    """
+    """Run a snippet server: `server <server-name> [transport]`."""
     if len(sys.argv) < 2:
         print("Usage: server <server-name> [transport]")
         print("Available servers: basic_tool, basic_resource, basic_prompt, tool_progress,")

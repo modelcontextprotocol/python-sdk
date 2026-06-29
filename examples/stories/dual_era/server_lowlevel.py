@@ -36,8 +36,7 @@ def build_server() -> Server[Any]:
         text = f"Hello, {params.arguments['name']}! (served on the {era} era at {ctx.protocol_version})"
         return types.CallToolResult(content=[types.TextContent(text=text)])
 
-    # The same factory serves both eras with no configuration. Which era a request is
-    # on is decided by the entry point / transport, never by the server.
+    # One factory, both eras: which era a request is on is decided by the entry point / transport, never the server.
     return Server(
         "dual-era-example",
         instructions="A small dual-era demo server.",

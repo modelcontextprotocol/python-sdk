@@ -25,13 +25,10 @@ async def test_logging_callback():
     server = MCPServer("test")
     logging_collector = LoggingCollector()
 
-    # Create a simple test tool
     @server.tool("test_tool")
     async def test_tool() -> bool:
-        # The actual tool is very simple and just returns True
         return True
 
-    # Create a function that can send a log notification
     @server.tool("test_tool_with_log")
     async def test_tool_with_log(
         message: str, level: Literal["debug", "info", "warning", "error"], logger: str, ctx: Context
@@ -54,7 +51,6 @@ async def test_logging_callback():
         )
         return True
 
-    # Create a message handler to catch exceptions
     async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
@@ -67,13 +63,11 @@ async def test_logging_callback():
         message_handler=message_handler,
         mode="legacy",
     ) as client:
-        # First verify our test tool works
         result = await client.call_tool("test_tool", {})
         assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
-        # Now send a log message via our tool
         log_result = await client.call_tool(
             "test_tool_with_log",
             {
@@ -92,7 +86,6 @@ async def test_logging_callback():
         assert log_result.is_error is False
         assert log_result_with_dict.is_error is False
         assert len(logging_collector.log_messages) == 2
-        # Create meta object with related_request_id added dynamically
         log = logging_collector.log_messages[0]
         assert log.level == "info"
         assert log.logger == "test_logger"

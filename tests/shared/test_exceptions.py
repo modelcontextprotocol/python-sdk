@@ -1,5 +1,3 @@
-"""Tests for MCP exception classes."""
-
 import pytest
 from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
@@ -7,7 +5,6 @@ from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 
 def test_url_elicitation_required_error_create_with_single_elicitation() -> None:
-    """Test creating error with a single elicitation."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Auth required",
@@ -23,7 +20,6 @@ def test_url_elicitation_required_error_create_with_single_elicitation() -> None
 
 
 def test_url_elicitation_required_error_create_with_multiple_elicitations() -> None:
-    """Test creating error with multiple elicitations uses plural message."""
     elicitations = [
         ElicitRequestURLParams(
             mode="url",
@@ -45,7 +41,6 @@ def test_url_elicitation_required_error_create_with_multiple_elicitations() -> N
 
 
 def test_url_elicitation_required_error_custom_message() -> None:
-    """Test creating error with a custom message."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Auth required",
@@ -58,7 +53,6 @@ def test_url_elicitation_required_error_custom_message() -> None:
 
 
 def test_url_elicitation_required_error_from_error_data() -> None:
-    """Test reconstructing error from ErrorData."""
     error_data = ErrorData(
         code=URL_ELICITATION_REQUIRED,
         message="URL elicitation required",
@@ -82,7 +76,6 @@ def test_url_elicitation_required_error_from_error_data() -> None:
 
 
 def test_url_elicitation_required_error_from_error_data_wrong_code() -> None:
-    """Test that from_error raises ValueError for wrong error code."""
     error_data = ErrorData(
         code=-32600,  # Wrong code
         message="Some other error",
@@ -94,7 +87,6 @@ def test_url_elicitation_required_error_from_error_data_wrong_code() -> None:
 
 
 def test_url_elicitation_required_error_serialization_roundtrip() -> None:
-    """Test that error can be serialized and reconstructed."""
     original = UrlElicitationRequiredError(
         [
             ElicitRequestURLParams(
@@ -106,10 +98,9 @@ def test_url_elicitation_required_error_serialization_roundtrip() -> None:
         ]
     )
 
-    # Simulate serialization over wire
+    # `.error` stands in for the wire payload; no JSON encode/decode needed
     error_data = original.error
 
-    # Reconstruct
     reconstructed = UrlElicitationRequiredError.from_error(error_data)
 
     assert reconstructed.elicitations[0].elicitation_id == original.elicitations[0].elicitation_id
@@ -118,7 +109,6 @@ def test_url_elicitation_required_error_serialization_roundtrip() -> None:
 
 
 def test_url_elicitation_required_error_data_contains_elicitations() -> None:
-    """Test that error data contains properly serialized elicitations."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Please authenticate",
@@ -137,7 +127,6 @@ def test_url_elicitation_required_error_data_contains_elicitations() -> None:
 
 
 def test_url_elicitation_required_error_inherits_from_mcp_error() -> None:
-    """Test that UrlElicitationRequiredError inherits from MCPError."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Auth required",
@@ -151,7 +140,6 @@ def test_url_elicitation_required_error_inherits_from_mcp_error() -> None:
 
 
 def test_url_elicitation_required_error_exception_message() -> None:
-    """Test that exception message is set correctly."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Auth required",
@@ -160,12 +148,10 @@ def test_url_elicitation_required_error_exception_message() -> None:
     )
     error = UrlElicitationRequiredError([elicitation])
 
-    # The exception's string representation should match the message
     assert str(error) == "URL elicitation required"
 
 
 def test_from_jsonrpc_error_preserves_code_message_and_data() -> None:
-    """Building an MCPError from a wire JSONRPCError keeps every error field."""
     wire = JSONRPCError(
         jsonrpc="2.0",
         id=3,

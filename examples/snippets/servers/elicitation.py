@@ -1,8 +1,7 @@
-"""Elicitation examples demonstrating form and URL mode elicitation.
+"""Elicitation examples.
 
-Form mode elicitation collects structured, non-sensitive data through a schema.
-URL mode elicitation directs users to external URLs for sensitive operations
-like OAuth flows, credential collection, or payment processing.
+Form mode collects structured, non-sensitive data through a schema; URL mode
+directs the user to an external URL for sensitive operations like OAuth or payments.
 """
 
 import uuid
@@ -28,13 +27,9 @@ class BookingPreferences(BaseModel):
 
 @mcp.tool()
 async def book_table(date: str, time: str, party_size: int, ctx: Context) -> str:
-    """Book a table with date availability check.
-
-    This demonstrates form mode elicitation for collecting non-sensitive user input.
-    """
-    # Check if date is available
+    """Book a table with date availability check (form mode elicitation)."""
     if date == "2024-12-25":
-        # Date unavailable - ask user for alternative
+        # Date unavailable - use form elicitation to ask for an alternative
         result = await ctx.elicit(
             message=(f"No tables available for {party_size} on {date}. Would you like to try another date?"),
             schema=BookingPreferences,
@@ -46,17 +41,12 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context) -> str
             return "[CANCELLED] No booking made"
         return "[CANCELLED] Booking cancelled"
 
-    # Date available
     return f"[SUCCESS] Booked for {date} at {time}"
 
 
 @mcp.tool()
 async def secure_payment(amount: float, ctx: Context) -> str:
-    """Process a secure payment requiring URL confirmation.
-
-    This demonstrates URL mode elicitation using ctx.elicit_url() for
-    operations that require out-of-band user interaction.
-    """
+    """Process a secure payment requiring URL confirmation (URL mode elicitation via `ctx.elicit_url`)."""
     elicitation_id = str(uuid.uuid4())
 
     result = await ctx.elicit_url(
@@ -66,8 +56,7 @@ async def secure_payment(amount: float, ctx: Context) -> str:
     )
 
     if result.action == "accept":
-        # In a real app, the payment confirmation would happen out-of-band
-        # and you'd verify the payment status from your backend
+        # In a real app, confirmation happens out-of-band; verify payment status from your backend
         return f"Payment of ${amount:.2f} initiated - check your browser to complete"
     elif result.action == "decline":
         return "Payment declined by user"
@@ -76,16 +65,11 @@ async def secure_payment(amount: float, ctx: Context) -> str:
 
 @mcp.tool()
 async def connect_service(service_name: str, ctx: Context) -> str:
-    """Connect to a third-party service requiring OAuth authorization.
-
-    This demonstrates the "throw error" pattern using UrlElicitationRequiredError.
-    Use this pattern when the tool cannot proceed without user authorization.
-    """
+    """Connect to a third-party service requiring OAuth authorization."""
     elicitation_id = str(uuid.uuid4())
 
-    # Raise UrlElicitationRequiredError to signal that the client must complete
-    # a URL elicitation before this request can be processed.
-    # The MCP framework will convert this to a -32042 error response.
+    # When the tool cannot proceed without user authorization, raise UrlElicitationRequiredError:
+    # the framework converts it to a -32042 error telling the client to complete a URL elicitation.
     raise UrlElicitationRequiredError(
         [
             ElicitRequestURLParams(

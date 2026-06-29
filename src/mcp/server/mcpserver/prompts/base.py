@@ -87,29 +87,23 @@ class Prompt(BaseModel):
     ) -> Prompt:
         """Create a Prompt from a function.
 
-        The function can return:
-        - A string (converted to a message)
-        - A Message object
-        - A dict (converted to a message)
-        - A sequence of any of the above
+        The function may return a string, a Message, a dict, or a sequence of these;
+        each item is converted to a message.
         """
         func_name = name or fn.__name__
 
         if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
 
-        # Find context parameter if it exists
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
-        # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
-        # Convert parameters to PromptArguments
         arguments: list[PromptArgument] = []
         if "properties" in parameters:  # pragma: no branch
             for param_name, param in parameters["properties"].items():
@@ -122,7 +116,7 @@ class Prompt(BaseModel):
                     )
                 )
 
-        # ensure the arguments are properly cast
+        # validate_call coerces incoming arguments to the declared parameter types
         fn = validate_call(fn)
 
         return cls(
@@ -145,7 +139,6 @@ class Prompt(BaseModel):
         Raises:
             ValueError: If required arguments are missing, or if rendering fails.
         """
-        # Validate required arguments
         if self.arguments:
             required = {arg.name for arg in self.arguments if arg.required}
             provided = set(arguments or {})
@@ -154,7 +147,6 @@ class Prompt(BaseModel):
                 raise ValueError(f"Missing required arguments: {missing}")
 
         try:
-            # Add context to arguments if needed
             call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
 
             fn = self.fn
@@ -163,11 +155,9 @@ class Prompt(BaseModel):
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
 
-            # Validate messages
             if not isinstance(result, list | tuple):
                 result = [result]
 
-            # Convert result to messages
             messages: list[Message] = []
             for msg in result:  # type: ignore[reportUnknownVariableType]
                 try:

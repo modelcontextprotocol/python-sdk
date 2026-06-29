@@ -14,13 +14,11 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_in_memory_program_on_the_page_runs(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial001's `main()` is the literal client program on the page; it runs clean end to end."""
     await tutorial001.main()
     assert "Found 3 books matching 'dune'." in capsys.readouterr().out
 
 
 async def test_in_memory_client_talks_to_the_server_object() -> None:
-    """tutorial001: passing the server object connects in-process. No subprocess, no port."""
     async with Client(tutorial001.mcp) as client:
         assert client.server_info.name == "Bookshop"
         assert client.protocol_version == "2026-07-28"
@@ -41,14 +39,12 @@ async def test_streamable_http_configuration_lives_on_the_httpx_client() -> None
 
 
 async def test_stdio_parameters_are_wrapped_by_stdio_client() -> None:
-    """tutorial004: `stdio_client(params)` is the transport, and `Client` takes it like any other."""
     client = Client(stdio_client(tutorial004.server))
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
 
 
 async def test_the_child_environment_is_an_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
-    """tutorial004: a variable set in the parent process is not inherited; `env=` adds it back explicitly."""
     monkeypatch.setenv("BOOKSHOP_API_KEY", "from-the-parent")
     inherited = get_default_environment()
     assert "PATH" in inherited

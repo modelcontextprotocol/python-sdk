@@ -47,7 +47,6 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
     count = arguments.get("count", 5)
     caller = arguments.get("caller", "unknown")
 
-    # Send the specified number of notifications with the given interval
     for i in range(count):
         await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
@@ -86,7 +85,6 @@ def main(
     log_level: str,
     json_response: bool,
 ) -> None:
-    # Configure logging
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -104,8 +102,7 @@ def main(
         debug=True,
     )
 
-    # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
-    # for browser-based clients (ensures 500 errors get proper CORS headers)
+    # CORS so browser clients can read Mcp-Session-Id; wrapping the ASGI app keeps headers on error responses
     starlette_app = CORSMiddleware(
         starlette_app,
         allow_origins=["*"],  # Note: streamable_http_app() enforces localhost-only Origin by default

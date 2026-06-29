@@ -1,8 +1,7 @@
 """SEP-990 authorization server + bearer-gated MCP server on one app; exports `build_app()`.
 
-`identity_assertion_enabled=True` turns the RFC 7523 jwt-bearer grant on, and the provider's
-`exchange_identity_assertion` validates the IdP-signed ID-JAG and mints an access token bound to
-the user and resource the assertion names. The MCP server half is ordinary bearer auth.
+`identity_assertion_enabled=True` turns on the RFC 7523 jwt-bearer grant; the provider's
+`exchange_identity_assertion` validates the IdP-signed ID-JAG and mints a bound access token.
 """
 
 import jwt
@@ -22,9 +21,8 @@ from .idp import IDP_ISSUER, IDP_SIGNING_KEY
 DEMO_CLIENT_ID = "finance-agent"
 DEMO_CLIENT_SECRET = "demo-finance-agent-secret"
 DEMO_SCOPE = "mcp"
-# The exact `issuer` string this authorization server's metadata serves. The client must configure
-# the byte-identical string: RFC 8414 issuer comparison is character for character, and the
-# settings' `AnyHttpUrl` renders the path-less loopback origin with a trailing slash.
+# Clients must configure this byte-identical string: RFC 8414 issuer comparison is character for
+# character, and the settings' `AnyHttpUrl` renders the path-less loopback origin with a trailing slash.
 ISSUER = str(auth_settings().issuer_url)
 
 
@@ -75,10 +73,9 @@ class IdentityAssertionAuthorizationServer(InMemoryAuthorizationServerProvider):
         if claims["jti"] in self.seen_jtis:
             raise TokenError("invalid_grant", "the assertion has already been used")
         self.seen_jtis.add(claims["jti"])
-        # Everything on the issued token comes from the validated assertion, the audience
-        # restriction above all: it binds the token to the ID-JAG's `resource` claim, never to
-        # the client-controlled `params.resource`. No refresh token is returned either; the IdP
-        # owns session lifetime by deciding whether to issue the next ID-JAG.
+        # Everything on the issued token comes from the validated assertion — bound to the ID-JAG's
+        # `resource` claim, never the client-controlled `params.resource`. No refresh token either:
+        # the IdP owns session lifetime by deciding whether to issue the next ID-JAG.
         scopes = claims["scope"].split()
         access = self.mint_access_token(
             client_id=claims["client_id"], scopes=scopes, resource=claims["resource"], subject=claims["sub"]
@@ -88,8 +85,7 @@ class IdentityAssertionAuthorizationServer(InMemoryAuthorizationServerProvider):
 
 def build_app() -> Starlette:
     provider = IdentityAssertionAuthorizationServer()
-    # `auth_server_provider=` alone is enough: MCPServer derives a token verifier from it
-    # (passing both trips the mutex guard).
+    # `auth_server_provider=` alone is enough: MCPServer derives a token verifier (passing both trips the mutex guard).
     mcp = MCPServer(
         "identity-assertion-example",
         auth=auth_settings(required_scopes=[DEMO_SCOPE], identity_assertion_enabled=True),

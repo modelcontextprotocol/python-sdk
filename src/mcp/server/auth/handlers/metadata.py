@@ -14,7 +14,7 @@ class MetadataHandler:
     async def handle(self, request: Request) -> Response:
         return PydanticJSONResponse(
             content=self.metadata,
-            headers={"Cache-Control": "public, max-age=3600"},  # Cache for 1 hour
+            headers={"Cache-Control": "public, max-age=3600"},
         )
 
 
@@ -25,5 +25,5 @@ class ProtectedResourceMetadataHandler:
     async def handle(self, request: Request) -> Response:
         return PydanticJSONResponse(
             content=self.metadata,
-            headers={"Cache-Control": "public, max-age=3600"},  # Cache for 1 hour
+            headers={"Cache-Control": "public, max-age=3600"},
         )

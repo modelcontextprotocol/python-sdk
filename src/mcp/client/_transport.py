@@ -14,8 +14,4 @@ TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[Ses
 
 
 class Transport(AbstractAsyncContextManager[TransportStreams], Protocol):
-    """Protocol for MCP transports.
-
-    A transport is an async context manager that yields read and write streams
-    for bidirectional communication with an MCP server.
-    """
+    """An async context manager yielding read/write streams for bidirectional communication with an MCP server."""

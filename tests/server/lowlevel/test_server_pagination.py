@@ -24,12 +24,10 @@ async def test_list_prompts_pagination() -> None:
 
     server = Server("test", on_list_prompts=handle_list_prompts)
     async with Client(server) as client:
-        # No cursor provided
         await client.list_prompts()
         assert received_params is not None
         assert received_params.cursor is None
 
-        # Cursor provided
         await client.list_prompts(cursor=test_cursor)
         assert received_params is not None
         assert received_params.cursor == test_cursor
@@ -49,12 +47,10 @@ async def test_list_resources_pagination() -> None:
 
     server = Server("test", on_list_resources=handle_list_resources)
     async with Client(server) as client:
-        # No cursor provided
         await client.list_resources()
         assert received_params is not None
         assert received_params.cursor is None
 
-        # Cursor provided
         await client.list_resources(cursor=test_cursor)
         assert received_params is not None
         assert received_params.cursor == test_cursor
@@ -72,12 +68,10 @@ async def test_list_tools_pagination() -> None:
 
     server = Server("test", on_list_tools=handle_list_tools)
     async with Client(server) as client:
-        # No cursor provided
         await client.list_tools()
         assert received_params is not None
         assert received_params.cursor is None
 
-        # Cursor provided
         await client.list_tools(cursor=test_cursor)
         assert received_params is not None
         assert received_params.cursor == test_cursor

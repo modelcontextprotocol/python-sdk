@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Simple MCP client example with OAuth authentication support.
-
-This client connects to an MCP server using streamable HTTP transport with OAuth.
-
-"""
+"""Simple MCP client example with OAuth authentication support."""
 
 from __future__ import annotations as _annotations
 
@@ -57,12 +53,10 @@ class CallbackHandler(BaseHTTPRequestHandler):
         server: socketserver.BaseServer,
         callback_data: dict[str, Any],
     ):
-        """Initialize with callback data storage."""
         self.callback_data = callback_data
         super().__init__(request, client_address, server)
 
     def do_GET(self):
-        """Handle GET request from OAuth redirect."""
         parsed = urlparse(self.path)
         query_params = parse_qs(parsed.query)
 
@@ -116,7 +110,6 @@ class CallbackServer:
         self.callback_data = {"authorization_code": None, "state": None, "iss": None, "error": None}
 
     def _create_handler_with_data(self):
-        """Create a handler class with access to callback data."""
         callback_data = self.callback_data
 
         class DataCallbackHandler(CallbackHandler):
@@ -131,7 +124,6 @@ class CallbackServer:
         return DataCallbackHandler
 
     def start(self):
-        """Start the callback server in a background thread."""
         handler_class = self._create_handler_with_data()
         self.server = HTTPServer(("localhost", self.port), handler_class)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -139,7 +131,6 @@ class CallbackServer:
         print(f"🖥️  Started callback server on http://localhost:{self.port}")
 
     def stop(self):
-        """Stop the callback server."""
         if self.server:
             self.server.shutdown()
             self.server.server_close()
@@ -147,7 +138,6 @@ class CallbackServer:
             self.thread.join(timeout=1)
 
     def wait_for_callback(self, timeout: int = 300):
-        """Wait for OAuth callback with timeout."""
         start_time = time.time()
         while time.time() - start_time < timeout:
             if self.callback_data["authorization_code"]:
@@ -159,12 +149,10 @@ class CallbackServer:
 
     @property
     def state(self):
-        """The received state parameter."""
         return self.callback_data["state"]
 
     @property
     def iss(self):
-        """The received iss parameter."""
         return self.callback_data["iss"]
 
 
@@ -183,7 +171,6 @@ class SimpleAuthClient:
         self.session: ClientSession | None = None
 
     async def connect(self):
-        """Connect to the MCP server."""
         print(f"🔗 Attempting to connect to {self.server_url}...")
 
         try:
@@ -191,7 +178,6 @@ class SimpleAuthClient:
             callback_server.start()
 
             async def callback_handler() -> AuthorizationCodeResult:
-                """Wait for OAuth callback and return auth code, state, and iss."""
                 print("⏳ Waiting for authorization callback...")
                 try:
                     auth_code = callback_server.wait_for_callback(timeout=300)
@@ -207,12 +193,10 @@ class SimpleAuthClient:
             }
 
             async def _default_redirect_handler(authorization_url: str) -> None:
-                """Default redirect handler that opens the URL in a browser."""
                 print(f"Opening browser for authorization: {authorization_url}")
                 webbrowser.open(authorization_url)
 
-            # Create OAuth authentication handler using the new interface
-            # Use client_metadata_url to enable CIMD when the server supports it
+            # client_metadata_url enables CIMD when the server supports it
             oauth_auth = OAuthClientProvider(
                 server_url=self.server_url.replace("/mcp", ""),
                 client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),
@@ -222,7 +206,6 @@ class SimpleAuthClient:
                 client_metadata_url=self.client_metadata_url,
             )
 
-            # Create transport with auth handler based on transport type
             if self.transport_type == "sse":
                 print("📡 Opening SSE transport connection with auth...")
                 async with sse_client(
@@ -251,7 +234,6 @@ class SimpleAuthClient:
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
     ):
-        """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")
         async with ClientSession(read_stream, write_stream) as session:
             self.session = session
@@ -261,11 +243,9 @@ class SimpleAuthClient:
 
             print(f"\n✅ Connected to MCP server at {self.server_url}")
 
-            # Run interactive loop
             await self.interactive_loop()
 
     async def list_tools(self):
-        """List available tools from the server."""
         if not self.session:
             print("❌ Not connected to server")
             return
@@ -285,7 +265,6 @@ class SimpleAuthClient:
             print(f"❌ Failed to list tools: {e}")
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None):
-        """Call a specific tool."""
         if not self.session:
             print("❌ Not connected to server")
             return
@@ -305,7 +284,6 @@ class SimpleAuthClient:
             print(f"❌ Failed to call tool '{tool_name}': {e}")
 
     async def interactive_loop(self):
-        """Run interactive command loop."""
         print("\n🎯 Interactive MCP Client")
         print("Commands:")
         print("  list - List available tools")
@@ -334,7 +312,6 @@ class SimpleAuthClient:
                         print("❌ Please specify a tool name")
                         continue
 
-                    # Parse arguments (simple JSON-like format)
                     arguments: dict[str, Any] = {}
                     if len(parts) > 2:
                         import json
@@ -358,8 +335,6 @@ class SimpleAuthClient:
 
 
 async def main():
-    """Main entry point."""
-    # Default server URL - can be overridden with environment variable
     # Most MCP streamable HTTP servers use /mcp as the endpoint
     server_url = os.getenv("MCP_SERVER_PORT", 8000)
     transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable-http")
@@ -376,7 +351,7 @@ async def main():
     if client_metadata_url:
         print(f"Client metadata URL: {client_metadata_url}")
 
-    # Start connection flow - OAuth will be handled automatically
+    # OAuth is handled automatically during connect
     client = SimpleAuthClient(server_url, transport_type, client_metadata_url)
     await client.connect()
 

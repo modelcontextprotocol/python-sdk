@@ -15,7 +15,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_function_becomes_a_listed_resource() -> None:
-    """tutorial001: the URI, the function name and the docstring are the whole listing entry."""
     async with Client(tutorial001.mcp) as client:
         (resource,) = (await client.list_resources()).resources
         assert resource == snapshot(
@@ -29,7 +28,6 @@ async def test_function_becomes_a_listed_resource() -> None:
 
 
 async def test_read_returns_the_return_value_as_text() -> None:
-    """tutorial001: reading the URI runs the function and wraps the `str` in `TextResourceContents`."""
     async with Client(tutorial001.mcp) as client:
         result = await client.read_resource("config://app")
         assert result.contents == [
@@ -38,7 +36,6 @@ async def test_read_returns_the_return_value_as_text() -> None:
 
 
 async def test_template_is_listed_separately_from_resources() -> None:
-    """tutorial002: a `{placeholder}` moves the entry from `resources/list` to `resources/templates/list`."""
     async with Client(tutorial002.mcp) as client:
         assert [r.uri for r in (await client.list_resources()).resources] == ["config://app"]
         (template,) = (await client.list_resource_templates()).resource_templates
@@ -53,7 +50,6 @@ async def test_template_is_listed_separately_from_resources() -> None:
 
 
 async def test_reading_a_template_fills_the_placeholder() -> None:
-    """tutorial002: the client reads a concrete URI; the matched value arrives as the function argument."""
     async with Client(tutorial002.mcp) as client:
         result = await client.read_resource("users://42/profile")
         assert result.contents == [
@@ -78,7 +74,6 @@ def test_uri_params_must_match_function_params() -> None:
 
 
 async def test_mime_type_is_what_you_declare() -> None:
-    """tutorial003: `mime_type=` lands in the listing verbatim; the SDK never guesses it from the value."""
     async with Client(tutorial003.mcp) as client:
         resources = (await client.list_resources()).resources
         assert {r.uri: r.mime_type for r in resources} == snapshot(
@@ -91,7 +86,6 @@ async def test_mime_type_is_what_you_declare() -> None:
 
 
 async def test_str_return_is_sent_as_is() -> None:
-    """tutorial003: a `str` return value is the text content, untouched."""
     async with Client(tutorial003.mcp) as client:
         (content,) = (await client.read_resource("docs://readme")).contents
         assert isinstance(content, TextResourceContents)
@@ -99,7 +93,7 @@ async def test_str_return_is_sent_as_is() -> None:
 
 
 async def test_dict_return_becomes_json_text() -> None:
-    """tutorial003: a non-`str`, non-`bytes` return value is serialised to JSON text."""
+    """Any non-`str`, non-`bytes` return value is serialised to JSON text."""
     async with Client(tutorial003.mcp) as client:
         (content,) = (await client.read_resource("stats://catalog")).contents
         assert isinstance(content, TextResourceContents)
@@ -107,7 +101,6 @@ async def test_dict_return_becomes_json_text() -> None:
 
 
 async def test_bytes_return_becomes_a_blob() -> None:
-    """tutorial003: a `bytes` return value arrives as `BlobResourceContents`, base64-encoded in `blob`."""
     async with Client(tutorial003.mcp) as client:
         (content,) = (await client.read_resource("covers://placeholder")).contents
         assert isinstance(content, BlobResourceContents)

@@ -1,24 +1,8 @@
-"""Authorization-server side of SEP-990 (enterprise IdP policy controls).
+"""Authorization-server side of SEP-990 (Identity Assertion Authorization Grant).
 
-An authorization server enables the Identity Assertion Authorization Grant by setting
-`identity_assertion_enabled=True` and implementing `exchange_identity_assertion` on its provider.
-The client presents the IdP-issued ID-JAG using the RFC 7523 jwt-bearer grant; the provider
-validates the assertion and mints an MCP access token.
-
-Validating the ID-JAG is the provider's responsibility and is only stubbed here. A real
-implementation MUST, per RFC 7523 §3 and SEP-990 §5.1:
-
-- verify the JWT signature, `iss`, and `exp`, and that `typ` is `oauth-id-jag+jwt`;
-- require `aud` to identify this authorization server;
-- require the ID-JAG's `client_id` claim to match the authenticated client;
-- audience-restrict the issued token to the resource named in the ID-JAG's `resource` claim
-  (NOT the client-supplied `params.resource`);
-- derive the granted scopes from the ID-JAG and policy.
-
-`_decode_and_validate_id_jag` below raises `NotImplementedError` so this snippet fails closed and
-forces a real implementation. Wire the returned routes into a Starlette app with
-`create_auth_routes(..., identity_assertion_enabled=True)`, or set
-`AuthSettings(identity_assertion_enabled=True)` with `MCPServer`/`Server`.
+Enable with `identity_assertion_enabled=True` (via `create_auth_routes` or `AuthSettings`) and
+implement `exchange_identity_assertion` on the provider: the client presents the IdP-issued ID-JAG
+using the RFC 7523 jwt-bearer grant, and the provider validates it and mints an MCP access token.
 """
 
 import secrets
@@ -39,8 +23,8 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 class IdJagClaims:
     """The trusted claims extracted from a validated ID-JAG."""
 
-    subject: str  # the end user the ID-JAG was issued for
-    client_id: str  # the ID-JAG `client_id` claim; §5.1 requires it to match the authenticated client
+    subject: str
+    client_id: str  # must match the authenticated client (SEP-990 §5.1)
     resource: str  # the MCP server the issued token must be audience-restricted to
     scopes: list[str]
 
@@ -50,9 +34,8 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
 
     def __init__(self) -> None:
         self.access_tokens: dict[str, AccessToken] = {}
-        # SEP-990 clients are pre-registered out of band (DCR refuses the grant) and must be
-        # confidential. `get_client` must return them, or the token endpoint 401s before the
-        # exchange runs. Real deployments load these from their own store.
+        # SEP-990 clients are pre-registered out of band (DCR refuses this grant) and must be
+        # confidential; `get_client` must return them or the token endpoint 401s before the exchange.
         self.clients: dict[str, OAuthClientInformationFull] = {
             "enterprise-mcp-client": OAuthClientInformationFull(
                 client_id="enterprise-mcp-client",
@@ -92,10 +75,10 @@ class IdentityAssertionProvider(OAuthAuthorizationServerProvider[AuthorizationCo
     def _decode_and_validate_id_jag(self, assertion: str, client: OAuthClientInformationFull) -> IdJagClaims:
         """Verify the ID-JAG and return its trusted claims, or reject the request.
 
-        Replace this stub with real RFC 7523 §3 / SEP-990 §5.1 validation. It fails closed - it
-        raises rather than trusting the assertion - so a copy of this example cannot accidentally
-        accept unverified tokens. RFC 7523 §3.1 / RFC 6749 §5.2 specify `invalid_grant` for a
-        rejected assertion.
+        Replace this stub per RFC 7523 §3 / SEP-990 §5.1: verify the signature, `iss`, `exp`, and
+        `typ` (`oauth-id-jag+jwt`); require `aud` to identify this server and `client_id` to match
+        the authenticated client; derive scopes from the ID-JAG and policy. Reject with
+        `invalid_grant` (RFC 7523 §3.1 / RFC 6749 §5.2). The stub raises so copies fail closed.
         """
         raise NotImplementedError("Validate the ID-JAG (signature, iss/aud/exp/typ, client_id, resource)")
 

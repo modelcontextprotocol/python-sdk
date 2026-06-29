@@ -1,19 +1,9 @@
 """Single-exchange HTTP serving for protocol version 2026-07-28.
 
-Private module — entry is via `StreamableHTTPSessionManager.handle_request`.
-The legacy streamable-HTTP transport is untouched and remains the supported
-path for earlier protocol revisions.
-
-A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
-`Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. JSON
-mode handles the request directly in the ASGI task. SSE mode runs the handler
-as a sibling task and defers committing to `text/event-stream` until the
-handler emits a notification or `_SSE_PING_INTERVAL` elapses, whichever
-comes first: a handler that completes (or raises) within that window without
-emitting still gets a JSON response with the table-mapped HTTP status, so
-the spec's `404`/`400` MUSTs hold for kernel-dispatch errors; a handler that
-runs silent past the window commits SSE so the keepalive ping can keep the
-connection open behind a proxy idle-read timeout.
+Private module — entry is via `StreamableHTTPSessionManager.handle_request`;
+the legacy streamable-HTTP transport remains the path for earlier revisions.
+A 2026-07-28 request is a self-contained POST with no `initialize` handshake
+and no `Mcp-Session-Id`: one JSON-RPC request in, one response out.
 """
 
 from __future__ import annotations
@@ -72,12 +62,10 @@ _OK_STATUS = 200
 
 @dataclass
 class _SingleExchangeDispatchContext:
-    """`DispatchContext` for one inbound HTTP request.
+    """Structural `mcp.shared.dispatcher.DispatchContext` for one inbound HTTP request.
 
-    Structurally satisfies `mcp.shared.dispatcher.DispatchContext`. The
-    back-channel is closed by construction: a 2026-07-28 server cannot send
-    requests to the client. The SSE sink, when present, carries request-scoped
-    notifications onto this request's response stream.
+    Back-channel is closed by construction — a 2026-07-28 server cannot send requests
+    to the client. The optional sink carries notifications onto this request's SSE stream.
     """
 
     transport: TransportContext
@@ -119,9 +107,7 @@ class _SingleExchangeDispatchContext:
 def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
     """Validate the classifier's raw envelope value into a typed model.
 
-    Rung 1 guarantees the envelope key was present; a ``null`` or mis-shaped
-    value falls through to ``ValidationError`` and is treated as not supplied
-    so the request still routes.
+    Rung 1 guaranteed key presence; a `null` or mis-shaped value is treated as not supplied so the request routes.
     """
     try:
         return model.model_validate(raw, by_name=False)
@@ -132,12 +118,10 @@ def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
 async def _to_jsonrpc_response(
     request_id: RequestId, coro: Awaitable[dict[str, Any]]
 ) -> JSONRPCResponse | JSONRPCError:
-    """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
+    """Await `coro` and wrap its outcome as the JSON-RPC reply for `request_id`.
 
-    The exception-to-wire boundary for the modern HTTP entry, composed around
-    `serve_one`. `MCPError` and `ValidationError` map via the shared
-    `handler_exception_to_error_data` ladder; any other exception is logged and
-    surfaced as `INTERNAL_ERROR` so handler internals never reach the wire.
+    `MCPError`/`ValidationError` map via the `handler_exception_to_error_data` ladder;
+    anything else is logged and surfaced as `INTERNAL_ERROR` so handler internals never reach the wire.
     """
     try:
         result = await coro
@@ -151,7 +135,7 @@ async def _to_jsonrpc_response(
 
 
 _SSE_PING_INTERVAL: float = 15.0
-"""Seconds between SSE comment-line keepalives once `text/event-stream` has committed."""
+"""Seconds between SSE keepalive pings, and the deferral window before committing to `text/event-stream`."""
 
 _SSE_HEADERS: Final[list[tuple[bytes, bytes]]] = [
     (b"content-type", b"text/event-stream"),
@@ -164,8 +148,8 @@ _SSE_HEADERS: Final[list[tuple[bytes, bytes]]] = [
 def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> bytes:
     """Serialise a JSON-RPC message as one SSE `event: message` frame.
 
-    SSE mode begins after the handler has emitted, so a `JSONRPCError` here
-    always carries the request's id; the `id: null` case lives in `_write`.
+    A `JSONRPCError` here always carries the request's id (unparseable-id
+    rejections never reach SSE mode), so `exclude_none` cannot drop `id: null`.
     """
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
     data = json.dumps(body, separators=(",", ":"))
@@ -182,8 +166,7 @@ async def _write(
     status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, _OK_STATUS) if isinstance(msg, JSONRPCError) else _OK_STATUS
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(msg, JSONRPCError) and msg.id is None:
-        # JSON-RPC requires `id: null` to appear on the wire when the request
-        # id couldn't be parsed; `exclude_none` would otherwise drop it.
+        # JSON-RPC requires `id: null` on the wire for unparseable request ids; `exclude_none` drops it.
         body["id"] = None
     await Response(
         json.dumps(body, separators=(",", ":")),
@@ -203,10 +186,8 @@ async def handle_modern_request(
 ) -> None:
     """ASGI handler for a single stateless-era POST.
 
-    Called from `StreamableHTTPSessionManager.handle_request` when the
-    `MCP-Protocol-Version` header names a modern revision; the manager enters
-    `app.lifespan` once at startup and passes the state in. Never sets
-    `Mcp-Session-Id`.
+    Routed here when `MCP-Protocol-Version` names a modern revision; the session manager
+    enters `app.lifespan` once at startup and passes the state in. Never sets `Mcp-Session-Id`.
     """
     request = Request(scope, receive)
 
@@ -217,8 +198,7 @@ async def handle_modern_request(
         return
 
     if request.method != "POST":
-        # HTTP-layer rejection (Allow accompanies 405 per RFC 9110) — happens
-        # before JSON-RPC parsing, so it doesn't go through `_write`.
+        # HTTP-layer rejection, before JSON-RPC parsing; Allow accompanies 405 per RFC 9110.
         await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
         return
 
@@ -237,13 +217,9 @@ async def handle_modern_request(
     try:
         req = JSONRPCRequest.model_validate(decoded)
     except ValidationError:
-        # Well-formed JSON that isn't a single request object. The transport
-        # spec permits notification POSTs and gives the server two responses
-        # (202 accept / 4xx cannot-accept; streamable-http §Sending Messages
-        # item 5). The core protocol defines no client→server notifications
-        # over HTTP at 2026-07-28 (cancellation is SSE-stream close), so this
-        # entry takes the cannot-accept branch. TODO(L57): S4 owns the
-        # strict-vs-lenient choice.
+        # Well-formed JSON but not a single request object. The spec permits notification POSTs
+        # (202 accept / 4xx cannot-accept; streamable-http §Sending Messages item 5), but 2026-07-28 has
+        # no client→server HTTP notifications (cancellation is SSE close) — reject. TODO(L57): strict-vs-lenient.
         rej = JSONRPCError(
             jsonrpc="2.0",
             id=None,
@@ -310,15 +286,12 @@ async def handle_modern_request(
                 done = True
 
         if done:
-            # Handler completed within the deferral window without emitting:
-            # `application/json` with the table-mapped status. Kernel-dispatch
-            # errors (METHOD_NOT_FOUND, missing-capability, INVALID_PARAMS)
-            # resolve here in practice.
+            # Completed within the deferral window without emitting: plain JSON with the
+            # table-mapped status, so the spec's 404/400 MUSTs hold for kernel-dispatch errors.
             await _write(result[0], scope, receive, send)
         else:
-            # First notification arrived, or the deferral window elapsed: commit
-            # `text/event-stream` and start pinging so a proxy idle-read timeout
-            # cannot close the stream (which on this path cancels the handler).
+            # First notification arrived or the window elapsed: commit `text/event-stream` and
+            # ping so a proxy idle-read timeout can't close the stream (which would cancel the handler).
             await send({"type": "http.response.start", "status": _OK_STATUS, "headers": _SSE_HEADERS})
             while not done:
                 await send({"type": "http.response.body", "body": event or b": ping\r\n\r\n", "more_body": True})

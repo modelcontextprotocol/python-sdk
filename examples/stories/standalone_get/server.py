@@ -18,8 +18,7 @@ def build_server() -> MCPServer:
         """Register a new resource and announce it via `notifications/resources/list_changed`."""
         name = f"note-{next(counter)}"
         mcp.add_resource(TextResource(uri=f"note://{name}", name=name, text=content))
-        # MCPServer does not auto-emit on add_resource; send explicitly. With no
-        # related_request_id this routes to the standalone GET stream.
+        # Not auto-emitted on add_resource; with no related_request_id this routes to the standalone GET stream.
         await ctx.session.send_resource_list_changed()
         return f"registered {name}"
 

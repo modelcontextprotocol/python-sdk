@@ -15,17 +15,14 @@ def build_server() -> MCPServer:
     def divide(a: float, b: float) -> float:
         """Divide a by b. Division by zero is an execution error the LLM should see."""
         if b == 0:
-            # ToolError is caught by the tool wrapper and returned as
-            # CallToolResult(is_error=True) — the LLM reads the message and can
-            # self-correct.
+            # ToolError becomes CallToolResult(is_error=True) — the LLM reads the message and can self-correct.
             raise ToolError("cannot divide by zero")
         return a / b
 
     @mcp.tool()
     def restricted() -> str:
         """A tool that always rejects the caller at the protocol level."""
-        # MCPError escapes the tool wrapper and becomes a JSON-RPC error
-        # response — the *host* sees code/message/data, not the LLM.
+        # MCPError escapes the tool wrapper as a JSON-RPC error — the host sees code/message/data, not the LLM.
         raise MCPError(code=INVALID_PARAMS, message="this tool is gated", data={"reason": "demo"})
 
     return mcp

@@ -1,8 +1,6 @@
 """Cursor pagination of the list operations against the low-level Server.
 
-The cursor is an opaque string chosen by the server: the suite only asserts that whatever the
-handler returns as next_cursor comes back verbatim on the client's next call, not any particular
-pagination scheme.
+Cursors are opaque: tests assert only that next_cursor round-trips verbatim, not any pagination scheme.
 """
 
 import mcp_types as types
@@ -30,9 +28,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("tools:list:pagination")
 async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> None:
-    """The next_cursor a list handler returns reaches the client, and the cursor the client sends
-    back on the following call reaches the handler verbatim.
-    """
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
@@ -61,7 +56,6 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
 @requirement("pagination:exhaustion")
 @requirement("tools:list:pagination")
 async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect: Connect) -> None:
-    """Following next_cursor until it is absent visits every page exactly once, in order."""
     pages: dict[str | None, tuple[str, str | None]] = {
         None: ("alpha", "page-2"),
         "page-2": ("beta", "page-3"),
@@ -94,12 +88,8 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect:
 
 @requirement("pagination:client:cursor-handling")
 async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(connect: Connect) -> None:
-    """The client passes a server-issued cursor back byte-for-byte and follows pages of varying sizes.
-
-    The cursors are deliberately base64-looking strings (with padding and URL-unsafe characters) to
-    show the client treats them as opaque tokens; the page sizes [3, 1, 2] show the loop relies only
-    on next_cursor, not on a fixed page size.
-    """
+    """The cursors are deliberately base64-looking (padding, URL-unsafe characters) and the page
+    sizes vary: the client must treat cursors as opaque and rely only on next_cursor."""
     cursor_to_page_2 = "YWxwaGE+YnJhdm8/Y2hhcmxpZQ=="
     cursor_to_page_3 = "ZGVsdGE="
     pages: dict[str | None, tuple[list[str], str | None]] = {
@@ -136,11 +126,8 @@ async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(
 
 @requirement("pagination:invalid-cursor")
 async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params(connect: Connect) -> None:
-    """A list request with a cursor the server did not issue is answered with -32602 Invalid params.
-
-    The lowlevel server does not validate cursors itself (they are opaque to it); rejecting an
-    unrecognized cursor is the handler's job, and this test pins the spec-recommended way to do it.
-    """
+    """The lowlevel server treats cursors as opaque, so rejecting an unrecognized one is the
+    handler's job; this pins the spec-recommended -32602 Invalid params response."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         assert params is not None
@@ -158,7 +145,6 @@ async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params
 
 @requirement("resources:list:pagination")
 async def test_resources_list_supports_cursor_pagination(connect: Connect) -> None:
-    """resources/list round-trips the cursor like every other list operation."""
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
@@ -186,7 +172,6 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
 
 @requirement("resources:templates:pagination")
 async def test_resource_templates_list_supports_cursor_pagination(connect: Connect) -> None:
-    """resources/templates/list round-trips the cursor like every other list operation."""
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 
@@ -219,7 +204,6 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
 
 @requirement("prompts:list:pagination")
 async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None:
-    """prompts/list round-trips the cursor like every other list operation."""
     cursor = "page-2"
     seen_cursors: list[str | None] = []
 

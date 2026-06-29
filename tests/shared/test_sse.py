@@ -84,9 +84,8 @@ async def _handle_read_resource(ctx: ServerRequestContext, params: ReadResourceR
 
 def make_app(server: Server) -> Starlette:
     """Mount `server` on a Starlette app exposing the SSE transport at /sse and /messages/."""
-    # DNS-rebinding protection validates Host/Origin headers against a network attack that cannot
-    # exist for an in-process app; the transport security behaviour itself is pinned by
-    # tests/server/test_sse_security.py.
+    # DNS-rebinding protection guards against an attack that cannot exist in-process; the
+    # behaviour itself is pinned by tests/server/test_sse_security.py.
     sse = SseServerTransport(
         "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
@@ -110,8 +109,6 @@ def make_server_app() -> Starlette:
 
 @pytest.mark.anyio
 async def test_raw_sse_connection() -> None:
-    """The SSE GET responds 200 with an event-stream content type, announcing the session
-    endpoint as its first event."""
     http_client = httpx.AsyncClient(
         transport=StreamingASGITransport(make_server_app(), cancel_on_close=False), base_url=BASE_URL
     )
@@ -128,7 +125,6 @@ async def test_raw_sse_connection() -> None:
 
 @pytest.mark.anyio
 async def test_sse_client_basic_connection() -> None:
-    """A client initializes against, and pings, a server over the SSE transport."""
     factory = in_process_client_factory(make_server_app())
     async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
         async with ClientSession(*streams) as session:
@@ -142,7 +138,6 @@ async def test_sse_client_basic_connection() -> None:
 
 @pytest.mark.anyio
 async def test_sse_client_on_session_created() -> None:
-    """The session-created callback receives the new session ID before sse_client yields."""
     factory = in_process_client_factory(make_server_app())
     captured: list[str] = []
 
@@ -169,13 +164,11 @@ async def test_sse_client_on_session_created() -> None:
     ],
 )
 def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
-    """The session ID is read from the endpoint URL's sessionId/session_id query parameters."""
     assert _extract_session_id_from_endpoint(endpoint_url) == expected
 
 
 @pytest.mark.anyio
 async def test_sse_client_on_session_created_not_called_when_no_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No session-created callback fires when the endpoint URL carries no session ID."""
     factory = in_process_client_factory(make_server_app())
     callback_mock = Mock()
 
@@ -188,8 +181,7 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(monke
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            # Callback would have fired by now (endpoint event arrives before
-            # sse_client yields); if it hasn't, it won't.
+            # The endpoint event arrives before sse_client yields, so the callback would have fired by now.
             callback_mock.assert_not_called()
 
 
@@ -206,7 +198,6 @@ async def initialized_sse_client_session() -> AsyncGenerator[ClientSession, None
 async def test_sse_client_happy_request_and_response(
     initialized_sse_client_session: ClientSession,
 ) -> None:
-    """A resource read round-trips its arguments and the handler's content over SSE."""
     session = initialized_sse_client_session
     response = await session.read_resource(uri="foobar://should-work")
     assert len(response.contents) == 1
@@ -218,7 +209,6 @@ async def test_sse_client_happy_request_and_response(
 async def test_sse_client_exception_handling(
     initialized_sse_client_session: ClientSession,
 ) -> None:
-    """A server-side MCPError reaches the client with its message intact."""
     session = initialized_sse_client_session
     with pytest.raises(MCPError, match="OOPS! no resource with that URI was found"):
         await session.read_resource(uri="xxx://will-not-work")
@@ -226,7 +216,6 @@ async def test_sse_client_exception_handling(
 
 @pytest.mark.anyio
 async def test_sse_client_basic_connection_mounted_app() -> None:
-    """The SSE transport works unchanged when its app is mounted under a sub-path."""
     main_app = Starlette(routes=[Mount("/mounted_app", app=make_server_app())])
     factory = in_process_client_factory(main_app)
 
@@ -291,7 +280,6 @@ def make_context_server_app() -> Starlette:
 
 @pytest.mark.anyio
 async def test_request_context_propagation() -> None:
-    """Custom HTTP headers on the SSE connection are visible to server handlers via ctx.request."""
     factory = in_process_client_factory(make_context_server_app())
 
     custom_headers = {
@@ -319,11 +307,9 @@ async def test_request_context_propagation() -> None:
 
 @pytest.mark.anyio
 async def test_request_context_isolation() -> None:
-    """Each SSE connection's handlers see only that connection's request headers."""
     factory = in_process_client_factory(make_context_server_app())
     contexts: list[dict[str, Any]] = []
 
-    # Connect three clients in turn, each with its own headers.
     for i in range(3):
         headers = {"X-Request-Id": f"request-{i}", "X-Custom-Value": f"value-{i}"}
 
@@ -346,14 +332,11 @@ async def test_request_context_isolation() -> None:
 
 
 def test_sse_message_id_coercion() -> None:
-    """Previously, the `RequestId` would coerce a string that looked like an integer into an integer.
+    """A string id that looks like an integer must not be coerced to one.
 
-    See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
-
-    As per the JSON-RPC 2.0 specification, the id in the response object needs to be the same type as the id in the
-    request object. In other words, we can't perform the coercion.
-
-    See <https://www.jsonrpc.org/specification#response_object> for more details.
+    JSON-RPC 2.0 requires the response id to match the request id's type
+    (https://www.jsonrpc.org/specification#response_object). Regression test for
+    https://github.com/modelcontextprotocol/python-sdk/pull/851.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
     msg = types.JSONRPCRequest.model_validate_json(json_message)
@@ -367,11 +350,9 @@ def test_sse_message_id_coercion() -> None:
 @pytest.mark.parametrize(
     "endpoint, expected_result",
     [
-        # Valid endpoints - should normalize and work
         ("/messages/", "/messages/"),
         ("messages/", "/messages/"),
         ("/", "/"),
-        # Invalid endpoints - should raise ValueError
         ("http://example.com/messages/", ValueError),
         ("//example.com/messages/", ValueError),
         ("ftp://example.com/messages/", ValueError),
@@ -380,13 +361,10 @@ def test_sse_message_id_coercion() -> None:
     ],
 )
 def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]) -> None:
-    """Test that SseServerTransport properly validates and normalizes endpoints."""
     if isinstance(expected_result, type):
-        # Test invalid endpoints that should raise an exception
         with pytest.raises(expected_result, match="is not a relative path.*expecting a relative path"):
             SseServerTransport(endpoint)
     else:
-        # Test valid endpoints that should normalize correctly
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
         assert sse._endpoint.startswith("/")
@@ -394,16 +372,11 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
 
 @pytest.mark.anyio
 async def test_sse_client_handles_empty_keepalive_pings() -> None:
-    """Test that SSE client properly handles empty data lines (keep-alive pings).
+    """Empty-data SSE events (keep-alive pings) are skipped without crashing.
 
-    Per the MCP spec (Streamable HTTP transport): "The server SHOULD immediately
-    send an SSE event consisting of an event ID and an empty data field in order
-    to prime the client to reconnect."
-
-    This test mocks the SSE event stream to include empty "message" events and
-    verifies the client skips them without crashing.
+    The MCP spec (Streamable HTTP transport) says servers SHOULD send an event with an empty
+    data field to prime the client to reconnect, so the reader must tolerate them.
     """
-    # Build a proper JSON-RPC response using types (not hardcoded strings)
     init_result = InitializeResult(
         protocol_version="2024-11-05",
         capabilities=ServerCapabilities(),
@@ -416,13 +389,10 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     )
     response_json = response.model_dump_json(by_alias=True, exclude_none=True)
 
-    # Create mock SSE events using httpx_sse's ServerSentEvent
     async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
-        # First: endpoint event
         yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
-        # Empty data keep-alive ping - this is what we're testing
+        # The empty-data keep-alive ping under test
         yield ServerSentEvent(event="message", data="")
-        # Real JSON-RPC response
         yield ServerSentEvent(event="message", data=response_json)
 
     mock_event_source = MagicMock()
@@ -444,9 +414,8 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
         patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse),
     ):
         async with sse_client("http://test/sse") as (read_stream, _):
-            # Read the message - should skip the empty one and get the real response
+            # The empty event is skipped; the first received message is the real response.
             msg = await read_stream.receive()
-            # If we get here without error, the empty message was skipped successfully
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message, types.JSONRPCResponse)
             assert msg.message.id == 1
@@ -454,25 +423,20 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
 
 @pytest.mark.anyio
 async def test_sse_session_cleanup_on_disconnect() -> None:
-    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1227
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1227.
 
-    When a client disconnects, the server should remove the session from
-    _read_stream_writers. Without this cleanup, stale sessions accumulate and
-    POST requests to disconnected sessions return 202 Accepted followed by a
-    ClosedResourceError when the server tries to write to the dead stream.
+    Disconnect must remove the session from _read_stream_writers; otherwise stale sessions
+    accumulate and POSTs to them return 202 Accepted, then ClosedResourceError on write.
     """
     factory = in_process_client_factory(make_server_app())
     captured: list[str] = []
 
-    # Connect a client session, then disconnect
     async with sse_client(
         f"{BASE_URL}/sse", httpx_client_factory=factory, on_session_created=captured.append
     ) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
 
-    # After disconnect, POST to the stale session should return 404
-    # (not 202 as it did before the fix)
     async with factory() as client:
         response = await client.post(
             f"/messages/?session_id={captured[0]}",

@@ -1,7 +1,4 @@
-"""Shared validation functions for server requests.
-
-This module provides validation logic for sampling and elicitation requests.
-"""
+"""Shared validation for sampling and elicitation requests."""
 
 from mcp_types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
 
@@ -9,14 +6,7 @@ from mcp.shared.exceptions import MCPError
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:
-    """Check if the client supports sampling tools capability.
-
-    Args:
-        client_caps: The client's declared capabilities
-
-    Returns:
-        True if client supports sampling.tools, False otherwise
-    """
+    """Return True if the client declares the `sampling.tools` capability."""
     if client_caps is None:
         return False
     if client_caps.sampling is None:
@@ -31,15 +21,10 @@ def validate_sampling_tools(
     tools: list[Tool] | None,
     tool_choice: ToolChoice | None,
 ) -> None:
-    """Validate that the client supports sampling tools if tools are being used.
-
-    Args:
-        client_caps: The client's declared capabilities
-        tools: The tools list, if provided
-        tool_choice: The tool choice setting, if provided
+    """Validate that the client supports sampling tools when tools are being used.
 
     Raises:
-        MCPError: If tools/tool_choice are provided but client doesn't support them
+        MCPError: If `tools` or `tool_choice` is provided but the client lacks `sampling.tools`.
     """
     if tools is not None or tool_choice is not None:
         if not check_sampling_tools_capability(client_caps):
@@ -49,18 +34,12 @@ def validate_sampling_tools(
 def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
     """Validate tool_use/tool_result message structure per SEP-1577.
 
-    This validation ensures:
-    1. Messages with tool_result content contain ONLY tool_result content
-    2. tool_result messages are preceded by a message with tool_use
-    3. tool_result IDs match the tool_use IDs from the previous message
-
-    See: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577
-
-    Args:
-        messages: The list of sampling messages to validate
+    A message with tool_result content must contain only tool_result blocks, follow a
+    message containing tool_use, and reference exactly that message's tool_use IDs.
+    See https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577.
 
     Raises:
-        ValueError: If the message structure is invalid
+        ValueError: If the message structure is invalid.
     """
     if not messages:
         return
@@ -72,8 +51,7 @@ def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
     has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
 
     if has_tool_results:
-        # Per spec: "SamplingMessage with tool result content blocks
-        # MUST NOT contain other content types."
+        # Spec: a SamplingMessage with tool_result blocks MUST NOT contain other content types.
         if any(c.type != "tool_result" for c in last_content):
             raise ValueError("The last message must contain only tool_result content if any is present")
         if previous_content is None:

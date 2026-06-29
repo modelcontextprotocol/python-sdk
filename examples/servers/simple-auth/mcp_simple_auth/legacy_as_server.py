@@ -1,11 +1,7 @@
-"""Legacy Combined Authorization Server + Resource Server for MCP.
+"""Legacy combined Authorization Server + Resource Server for MCP.
 
-This server implements the old spec where MCP servers could act as both AS and RS.
-Used for backwards compatibility testing with the new split AS/RS architecture.
-
-NOTE: this is a simplified example for demonstration purposes.
-This is not a production-ready implementation.
-
+Implements the pre-split spec where one server acts as both AS and RS,
+for backwards compatibility testing. Simplified demo, not production-ready.
 """
 
 import datetime
@@ -29,7 +25,6 @@ logger = logging.getLogger(__name__)
 class ServerSettings(BaseModel):
     """Settings for the simple auth MCP server."""
 
-    # Server settings
     host: str = "localhost"
     port: int = 8000
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8000")
@@ -57,7 +52,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
             default_scopes=[auth_settings.mcp_scope],
         ),
         required_scopes=[auth_settings.mcp_scope],
-        # No resource_server_url parameter in legacy mode
+        # Legacy combined AS/RS mode: no separate resource server URL
         resource_server_url=None,
     )
 
@@ -86,11 +81,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """Get the current server time.
-
-        This tool demonstrates that system information can be protected
-        by OAuth authentication. User must be authenticated to access it.
-        """
+        """Get the current server time (requires OAuth authentication)."""
 
         now = datetime.datetime.now()
 
@@ -117,7 +108,6 @@ def main(port: int, transport: Literal["sse", "streamable-http"]) -> int:
     logging.basicConfig(level=logging.INFO)
 
     auth_settings = SimpleAuthSettings()
-    # Create server settings
     host = "localhost"
     server_url = f"http://{host}:{port}"
     server_settings = ServerSettings(

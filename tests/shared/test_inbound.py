@@ -1,8 +1,6 @@
-"""Pure-function tests of :mod:`mcp.shared.inbound`.
+"""Pure-function tests of `mcp.shared.inbound`.
 
-Independent verifier of the classifier: every ladder rung is exercised
-pass+fail with no `mcp.server` / transport imports and no inlined error-code
-or protocol-version literals — all facts are imported from their one source.
+Every rung exercised pass+fail; no transport imports, no inlined error-code or version literals.
 """
 
 import dataclasses
@@ -55,11 +53,7 @@ def envelope(
     drop: frozenset[str] = frozenset(),
     extra_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a JSON-RPC body carrying a complete modern `_meta` envelope.
-
-    `drop` removes named envelope keys so rung-1 failures are driven from one
-    table instead of repeating reserved-key constants per call site.
-    """
+    """Build a JSON-RPC body with a complete modern `_meta` envelope; `drop` removes keys for rung-1 cases."""
     meta: dict[str, Any] = {
         PROTOCOL_VERSION_META_KEY: version,
         CLIENT_INFO_META_KEY: CLIENT_INFO,
@@ -74,7 +68,6 @@ def envelope(
 
 
 def matching_headers(body: dict[str, Any]) -> dict[str, str]:
-    """The minimal lowercase HTTP header set that agrees with `body` for rung 2."""
     headers = {
         MCP_PROTOCOL_VERSION_HEADER: body["params"]["_meta"][PROTOCOL_VERSION_META_KEY],
         MCP_METHOD_HEADER: body["method"],
@@ -89,9 +82,6 @@ def assert_rejected(result: object, code: int) -> InboundLadderRejection:
     assert isinstance(result, InboundLadderRejection)
     assert result.code == code
     return result
-
-
-# --- rung 1: envelope-three-keys -----------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -125,9 +115,6 @@ def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
     assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
 
 
-# --- rung 2: protocol-version-supported ----------------------------------------
-
-
 def test_version_rung_rejects_unsupported_with_data_shape() -> None:
     """Spec-mandated: an envelope version outside the modern set rejects with the `supported`/`requested` data."""
     rejection = assert_rejected(
@@ -148,9 +135,6 @@ def test_version_rung_data_reflects_supplied_supported_list() -> None:
         UNSUPPORTED_PROTOCOL_VERSION,
     )
     assert rejection.data == {"supported": list(custom), "requested": LATEST_MODERN_VERSION}
-
-
-# --- rung 3: header ↔ envelope agreement ---------------------------------------
 
 
 def test_header_rung_does_not_reject_when_headers_arg_is_none() -> None:
@@ -212,9 +196,7 @@ def test_header_rung_rejects_missing_or_mismatched_name_header_for_name_bearing_
     """Spec-mandated: when the body carries the named param, `Mcp-Name` must be present and equal it."""
     body = envelope(method, extra_params={name_key: "expected"})
     headers = matching_headers(body)
-    # Mismatch
     assert_rejected(classify_inbound_request(body, headers=headers | {MCP_NAME_HEADER: "wrong"}), HEADER_MISMATCH)
-    # Absent
     del headers[MCP_NAME_HEADER]
     assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
 
@@ -241,9 +223,6 @@ def test_header_rung_does_not_require_name_header_when_body_omits_the_named_para
     body = envelope("tools/call")
     result = classify_inbound_request(body, headers=matching_headers(body))
     assert isinstance(result, InboundModernRoute)
-
-
-# --- all rungs pass ------------------------------------------------------------
 
 
 def test_all_rungs_pass_yields_route() -> None:
@@ -273,9 +252,6 @@ def test_ladder_first_failure_wins() -> None:
     assert_rejected(result, HEADER_MISMATCH)
 
 
-# --- ERROR_CODE_HTTP_STATUS ----------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("code", "status"),
     [
@@ -299,9 +275,6 @@ def test_error_code_http_status_covers_every_ladder_code() -> None:
     assert ladder_codes <= ERROR_CODE_HTTP_STATUS.keys()
 
 
-# --- shape invariants ----------------------------------------------------------
-
-
 def test_verdict_dataclasses_are_frozen() -> None:
     """SDK-defined: both verdict dataclasses are frozen so a route/rejection cannot be mutated after classification."""
     route = classify_inbound_request(envelope())
@@ -310,9 +283,6 @@ def test_verdict_dataclasses_are_frozen() -> None:
     for verdict in (route, rejection):
         with pytest.raises(dataclasses.FrozenInstanceError):
             setattr(verdict, "message", "mutated")
-
-
-# --- header-value codec --------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -336,15 +306,9 @@ def test_decode_header_value_returns_none_for_malformed_sentinel(bad: str) -> No
     assert decode_header_value(bad) is None
 
 
-# --- NAME_BEARING_METHODS ------------------------------------------------------
-
-
 def test_name_bearing_methods_table_matches_spec() -> None:
     """Spec-mandated: pins the method → name-param table the client emit and server validate share."""
     assert NAME_BEARING_METHODS == {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
-
-
-# --- find_invalid_x_mcp_header -------------------------------------------------
 
 
 def _schema(**props: Any) -> dict[str, Any]:
@@ -461,7 +425,6 @@ def test_find_invalid_x_mcp_header_rejects_malformed_annotations(input_schema: d
     assert isinstance(find_invalid_x_mcp_header(input_schema), str)
 
 
-# Keyword → a value of that keyword's own JSON Schema shape carrying an annotated subschema.
 # Deliberately a literal table, independent of the `_SUBSCHEMA_*` sets in `inbound.py`:
 # dropping a keyword from the walk must FAIL its case here, not shrink the parametrization.
 _ANNOTATED = {"type": "string", "x-mcp-header": "Region"}
@@ -509,11 +472,7 @@ def test_find_invalid_x_mcp_header_reports_dotted_path_for_nested_property() -> 
     assert reason is not None and "'outer.r'" in reason
 
 
-# --- x_mcp_header_map ----------------------------------------------------------
-
-
 def test_x_mcp_header_map_keys_top_level_and_nested_properties_by_path() -> None:
-    """Each annotated property maps to its token under its full `properties` path; unannotated props are absent."""
     schema = _schema(
         region={"type": "string", "x-mcp-header": "Region"},
         query={"type": "string"},
@@ -527,11 +486,7 @@ def test_x_mcp_header_map_empty_for_schemas_without_annotations(input_schema: An
     assert x_mcp_header_map(input_schema) == {}
 
 
-# --- mcp_param_headers ---------------------------------------------------------
-
-
 def test_mcp_param_headers_renders_primitive_types_per_spec() -> None:
-    """String verbatim, integer as decimal, boolean as lowercase `true`/`false`, header named `Mcp-Param-<token>`."""
     header_map = {("region",): "Region", ("priority",): "Priority", ("verbose",): "Verbose", ("debug",): "Debug"}
     arguments = {"region": "us-west1", "priority": 42, "verbose": False, "debug": True}
     assert mcp_param_headers(header_map, arguments) == {
@@ -553,24 +508,21 @@ def test_mcp_param_headers_renders_primitive_types_per_spec() -> None:
     ],
 )
 def test_mcp_param_headers_base64_wraps_header_unsafe_strings(value: str, encoded: str) -> None:
-    """Matches the spec's Value Encoding table: a non-header-safe string is base64-sentinel wrapped."""
+    """Pins the spec's Value Encoding table."""
     assert mcp_param_headers({("v",): "Val"}, {"v": value}) == {"Mcp-Param-Val": encoded}
 
 
 def test_mcp_param_headers_omits_absent_or_null_arguments() -> None:
-    """A path that hits a missing key or a `None` value emits no header (spec: omit when no value is present)."""
     header_map = {("present",): "Present", ("missing",): "Missing", ("nulled",): "Nulled"}
     assert mcp_param_headers(header_map, {"present": "x", "nulled": None}) == {"Mcp-Param-Present": "x"}
 
 
 def test_mcp_param_headers_reads_nested_argument_path() -> None:
-    """A nested annotated property reads its value at the matching nested `arguments` path."""
     headers = mcp_param_headers({("outer", "inner"): "Inner"}, {"outer": {"inner": "deep"}})
     assert headers == {"Mcp-Param-Inner": "deep"}
 
 
 def test_mcp_param_headers_omits_when_nested_path_is_broken() -> None:
-    """A nested path through a non-mapping or missing intermediate node yields no header."""
     header_map = {("outer", "inner"): "Inner"}
     assert mcp_param_headers(header_map, {"outer": "not-a-mapping"}) == {}
     assert mcp_param_headers(header_map, {}) == {}

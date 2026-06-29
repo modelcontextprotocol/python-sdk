@@ -1,5 +1,3 @@
-"""Test that parameter descriptions are properly exposed through list_tools"""
-
 import pytest
 from pydantic import Field
 
@@ -22,7 +20,6 @@ async def test_parameter_descriptions():
     assert len(tools) == 1
     tool = tools[0]
 
-    # Check that parameter descriptions are present in the schema
     properties = tool.input_schema["properties"]
     assert "name" in properties
     assert properties["name"]["description"] == "The name to greet"

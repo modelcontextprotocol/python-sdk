@@ -1,10 +1,8 @@
-"""This module defines the types for the MCP protocol.
+"""Types for the MCP protocol.
 
-Check the latest schema at:
-https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.json
+Schema: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.json
 """
 
-# Re-export everything from _types for backward compatibility
 from mcp_types._types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -195,8 +193,6 @@ from mcp_types._types import (
     server_request_adapter,
     server_result_adapter,
 )
-
-# Re-export JSONRPC types
 from mcp_types.jsonrpc import (
     CONNECTION_CLOSED,
     HEADER_MISMATCH,
@@ -222,15 +218,12 @@ from mcp_types.jsonrpc import (
 from mcp_types.version import LATEST_PROTOCOL_VERSION
 
 __all__ = [
-    # Protocol version constants
     "LATEST_PROTOCOL_VERSION",
     "DEFAULT_NEGOTIATED_VERSION",
-    # Reserved request _meta keys
     "PROTOCOL_VERSION_META_KEY",
     "CLIENT_INFO_META_KEY",
     "CLIENT_CAPABILITIES_META_KEY",
     "LOG_LEVEL_META_KEY",
-    # Type aliases and variables
     "ContentBlock",
     "ElicitRequestedSchema",
     "ElicitRequestParams",
@@ -247,7 +240,6 @@ __all__ = [
     "SamplingMessageContentBlock",
     "StopReason",
     "TaskStatus",
-    # Base classes
     "BaseMetadata",
     "Request",
     "Notification",
@@ -261,7 +253,6 @@ __all__ = [
     "PaginatedResult",
     "CacheableResult",
     "EmptyResult",
-    # Capabilities
     "ClientCapabilities",
     "ClientTasksCapability",
     "ClientTasksRequestsCapability",
@@ -288,7 +279,6 @@ __all__ = [
     "TasksToolsCapability",
     "ToolsCapability",
     "UrlElicitationCapability",
-    # Content types
     "Annotations",
     "AudioContent",
     "BlobResourceContents",
@@ -302,7 +292,6 @@ __all__ = [
     "TextResourceContents",
     "ToolResultContent",
     "ToolUseContent",
-    # Entity types
     "Completion",
     "CompletionArgument",
     "CompletionContext",
@@ -326,7 +315,6 @@ __all__ = [
     "ToolAnnotations",
     "ToolChoice",
     "ToolExecution",
-    # Requests
     "CallToolRequest",
     "CallToolRequestParams",
     "CompleteRequest",
@@ -364,7 +352,6 @@ __all__ = [
     "SubscriptionsListenRequestParams",
     "UnsubscribeRequest",
     "UnsubscribeRequestParams",
-    # Results
     "CallToolResult",
     "CancelTaskResult",
     "CompleteResult",
@@ -387,10 +374,8 @@ __all__ = [
     "ListToolsResult",
     "ReadResourceResult",
     "SubscriptionsListenResult",
-    # Error data payloads
     "MissingRequiredClientCapabilityErrorData",
     "UnsupportedProtocolVersionErrorData",
-    # Notifications
     "CancelledNotification",
     "CancelledNotificationParams",
     "ElicitCompleteNotification",
@@ -410,21 +395,18 @@ __all__ = [
     "TaskStatusNotification",
     "TaskStatusNotificationParams",
     "ToolListChangedNotification",
-    # Union types for request/response routing
     "ClientNotification",
     "ClientRequest",
     "ClientResult",
     "ServerNotification",
     "ServerRequest",
     "ServerResult",
-    # Type adapters
     "client_notification_adapter",
     "client_request_adapter",
     "client_result_adapter",
     "server_notification_adapter",
     "server_request_adapter",
     "server_result_adapter",
-    # JSON-RPC types
     "CONNECTION_CLOSED",
     "HEADER_MISMATCH",
     "INTERNAL_ERROR",

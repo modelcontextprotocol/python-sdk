@@ -8,8 +8,7 @@ from stories._harness import Target, run_client
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # `message_handler` is constructor-only on `Client`, so the event it sets
-    # has to exist before the connection does.
+    # `message_handler` is constructor-only on `Client`, so the event it sets must exist before the connection does.
     received: list[types.ResourceListChangedNotification] = []
     seen = anyio.Event()
 
@@ -25,8 +24,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         result = await client.call_tool("add_note", {"content": "hello"})
         assert not result.is_error, result
 
-        # The notification rides the standalone GET stream, not the call's POST stream —
-        # delivery order vs the tool result is not guaranteed, so wait.
+        # The notification arrives on the standalone GET stream, so its order vs the tool result is not guaranteed.
         with anyio.fail_after(5):
             await seen.wait()
         assert len(received) == 1, received

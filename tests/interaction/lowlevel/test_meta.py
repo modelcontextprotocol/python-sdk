@@ -1,8 +1,7 @@
 """Request and result _meta round trips against the low-level Server, through the public Client API.
 
-Meta is opaque pass-through data, so these tests assert identity against the value that was sent
-rather than snapshotting a literal: the expected value and the sent value are the same variable,
-which also proves the SDK injected nothing alongside it.
+Meta is opaque pass-through, so tests assert identity against the value that was sent: expected
+and sent are the same variable, which also proves the SDK injected nothing alongside it.
 """
 
 import mcp_types as types
@@ -18,7 +17,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("meta:request-to-handler")
 async def test_request_meta_reaches_handler(connect: Connect) -> None:
-    """The _meta object the client attaches to a request arrives at the tool handler unchanged."""
     request_meta: RequestParamsMeta = {"example.com/trace": "abc-123"}
     observed_metas: list[dict[str, object]] = []
 
@@ -43,7 +41,6 @@ async def test_request_meta_reaches_handler(connect: Connect) -> None:
 
 @requirement("meta:result-to-client")
 async def test_result_meta_reaches_client(connect: Connect) -> None:
-    """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}
 
     async def list_tools(

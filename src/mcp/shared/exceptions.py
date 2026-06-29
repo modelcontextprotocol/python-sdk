@@ -6,12 +6,9 @@ from mcp_types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestUR
 
 
 class MCPDeprecationWarning(UserWarning):
-    """A custom deprecation warning for the MCP SDK.
+    """Deprecation warning for the MCP SDK.
 
-    Unlike the built-in `DeprecationWarning`, this inherits from `UserWarning` so
-    it is shown by default, helping users discover deprecated features without
-    enabling warnings explicitly.
-
+    Inherits from `UserWarning` rather than `DeprecationWarning` so it is shown by default.
     Reference: https://sethmlarson.dev/deprecations-via-warnings-dont-work-for-python-libraries
     """
 
@@ -55,10 +52,8 @@ class MCPError(Exception):
 class NoBackChannelError(MCPError):
     """Raised when sending a server-initiated request over a transport that cannot deliver it.
 
-    Stateless HTTP and JSON-response-mode HTTP have no channel for the server to
-    push requests (sampling, elicitation, roots/list) to the client. This is
-    raised by `DispatchContext.send_raw_request` when `can_send_request` is
-    `False`, and serializes to an `INVALID_REQUEST` error response.
+    Stateless and JSON-response-mode HTTP cannot push server requests (sampling,
+    elicitation, roots/list) to the client; serializes to an `INVALID_REQUEST` error.
     """
 
     def __init__(self, method: str):
@@ -72,25 +67,12 @@ class NoBackChannelError(MCPError):
 
 
 class UrlElicitationRequiredError(MCPError):
-    """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
+    """Raised by tool handlers when the client must complete URL elicitation(s) before proceeding.
 
-    Servers can raise this error from tool handlers to indicate that the client
-    must complete one or more URL elicitations before the request can be processed.
-
-    Example:
-        ```python
-        raise UrlElicitationRequiredError([
-            ElicitRequestURLParams(
-                message="Authorization required for your files",
-                url="https://example.com/oauth/authorize",
-                elicitation_id="auth-001"
-            )
-        ])
-        ```
+    Serializes to a `URL_ELICITATION_REQUIRED` error with the elicitations in `data`.
     """
 
     def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):
-        """Initialize UrlElicitationRequiredError."""
         if message is None:
             message = f"URL elicitation{'s' if len(elicitations) > 1 else ''} required"
 

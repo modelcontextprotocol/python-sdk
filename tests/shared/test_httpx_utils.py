@@ -1,12 +1,9 @@
-"""Tests for httpx utility functions."""
-
 import httpx
 
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 
 def test_default_settings():
-    """Test that default settings are applied correctly."""
     client = create_mcp_http_client()
 
     assert client.follow_redirects is True
@@ -14,7 +11,6 @@ def test_default_settings():
 
 
 def test_custom_parameters():
-    """Test custom headers and timeout are set correctly."""
     headers = {"Authorization": "Bearer token"}
     timeout = httpx.Timeout(60.0)
 

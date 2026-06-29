@@ -1,9 +1,5 @@
-"""Tests for `ClientPeer`.
-
-Each typed method is tested by wrapping a `DirectDispatcher` in `ClientPeer`,
-calling it, and asserting (a) the right method+params went out and (b) the
-return value is the typed result model.
-"""
+"""Tests for `ClientPeer`: each typed method wraps a `DirectDispatcher`, asserting the
+outgoing method+params and the typed result model."""
 
 from collections.abc import Mapping
 from typing import Any
@@ -60,8 +56,7 @@ async def test_peer_sample_sends_create_message_and_returns_typed_result():
 
 @pytest.mark.anyio
 async def test_peer_sample_validates_result_alias_only():
-    """Peer results validate alias-only; a snake_case key from the wire is
-    ignored as extra, not populated by Python field name."""
+    """A snake_case key from the wire is ignored as extra, not matched by Python field name."""
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     rec = _Recorder(snake)
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
@@ -166,11 +161,9 @@ def test_dump_params_merges_meta_over_model_meta():
 
 
 def test_dump_params_serializes_meta_by_alias():
-    """`progress_token` (the Python key an inbound `ctx.meta` carries) emits
-    its wire alias `progressToken`; undeclared keys pass through unchanged."""
+    """`progress_token` (the Python key an inbound `ctx.meta` carries) emits its wire alias `progressToken`."""
     out = dump_params(None, {"progress_token": 7, "traceparent": "00-abc"})
     assert out == {"_meta": {"progressToken": 7, "traceparent": "00-abc"}}
-    # The wire spelling is already canonical and survives as-is.
     out = dump_params(None, {"progressToken": "tok"})
     assert out == {"_meta": {"progressToken": "tok"}}
 

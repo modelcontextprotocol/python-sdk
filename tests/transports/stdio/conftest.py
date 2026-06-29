@@ -1,9 +1,4 @@
-"""Fixtures for the stdio lifecycle suite.
-
-Provides recording seams around `stdio_client`'s spawn and tree-termination
-internals (the real implementations still run), plus a teardown that keeps a
-crashed test from orphaning its sleep-forever subprocesses.
-"""
+"""Recording-seam fixtures around `stdio_client`'s spawn and tree-termination internals."""
 
 import os
 import signal
@@ -27,9 +22,8 @@ def spawned_processes(
 ) -> Generator[list[anyio.abc.Process | FallbackProcess]]:
     """Record every process `stdio_client` spawns; the real spawn still runs.
 
-    Teardown SIGKILLs each spawn-time process group on POSIX: the safety net for a
-    test that dies mid-body and the reaper for deliberate survivors. On Windows
-    there is no group to signal (the Job Object covers strays).
+    Teardown SIGKILLs each POSIX spawn group (crash safety net + reaper for deliberate survivors);
+    on Windows the Job Object covers strays.
     """
     spawned: list[anyio.abc.Process | FallbackProcess] = []
 
@@ -51,10 +45,9 @@ def spawned_processes(
 
 @pytest.fixture
 def terminate_calls(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc.Process | FallbackProcess]:
-    """Record every invocation of `stdio_client`'s tree-termination seam; the real termination still runs.
+    """Record calls to `stdio_client`'s tree-termination seam; the real termination still runs.
 
-    An empty list after the context exits proves the graceful path: a FIN looks the
-    same whether the peer exited on stdin closure or was killed.
+    Empty after context exit proves the graceful path: a FIN looks the same whether the peer exited or was killed.
     """
     terminated: list[anyio.abc.Process | FallbackProcess] = []
 

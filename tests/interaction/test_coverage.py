@@ -1,10 +1,8 @@
-"""Enforces the contract between the requirements manifest and the test suite.
+"""Enforces the two-way contract between the requirements manifest and the test suite.
 
-The contract runs in both directions: every non-deferred entry in :data:`REQUIREMENTS` must be
-exercised by at least one test, and every test in the suite must carry at least one
-`@requirement(...)` mark referencing a manifest entry. Deferral reasons that point at coverage
-elsewhere in the repo must point at paths that exist. Test modules are imported directly
-(rather than relying on pytest collection) so the check holds even when only this file is run.
+Every non-deferred REQUIREMENTS entry must be exercised by at least one test, and every test must
+carry a `@requirement` mark. Test modules are imported directly (not via pytest collection) so the
+check holds even when only this file is run.
 """
 
 import importlib
@@ -41,8 +39,7 @@ _REPO_ROOT = _SUITE_ROOT.parent.parent
 # Repo paths cited inside deferral reasons ("Covered by tests/... ").
 _CITED_PATH = re.compile(r"(?:tests|src)/[\w./-]*\w")
 
-# Tests that exercise the suite's own helpers rather than an interaction-model behaviour.
-# Anything listed here is exempt from the every-test-has-a-requirement check.
+# Tests of the suite's own helpers — exempt from the every-test-has-a-requirement check.
 _HARNESS_SELF_TESTS = {
     "tests.interaction.lowlevel.test_wire.test_recording_read_stream_ends_iteration_when_the_sender_closes",
     "tests.interaction.transports.test_bridge.test_response_chunks_arrive_as_the_application_sends_them",
@@ -65,7 +62,6 @@ def _import_all_test_modules() -> list[ModuleType]:
 
 
 def test_every_requirement_is_exercised() -> None:
-    """Each non-deferred requirement is covered by at least one test (deferred ones by none)."""
     _import_all_test_modules()
 
     uncovered = [
@@ -84,7 +80,6 @@ def test_every_requirement_is_exercised() -> None:
 
 
 def test_every_test_exercises_a_requirement() -> None:
-    """Each test in the suite carries at least one `@requirement` mark (harness self-tests excepted)."""
     all_tests = {
         f"{module.__name__}.{name}"
         for module in _import_all_test_modules()
@@ -101,7 +96,6 @@ def test_every_test_exercises_a_requirement() -> None:
 
 
 def test_deferral_reasons_cite_existing_paths() -> None:
-    """Every repo path named in a deferral reason exists, so coverage pointers cannot rot."""
     missing = sorted(
         f"{requirement_id}: {cited}"
         for requirement_id, spec in REQUIREMENTS.items()
@@ -113,7 +107,6 @@ def test_deferral_reasons_cite_existing_paths() -> None:
 
 
 def test_spec_versions_are_known_and_include_latest() -> None:
-    """Every active spec version is one the SDK knows about, and the SDK's latest is on the active axis."""
     assert set(SPEC_VERSIONS) <= set(KNOWN_PROTOCOL_VERSIONS)
     assert LATEST_PROTOCOL_VERSION in SPEC_VERSIONS
 
@@ -125,12 +118,10 @@ def test_spec_base_urls_are_pinned_to_their_revision() -> None:
 
 
 def test_connectable_transports_match_connect_factories() -> None:
-    """CONNECTABLE_TRANSPORTS and the conftest factory map name exactly the same transports."""
     assert set(CONNECTABLE_TRANSPORTS) == set(_FACTORIES)
 
 
 def test_supersession_links_are_symmetric_and_versioned() -> None:
-    """``supersedes``/``superseded_by`` reference real entries, agree in both directions, and carry version bounds."""
     broken = [
         f"{req_id} -> {target}"
         for req_id, req in REQUIREMENTS.items()
@@ -148,7 +139,6 @@ def test_supersession_links_are_symmetric_and_versioned() -> None:
 
 
 def test_removed_entry_has_disposition() -> None:
-    """Every retired requirement carries either a forward link or a prose note explaining the retirement."""
     undisposed = [
         req_id
         for req_id, req in REQUIREMENTS.items()
@@ -158,17 +148,13 @@ def test_removed_entry_has_disposition() -> None:
 
 
 def test_transport_restriction_has_note() -> None:
-    """Every transport-restricted requirement carries a note explaining why it is transport-specific."""
     missing = [req_id for req_id, req in REQUIREMENTS.items() if req.transports is not None and req.note is None]
     assert not missing, f"Requirements with transports= but no note: {missing}"
 
 
 def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
-    """Every arm exclusion names a connectable transport (or wildcards).
-
-    spec_version is type-checked against the SpecVersion Literal and may reference a version not yet
-    on the active SPEC_VERSIONS axis, so pre-staged exclusions for an upcoming revision are permitted.
-    """
+    # spec_version is unchecked here: the SpecVersion Literal type-checks it, and it may pre-stage
+    # an exclusion for a revision not yet on the active SPEC_VERSIONS axis.
     unreachable = [
         f"{req_id}: {exclusion}"
         for req_id, req in REQUIREMENTS.items()
@@ -179,11 +165,8 @@ def test_every_arm_exclusion_targets_a_reachable_cell() -> None:
 
 
 def test_every_known_failure_targets_a_reachable_cell() -> None:
-    """Every known failure names a connectable transport (or wildcards).
-
-    spec_version is type-checked against the SpecVersion Literal and may reference a version not yet
-    on the active SPEC_VERSIONS axis, so pre-staged exclusions for an upcoming revision are permitted.
-    """
+    # spec_version is unchecked here: the SpecVersion Literal type-checks it, and it may pre-stage
+    # a failure for a revision not yet on the active SPEC_VERSIONS axis.
     unreachable = [
         f"{req_id}: {failure}"
         for req_id, req in REQUIREMENTS.items()
@@ -194,55 +177,46 @@ def test_every_known_failure_targets_a_reachable_cell() -> None:
 
 
 def test_unknown_requirement_id_is_rejected() -> None:
-    """Marking a test with an ID that is not in the manifest fails at decoration time."""
     with pytest.raises(KeyError, match="Unknown requirement id 'tools:call:does-not-exist'"):
         requirement("tools:call:does-not-exist")
 
 
 def test_invalid_requirement_source_is_rejected() -> None:
-    """A requirement whose source is not a spec URL, 'sdk', or an issue reference fails at construction."""
     with pytest.raises(ValueError, match="source must be a specification URL"):
         Requirement(source="https://example.com/not-the-spec", behavior="Never constructed.")
 
 
 def test_arm_exclusion_with_unknown_spec_version_is_rejected() -> None:
-    """An arm exclusion naming a spec version outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
     with pytest.raises(ValueError, match="is not in KNOWN_PROTOCOL_VERSIONS"):
         ArmExclusion(reason="requires-session", spec_version=cast("SpecVersion", "2099-01-01"))
 
 
 def test_known_failure_with_empty_note_is_rejected() -> None:
-    """A known failure with a blank note fails at construction."""
     with pytest.raises(ValueError, match="note must be non-empty"):
         KnownFailure(note="   ")
 
 
 def test_known_failure_with_unknown_spec_version_is_rejected() -> None:
-    """A known failure naming a spec version outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
     with pytest.raises(ValueError, match="is not in KNOWN_PROTOCOL_VERSIONS"):
         KnownFailure(note="x", spec_version=cast("SpecVersion", "2099-01-01"))
 
 
 def test_known_failure_with_malformed_issue_is_rejected() -> None:
-    """A known failure whose issue reference is neither '#<n>' nor a GitHub URL fails at construction."""
     with pytest.raises(ValueError, match="must be '#<n>' or a GitHub URL"):
         KnownFailure(note="x", issue="not-a-link")
 
 
 def test_requirement_with_unknown_added_in_is_rejected() -> None:
-    """A requirement whose added_in is outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
     with pytest.raises(ValueError, match="added_in .* is not in KNOWN_PROTOCOL_VERSIONS"):
         Requirement(source="sdk", behavior="x", added_in=cast("SpecVersion", "2099-01-01"))
 
 
 def test_requirement_with_unknown_removed_in_is_rejected() -> None:
-    """A requirement whose removed_in is outside KNOWN_PROTOCOL_VERSIONS fails at construction."""
     with pytest.raises(ValueError, match="removed_in .* is not in KNOWN_PROTOCOL_VERSIONS"):
         Requirement(source="sdk", behavior="x", removed_in=cast("SpecVersion", "2099-01-01"))
 
 
 def test_requirement_with_empty_version_range_is_rejected() -> None:
-    """A requirement whose added_in is not strictly earlier than its removed_in fails at construction."""
     with pytest.raises(ValueError, match="must be earlier than"):
         Requirement(source="sdk", behavior="x", added_in="2025-11-25", removed_in="2025-11-25")
 
@@ -268,7 +242,6 @@ def _req(
 
 
 def test_compute_cells_with_no_requirements_yields_full_grid() -> None:
-    """With a single-version axis, an empty requirement list yields one cell per connectable transport."""
     cells = compute_cells([], spec_versions=("2025-11-25",))
     assert [c.id for c in cells] == ["in-memory", "sse", "streamable-http", "streamable-http-stateless"]
     assert [c.values for c in cells] == [
@@ -280,7 +253,7 @@ def test_compute_cells_with_no_requirements_yields_full_grid() -> None:
 
 
 def test_compute_cells_intersects_stacked_version_ranges() -> None:
-    """Stacked requirements intersect their [added_in, removed_in) windows: a cell survives only if all admit it."""
+    """A cell survives only if every stacked requirement's [added_in, removed_in) window admits it."""
     cells = compute_cells(
         [_req(removed_in="2026-07-28"), _req(added_in="2025-11-25")],
         spec_versions=("2025-11-25", "2026-07-28"),
@@ -307,7 +280,6 @@ def test_compute_cells_drops_era_locked_transport_outside_its_versions() -> None
 
 
 def test_compute_cells_honours_arm_exclusion_from_any_stacked_requirement() -> None:
-    """An arm exclusion on any stacked requirement drops the matching cell even when other requirements have none."""
     cells = compute_cells(
         [_req(), _req(arm_exclusions=(ArmExclusion(reason="requires-session", transport="sse"),))],
         spec_versions=("2025-11-25",),
@@ -316,13 +288,11 @@ def test_compute_cells_honours_arm_exclusion_from_any_stacked_requirement() -> N
 
 
 def test_compute_cells_wildcard_arm_exclusion_drops_every_cell() -> None:
-    """An arm exclusion with both transport and spec_version unset matches every cell, leaving none."""
     cells = compute_cells([_req(arm_exclusions=(ArmExclusion(reason="requires-session"),))])
     assert cells == []
 
 
 def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
-    """A known failure attaches a strict xfail mark to exactly the matching cell and leaves others unmarked."""
     cells = compute_cells(
         [_req(known_failures=(KnownFailure(note="broken on sse", transport="sse"),))],
         spec_versions=("2025-11-25",),
@@ -337,7 +307,6 @@ def test_compute_cells_marks_known_failure_as_strict_xfail() -> None:
 
 
 def test_compute_cells_wildcard_known_failure_marks_every_cell() -> None:
-    """A known failure with both transport and spec_version unset marks every emitted cell as strict xfail."""
     cells = compute_cells([_req(known_failures=(KnownFailure(note="all broken"),))], spec_versions=("2025-11-25",))
     assert len(cells) == 4
     assert all(c.marks[0].name == "xfail" for c in cells)
@@ -351,10 +320,8 @@ def test_compute_cells_ignores_transports_field() -> None:
 
 
 def test_cell_id_omits_version_when_single_spec_version() -> None:
-    """With a single-version axis the cell id is just the transport name."""
     assert cell_id("sse", "2025-11-25", spec_versions=("2025-11-25",)) == "sse"
 
 
 def test_cell_id_appends_version_when_multiple_spec_versions() -> None:
-    """With more than one active spec version the cell id gains a -<version> suffix."""
     assert cell_id("sse", "2025-11-25", spec_versions=("2025-11-25", "2026-07-28")) == "sse-2025-11-25"

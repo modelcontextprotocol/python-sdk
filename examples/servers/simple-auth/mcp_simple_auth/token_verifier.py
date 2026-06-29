@@ -10,14 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class IntrospectionTokenVerifier(TokenVerifier):
-    """Example token verifier that uses OAuth 2.0 Token Introspection (RFC 7662).
+    """Example token verifier using OAuth 2.0 Token Introspection (RFC 7662).
 
-    This is a simple example implementation for demonstration purposes.
-    Production implementations should consider:
-    - Connection pooling and reuse
-    - More sophisticated error handling
-    - Rate limiting and retry logic
-    - Comprehensive configuration options
+    Demonstration only; production code needs connection pooling, retries, and richer error handling.
     """
 
     def __init__(
@@ -40,7 +35,6 @@ class IntrospectionTokenVerifier(TokenVerifier):
             logger.warning(f"Rejecting introspection endpoint with unsafe scheme: {self.introspection_endpoint}")
             return None
 
-        # Configure secure HTTP client
         timeout = httpx.Timeout(10.0, connect=5.0)
         limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
 
@@ -74,7 +68,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     client_id=data.get("client_id", "unknown"),
                     scopes=data.get("scope", "").split() if data.get("scope") else [],
                     expires_at=data.get("exp"),
-                    resource=data.get("aud"),  # Include resource in token
+                    resource=data.get("aud"),
                     subject=data.get("sub"),  # RFC 7662 subject (resource owner)
                     claims=data,
                 )
@@ -87,7 +81,6 @@ class IntrospectionTokenVerifier(TokenVerifier):
         if not self.server_url or not self.resource_url:
             return False  # Fail if strict validation requested but URLs missing
 
-        # Check 'aud' claim first (standard JWT audience)
         aud: list[str] | str | None = token_data.get("aud")
         if isinstance(aud, list):
             for audience in aud:

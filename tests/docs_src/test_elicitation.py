@@ -25,8 +25,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_an_accepted_answer_resumes_the_tool() -> None:
-    """tutorial001: the user's answer comes back into the same call as a validated model."""
-
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="accept", content={"accept_alternative": True, "date": "2025-12-26"})
 
@@ -55,7 +53,6 @@ async def test_an_alternative_that_is_also_full_is_asked_about_again() -> None:
 
 
 async def test_the_client_receives_the_message_and_the_generated_schema() -> None:
-    """tutorial001: form mode sends your message plus a JSON Schema built from the Pydantic model."""
     received: list[ElicitRequestParams] = []
 
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
@@ -90,8 +87,6 @@ async def test_the_client_receives_the_message_and_the_generated_schema() -> Non
 
 
 async def test_decline_and_cancel_are_ordinary_return_values() -> None:
-    """tutorial001: a refusal is not an error; the tool sees the action and answers the model normally."""
-
     async def on_decline(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")
 
@@ -108,7 +103,6 @@ async def test_decline_and_cancel_are_ordinary_return_values() -> None:
 
 
 async def test_a_tool_that_does_not_ask_needs_nothing_from_the_client() -> None:
-    """tutorial001: the elicitation only happens on the path that needs it."""
     async with Client(tutorial001.mcp, mode="legacy") as client:
         result = await client.call_tool("book_table", {"date": "2025-12-30", "party_size": 4})
         assert result.content == [TextContent(type="text", text="Booked a table for 4 on 2025-12-30.")]
@@ -189,7 +183,6 @@ async def test_a_literal_field_passes_the_gate_as_an_enum() -> None:
 
 
 async def test_url_mode_sends_a_url_and_gets_consent_back_not_data() -> None:
-    """tutorial002: the client receives the URL and the elicitation id; only the action comes back."""
     received: list[ElicitRequestParams] = []
 
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
@@ -206,8 +199,6 @@ async def test_url_mode_sends_a_url_and_gets_consent_back_not_data() -> None:
 
 
 async def test_a_declined_url_elicitation_is_an_ordinary_return_value() -> None:
-    """tutorial002: the tool decides what a refusal means."""
-
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")
 
@@ -217,7 +208,6 @@ async def test_a_declined_url_elicitation_is_an_ordinary_return_value() -> None:
 
 
 async def test_send_elicit_complete_notifies_the_client_with_the_same_id() -> None:
-    """tutorial002: `send_elicit_complete` emits `notifications/elicitation/complete`."""
     notifications: list[object] = []
 
     async def on_message(message: object) -> None:
@@ -232,7 +222,6 @@ async def test_send_elicit_complete_notifies_the_client_with_the_same_id() -> No
 
 
 async def test_the_docs_client_callback_handles_both_modes() -> None:
-    """tutorial003: one `elicitation_callback` answers the form and the URL consent."""
     async with Client(tutorial001.mcp, mode="legacy", elicitation_callback=tutorial003.handle_elicitation) as client:
         booked = await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
     async with Client(tutorial002.mcp, mode="legacy", elicitation_callback=tutorial003.handle_elicitation) as client:
@@ -249,7 +238,6 @@ async def test_a_client_without_the_callback_cannot_be_asked() -> None:
 
 
 async def test_resolver_asks_only_when_the_folder_is_not_empty() -> None:
-    """tutorial004: `confirm_delete` resolves an empty folder directly and elicits otherwise."""
     tutorial004._FOLDERS.update({"/tmp/empty": [], "/tmp/project": ["main.py", "README.md"]})
     asked: list[str] = []
 
@@ -264,11 +252,10 @@ async def test_resolver_asks_only_when_the_folder_is_not_empty() -> None:
 
     assert empty.content == [TextContent(type="text", text="deleted /tmp/empty")]
     assert non_empty.content == [TextContent(type="text", text="deleted /tmp/project")]
-    assert asked == ["/tmp/project has 2 file(s). Delete anyway?"]  # the empty folder was not queried
+    assert asked == ["/tmp/project has 2 file(s). Delete anyway?"]
 
 
 async def test_the_resolved_parameter_is_hidden_from_the_tool_schema() -> None:
-    """tutorial004: the `Resolve`-filled parameter never appears in the client-facing input schema."""
     async with Client(tutorial004.mcp, mode="legacy") as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.name == "delete_folder"
@@ -288,7 +275,6 @@ async def test_the_tool_branches_on_every_elicitation_outcome(
     content: dict[str, str | int | float | bool | list[str] | None] | None,
     expected: str,
 ) -> None:
-    """tutorial004: annotating the result union lets the tool handle accept/decline/cancel."""
     tutorial004._FOLDERS["/tmp/project"] = ["main.py", "README.md"]
 
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:

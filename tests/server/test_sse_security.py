@@ -26,15 +26,13 @@ from tests.interaction.transports import StreamingASGITransport
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_sse_security_server"
 
-# The in-process app is mounted at this origin purely so URLs are well-formed and the default
-# Host header is a localhost form; nothing listens here.
+# Nothing listens here; the origin only makes URLs well-formed and the default Host header a localhost form.
 BASE_URL = "http://127.0.0.1:8000"
 
 
 @pytest.fixture(autouse=True)
 def reset_sse_starlette_exit_event() -> None:
-    """sse-starlette<2 caches a module-level anyio.Event on AppStatus; reset it
-    between tests so it is not bound to a previous test's event loop."""
+    """Reset sse-starlette<2's module-level AppStatus event so it isn't bound to a previous test's loop."""
     app_status = getattr(sse_starlette.sse, "AppStatus", None)
     if app_status is not None and hasattr(app_status, "should_exit_event"):  # pragma: lax no cover
         app_status.should_exit_event = None
@@ -50,9 +48,8 @@ def sse_security_client(security_settings: TransportSecuritySettings | None = No
             async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read, write):
                 await server.run(read, write, server.create_initialization_options())
         except ValueError as e:
-            # Validation error was already handled inside connect_sse, which sent the rejection
-            # response itself; its non-empty body checkpoints, so the test reads the rejection
-            # status before the trailing Response() below sends a second response start.
+            # connect_sse already sent the rejection response; its non-empty body checkpoints, so the
+            # test reads the rejection status before the trailing Response() sends a second response start.
             logger.debug(f"SSE connection failed validation: {e}")
         return Response()
 
@@ -62,15 +59,13 @@ def sse_security_client(security_settings: TransportSecuritySettings | None = No
             Mount("/messages/", app=sse_transport.handle_post_message),
         ]
     )
-    # The SSE GET runs until it observes a disconnect, so the bridge must let the application
-    # drain on close rather than cancelling it.
+    # The SSE GET runs until it observes a disconnect, so the bridge must drain on close, not cancel.
     transport = StreamingASGITransport(app, cancel_on_close=False)
     return httpx.AsyncClient(transport=transport, base_url=BASE_URL)
 
 
 @pytest.mark.anyio
 async def test_sse_security_default_settings() -> None:
-    """With default security settings (protection disabled), any Host and Origin connect."""
     headers = {"Host": "evil.com", "Origin": "http://evil.com"}
 
     async with sse_security_client() as client:
@@ -80,7 +75,6 @@ async def test_sse_security_default_settings() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_invalid_host_header() -> None:
-    """A Host header outside allowed_hosts is rejected with 421."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["example.com"])
 
     async with sse_security_client(security_settings) as client:
@@ -91,7 +85,6 @@ async def test_sse_security_invalid_host_header() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_invalid_origin_header() -> None:
-    """An Origin header outside allowed_origins is rejected with 403."""
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://localhost:*"]
     )
@@ -104,7 +97,6 @@ async def test_sse_security_invalid_origin_header() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_post_invalid_content_type() -> None:
-    """A POST whose Content-Type is not application/json (or is missing) is rejected with 400."""
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://127.0.0.1:*"]
     )
@@ -126,7 +118,6 @@ async def test_sse_security_post_invalid_content_type() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_disabled() -> None:
-    """With protection explicitly disabled, a disallowed Host still connects."""
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
     async with sse_security_client(settings) as client:
@@ -136,7 +127,6 @@ async def test_sse_security_disabled() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_custom_allowed_hosts() -> None:
-    """A custom entry in allowed_hosts connects; hosts outside the list are still rejected."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["localhost", "127.0.0.1", "custom.host"],
@@ -154,7 +144,6 @@ async def test_sse_security_custom_allowed_hosts() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_wildcard_ports() -> None:
-    """A `host:*` pattern accepts that host with any port, for Host and Origin alike."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=["localhost:*", "127.0.0.1:*"],
@@ -172,7 +161,6 @@ async def test_sse_security_wildcard_ports() -> None:
 
 @pytest.mark.anyio
 async def test_sse_security_post_valid_content_type() -> None:
-    """Every application/json Content-Type variant passes validation (reaching the session lookup)."""
     security_settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"], allowed_origins=["http://127.0.0.1:*"]
     )
@@ -182,7 +170,6 @@ async def test_sse_security_post_valid_content_type() -> None:
         "application/json;charset=utf-8",
         "APPLICATION/JSON",  # Case insensitive
     ]
-    # A well-formed session ID that no live session owns.
     fake_session_id = "12345678123456781234567812345678"
 
     async with sse_security_client(security_settings) as client:
@@ -206,7 +193,6 @@ def _authenticated_user(client_id: str, subject: str | None = None, issuer: str 
 def _sse_scope(
     method: str, path: str, user: AuthenticatedUser | None, *, query_string: bytes = b"", body: bytes = b""
 ) -> tuple[Scope, Receive, Send, list[Message]]:
-    """Build an ASGI scope/receive/send triple for a request to the SSE transport."""
     scope: Scope = {
         "type": "http",
         "method": method,
@@ -234,7 +220,6 @@ def _response_status(sent: list[Message]) -> int:
 
 
 async def _post_message(transport: SseServerTransport, session_id: str, user: AuthenticatedUser | None) -> int:
-    """POST a message to an SSE session as `user` and return the response status."""
     body = b'{"jsonrpc": "2.0", "id": 1, "method": "ping", "params": null}'
     scope, receive, send, sent = _sse_scope(
         "POST", "/messages/", user, query_string=f"session_id={session_id}".encode(), body=body
@@ -268,8 +253,6 @@ async def test_sse_post_requires_the_credential_that_created_the_session(
     sender: _Principal | None,
     expected: int,
 ):
-    """The session endpoint URL issued to one authenticated principal must not
-    accept messages from a request authenticated as a different one."""
     transport = SseServerTransport("/messages/")
     session_id_received = anyio.Event()
     session_ids: list[str] = []
@@ -284,7 +267,6 @@ async def test_sse_post_requires_the_credential_that_created_the_session(
             session_id_received.set()
 
     async def get_receive() -> Message:
-        # The SSE client stays connected until the test signals otherwise.
         await client_disconnected.wait()
         return {"type": "http.disconnect"}
 
@@ -292,7 +274,6 @@ async def test_sse_post_requires_the_credential_that_created_the_session(
     sender_user = _authenticated_user(*sender) if sender is not None else None
 
     async def hold_sse_connection() -> None:
-        """Establish the SSE session as `creator` and keep it open, as a server would."""
         scope, _, _, _ = _sse_scope("GET", "/sse", creator_user)
         with anyio.fail_after(5):
             async with transport.connect_sse(scope, get_receive, get_send) as (read_stream, write_stream):
@@ -315,7 +296,6 @@ async def test_sse_post_requires_the_credential_that_created_the_session(
 
 @pytest.mark.anyio
 async def test_sse_connect_rejects_a_non_http_scope():
-    """connect_sse refuses ASGI scopes that are not HTTP requests."""
     transport = SseServerTransport("/messages/")
     with pytest.raises(ValueError):
         async with transport.connect_sse({"type": "websocket"}, _no_receive, _no_send):
@@ -324,7 +304,6 @@ async def test_sse_connect_rejects_a_non_http_scope():
 
 @pytest.mark.anyio
 async def test_sse_connect_rejects_a_disallowed_host():
-    """connect_sse rejects requests whose Host header fails the configured security check."""
     settings = TransportSecuritySettings(allowed_hosts=["allowed.example.com"])
     transport = SseServerTransport("/messages/", security_settings=settings)
     scope, receive, send, sent = _sse_scope("GET", "/sse", None)
@@ -338,7 +317,6 @@ async def test_sse_connect_rejects_a_disallowed_host():
 
 @pytest.mark.anyio
 async def test_sse_post_without_a_session_id_returns_400():
-    """POSTs to the messages endpoint must include a session_id query parameter."""
     transport = SseServerTransport("/messages/")
     scope, receive, send, sent = _sse_scope("POST", "/messages/", None)
 
@@ -348,7 +326,6 @@ async def test_sse_post_without_a_session_id_returns_400():
 
 @pytest.mark.anyio
 async def test_sse_post_with_a_malformed_session_id_returns_400():
-    """A session_id that is not 32 hex characters is rejected before any session lookup."""
     transport = SseServerTransport("/messages/")
     scope, receive, send, sent = _sse_scope("POST", "/messages/", None, query_string=b"session_id=not-hex")
 
@@ -358,7 +335,6 @@ async def test_sse_post_with_a_malformed_session_id_returns_400():
 
 @pytest.mark.anyio
 async def test_sse_post_with_a_disallowed_host_is_rejected_before_session_lookup():
-    """The transport security check on POST runs before any session-ID handling."""
     settings = TransportSecuritySettings(allowed_hosts=["allowed.example.com"])
     transport = SseServerTransport("/messages/", security_settings=settings)
     scope, receive, send, sent = _sse_scope("POST", "/messages/", None)
@@ -370,8 +346,6 @@ async def test_sse_post_with_a_disallowed_host_is_rejected_before_session_lookup
 
 @pytest.mark.anyio
 async def test_sse_round_trip_delivers_posted_messages_and_streams_responses():
-    """A POSTed JSON-RPC message reaches the server's read stream, and a message
-    written to the server's write stream is sent to the client as an SSE event."""
     transport = SseServerTransport("/messages/")
     session = _SseSession(transport)
 
@@ -380,7 +354,6 @@ async def test_sse_round_trip_delivers_posted_messages_and_streams_responses():
             tg.start_soon(session.hold)
             await session.ready.wait()
 
-            # POST a parse-failing body: client gets 400, server's read stream receives the error.
             scope, receive, send, sent = _sse_scope(
                 "POST", "/messages/", None, query_string=f"session_id={session.session_id}".encode(), body=b"not json"
             )
@@ -388,14 +361,12 @@ async def test_sse_round_trip_delivers_posted_messages_and_streams_responses():
             assert _response_status(sent) == 400
             assert isinstance(await session.next_read_item(), Exception)
 
-            # POST a valid message: client gets 202, server's read stream receives it.
             assert await _post_message(transport, session.session_id, None) == 202
             received = await session.next_read_item()
             assert isinstance(received, SessionMessage)
             assert isinstance(received.message, JSONRPCRequest)
             assert received.message.method == "ping"
 
-            # Server writes a response: it appears as an SSE `message` event on the GET stream.
             outgoing = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
             await session.write_stream.send(SessionMessage(outgoing))
             chunk = await session.next_body_chunk()
@@ -408,9 +379,8 @@ async def test_sse_round_trip_delivers_posted_messages_and_streams_responses():
 class _SseSession:
     """Drive an in-process SSE GET connection and surface what the server reads and the client receives.
 
-    `hold` runs the connection in a background task and consumes the server-side read stream
-    into a buffer so that `handle_post_message` (which writes to that stream with a zero-capacity
-    channel) never blocks the test body.
+    `hold` buffers the server-side read stream so `handle_post_message` (which writes to it over a
+    zero-capacity channel) never blocks the test body.
     """
 
     def __init__(self, transport: SseServerTransport) -> None:

@@ -1,7 +1,4 @@
-"""MCPServer Complex inputs Example
-
-Demonstrates validation via pydantic with complex models.
-"""
+"""Demonstrates validation via pydantic with complex models."""
 
 from typing import Annotated
 

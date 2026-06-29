@@ -1,10 +1,8 @@
 from mcp.server.mcpserver import MCPServer
 
-# Create an MCP server
 mcp = MCPServer("Demo")
 
 
-# Add an addition tool
 @mcp.tool()
 def sum(a: int, b: int) -> int:
     """Add two numbers"""

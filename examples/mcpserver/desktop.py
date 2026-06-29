@@ -1,13 +1,9 @@
-"""MCPServer Desktop Example
-
-A simple example that exposes the desktop directory as a resource.
-"""
+"""A simple example that exposes the desktop directory as a resource."""
 
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 
-# Create server
 mcp = MCPServer("Demo")
 
 

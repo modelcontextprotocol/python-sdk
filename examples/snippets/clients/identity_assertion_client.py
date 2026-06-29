@@ -1,17 +1,11 @@
 """Client side of SEP-990 (enterprise IdP policy controls).
 
-`IdentityAssertionOAuthProvider` presents an Identity Assertion Authorization Grant (ID-JAG) issued
-by the enterprise IdP to the MCP authorization server using the RFC 7523 jwt-bearer grant
-(`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, ID-JAG as `assertion`), and receives an
-MCP access token. No browser redirect or dynamic client registration is involved.
-
-Obtaining the ID-JAG (logging into the IdP and the leg-1 exchange against it) is deployment-specific
-and out of scope for the SDK; supply it through the `assertion_provider` callback. The callback
-receives the authorization server's issuer (the ID-JAG `aud`) and the MCP server's resource
-identifier (the ID-JAG `resource` claim). SEP-990 requires a confidential client, so a client secret
-is mandatory, and `issuer` is the authorization server the credentials are provisioned for - the
-provider fetches metadata from that issuer's well-known and never asks the resource server which AS
-to use.
+`IdentityAssertionOAuthProvider` presents an enterprise-IdP-issued Identity Assertion Authorization
+Grant (ID-JAG) to the MCP authorization server via the RFC 7523 jwt-bearer grant to obtain an MCP
+access token - no browser redirect or dynamic client registration. Obtaining the ID-JAG is
+deployment-specific and out of SDK scope; supply it via the `assertion_provider` callback. SEP-990
+requires a confidential client (client secret mandatory), and the provider fetches AS metadata from
+`issuer`, never asking the resource server which AS to use.
 """
 
 import asyncio
@@ -45,12 +39,10 @@ class InMemoryTokenStorage:
 
 
 async def fetch_id_jag(audience: str, resource: str) -> str:
-    """Return the ID-JAG to present.
+    """Return the ID-JAG to present (in production: exchange the user's IdP ID token at the enterprise IdP).
 
-    `audience` is the MCP authorization server's issuer (the ID-JAG `aud` claim); `resource` is the
-    MCP server's RFC 9728 identifier (the ID-JAG `resource` claim, which the AS audience-restricts
-    the issued token against). In production this exchanges the user's IdP ID token for an ID-JAG
-    against the enterprise identity provider.
+    `audience` is the authorization server's issuer (the ID-JAG `aud` claim); `resource` is the MCP
+    server's RFC 9728 identifier (the ID-JAG `resource` claim the issued token is audience-restricted to).
     """
     raise NotImplementedError("Obtain the ID-JAG from your enterprise identity provider")
 

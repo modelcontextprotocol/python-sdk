@@ -203,12 +203,11 @@ def _input_required_unexpected(method: str) -> RuntimeError:
 class ClientSession:
     """Client half of an MCP connection, running on a `Dispatcher`.
 
-    Construct it over a transport's stream pair (or pass a pre-built
-    `dispatcher=`), enter as an async context manager, then call
-    `initialize()`. The dispatcher owns the receive loop and request
-    correlation; this class owns the typed MCP layer and the constructor
-    callbacks. Transport `Exception` items reach `message_handler` only when
-    the session builds its own dispatcher from a stream pair.
+    Construct it over a transport's stream pair (or pass a pre-built `dispatcher=`),
+    enter as an async context manager, then call `initialize()`. The dispatcher owns
+    the receive loop and request correlation; this class owns the typed MCP layer and
+    the constructor callbacks. Transport `Exception` items reach `message_handler`
+    only when the session builds its own dispatcher from a stream pair.
     """
 
     def __init__(
@@ -248,12 +247,10 @@ class ClientSession:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
             self._dispatcher: Dispatcher[Any] = dispatcher
             if isinstance(dispatcher, JSONRPCDispatcher) and dispatcher.on_stream_exception is None:
-                # Route transport-level Exception items into message_handler — only
-                # stream-backed dispatchers carry these; DirectDispatcher has none.
-                # Don't clobber a caller-supplied hook.
-                # TODO(L78): this leaves a bound-method ref on the dispatcher after the
-                # session exits (memory pin) and a second wrap of the same dispatcher would
-                # skip install. The Transport-as-Dispatcher rework (L77) removes this seam.
+                # Route transport Exception items into message_handler; only stream-backed
+                # dispatchers carry these. Don't clobber a caller-supplied hook.
+                # TODO(L78): leaves a bound-method ref after session exit and double-wrap
+                # skips install; the Transport-as-Dispatcher rework (L77) removes this seam.
                 dispatcher.on_stream_exception = self._on_stream_exception
         else:
             if read_stream is None or write_stream is None:
@@ -269,9 +266,8 @@ class ClientSession:
         try:
             await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
         except BaseException:
-            # Unwind the entered task group before propagating: a cancellation
-            # landing here (e.g. `move_on_after` around connect) would abandon
-            # it and anyio would later raise "exited non-innermost cancel scope".
+            # Unwind the entered task group before propagating: abandoning it (e.g. a
+            # `move_on_after` cancel landing here) makes anyio raise "exited non-innermost cancel scope".
             task_group = self._task_group
             self._task_group = None
             task_group.cancel_scope.cancel()
@@ -344,8 +340,7 @@ class ClientSession:
     async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager.
 
-        Fire-and-forget: after the connection has closed, the notification is
-        dropped with a debug log instead of raising.
+        Fire-and-forget: after the connection closes, it is dropped with a debug log instead of raising.
         """
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         opts: CallOptions = {}
@@ -364,9 +359,7 @@ class ClientSession:
             else None
         )
         roots = (
-            # TODO: Should this be based on whether we
-            # _will_ send notifications, or only whether
-            # they're supported?
+            # TODO: base this on whether we _will_ send notifications, or only whether they're supported?
             types.RootsCapability(list_changed=True)
             if self._list_roots_callback is not _default_list_roots_callback
             else None
@@ -401,8 +394,7 @@ class ClientSession:
     def adopt(self, result: types.InitializeResult | types.DiscoverResult) -> None:
         """Install negotiated state from a result the caller already holds (no wire traffic).
 
-        Clears the opposite slot, so at most one of `initialize_result` /
-        `discover_result` is ever non-None.
+        Clears the opposite slot, so at most one of `initialize_result` / `discover_result` is ever non-None.
 
         Raises:
             RuntimeError: `result` is a `DiscoverResult` whose `supported_versions`
@@ -429,17 +421,15 @@ class ClientSession:
             self._negotiated_version = result.protocol_version
 
     async def send_discover(self, version: str) -> dict[str, Any]:
-        """Send a single ``server/discover`` at ``version`` and return the raw result dict.
+        """Send a single `server/discover` at `version` and return the raw result dict.
 
-        No retry, no ``adopt()``. The ``_meta`` envelope and the
-        ``Mcp-Protocol-Version`` header are stamped at ``version`` so the
-        server-side era router sees a coherent probe. Used by ``discover()`` and
-        the connect-time auto-negotiation policy.
+        No retry, no `adopt()`; used by `discover()` and connect-time auto-negotiation.
+        The `_meta` envelope and `Mcp-Protocol-Version` header are stamped at `version`
+        so the server-side era router sees a coherent probe.
 
         Raises:
-            MCPError: The server returned a JSON-RPC error, or the transport
-                bounced the request at its own layer (a bare HTTP 4xx is
-                synthesized into a JSON-RPC error by the transport).
+            MCPError: JSON-RPC error response, or a transport-layer bounce (a bare
+                HTTP 4xx is synthesized into a JSON-RPC error by the transport).
         """
         client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
         capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -463,18 +453,15 @@ class ClientSession:
     async def discover(self) -> types.DiscoverResult:
         """Probe `server/discover` and adopt the result.
 
-        Sends a single `server/discover` proposing the newest modern protocol
-        version. On `UNSUPPORTED_PROTOCOL_VERSION` (-32022) the server's
-        `supported` list is intersected with `MODERN_PROTOCOL_VERSIONS` and the
-        probe is retried once at the highest mutual version. Any other error —
-        including `METHOD_NOT_FOUND` (-32601) and `REQUEST_TIMEOUT` (-32001) —
-        propagates; the legacy `initialize()` fallback is the caller's policy.
+        Proposes the newest modern protocol version; on `UNSUPPORTED_PROTOCOL_VERSION`
+        (-32022) retries once at the highest mutual version. Any other error —
+        including `METHOD_NOT_FOUND` and `REQUEST_TIMEOUT` — propagates; the legacy
+        `initialize()` fallback is the caller's policy.
 
         Raises:
-            MCPError: The server rejected `server/discover`, the probe timed
-                out, or the -32022 retry found no mutual version / failed again.
-            RuntimeError: `adopt()` found no mutual version in the returned
-                `supported_versions`.
+            MCPError: The probe was rejected or timed out, or the -32022 retry
+                found no mutual version / failed again.
+            RuntimeError: `adopt()` found no mutual version in `supported_versions`.
         """
         if self._discover_result is not None:
             return self._discover_result
@@ -507,8 +494,7 @@ class ClientSession:
     def discover_result(self) -> types.DiscoverResult | None:
         """The server's DiscoverResult. None unless `discover()` ran (or was adopted).
 
-        Retained intact (supported_versions, ttl_ms, cache_scope) so callers
-        can round-trip it as ``prior_discover=``.
+        Retained intact (supported_versions, ttl_ms, cache_scope) so callers can round-trip it as `prior_discover=`.
         """
         return self._discover_result
 
@@ -588,21 +574,13 @@ class ClientSession:
         )
 
     async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
-        """Send a resources/list request.
-
-        Args:
-            params: Full pagination parameters including cursor and any future fields
-        """
+        """Send a resources/list request."""
         return await self.send_request(types.ListResourcesRequest(params=params), types.ListResourcesResult)
 
     async def list_resource_templates(
         self, *, params: types.PaginatedRequestParams | None = None
     ) -> types.ListResourceTemplatesResult:
-        """Send a resources/templates/list request.
-
-        Args:
-            params: Full pagination parameters including cursor and any future fields
-        """
+        """Send a resources/templates/list request."""
         return await self.send_request(
             types.ListResourceTemplatesRequest(params=params),
             types.ListResourceTemplatesResult,
@@ -644,13 +622,11 @@ class ClientSession:
         Args:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
-            allow_input_required: When `False` (default), an `InputRequiredResult`
-                from the server raises `RuntimeError`; when `True`, it is returned
+            allow_input_required: Return an `InputRequiredResult` instead of raising,
                 so the caller can resolve the requests and retry.
 
         Raises:
-            RuntimeError: If the server returns an `InputRequiredResult` and
-                `allow_input_required` is `False`.
+            RuntimeError: The server returned an `InputRequiredResult` with `allow_input_required` False.
         """
         result = await self.send_request(
             types.ReadResourceRequest(
@@ -723,21 +699,18 @@ class ClientSession:
     ) -> types.CallToolResult | types.InputRequiredResult:
         """Send a tools/call request with optional progress callback support.
 
-        On a modern (2026-07-28) connection, arguments annotated with `x-mcp-header`
-        in the tool's input schema are mirrored into `Mcp-Param-*` request headers.
-        The annotations are read from the tool's last `list_tools` entry, so list
-        the tool before calling it to enable header emission.
+        On a modern (2026-07-28) connection, arguments annotated with `x-mcp-header` in
+        the tool's input schema are mirrored into `Mcp-Param-*` request headers. The
+        annotations come from the tool's last `list_tools` entry, so list before calling.
 
         Args:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
-            allow_input_required: When ``False`` (default), an `InputRequiredResult`
-                from the server raises `RuntimeError`; when ``True``, it is returned
+            allow_input_required: Return an `InputRequiredResult` instead of raising,
                 so the caller can resolve the requests and retry.
 
         Raises:
-            RuntimeError: If the server returns an `InputRequiredResult` and
-                ``allow_input_required`` is ``False``.
+            RuntimeError: The server returned an `InputRequiredResult` with `allow_input_required` False.
         """
         result = await self.send_request(
             types.CallToolRequest(
@@ -793,11 +766,7 @@ class ClientSession:
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
-        """Send a prompts/list request.
-
-        Args:
-            params: Full pagination parameters including cursor and any future fields
-        """
+        """Send a prompts/list request."""
         return await self.send_request(types.ListPromptsRequest(params=params), types.ListPromptsResult)
 
     @overload
@@ -839,13 +808,11 @@ class ClientSession:
         Args:
             input_responses: Responses to a prior `InputRequiredResult.input_requests`.
             request_state: Opaque state echoed from a prior `InputRequiredResult`.
-            allow_input_required: When `False` (default), an `InputRequiredResult`
-                from the server raises `RuntimeError`; when `True`, it is returned
+            allow_input_required: Return an `InputRequiredResult` instead of raising,
                 so the caller can resolve the requests and retry.
 
         Raises:
-            RuntimeError: If the server returns an `InputRequiredResult` and
-                `allow_input_required` is `False`.
+            RuntimeError: The server returned an `InputRequiredResult` with `allow_input_required` False.
         """
         result = await self.send_request(
             types.GetPromptRequest(
@@ -886,11 +853,7 @@ class ClientSession:
         )
 
     async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult:
-        """Send a tools/list request.
-
-        Args:
-            params: Full pagination parameters including cursor and any future fields
-        """
+        """Send a tools/list request."""
         result = await self.send_request(
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
@@ -902,17 +865,14 @@ class ClientSession:
             for tool in result.tools:
                 if (reason := find_invalid_x_mcp_header(tool.input_schema)) is not None:
                     logger.warning("dropping tool %r: invalid x-mcp-header (%s)", tool.name, reason)
-                    # Evict any map cached from a prior valid listing so a stale entry can't
-                    # mirror headers for a tool this listing dropped.
+                    # Evict any map cached from a prior valid listing so it can't mirror headers for a dropped tool.
                     self._x_mcp_header_maps.pop(tool.name, None)
                     continue
-                # Cache the arg→header map so a later tools/call mirrors it into Mcp-Param-* headers.
                 self._x_mcp_header_maps[tool.name] = x_mcp_header_map(tool.input_schema)
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation
-        # Note: don't clear the cache, as we may be using a cursor
+        # Don't clear the output-schema cache: this may be one cursor page of a longer listing.
         for tool in result.tools:
             self._tool_output_schemas[tool.name] = tool.output_schema
 
@@ -927,9 +887,8 @@ class ClientSession:
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         """Answer a server-initiated request via the registered callbacks."""
-        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize
-        # handshake (which only exists at <=2025) and stateless until the header
-        # is plumbed; its meaning is fixed regardless of LATEST bumps.
+        # Literal, not LATEST_PROTOCOL_VERSION: the fallback covers the initialize handshake
+        # (<=2025 only) and stateless until the header is plumbed; fixed regardless of LATEST bumps.
         version = self._negotiated_version or "2025-11-25"
         try:
             request = cast(types.ServerRequest, _methods.parse_server_request(method, version, params))
@@ -962,9 +921,8 @@ class ClientSession:
     ) -> types.InputResponse | types.ErrorData:
         """Route a server-initiated input request to the matching constructor callback.
 
-        Shared by the legacy server→client RPC path (`_on_request`) and the
-        2026-07-28 multi-round-trip driver, which dispatches the embedded
-        `InputRequiredResult.input_requests` through the same callbacks.
+        Shared by the legacy server→client RPC path (`_on_request`) and the 2026-07-28
+        multi-round-trip driver, which feeds `InputRequiredResult.input_requests` here too.
         """
         match req:
             case types.CreateMessageRequest(params=p):
@@ -996,17 +954,15 @@ class ClientSession:
                 await self._logging_callback(notification.params)
             await self._message_handler(notification)
         except Exception:
-            # Contain here, not in the dispatcher: DirectDispatcher awaits this
-            # handler inline in the peer's notify() call, so a raising callback
-            # would otherwise fail the peer's send. A raising logging_callback
-            # skips the message_handler tee for that notification (v1 parity).
+            # Contain here, not in the dispatcher: DirectDispatcher awaits this handler
+            # inline in the peer's notify(), so raising would fail the peer's send. A raising
+            # logging_callback skips the message_handler tee for that notification (v1 parity).
             logger.exception("notification callback for %r raised", method)
 
     async def _on_stream_exception(self, exc: Exception) -> None:
         """Deliver a transport-level fault to message_handler via a spawned task.
 
-        Running the handler inline would park the dispatcher's read loop and
-        deadlock handlers that await session I/O.
+        Running it inline would park the dispatcher's read loop and deadlock handlers that await session I/O.
         """
         assert self._task_group is not None
         self._task_group.start_soon(self._deliver_stream_exception, exc)

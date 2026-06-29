@@ -7,21 +7,17 @@ from dataclasses import dataclass
 from mcp.server.mcpserver import Context, MCPServer
 
 
-# Mock database class for example
 class Database:
     """Mock database class for example."""
 
     @classmethod
     async def connect(cls) -> "Database":
-        """Connect to database."""
         return cls()
 
     async def disconnect(self) -> None:
-        """Disconnect from database."""
         pass
 
     def query(self) -> str:
-        """Execute a query."""
         return "Query result"
 
 
@@ -44,7 +40,6 @@ async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
         await db.disconnect()
 
 
-# Pass lifespan to server
 mcp = MCPServer("My App", lifespan=app_lifespan)
 
 

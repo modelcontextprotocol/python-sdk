@@ -29,11 +29,9 @@ class ToolManager:
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
     def get_tool(self, name: str) -> Tool | None:
-        """Get tool by name."""
         return self._tools.get(name)
 
     def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
         return list(self._tools.values())
 
     def add_tool(
@@ -47,7 +45,7 @@ class ToolManager:
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
-        """Add a tool to the server."""
+        """Register a tool built from `fn`; if the name is already registered, return the existing tool unchanged."""
         tool = Tool.from_function(
             fn,
             name=name,
@@ -67,7 +65,6 @@ class ToolManager:
         return tool
 
     def remove_tool(self, name: str) -> None:
-        """Remove a tool by name."""
         if name not in self._tools:
             raise ToolError(f"Unknown tool: {name}")
         del self._tools[name]
@@ -79,7 +76,6 @@ class ToolManager:
         context: Context[LifespanContextT, RequestT],
         convert_result: bool = False,
     ) -> Any:
-        """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
             raise ToolError(f"Unknown tool: {name}")

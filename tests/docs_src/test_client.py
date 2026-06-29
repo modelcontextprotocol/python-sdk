@@ -13,7 +13,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_every_client_program_on_the_page_runs(capsys: pytest.CaptureFixture[str]) -> None:
-    """Each `main()` is the literal client program shown on the page; all seven run clean in-memory."""
     await tutorial001.main()
     await tutorial002.main()
     await tutorial003.main()
@@ -25,7 +24,6 @@ async def test_every_client_program_on_the_page_runs(capsys: pytest.CaptureFixtu
 
 
 async def test_connected_properties_are_populated_inside_the_block() -> None:
-    """tutorial001: server_info, server_capabilities, protocol_version and instructions are just there."""
     async with Client(tutorial001.mcp) as client:
         assert client.server_info.name == "Bookshop"
         assert client.protocol_version == "2026-07-28"
@@ -35,7 +33,6 @@ async def test_connected_properties_are_populated_inside_the_block() -> None:
 
 
 async def test_a_client_is_not_reusable_after_the_block_ends() -> None:
-    """tutorial001: `async with` is the whole lifecycle. Construct a new Client per connection."""
     client = Client(tutorial001.mcp)
     async with client:
         assert client.server_info.name == "Bookshop"
@@ -44,7 +41,6 @@ async def test_a_client_is_not_reusable_after_the_block_ends() -> None:
 
 
 async def test_list_tools_returns_the_full_definition() -> None:
-    """tutorial002: each listed tool carries its name, title, description and the derived input schema."""
     async with Client(tutorial002.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.name == "search_books"
@@ -64,7 +60,7 @@ async def test_list_tools_returns_the_full_definition() -> None:
 
 
 def test_get_display_name_prefers_the_title() -> None:
-    """The `!!! tip`: get_display_name returns the title when there is one and the name when there isn't."""
+    """Pins the page's `!!! tip` admonition."""
     titled = Tool(name="search_books", title="Search the catalog", input_schema={"type": "object"})
     untitled = Tool(name="search_books", input_schema={"type": "object"})
     assert get_display_name(titled) == "Search the catalog"
@@ -72,7 +68,6 @@ def test_get_display_name_prefers_the_title() -> None:
 
 
 async def test_call_tool_result_has_three_things_to_read() -> None:
-    """tutorial003: content for the model, structured_content for code, is_error for both."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("lookup_book", {"title": "Dune"})
         assert not result.is_error
@@ -83,7 +78,7 @@ async def test_call_tool_result_has_three_things_to_read() -> None:
 
 
 async def test_a_raising_tool_is_a_result_not_an_exception() -> None:
-    """tutorial003 `!!! check`: the exception's message comes back in content with is_error=True."""
+    """Pins tutorial003's `!!! check` admonition."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("lookup_book", {"title": "Solaris"})
         assert result.is_error
@@ -94,7 +89,7 @@ async def test_a_raising_tool_is_a_result_not_an_exception() -> None:
 
 
 async def test_an_unknown_tool_name_is_a_result_not_an_exception() -> None:
-    """The `!!! warning`: a tool the server doesn't have comes back as is_error=True, not as MCPError."""
+    """Pins the page's `!!! warning` admonition."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("does_not_exist", {})
         assert result.is_error
@@ -105,7 +100,6 @@ async def test_an_unknown_tool_name_is_a_result_not_an_exception() -> None:
 
 
 async def test_resources_and_templates_are_two_separate_lists() -> None:
-    """tutorial004: concrete resources and parameterised templates come back from different verbs."""
     async with Client(tutorial004.mcp) as client:
         (resource,) = (await client.list_resources()).resources
         assert resource.uri == "catalog://genres"
@@ -114,7 +108,6 @@ async def test_resources_and_templates_are_two_separate_lists() -> None:
 
 
 async def test_read_resource_fills_in_a_template() -> None:
-    """tutorial004: read_resource takes a plain str URI; narrow the contents with isinstance."""
     async with Client(tutorial004.mcp) as client:
         (contents,) = (await client.read_resource("catalog://genres/poetry")).contents
         assert isinstance(contents, TextResourceContents)
@@ -122,7 +115,6 @@ async def test_read_resource_fills_in_a_template() -> None:
 
 
 async def test_mcpserver_does_not_implement_resource_subscriptions() -> None:
-    """The Resources section: MCPServer advertises subscribe=False and rejects subscribe_resource with -32601."""
     async with Client(tutorial004.mcp) as client:
         assert client.server_capabilities.resources is not None
         assert client.server_capabilities.resources.subscribe is False
@@ -133,7 +125,6 @@ async def test_mcpserver_does_not_implement_resource_subscriptions() -> None:
 
 
 async def test_list_prompts_describes_the_arguments() -> None:
-    """tutorial005: a listed prompt carries its name, title and the arguments it needs."""
     async with Client(tutorial005.mcp) as client:
         (prompt,) = (await client.list_prompts()).prompts
         assert prompt == snapshot(
@@ -147,7 +138,6 @@ async def test_list_prompts_describes_the_arguments() -> None:
 
 
 async def test_get_prompt_renders_the_messages() -> None:
-    """tutorial005: get_prompt returns the rendered messages a host hands to the model."""
     async with Client(tutorial005.mcp) as client:
         result = await client.get_prompt("recommend", {"genre": "poetry"})
         (message,) = result.messages
@@ -158,7 +148,6 @@ async def test_get_prompt_renders_the_messages() -> None:
 
 
 async def test_complete_suggests_values_for_an_argument() -> None:
-    """tutorial006: complete takes a ref and a name/value pair and returns the matching values."""
     async with Client(tutorial006.mcp) as client:
         result = await client.complete(
             ref=PromptReference(type="ref/prompt", name="recommend"),
@@ -168,7 +157,6 @@ async def test_complete_suggests_values_for_an_argument() -> None:
 
 
 async def test_a_single_page_server_ends_the_pagination_loop_immediately() -> None:
-    """tutorial007: every list_* takes cursor=; next_cursor is None when there is nothing left."""
     async with Client(tutorial007.mcp) as client:
         page = await client.list_tools(cursor=None)
         assert page.next_cursor is None
@@ -176,7 +164,7 @@ async def test_a_single_page_server_ends_the_pagination_loop_immediately() -> No
 
 
 async def test_raise_exceptions_is_a_constructor_flag() -> None:
-    """The `## In tests` section: `raise_exceptions=True` is accepted by the in-memory Client."""
+    """Pins the page's `## In tests` section."""
     async with Client(tutorial001.mcp, raise_exceptions=True) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
         assert result.structured_content == {"result": "Found 3 books matching 'dune'."}

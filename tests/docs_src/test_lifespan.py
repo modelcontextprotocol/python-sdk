@@ -23,7 +23,6 @@ async def test_lifespan_object_reaches_the_tool() -> None:
 
 
 async def test_context_parameter_never_reaches_the_input_schema() -> None:
-    """tutorial001: `ctx` is injected by the SDK, so `genre` is the only argument the model sees."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
         assert tool.input_schema == snapshot(
@@ -37,7 +36,6 @@ async def test_context_parameter_never_reaches_the_input_schema() -> None:
 
 
 async def test_startup_runs_before_the_first_request_and_shutdown_after_the_last() -> None:
-    """tutorial002: `connect()` runs at startup, the `finally` runs `disconnect()` at shutdown."""
     assert not tutorial002.database.connected
     async with Client(tutorial002.mcp) as client:
         assert tutorial002.database.connected
@@ -47,7 +45,6 @@ async def test_startup_runs_before_the_first_request_and_shutdown_after_the_last
 
 
 async def test_bare_context_reaches_the_lifespan_object_in_resources_and_prompts() -> None:
-    """A resource or prompt declaring a bare `ctx: Context` gets the same lifespan object a tool gets."""
     mcp = MCPServer("Bookshop", lifespan=tutorial001.app_lifespan)
 
     @mcp.resource("books://{genre}/count")
@@ -100,7 +97,6 @@ async def test_parameterized_context_is_tool_only(caplog: pytest.LogCaptureFixtu
 
 
 async def test_default_lifespan_yields_an_empty_dict() -> None:
-    """No `lifespan=`: the SDK's default yields `{}`, so `lifespan_context` is never `None`."""
     bare = MCPServer("Bare")
 
     @bare.tool()

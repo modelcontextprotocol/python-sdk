@@ -13,14 +13,11 @@ from mcp.client.session import ElicitationFnT
 from mcp.server.mcpserver import Context, MCPServer
 
 
-# Shared schema for basic tests
 class AnswerSchema(BaseModel):
     answer: str = Field(description="The user's answer to the question")
 
 
 def create_ask_user_tool(mcp: MCPServer):
-    """Create a standard ask_user tool that handles all elicitation responses."""
-
     @mcp.tool(description="A tool that uses elicitation")
     async def ask_user(prompt: str, ctx: Context) -> str:
         result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
@@ -43,7 +40,6 @@ async def call_tool_and_assert(
     expected_text: str | None = None,
     text_contains: list[str] | None = None,
 ):
-    """Helper to create session, call tool, and assert result."""
     async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
         result = await client.call_tool(tool_name, args)
         assert len(result.content) == 1
@@ -60,11 +56,9 @@ async def call_tool_and_assert(
 
 @pytest.mark.anyio
 async def test_elicitation_accept_returns_the_users_answer_to_the_tool():
-    """An accepted elicitation delivers the user's content back to the requesting tool."""
     mcp = MCPServer(name="ElicitationServer")
     create_ask_user_tool(mcp)
 
-    # Create a custom handler for elicitation requests
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
@@ -78,7 +72,6 @@ async def test_elicitation_accept_returns_the_users_answer_to_the_tool():
 
 @pytest.mark.anyio
 async def test_elicitation_decline_reaches_the_tool_without_content():
-    """A declined elicitation reports the decline to the tool, with no content attached."""
     mcp = MCPServer(name="ElicitationDeclineServer")
     create_ask_user_tool(mcp)
 
@@ -106,7 +99,6 @@ async def test_elicitation_schema_validation():
 
         return tool
 
-    # Test cases for invalid schemas
     class InvalidListSchema(BaseModel):
         numbers: list[int] = Field(description="List of numbers")
 
@@ -119,12 +111,10 @@ async def test_elicitation_schema_validation():
     create_validation_tool("invalid_list", InvalidListSchema)
     create_validation_tool("nested_model", InvalidNestedSchema)
 
-    # Dummy callback (won't be called due to validation failure)
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
     async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
-        # Test both invalid schemas
         for tool_name, field_name in [("invalid_list", "numbers"), ("nested_model", "nested")]:
             result = await client.call_tool(tool_name, {})
             assert len(result.content) == 1
@@ -135,7 +125,6 @@ async def test_elicitation_schema_validation():
 
 @pytest.mark.anyio
 async def test_elicitation_with_optional_fields():
-    """Test that Optional fields work correctly in elicitation schemas."""
     mcp = MCPServer(name="OptionalFieldServer")
 
     class OptionalSchema(BaseModel):
@@ -159,15 +148,12 @@ async def test_elicitation_with_optional_fields():
         else:  # pragma: no cover
             return f"User {result.action}"
 
-    # Test cases with different field combinations
     test_cases: list[tuple[dict[str, Any], str]] = [
         (
-            # All fields provided
             {"required_name": "John Doe", "optional_age": 30, "optional_email": "john@example.com", "subscribe": True},
             "Name: John Doe, Age: 30, Email: john@example.com, Subscribe: True",
         ),
         (
-            # Only required fields
             {"required_name": "Jane Smith"},
             "Name: Jane Smith, Subscribe: False",
         ),
@@ -188,7 +174,6 @@ async def test_elicitation_with_optional_fields():
 
         await call_tool_and_assert(mcp, callback, "optional_tool", {}, expected)
 
-    # Test invalid optional field
     class InvalidOptionalSchema(BaseModel):
         name: str = Field(description="Name")
         optional_list: list[int] | None = Field(default=None, description="Invalid optional list")
@@ -243,7 +228,6 @@ async def test_elicitation_with_optional_fields():
 
 @pytest.mark.anyio
 async def test_elicitation_with_default_values():
-    """Test that default values work correctly in elicitation schemas and are included in JSON."""
     mcp = MCPServer(name="DefaultValuesServer")
 
     class DefaultsSchema(BaseModel):
@@ -264,9 +248,7 @@ async def test_elicitation_with_default_values():
         else:  # pragma: no cover
             return f"User {result.action}"
 
-    # First verify that defaults are present in the JSON schema sent to clients
     async def callback_schema_verify(context: ClientRequestContext, params: ElicitRequestParams):
-        # Verify the schema includes defaults
         assert isinstance(params, types.ElicitRequestFormParams), "Expected form mode elicitation"
         schema = params.requested_schema
         props = schema["properties"]
@@ -274,7 +256,7 @@ async def test_elicitation_with_default_values():
         assert props["name"]["default"] == "Guest"
         assert props["age"]["default"] == 18
         assert props["subscribe"]["default"] is True
-        assert "default" not in props["email"]  # Required field has no default
+        assert "default" not in props["email"]
 
         return ElicitResult(action="accept", content={"email": "test@example.com"})
 
@@ -286,7 +268,6 @@ async def test_elicitation_with_default_values():
         "Name: Guest, Age: 18, Subscribe: True, Email: test@example.com",
     )
 
-    # Test overriding defaults
     async def callback_override(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(
             action="accept", content={"email": "john@example.com", "name": "John", "age": 25, "subscribe": False}
@@ -299,10 +280,8 @@ async def test_elicitation_with_default_values():
 
 @pytest.mark.anyio
 async def test_elicitation_with_enum_titles():
-    """Test elicitation with enum schemas using oneOf/anyOf for titles."""
     mcp = MCPServer(name="ColorPreferencesApp")
 
-    # Test single-select with titles using oneOf
     class FavoriteColorSchema(BaseModel):
         user_name: str = Field(description="Your name")
         favorite_color: str = Field(
@@ -324,7 +303,6 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
         return f"User {result.action}"  # pragma: no cover
 
-    # Test legacy enumNames format
     class LegacyColorSchema(BaseModel):
         user_name: str = Field(description="Your name")
         color: str = Field(
@@ -339,7 +317,6 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"  # pragma: no cover
 
-    # Test multi-select with titles using items.anyOf
     class FavoriteColorsSchema(BaseModel):
         user_name: str = Field(description="Your name")
         favorite_colors: list[str] = Field(
@@ -370,19 +347,13 @@ async def test_elicitation_with_enum_titles():
             return ElicitResult(action="accept", content={"user_name": "Charlie", "color": "green"})
         return ElicitResult(action="accept", content={"user_name": "Alice", "favorite_color": "blue"})
 
-    # Test single-select with titles
     await call_tool_and_assert(mcp, enum_callback, "select_favorite_color", {}, "User: Alice, Favorite: blue")
-
-    # Test multi-select with titles
     await call_tool_and_assert(mcp, enum_callback, "select_favorite_colors", {}, "User: Bob, Colors: red, green")
-
-    # Test legacy enumNames format
     await call_tool_and_assert(mcp, enum_callback, "select_color_legacy", {}, "User: Charlie, Color: green")
 
 
 @pytest.mark.anyio
 async def test_elicitation_literal_field_renders_as_a_spec_enum_schema():
-    """`Literal[...]` and `list[Literal[...]]` render as the spec's enum schemas and pass the gate."""
     mcp = MCPServer(name="LiteralServer")
 
     class LiteralSchema(BaseModel):

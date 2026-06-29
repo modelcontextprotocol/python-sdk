@@ -9,11 +9,7 @@ from mcp.server.mcpserver.resources import FunctionResource
 
 
 class TestFunctionResource:
-    """Test FunctionResource functionality."""
-
     def test_function_resource_creation(self):
-        """Test creating a FunctionResource."""
-
         def my_func() -> str:  # pragma: no cover
             return "test content"
 
@@ -31,8 +27,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_read_text(self):
-        """Test reading text from a FunctionResource."""
-
         def get_data() -> str:
             return "Hello, world!"
 
@@ -47,8 +41,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_read_binary(self):
-        """Test reading binary data from a FunctionResource."""
-
         def get_data() -> bytes:
             return b"Hello, world!"
 
@@ -62,8 +54,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_json_conversion(self):
-        """Test automatic JSON conversion of non-string results."""
-
         def get_data() -> dict[str, str]:
             return {"key": "value"}
 
@@ -78,8 +68,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_error_handling(self):
-        """Test error handling in FunctionResource."""
-
         def failing_func() -> str:
             raise ValueError("Test error")
 
@@ -93,8 +81,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_basemodel_conversion(self):
-        """Test handling of BaseModel types."""
-
         class MyModel(BaseModel):
             name: str
 
@@ -108,8 +94,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_custom_type_conversion(self):
-        """Test handling of custom types."""
-
         class CustomData:
             def __str__(self) -> str:
                 return "custom data"
@@ -127,8 +111,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_async_read_text(self):
-        """Test reading text from async FunctionResource."""
-
         async def get_data() -> str:
             return "Hello, world!"
 
@@ -143,8 +125,6 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_from_function(self):
-        """Test creating a FunctionResource from a function."""
-
         async def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
@@ -163,8 +143,6 @@ class TestFunctionResource:
 
 class TestFunctionResourceMetadata:
     def test_from_function_with_metadata(self):
-        # from_function() accepts meta dict and stores it on the resource for static resources
-
         def get_data() -> str:  # pragma: no cover
             return "test data"
 
@@ -183,8 +161,6 @@ class TestFunctionResourceMetadata:
         assert "readonly" in resource.meta["tags"]
 
     def test_from_function_without_metadata(self):
-        # meta parameter is optional and defaults to None for backward compatibility
-
         def get_data() -> str:  # pragma: no cover
             return "test data"
 
@@ -198,8 +174,6 @@ class TestFunctionResourceMetadata:
 
 @pytest.mark.anyio
 async def test_sync_fn_runs_in_worker_thread():
-    """Sync resource functions must run in a worker thread, not the event loop."""
-
     main_thread = threading.get_ident()
     fn_thread: list[int] = []
 
@@ -216,11 +190,7 @@ async def test_sync_fn_runs_in_worker_thread():
 
 @pytest.mark.anyio
 async def test_sync_fn_does_not_block_event_loop():
-    """A blocking sync resource function must not stall the event loop.
-
-    On regression (sync runs inline), anyio.from_thread.run_sync raises
-    RuntimeError because there is no worker-thread context, failing fast.
-    """
+    # On regression (sync runs inline), anyio.from_thread.run_sync raises RuntimeError (no worker-thread context).
     handler_entered = anyio.Event()
     release = threading.Event()
 

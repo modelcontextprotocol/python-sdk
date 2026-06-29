@@ -14,7 +14,6 @@ from mcp.server.mcpserver import Context, MCPServer
 
 @pytest.mark.anyio
 async def test_url_elicitation_accept():
-    """Test URL mode elicitation with user acceptance."""
     mcp = MCPServer(name="URLElicitationServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
@@ -24,10 +23,8 @@ async def test_url_elicitation_accept():
             url="https://example.com/api_key_setup",
             elicitation_id="test-elicitation-001",
         )
-        # Test only checks accept path
         return f"User {result.action}"
 
-    # Create elicitation callback that accepts URL mode
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.url == "https://example.com/api_key_setup"
@@ -44,7 +41,6 @@ async def test_url_elicitation_accept():
 
 @pytest.mark.anyio
 async def test_url_elicitation_decline():
-    """Test URL mode elicitation with user declining."""
     mcp = MCPServer(name="URLElicitationDeclineServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
@@ -54,7 +50,6 @@ async def test_url_elicitation_decline():
             url="https://example.com/oauth/authorize",
             elicitation_id="oauth-001",
         )
-        # Test only checks decline path
         return f"User {result.action} authorization"
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
@@ -70,7 +65,6 @@ async def test_url_elicitation_decline():
 
 @pytest.mark.anyio
 async def test_url_elicitation_cancel():
-    """Test URL mode elicitation with user cancelling."""
     mcp = MCPServer(name="URLElicitationCancelServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
@@ -80,7 +74,6 @@ async def test_url_elicitation_cancel():
             url="https://example.com/payment",
             elicitation_id="payment-001",
         )
-        # Test only checks cancel path
         return f"User {result.action} payment"
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
@@ -96,7 +89,6 @@ async def test_url_elicitation_cancel():
 
 @pytest.mark.anyio
 async def test_url_elicitation_helper_function():
-    """Test the elicit_url helper function."""
     mcp = MCPServer(name="URLElicitationHelperServer")
 
     @mcp.tool(description="Tool using elicit_url helper")
@@ -107,7 +99,6 @@ async def test_url_elicitation_helper_function():
             url="https://example.com/setup",
             elicitation_id="setup-001",
         )
-        # Test only checks accept path - return the type name
         return type(result).__name__
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
@@ -122,7 +113,6 @@ async def test_url_elicitation_helper_function():
 
 @pytest.mark.anyio
 async def test_url_no_content_in_response():
-    """Test that URL mode elicitation responses don't include content field."""
     mcp = MCPServer(name="URLContentCheckServer")
 
     @mcp.tool(description="Check URL response format")
@@ -133,18 +123,14 @@ async def test_url_no_content_in_response():
             elicitation_id="test-001",
         )
 
-        # URL mode responses should not have content
         assert result.content is None
         return f"Action: {result.action}, Content: {result.content}"
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
-        # Verify that this is URL mode
         assert params.mode == "url"
         assert isinstance(params, types.ElicitRequestURLParams)
-        # URL params have url and elicitation_id, not requested_schema
         assert params.url == "https://example.com/test"
         assert params.elicitation_id == "test-001"
-        # Return without content - this is correct for URL mode
         return ElicitResult(action="accept")
 
     async with Client(mcp, mode="legacy", elicitation_callback=elicitation_callback) as client:
@@ -156,7 +142,6 @@ async def test_url_no_content_in_response():
 
 @pytest.mark.anyio
 async def test_form_mode_still_works():
-    """Ensure form mode elicitation still works after SEP 1036."""
     mcp = MCPServer(name="FormModeBackwardCompatServer")
 
     class NameSchema(BaseModel):
@@ -165,16 +150,13 @@ async def test_form_mode_still_works():
     @mcp.tool(description="Test form mode")
     async def ask_name(ctx: Context) -> str:
         result = await ctx.elicit(message="What is your name?", schema=NameSchema)
-        # Test only checks accept path with data
         assert result.action == "accept"
         assert result.data is not None
         return f"Hello, {result.data.name}!"
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
-        # Verify form mode parameters
         assert params.mode == "form"
         assert isinstance(params, types.ElicitRequestFormParams)
-        # Form params have requested_schema, not url/elicitation_id
         assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"name": "Alice"})
 
@@ -187,20 +169,15 @@ async def test_form_mode_still_works():
 
 @pytest.mark.anyio
 async def test_elicit_complete_notification():
-    """Test that elicitation completion notifications can be sent and received."""
     mcp = MCPServer(name="ElicitCompleteServer")
 
-    # Track if the notification was sent
     notification_sent = False
 
     @mcp.tool(description="Tool that sends completion notification")
     async def trigger_elicitation(ctx: Context) -> str:
         nonlocal notification_sent
 
-        # Simulate an async operation (e.g., user completing auth in browser)
         elicitation_id = "complete-test-001"
-
-        # Send completion notification
         await ctx.session.send_elicit_complete(elicitation_id)
         notification_sent = True
 
@@ -215,17 +192,14 @@ async def test_elicit_complete_notification():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Elicitation completed"
 
-        # Give time for notification to be processed
+        # Give time for the notification to be processed
         await anyio.sleep(0.1)
 
-        # Verify the notification was sent
         assert notification_sent
 
 
 @pytest.mark.anyio
 async def test_url_elicitation_required_error_code():
-    """Test that the URL_ELICITATION_REQUIRED error code is correct."""
-    # Verify the error code matches the specification (SEP 1036)
     assert types.URL_ELICITATION_REQUIRED == -32042, (
         "URL_ELICITATION_REQUIRED error code must be -32042 per SEP 1036 specification"
     )
@@ -233,7 +207,6 @@ async def test_url_elicitation_required_error_code():
 
 @pytest.mark.anyio
 async def test_elicit_url_typed_results():
-    """Test that elicit_url returns properly typed result objects."""
     mcp = MCPServer(name="TypedResultsServer")
 
     @mcp.tool(description="Test declined result")
@@ -262,7 +235,6 @@ async def test_elicit_url_typed_results():
             return "Cancelled"
         return "Not cancelled"  # pragma: no cover
 
-    # Test declined result
     async def decline_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
@@ -272,7 +244,6 @@ async def test_elicit_url_typed_results():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Declined"
 
-    # Test cancelled result
     async def cancel_callback(context: ClientRequestContext, params: ElicitRequestParams):
         return ElicitResult(action="cancel")
 
@@ -285,7 +256,6 @@ async def test_elicit_url_typed_results():
 
 @pytest.mark.anyio
 async def test_deprecated_elicit_method():
-    """Test the deprecated elicit() method for backward compatibility."""
     mcp = MCPServer(name="DeprecatedElicitServer")
 
     class EmailSchema(BaseModel):
@@ -293,7 +263,7 @@ async def test_deprecated_elicit_method():
 
     @mcp.tool(description="Test deprecated elicit method")
     async def use_deprecated_elicit(ctx: Context) -> str:
-        # Use the deprecated elicit() method which should call elicit_form()
+        # Deprecated elicit() should delegate to elicit_form()
         result = await ctx.session.elicit(
             message="Enter your email",
             requested_schema=EmailSchema.model_json_schema(),
@@ -304,7 +274,6 @@ async def test_deprecated_elicit_method():
         return "No email provided"  # pragma: no cover
 
     async def elicitation_callback(context: ClientRequestContext, params: ElicitRequestParams):
-        # Verify this is form mode
         assert params.mode == "form"
         assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"email": "test@example.com"})
@@ -318,12 +287,10 @@ async def test_deprecated_elicit_method():
 
 @pytest.mark.anyio
 async def test_ctx_elicit_url_convenience_method():
-    """Test the ctx.elicit_url() convenience method (vs ctx.session.elicit_url())."""
     mcp = MCPServer(name="CtxElicitUrlServer")
 
     @mcp.tool(description="A tool that uses ctx.elicit_url() directly")
     async def direct_elicit_url(ctx: Context) -> str:
-        # Use ctx.elicit_url() directly instead of ctx.session.elicit_url()
         result = await ctx.elicit_url(
             message="Test the convenience method",
             url="https://example.com/test",

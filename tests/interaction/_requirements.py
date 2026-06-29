@@ -1,35 +1,28 @@
 """Requirements manifest for the interaction-model test suite.
 
 Every user-facing behaviour the SDK must satisfy, keyed by a stable `<area>:<feature>[:<variant>]`
-ID. Each entry owns the tests that exercise it: tests declare `@requirement("<id>")` (a test that
-proves several behaviours stacks several decorators) and `test_coverage.py` enforces the contract
-in both directions: every non-deferred requirement has at least one test, and every test carries
-at least one requirement.
+ID. Tests declare `@requirement("<id>")` (stacking decorators when one test proves several
+behaviours); `test_coverage.py` enforces both directions: every non-deferred requirement has at
+least one test, and every test carries at least one requirement.
 
 Sources:
     spec URL    -- externally mandated by the MCP specification (deep link to the section)
     `sdk`       -- a behavioural guarantee the SDK chose; not spec-mandated
     `issue:#n`  -- regression lock-in for a previously fixed bug
 
-The `behavior` sentence describes the REQUIRED behaviour -- what the specification (or the SDK's
-own contract) says should happen. Tests always pin the SDK's current behaviour. Where current
-behaviour falls short of `behavior`, the gap is recorded as data: `divergence` on entries whose
-tests pin the divergent behaviour, or `deferred` on entries that are tracked but not yet covered
-by a test in this suite. An entry may carry both: `divergence` records the spec-compliance gap
-(issue-able) and `deferred` records why no test exists; `divergence` alone implies a test pins
-the divergent behaviour. `issue` carries the tracking link for a recorded gap once one is filed.
-
-`deferred` reasons take one of three shapes: where the behaviour is exercised elsewhere in this
-repo the reason names the covering test path; where the SDK does not implement the behaviour at
-all the reason starts with "Not implemented in the SDK"; and where an interaction-level test is
-planned but not yet written the reason starts with "Not yet covered here".
+`behavior` states the REQUIRED behaviour; tests always pin the SDK's current behaviour. Where the
+two differ the gap is recorded as data: `divergence` on entries whose tests pin the divergent
+behaviour (issue-able; on its own it implies a pinning test exists), `deferred` on entries tracked
+but not yet covered by a test in this suite, and `issue` the tracking link once a gap is filed.
+`deferred` reasons take one of three shapes: the covering test path elsewhere in this repo, or a
+reason starting with "Not implemented in the SDK" or "Not yet covered here".
 
 `transports` records which transports a behaviour applies to (or is observable on); None means
-the behaviour is transport-independent.
+transport-independent.
 
-The ID vocabulary and entry granularity are aligned with the TypeScript SDK's end-to-end
-requirements suite, so coverage and recorded divergences can be compared across the two SDKs
-entry by entry; IDs that exist in only one SDK reflect genuinely different API surface.
+ID vocabulary and entry granularity mirror the TypeScript SDK's end-to-end requirements suite so
+coverage and divergences compare across the two SDKs entry by entry; IDs existing in only one SDK
+reflect genuinely different API surface.
 """
 
 import re
@@ -41,16 +34,14 @@ import pytest
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 SpecVersion = Literal["2025-11-25", "2026-07-28"]
-"""A protocol version the suite parametrizes over. Both values are typed even though only one is
-on the active axis (SPEC_VERSIONS) until the 2026-07-28 implementation lands."""
+"""A protocol version the suite parametrizes over."""
 
 SPEC_VERSIONS: tuple[SpecVersion, ...] = ("2025-11-25", "2026-07-28")
 """The active spec-version matrix axis, ordered oldest to newest. Every entry must be in KNOWN_PROTOCOL_VERSIONS."""
 
 SPEC_BASE_URL = "https://modelcontextprotocol.io/specification/2025-11-25"
-"""Deep-link base for entries citing the 2025-11-25 revision (the bulk of the manifest). Pinned --
-not derived from SPEC_VERSIONS -- so adding a newer revision to the active axis does not silently
-repoint existing source URLs."""
+"""Deep-link base for entries citing the 2025-11-25 revision. Pinned -- not derived from
+SPEC_VERSIONS -- so adding a newer revision to the axis does not silently repoint source URLs."""
 
 SPEC_2026_BASE_URL = "https://modelcontextprotocol.io/specification/2026-07-28"
 """Deep-link base for entries citing the 2026-07-28 revision."""
@@ -63,9 +54,8 @@ CONNECTABLE_TRANSPORTS: tuple[Transport, ...] = ("in-memory", "sse", "streamable
 TRANSPORT_SPEC_VERSIONS: dict[Transport, tuple[SpecVersion, ...]] = {
     "sse": ("2025-11-25",),
     "in-memory": ("2025-11-25", "2026-07-28"),
-    # At the newer revision the protocol-version header check runs before the stateless branch is
-    # taken, so a stateless connection at that revision behaves identically to the stateful one.
-    # Locked to avoid a redundant matrix column; revisit if the header/stateless ordering changes.
+    # At 2026-07-28 the protocol-version header check runs before the stateless branch, making a
+    # stateless connection identical to the stateful one; locked to avoid a redundant matrix column.
     "streamable-http-stateless": ("2025-11-25",),
 }
 """Transports that only serve a subset of SPEC_VERSIONS. Absent => serves all. Consulted by compute_cells()."""
@@ -79,9 +69,9 @@ ArmExclusionReason = Literal[
     "drives-transport-directly",
     "server-initiated-request",
 ]
-"""Machine-readable reasons a requirement is excluded from a (transport, spec_version) matrix cell.
-The set doubles as a re-admission checklist: when a feature lands, grep for its reason to find the
-cells to re-admit. Values are kept byte-identical to the typescript-sdk's EntryExclusionReason."""
+"""Machine-readable reasons a requirement is excluded from a (transport, spec_version) matrix cell;
+grep a reason to find cells to re-admit when a feature lands. Byte-identical to the typescript-sdk's
+EntryExclusionReason."""
 
 _TestFn = TypeVar("_TestFn", bound=Callable[..., object])
 
@@ -168,9 +158,6 @@ class Requirement:
 
 
 REQUIREMENTS: dict[str, Requirement] = {
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Lifecycle & version negotiation
-    # ═══════════════════════════════════════════════════════════════════════════
     "lifecycle:capability:client-not-declared": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#operation",
         behavior=(
@@ -464,9 +451,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Protocol primitives: cancellation, timeout, progress, errors, _meta
-    # ═══════════════════════════════════════════════════════════════════════════
     "protocol:request-id:unique": Requirement(
         source=f"{SPEC_BASE_URL}/basic#requests",
         behavior=(
@@ -758,9 +742,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
         behavior="A session-level read timeout applies to every request that does not override it.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Tools
-    # ═══════════════════════════════════════════════════════════════════════════
     "tools:call:content:audio": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#audio-content",
         behavior="A tool result can carry audio content: base64 data with a mimeType.",
@@ -900,9 +881,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "back to the handler as an opaque cursor until the listing is exhausted."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Tools: SDK guarantees
-    # ═══════════════════════════════════════════════════════════════════════════
     "client:output-schema:skip-on-error": Requirement(
         source="sdk",
         behavior="The client skips structured-content validation when the tool result has isError true.",
@@ -1034,9 +1012,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying inputRequests."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # MCPServer: Context helpers (SDK)
-    # ═══════════════════════════════════════════════════════════════════════════
     "mcpserver:context:logging": Requirement(
         source="sdk",
         behavior=(
@@ -1065,9 +1040,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior="Context.read_resource reads a resource registered on the same server from inside a tool.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Resources
-    # ═══════════════════════════════════════════════════════════════════════════
     "resources:annotations": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#annotations",
         behavior="Resource annotations supplied by the server round-trip to the client in the list result.",
@@ -1193,9 +1165,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Resources: SDK guarantees
-    # ═══════════════════════════════════════════════════════════════════════════
     "mcpserver:resource:duplicate-name": Requirement(
         source="sdk",
         behavior="Registering a resource or template with a duplicate identifier is rejected at registration time.",
@@ -1235,9 +1204,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(invalid params) with the requested URI in error.data, per SEP-2164."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Prompts
-    # ═══════════════════════════════════════════════════════════════════════════
     "prompts:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#capabilities",
         behavior="A server with a list_prompts handler advertises the prompts capability in its initialize result.",
@@ -1301,9 +1267,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
         behavior="prompts/list supports cursor pagination.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Prompts: SDK guarantees
-    # ═══════════════════════════════════════════════════════════════════════════
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
@@ -1341,9 +1304,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Completion
-    # ═══════════════════════════════════════════════════════════════════════════
     "completion:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
         behavior="A server with a completion handler advertises the completions capability in its initialize result.",
@@ -1387,9 +1347,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         arm_exclusions=(ArmExclusion(reason="asserts-legacy-handshake", spec_version="2026-07-28"),),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Logging
-    # ═══════════════════════════════════════════════════════════════════════════
     "logging:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#capabilities",
         behavior=(
@@ -1448,9 +1405,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "io.modelcontextprotocol/logLevel in _meta."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Sampling (server → client)
-    # ═══════════════════════════════════════════════════════════════════════════
     "sampling:capability:declare": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
         behavior=(
@@ -1655,9 +1609,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Elicitation (server → client)
-    # ═══════════════════════════════════════════════════════════════════════════
     "elicitation:capability:empty-is-form": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#capabilities",
         behavior="A client advertising an empty elicitation capability accepts form-mode elicitation requests.",
@@ -1904,9 +1855,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "carrying inputRequests."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Roots (server → client)
-    # ═══════════════════════════════════════════════════════════════════════════
     "roots:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
         behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
@@ -1981,9 +1929,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "type-level coverage belongs in tests/test_types.py rather than this interaction suite."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # list_changed & dynamic registration
-    # ═══════════════════════════════════════════════════════════════════════════
     "client:list-changed:auto-refresh": Requirement(
         source="sdk",
         behavior=(
@@ -2033,9 +1978,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Pagination
-    # ═══════════════════════════════════════════════════════════════════════════
     "pagination:exhaustion": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#response-format",
         behavior=(
@@ -2054,9 +1996,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "and does not assume a fixed page size."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Tasks (experimental)
-    # ═══════════════════════════════════════════════════════════════════════════
     "tasks:auth:context-isolation": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/tasks#task-isolation-and-access-control",
         behavior=(
@@ -2383,9 +2322,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "extension."
         ),
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Transports (in-suite coverage)
-    # ═══════════════════════════════════════════════════════════════════════════
     "transport:streamable-http:stateful": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
@@ -2494,9 +2430,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("stdio",),
         note="Only observable over stdio: exercises the child-process framing end to end.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Hosting: session lifecycle
-    # ═══════════════════════════════════════════════════════════════════════════
     "hosting:session:cors-expose": Requirement(
         source="sdk",
         behavior="CORS configuration exposes the Mcp-Session-Id header so browser clients can read it.",
@@ -2607,9 +2540,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Stateless mode is a streamable-HTTP hosting option; Mcp-Session-Id is an HTTP header.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Hosting: auth
-    # ═══════════════════════════════════════════════════════════════════════════
     "hosting:auth:as-router": Requirement(
         source="sdk",
         behavior=(
@@ -2791,9 +2721,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Hosting: resumability
-    # ═══════════════════════════════════════════════════════════════════════════
     "hosting:resume:bad-event-id": Requirement(
         source="sdk",
         behavior="A Last-Event-ID that cannot be mapped to a stream is rejected.",
@@ -2864,9 +2791,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); Last-Event-ID replay dropped, no replacement.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Hosting: HTTP semantics
-    # ═══════════════════════════════════════════════════════════════════════════
     "hosting:http:accept-406": Requirement(
         source="sdk",
         behavior="A request whose Accept header does not allow the response representation returns 406.",
@@ -3145,9 +3069,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: the modern entry's JSONRPCError-to-HTTP-status mapping.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Client transport: streamable HTTP
-    # ═══════════════════════════════════════════════════════════════════════════
     "client-transport:http:404-surfaces": Requirement(
         source="sdk",
         behavior="A 404 (session expired) on a request surfaces as an error to the caller.",
@@ -3352,9 +3273,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over streamable HTTP: session-id, GET stream and DELETE are streamable-HTTP mechanics.",
         deferred="defensive against a misbehaving peer; covered by a tests/client/ unit test",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Client auth
-    # ═══════════════════════════════════════════════════════════════════════════
     "client-auth:401-after-auth-throws": Requirement(
         source="sdk",
         behavior=(
@@ -3703,9 +3621,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # stdio transport
-    # ═══════════════════════════════════════════════════════════════════════════
     "transport:stdio:clean-shutdown": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#shutdown",
         behavior="Closing the client transport closes the child process's stdin and the server exits cleanly.",
@@ -3755,9 +3670,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("stdio",),
         note="Only observable over stdio: stderr is a child-process stream.",
     ),
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Composite end-to-end flows
-    # ═══════════════════════════════════════════════════════════════════════════
     "flow:compat:dual-transport-server": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
         behavior=(
@@ -3879,11 +3791,10 @@ REQUIREMENTS: dict[str, Requirement] = {
 
 
 def requirement(requirement_id: str) -> Callable[[_TestFn], _TestFn]:
-    """Mark a test as exercising a requirement from :data:`REQUIREMENTS`.
+    """Mark a test as exercising a requirement from REQUIREMENTS.
 
     Applies the `requirement` pytest marker and records the coverage link checked by
-    `test_coverage.py`. Unknown IDs fail at import time so a typo surfaces as a collection
-    error on the offending test, not as a missing-coverage report later.
+    `test_coverage.py`; unknown IDs fail at import time so a typo surfaces as a collection error.
     """
     if requirement_id not in REQUIREMENTS:
         raise KeyError(f"Unknown requirement id {requirement_id!r}: add it to REQUIREMENTS in {__name__}")
@@ -3906,9 +3817,8 @@ def covered_by(requirement_id: str) -> list[str]:
 def cell_id(transport: Transport, version: SpecVersion, *, spec_versions: Sequence[SpecVersion] = SPEC_VERSIONS) -> str:
     """Return the pytest node-id suffix for a (transport, spec_version) cell.
 
-    While the active matrix has a single spec version, the suffix is just the transport name so
-    existing node ids stay byte-identical; once a second version is on the axis the suffix becomes
-    ``transport-version``.
+    With a single spec version on the axis the suffix is just the transport name, keeping existing
+    node ids byte-identical; with more it becomes `transport-version`.
     """
     return transport if len(spec_versions) == 1 else f"{transport}-{version}"
 
@@ -3921,17 +3831,14 @@ def compute_cells(
 ) -> list[Any]:
     """Compute the (transport, spec_version) parametrization cells for a test.
 
-    Stacked ``@requirement`` decorators contribute multiple entries; the cells emitted are the
-    INTERSECTION across all of them: a cell is dropped if it falls outside any requirement's
-    ``[added_in, removed_in)`` window or matches any requirement's ``arm_exclusions``. An empty
-    ``requirements`` sequence yields the full transport x spec-version grid.
+    Stacked `@requirement` decorators intersect: a cell is dropped if it falls outside any
+    requirement's `[added_in, removed_in)` window or matches any requirement's `arm_exclusions`.
+    An empty `requirements` sequence yields the full grid. `Requirement.transports` is
+    intentionally NOT consulted -- it is descriptive metadata about where a behaviour is
+    observable, not a cell filter.
 
-    ``Requirement.transports`` is intentionally NOT consulted -- it is descriptive metadata about
-    where a behaviour is observable, not a cell filter (only ``arm_exclusions`` / ``added_in`` /
-    ``removed_in`` drive cell generation).
-
-    Returns a list of ``pytest.param((transport, version), id=..., marks=...)`` values for use as
-    ``metafunc.parametrize`` argvalues.
+    Returns `pytest.param((transport, version), id=..., marks=...)` values for use as
+    `metafunc.parametrize` argvalues.
     """
     cells: list[Any] = []
     for version in spec_versions:
@@ -3939,7 +3846,6 @@ def compute_cells(
         for transport in sorted(transports):
             if transport in TRANSPORT_SPEC_VERSIONS and version not in TRANSPORT_SPEC_VERSIONS[transport]:
                 continue
-            # Requirement.transports is descriptive metadata only and does not filter cells.
             if any(
                 (req.added_in is not None and version_ordinal < KNOWN_PROTOCOL_VERSIONS.index(req.added_in))
                 or (req.removed_in is not None and version_ordinal >= KNOWN_PROTOCOL_VERSIONS.index(req.removed_in))

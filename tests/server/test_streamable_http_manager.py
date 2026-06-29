@@ -1,5 +1,3 @@
-"""Tests for StreamableHTTPSessionManager."""
-
 import json
 import logging
 from typing import Any
@@ -22,15 +20,12 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 @pytest.mark.anyio
 async def test_run_can_only_be_called_once():
-    """Test that run() can only be called once per instance."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
 
-    # First call should succeed
     async with manager.run():
         pass
 
-    # Second call should raise RuntimeError
     with pytest.raises(RuntimeError) as excinfo:
         async with manager.run():
             pass  # pragma: no cover
@@ -40,7 +35,6 @@ async def test_run_can_only_be_called_once():
 
 @pytest.mark.anyio
 async def test_run_prevents_concurrent_calls():
-    """Test that concurrent calls to run() are prevented."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
 
@@ -49,28 +43,23 @@ async def test_run_prevents_concurrent_calls():
     async def try_run():
         try:
             async with manager.run():
-                # Simulate some work
                 await anyio.sleep(0.1)
         except RuntimeError as e:
             errors.append(e)
 
-    # Try to run concurrently
     async with anyio.create_task_group() as tg:
         tg.start_soon(try_run)
         tg.start_soon(try_run)
 
-    # One should succeed, one should fail
     assert len(errors) == 1
     assert "StreamableHTTPSessionManager .run() can only be called once per instance" in str(errors[0])
 
 
 @pytest.mark.anyio
 async def test_handle_request_without_run_raises_error():
-    """Test that handle_request raises error if run() hasn't been called."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
 
-    # Mock ASGI parameters
     scope = {"type": "http", "method": "POST", "path": "/test"}
 
     async def receive():  # pragma: no cover
@@ -79,7 +68,6 @@ async def test_handle_request_without_run_raises_error():
     async def send(message: Message):  # pragma: no cover
         pass
 
-    # Should raise error because run() hasn't been called
     with pytest.raises(RuntimeError) as excinfo:
         await manager.handle_request(scope, receive, send)
 
@@ -94,10 +82,8 @@ class TestException(Exception):
 @pytest.fixture
 async def running_manager():
     app = Server("test-cleanup-server")
-    # It's important that the app instance used by the manager is the one we can patch
     manager = StreamableHTTPSessionManager(app=app)
     async with manager.run():
-        # Patch app.run here if it's simpler, or patch it within the test
         yield manager, app
 
 
@@ -105,9 +91,8 @@ async def running_manager():
 async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, _app = running_manager
 
-    # The manager's `run_server` task drives `serve_loop` directly (the manager
-    # owns lifespan); patch that seam so the loop returns immediately and we
-    # can observe the cleanup that follows.
+    # run_server drives serve_loop directly (the manager owns lifespan); patch that
+    # seam so the loop returns immediately and we can observe the cleanup that follows.
     mock_serve = AsyncMock(return_value=None)
 
     sent_messages: list[Message] = []
@@ -125,11 +110,9 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
     async def mock_receive():  # pragma: no cover
         return {"type": "http.request", "body": b"", "more_body": False}
 
-    # Trigger session creation
     with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
         await manager.handle_request(scope, mock_receive, mock_send)
 
-    # Extract session ID from response headers
     session_id = None
     for msg in sent_messages:  # pragma: no branch
         if msg["type"] == "http.response.start":  # pragma: no branch
@@ -137,18 +120,14 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
                 if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
                     session_id = header_value.decode()
                     break
-            if session_id:  # Break outer loop if session_id is found  # pragma: no branch
+            if session_id:  # pragma: no branch
                 break
 
     assert session_id is not None, "Session ID not found in response headers"
 
     mock_serve.assert_called_once()
 
-    # At this point, mock_serve has completed, and the finally block in
-    # StreamableHTTPSessionManager's run_server should have executed.
-
-    # To ensure the task spawned by handle_request finishes and cleanup occurs:
-    # Give other tasks a chance to run. This is important for the finally block.
+    # Yield so the task spawned by handle_request runs run_server's finally-block cleanup.
     await anyio.sleep(0.01)
 
     assert session_id not in manager._server_instances, (
@@ -167,11 +146,10 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
     async def mock_send(message: Message):
         sent_messages.append(message)
-        # If an exception occurs, the transport might try to send an error response
-        # For this test, we mostly care that the session is established enough
-        # to get an ID
+        # A 5xx here is expected if TestException propagates up the transport; this test
+        # only needs the session established far enough to capture its ID.
         if message["type"] == "http.response.start" and message["status"] >= 500:  # pragma: no cover
-            pass  # Expected if TestException propagates that far up the transport
+            pass
 
     scope = {
         "type": "http",
@@ -183,7 +161,6 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
     async def mock_receive():  # pragma: no cover
         return {"type": "http.request", "body": b"", "more_body": False}
 
-    # Trigger session creation
     with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
         await manager.handle_request(scope, mock_receive, mock_send)
 
@@ -194,7 +171,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
                 if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
                     session_id = header_value.decode()
                     break
-            if session_id:  # Break outer loop if session_id is found  # pragma: no branch
+            if session_id:  # pragma: no branch
                 break
 
     assert session_id is not None, "Session ID not found in response headers"
@@ -212,14 +189,10 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
 @pytest.mark.anyio
 async def test_stateless_requests_memory_cleanup():
-    """Test that stateless requests actually clean up resources using real transports."""
     app = Server("test-stateless-real-cleanup")
     manager = StreamableHTTPSessionManager(app=app, stateless=True)
 
-    # Track created transport instances
     created_transports: list[StreamableHTTPServerTransport] = []
-
-    # Patch StreamableHTTPServerTransport constructor to track instances
 
     original_constructor = StreamableHTTPServerTransport
 
@@ -230,7 +203,6 @@ async def test_stateless_requests_memory_cleanup():
 
     with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
         async with manager.run():
-            # Send a simple request
             sent_messages: list[Message] = []
 
             async def mock_send(message: Message):
@@ -254,24 +226,19 @@ async def test_stateless_requests_memory_cleanup():
                     "more_body": False,
                 }
 
-            # Send a request
             await manager.handle_request(scope, mock_receive, mock_send)
 
-            # Verify transport was created
             assert len(created_transports) == 1, "Should have created one transport"
 
             transport = created_transports[0]
 
-            # The key assertion - transport should be terminated
             assert transport._terminated, "Transport should be terminated after stateless request"
-
-            # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
 
 
 @pytest.mark.anyio
 async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
-    """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
+    """Requests with unknown session IDs return HTTP 404 per the MCP spec."""
     app = Server("test-unknown-session")
     manager = StreamableHTTPSessionManager(app=app)
 
@@ -285,7 +252,6 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
             if message["type"] == "http.response.body":
                 response_body += message.get("body", b"")
 
-        # Request with a non-existent session ID
         scope = {
             "type": "http",
             "method": "POST",
@@ -303,7 +269,6 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
         with caplog.at_level(logging.INFO):
             await manager.handle_request(scope, mock_receive, mock_send)
 
-        # Find the response start message
         response_start = next(
             (msg for msg in sent_messages if msg["type"] == "http.response.start"),
             None,
@@ -311,7 +276,6 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
         assert response_start is not None, "Should have sent a response"
         assert response_start["status"] == 404, "Should return HTTP 404 for unknown session ID"
 
-        # Verify JSON-RPC error format
         error_data = json.loads(response_body)
         assert error_data["jsonrpc"] == "2.0"
         assert error_data["id"] is None
@@ -352,7 +316,6 @@ class _IdleTimeoutObserver(logging.Handler):
 
 @pytest.mark.anyio
 async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest):
-    """After idle timeout fires, the session returns 404."""
     app = Server("test-idle-reap")
     manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=0.05)
 
@@ -400,7 +363,6 @@ async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request:
         with anyio.fail_after(5):
             await observer.reaped.wait()
 
-        # Verify via public API: old session ID now returns 404
         response_messages: list[Message] = []
 
         async def capture_send(message: Message):
@@ -447,7 +409,6 @@ def _user(client_id: str, subject: str | None = None, issuer: str | None = None)
 def _request_scope(
     *, session_id: str | None = None, user: AuthenticatedUser | None = None, method: str = "POST"
 ) -> Scope:
-    """Build an ASGI scope for a request to the MCP endpoint."""
     headers = [
         (b"content-type", b"application/json"),
         (b"accept", b"application/json, text/event-stream"),
@@ -515,14 +476,12 @@ async def manager_with_live_session():
 async def test_session_accepts_requests_from_the_credential_that_created_it(
     manager_with_live_session: StreamableHTTPSessionManager,
 ) -> None:
-    """Requests presenting the same credential as the one that created the session are served."""
     manager = manager_with_live_session
     session_id = await _open_session(manager, _user("client-a"))
 
     status = await _request_session(manager, session_id, _user("client-a"))
 
-    # The request passes the manager's credential check and reaches the
-    # session's transport, instead of being answered with 404 by the manager.
+    # Not 404: the request passed the manager's credential check and reached the transport.
     assert status != 404
 
 
@@ -531,7 +490,6 @@ async def test_session_accepts_requests_from_the_credential_that_created_it(
 async def test_session_rejects_requests_from_a_different_credential(
     manager_with_live_session: StreamableHTTPSessionManager, method: str
 ) -> None:
-    """A session created by one credential cannot be used with another credential, whatever the method."""
     manager = manager_with_live_session
     session_id = await _open_session(manager, _user("client-a"))
 
@@ -544,7 +502,6 @@ async def test_session_rejects_requests_from_a_different_credential(
 async def test_session_rejects_requests_from_a_different_subject_of_the_same_client(
     manager_with_live_session: StreamableHTTPSessionManager,
 ) -> None:
-    """Two end-users that share an OAuth client cannot use each other's sessions."""
     manager = manager_with_live_session
     session_id = await _open_session(manager, _user("client-a", subject="alice"))
 
@@ -572,7 +529,6 @@ async def test_session_rejects_requests_with_the_same_subject_from_a_different_i
 async def test_session_rejects_unauthenticated_requests_for_an_authenticated_session(
     manager_with_live_session: StreamableHTTPSessionManager,
 ) -> None:
-    """A session created with a credential cannot be used without one."""
     manager = manager_with_live_session
     session_id = await _open_session(manager, _user("client-a"))
 
@@ -583,7 +539,6 @@ async def test_session_rejects_unauthenticated_requests_for_an_authenticated_ses
 async def test_session_rejects_authenticated_requests_for_an_anonymous_session(
     manager_with_live_session: StreamableHTTPSessionManager,
 ) -> None:
-    """A session created without a credential cannot be used with one."""
     manager = manager_with_live_session
     session_id = await _open_session(manager, None)
 

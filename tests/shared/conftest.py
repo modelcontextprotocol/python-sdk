@@ -1,8 +1,7 @@
 """Shared fixtures for `Dispatcher` contract tests.
 
-The `pair_factory` fixture parametrizes contract tests over every `Dispatcher`
-implementation, so the same behavioral assertions run against `DirectDispatcher`
-(in-memory) and `JSONRPCDispatcher` (over crossed anyio memory streams).
+The `pair_factory` fixture parametrizes contract tests over every implementation:
+`DirectDispatcher` (in-memory) and `JSONRPCDispatcher` (over crossed anyio memory streams).
 """
 
 from collections.abc import Callable
@@ -31,7 +30,6 @@ def direct_pair(*, can_send_request: bool = True) -> DispatcherTriple:
 
 
 def jsonrpc_pair(*, can_send_request: bool = True) -> DispatcherTriple:
-    """Two `JSONRPCDispatcher`s wired over crossed in-memory streams."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
 

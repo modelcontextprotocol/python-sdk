@@ -2,19 +2,10 @@
 # dependencies = []
 # ///
 
-"""MCPServer Text Me Server
---------------------------------
-This defines a simple MCPServer server that sends a text message to a phone number via https://surgemsg.com/.
+"""MCPServer that sends a text message to a phone number via https://surgemsg.com/.
 
-To run this example, create a `.env` file with the following values:
-
-SURGE_API_KEY=...
-SURGE_ACCOUNT_ID=...
-SURGE_MY_PHONE_NUMBER=...
-SURGE_MY_FIRST_NAME=...
-SURGE_MY_LAST_NAME=...
-
-Visit https://surgemsg.com/ and click "Get Started" to obtain these values.
+Requires a `.env` file with SURGE_API_KEY, SURGE_ACCOUNT_ID, SURGE_MY_PHONE_NUMBER,
+SURGE_MY_FIRST_NAME, and SURGE_MY_LAST_NAME — visit https://surgemsg.com/ to obtain them.
 """
 
 from typing import Annotated
@@ -36,7 +27,6 @@ class SurgeSettings(BaseSettings):
     my_last_name: str
 
 
-# Create server
 mcp = MCPServer("Text me")
 surge_settings = SurgeSettings()  # type: ignore
 

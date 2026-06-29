@@ -17,7 +17,6 @@ from mcp.server import Server, ServerRequestContext
 
 @pytest.mark.anyio
 async def test_list_prompts_basic() -> None:
-    """Test basic prompt listing without pagination."""
     test_prompts = [
         Prompt(name="prompt1", description="First prompt"),
         Prompt(name="prompt2", description="Second prompt"),
@@ -36,7 +35,6 @@ async def test_list_prompts_basic() -> None:
 
 @pytest.mark.anyio
 async def test_list_resources_basic() -> None:
-    """Test basic resource listing without pagination."""
     test_resources = [
         Resource(uri="file:///test1.txt", name="Test 1"),
         Resource(uri="file:///test2.txt", name="Test 2"),
@@ -55,7 +53,6 @@ async def test_list_resources_basic() -> None:
 
 @pytest.mark.anyio
 async def test_list_tools_basic() -> None:
-    """Test basic tool listing without pagination."""
     test_tools = [
         Tool(
             name="tool1",
@@ -93,8 +90,6 @@ async def test_list_tools_basic() -> None:
 
 @pytest.mark.anyio
 async def test_list_prompts_empty() -> None:
-    """Test listing with empty results."""
-
     async def handle_list_prompts(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
     ) -> ListPromptsResult:
@@ -108,8 +103,6 @@ async def test_list_prompts_empty() -> None:
 
 @pytest.mark.anyio
 async def test_list_resources_empty() -> None:
-    """Test listing with empty results."""
-
     async def handle_list_resources(
         ctx: ServerRequestContext, params: PaginatedRequestParams | None
     ) -> ListResourcesResult:
@@ -123,8 +116,6 @@ async def test_list_resources_empty() -> None:
 
 @pytest.mark.anyio
 async def test_list_tools_empty() -> None:
-    """Test listing with empty results."""
-
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[])
 

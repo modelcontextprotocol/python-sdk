@@ -15,12 +15,9 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture
 async def full_featured_server():
-    """Create a server with tools, resources, prompts, and templates."""
     server = MCPServer("test")
 
-    # pragma: no cover on handlers below - these exist only to register items with the
-    # server so list_* methods return results. The handlers themselves are never called
-    # because these tests only verify pagination/cursor behavior, not tool/resource invocation.
+    # The no-cover handlers exist only so list_* methods return results; these tests never invoke them.
     @server.tool()
     def greet(name: str) -> str:  # pragma: no cover
         """Greet someone by name."""
@@ -59,16 +56,10 @@ async def test_list_methods_params_parameter(
     method_name: str,
     request_method: str,
 ):
-    """Test that the params parameter is accepted and correctly passed to the server.
-
-    Covers: list_tools, list_resources, list_prompts, list_resource_templates
-
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
+    """See https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format"""
     async with Client(full_featured_server, mode="legacy") as client:
         spies = stream_spy()
 
-        # Test without params (omitted)
         method = getattr(client, method_name)
         _ = await method()
         requests = spies.get_client_requests(method=request_method)
@@ -77,7 +68,6 @@ async def test_list_methods_params_parameter(
 
         spies.clear()
 
-        # Test with params containing cursor
         _ = await method(cursor="from_params")
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
@@ -86,18 +76,16 @@ async def test_list_methods_params_parameter(
 
         spies.clear()
 
-        # Test with empty params
+        # A plain call after a cursor call must again omit the cursor
         _ = await method()
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
-        # Empty params means no cursor
         assert requests[0].params is None or "cursor" not in requests[0].params
 
 
 async def test_list_tools_with_strict_server_validation(
     full_featured_server: MCPServer,
 ):
-    """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:
         result = await client.list_tools()
         assert isinstance(result, ListToolsResult)
@@ -105,12 +93,10 @@ async def test_list_tools_with_strict_server_validation(
 
 
 async def test_list_tools_with_lowlevel_server():
-    """Test that list_tools works with a lowlevel Server using params."""
-
     async def handle_list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> ListToolsResult:
-        # Echo back what cursor we received in the tool description
+        # Echo the received cursor through the tool description so the client side can assert on it
         cursor = params.cursor if params else None
         return ListToolsResult(
             tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={"type": "object"})]

@@ -19,8 +19,7 @@ class OAuthToken(BaseModel):
     @classmethod
     def normalize_token_type(cls, v: str | None) -> str | None:
         if isinstance(v, str):
-            # Bearer is title-cased in the spec, so we normalize it
-            # https://datatracker.ietf.org/doc/html/rfc6750#section-4
+            # The spec title-cases "Bearer"; normalize (https://datatracker.ietf.org/doc/html/rfc6750#section-4)
             return v.title()
         return v  # pragma: no cover
 
@@ -28,8 +27,7 @@ class OAuthToken(BaseModel):
 class AuthorizationCodeResult(BaseModel):
     """Authorization-code-grant redirect parameters returned by a callback handler.
 
-    `iss` carries the RFC 9207 authorization-response issuer when the authorization server
-    includes it in the redirect; the client validates it against the expected issuer.
+    `iss` is the RFC 9207 authorization-response issuer; the client validates it against the expected issuer.
     """
 
     code: str
@@ -48,34 +46,27 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthClientMetadata(BaseModel):
-    """RFC 7591 OAuth 2.0 Dynamic Client Registration Metadata.
-    See https://datatracker.ietf.org/doc/html/rfc7591#section-2
-    """
+    """RFC 7591 Dynamic Client Registration metadata. See https://datatracker.ietf.org/doc/html/rfc7591#section-2"""
 
     model_config = ConfigDict(url_preserve_empty_path=True)
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
-    # supported auth methods for the token endpoint
     token_endpoint_auth_method: (
         Literal["none", "client_secret_post", "client_secret_basic", "private_key_jwt"] | None
     ) = None
-    # supported grant_types of this implementation
     grant_types: list[
         Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
     ] = [
         "authorization_code",
         "refresh_token",
     ]
-    # The MCP spec requires the "code" response type, but OAuth
-    # servers may also return additional types they support
+    # MCP requires the "code" response type; servers may return additional types they support
     response_types: list[str] = ["code"]
     scope: str | None = None
-    # SEP-837: OIDC application_type. Defaults to "native" since MCP clients typically use
-    # loopback redirect URIs; set "web" for remote browser-based clients on a non-local host.
+    # SEP-837 OIDC application_type: "native" for loopback redirects, "web" for remote browser-based clients.
     application_type: Literal["web", "native"] = "native"
 
-    # these fields are currently unused, but we support & store them for potential
-    # future use
+    # Currently unused; accepted and stored for potential future use
     client_name: str | None = None
     client_uri: AnyHttpUrl | None = None
     logo_uri: AnyHttpUrl | None = None
@@ -97,10 +88,8 @@ class OAuthClientMetadata(BaseModel):
     )
     @classmethod
     def _empty_string_optional_url_to_none(cls, v: object) -> object:
-        # RFC 7591 §2 marks these URL fields OPTIONAL. Some authorization servers
-        # echo omitted metadata back as "" instead of dropping the keys, which
-        # AnyHttpUrl would otherwise reject — throwing away an otherwise valid
-        # registration response. Treat "" as absent.
+        # RFC 7591 §2 marks these URL fields OPTIONAL, but some servers echo omitted metadata back
+        # as "" — which AnyHttpUrl would reject. Treat "" as absent.
         if v == "":
             return None
         return v
@@ -117,7 +106,6 @@ class OAuthClientMetadata(BaseModel):
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
-            # Validate redirect_uri against client's registered redirect URIs
             if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
                 raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
@@ -128,23 +116,18 @@ class OAuthClientMetadata(BaseModel):
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
-    """RFC 7591 OAuth 2.0 Dynamic Client Registration full response
-    (client information plus metadata).
-    """
+    """RFC 7591 Dynamic Client Registration full response (client information plus metadata)."""
 
     client_id: str | None = None
     client_secret: str | None = None
     client_id_issued_at: int | None = None
     client_secret_expires_at: int | None = None
-    # SEP-2352: the issuer these credentials were registered with, recorded by the SDK (not an
-    # RFC 7591 field) to detect authorization-server migration and avoid cross-AS credential reuse.
+    # SEP-2352: issuer the credentials were registered with; SDK-recorded (not RFC 7591) to detect AS migration.
     issuer: str | None = None
 
 
 class OAuthMetadata(BaseModel):
-    """RFC 8414 OAuth 2.0 Authorization Server Metadata.
-    See https://datatracker.ietf.org/doc/html/rfc8414#section-2
-    """
+    """RFC 8414 Authorization Server Metadata. See https://datatracker.ietf.org/doc/html/rfc8414#section-2"""
 
     model_config = ConfigDict(url_preserve_empty_path=True)
 
@@ -171,15 +154,12 @@ class OAuthMetadata(BaseModel):
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
     authorization_response_iss_parameter_supported: bool | None = None
-    # SEP-990 / draft-ietf-oauth-identity-assertion-authz-grant §7.2: profiles whose grants the
-    # authorization server supports, e.g. `urn:ietf:params:oauth:grant-profile:id-jag`.
+    # SEP-990 / draft-ietf-oauth-identity-assertion-authz-grant §7.2, e.g. `urn:ietf:params:oauth:grant-profile:id-jag`
     authorization_grant_profiles_supported: list[str] | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):
-    """RFC 9728 OAuth 2.0 Protected Resource Metadata.
-    See https://datatracker.ietf.org/doc/html/rfc9728#section-2
-    """
+    """RFC 9728 Protected Resource Metadata. See https://datatracker.ietf.org/doc/html/rfc9728#section-2"""
 
     model_config = ConfigDict(url_preserve_empty_path=True)
 

@@ -7,7 +7,6 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAu
 
 
 def test_oauth():
-    """Should not throw when parsing OAuth metadata."""
     OAuthMetadata.model_validate(
         {
             "issuer": "https://example.com",
@@ -21,7 +20,6 @@ def test_oauth():
 
 
 def test_oidc():
-    """Should not throw when parsing OIDC metadata."""
     OAuthMetadata.model_validate(
         {
             "issuer": "https://example.com",
@@ -41,7 +39,6 @@ def test_oidc():
 
 
 def test_oauth_with_jarm():
-    """Should not throw when parsing OAuth metadata that includes JARM response modes."""
     OAuthMetadata.model_validate(
         {
             "issuer": "https://example.com",
@@ -63,11 +60,9 @@ def test_oauth_with_jarm():
     )
 
 
-# RFC 7591 §2 marks client_uri/logo_uri/tos_uri/policy_uri/jwks_uri as OPTIONAL.
-# Some authorization servers echo the client's omitted metadata back as ""
-# instead of dropping the keys; without coercion, AnyHttpUrl rejects "" and
-# the whole registration response is thrown away even though the server
-# returned a valid client_id.
+# RFC 7591 §2 marks client_uri/logo_uri/tos_uri/policy_uri/jwks_uri OPTIONAL, but some authorization
+# servers echo a client's omitted metadata back as "" instead of dropping the keys. Without coercion,
+# AnyHttpUrl rejects "" and the whole registration response fails despite its valid client_id.
 
 
 @pytest.mark.parametrize(
@@ -110,8 +105,6 @@ def test_valid_url_passes_through_unchanged():
 
 
 def test_information_full_inherits_coercion():
-    """OAuthClientInformationFull subclasses OAuthClientMetadata, so the
-    same coercion applies to DCR responses parsed via the full model."""
     data = {
         "client_id": "abc123",
         "redirect_uris": ["https://example.com/callback"],
@@ -131,7 +124,6 @@ def test_information_full_inherits_coercion():
 
 
 def test_invalid_non_empty_url_still_rejected():
-    """Coercion must only touch empty strings — garbage URLs still raise."""
     data = {
         "redirect_uris": ["https://example.com/callback"],
         "client_uri": "not a url",

@@ -36,12 +36,10 @@ class StreamSpyCollection:
         self.server = server_spy
 
     def clear(self) -> None:
-        """Clear all captured messages."""
         self.client.sent_messages.clear()
         self.server.sent_messages.clear()
 
     def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
-        """Get client-sent requests, optionally filtered by method."""
         return [
             req.message
             for req in self.client.sent_messages
@@ -49,7 +47,6 @@ class StreamSpyCollection:
         ]
 
     def get_server_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
-        """Get server-sent requests, optionally filtered by method."""
         return [  # pragma: no cover
             req.message
             for req in self.server.sent_messages
@@ -57,7 +54,6 @@ class StreamSpyCollection:
         ]
 
     def get_client_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
-        """Get client-sent notifications, optionally filtered by method."""
         return [
             notif.message
             for notif in self.client.sent_messages
@@ -65,7 +61,6 @@ class StreamSpyCollection:
         ]
 
     def get_server_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
-        """Get server-sent notifications, optionally filtered by method."""
         return [
             notif.message
             for notif in self.server.sent_messages
@@ -75,36 +70,19 @@ class StreamSpyCollection:
 
 @pytest.fixture
 def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
-    """Fixture that provides spies for both client and server write streams.
+    """Patch memory stream creation so tests can inspect client- and server-sent messages.
 
-    Example:
-        ```python
-        async def test_something(stream_spy):
-            # ... set up server and client ...
-
-            spies = stream_spy()
-
-            # Run some operation that sends messages
-            await client.some_operation()
-
-            # Check the messages
-            requests = spies.get_client_requests(method="some/method")
-            assert len(requests) == 1
-
-            # Clear for the next operation
-            spies.clear()
-        ```
+    Call the yielded factory after the streams exist (i.e. once client/server are set up)
+    to get a `StreamSpyCollection`.
     """
     client_spy = None
     server_spy = None
 
-    # Store references to our spy objects
     def capture_spies(c_spy: SpyMemoryObjectSendStream, s_spy: SpyMemoryObjectSendStream):
         nonlocal client_spy, server_spy
         client_spy = c_spy
         server_spy = s_spy
 
-    # Create patched version of stream creation
     original_create_streams = mcp.shared.memory.create_client_server_memory_streams
 
     @asynccontextmanager
@@ -113,20 +91,17 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
             client_read, client_write = client_streams
             server_read, server_write = server_streams
 
-            # Create spy wrappers
             spy_client_write = SpyMemoryObjectSendStream(client_write)
             spy_server_write = SpyMemoryObjectSendStream(server_write)
 
-            # Capture references for the test to use
             capture_spies(spy_client_write, spy_server_write)
 
             yield (client_read, spy_client_write), (server_read, spy_server_write)
 
-    # Apply the patch for the duration of the test
     # Patch both locations since InMemoryTransport imports it directly
     with patch("mcp.shared.memory.create_client_server_memory_streams", patched_create_streams):
         with patch("mcp.client._memory.create_client_server_memory_streams", patched_create_streams):
-            # Return a collection with helper methods
+
             def get_spy_collection() -> StreamSpyCollection:
                 assert client_spy is not None, "client_spy was not initialized"
                 assert server_spy is not None, "server_spy was not initialized"

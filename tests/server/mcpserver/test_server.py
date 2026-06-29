@@ -86,14 +86,12 @@ class TestServer:
         assert mcp_no_deps.dependencies == []
 
     async def test_sse_app_returns_starlette_app(self):
-        """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
         # Use host="0.0.0.0" to avoid auto DNS protection
         app = mcp.sse_app(host="0.0.0.0")
 
         assert isinstance(app, Starlette)
 
-        # Verify routes exist
         sse_routes = [r for r in app.routes if isinstance(r, Route)]
         mount_routes = [r for r in app.routes if isinstance(r, Mount)]
 
@@ -103,7 +101,6 @@ class TestServer:
         assert mount_routes[0].path == "/messages"
 
     async def test_non_ascii_description(self):
-        """Test that MCPServer handles non-ASCII characters in descriptions correctly"""
         mcp = MCPServer()
 
         @mcp.tool(description=("🌟 This tool uses emojis and UTF-8 characters: á é í ó ú ñ 漢字 🎉"))
@@ -163,62 +160,47 @@ class TestServer:
 
 
 class TestDnsRebindingProtection:
-    """Tests for automatic DNS rebinding protection on localhost.
-
-    DNS rebinding protection is now configured in sse_app() and streamable_http_app()
-    based on the host parameter passed to those methods.
-    """
+    """DNS rebinding protection auto-config is driven by the host passed to sse_app()/streamable_http_app()."""
 
     def test_auto_enabled_for_127_0_0_1_sse(self):
-        """DNS rebinding protection should auto-enable for host=127.0.0.1 in SSE app."""
         mcp = MCPServer()
-        # Call sse_app with host=127.0.0.1 to trigger auto-config
-        # We can't directly inspect the transport_security, but we can verify
-        # the app is created without error
+        # transport_security isn't externally inspectable; assert only that the app builds
         app = mcp.sse_app(host="127.0.0.1")
         assert app is not None
 
     def test_auto_enabled_for_127_0_0_1_streamable_http(self):
-        """DNS rebinding protection should auto-enable for host=127.0.0.1 in StreamableHTTP app."""
         mcp = MCPServer()
         app = mcp.streamable_http_app(host="127.0.0.1")
         assert app is not None
 
     def test_auto_enabled_for_localhost_sse(self):
-        """DNS rebinding protection should auto-enable for host=localhost in SSE app."""
         mcp = MCPServer()
         app = mcp.sse_app(host="localhost")
         assert app is not None
 
     def test_auto_enabled_for_ipv6_localhost_sse(self):
-        """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost) in SSE app."""
         mcp = MCPServer()
         app = mcp.sse_app(host="::1")
         assert app is not None
 
     def test_not_auto_enabled_for_other_hosts_sse(self):
-        """DNS rebinding protection should NOT auto-enable for other hosts in SSE app."""
         mcp = MCPServer()
         app = mcp.sse_app(host="0.0.0.0")
         assert app is not None
 
     def test_explicit_settings_not_overridden_sse(self):
-        """Explicit transport_security settings should not be overridden in SSE app."""
         custom_settings = TransportSecuritySettings(
             enable_dns_rebinding_protection=False,
         )
         mcp = MCPServer()
-        # Explicit transport_security passed to sse_app should be used as-is
         app = mcp.sse_app(host="127.0.0.1", transport_security=custom_settings)
         assert app is not None
 
     def test_explicit_settings_not_overridden_streamable_http(self):
-        """Explicit transport_security settings should not be overridden in StreamableHTTP app."""
         custom_settings = TransportSecuritySettings(
             enable_dns_rebinding_protection=False,
         )
         mcp = MCPServer()
-        # Explicit transport_security passed to streamable_http_app should be used as-is
         app = mcp.streamable_http_app(host="127.0.0.1", transport_security=custom_settings)
         assert app is not None
 
@@ -292,7 +274,6 @@ class TestServerTools:
             assert result.is_error is True
 
     async def test_tool_error_details(self):
-        """Test that exception details are properly formatted in the response"""
         mcp = MCPServer()
         mcp.add_tool(error_tool_fn)
         async with Client(mcp) as client:
@@ -312,7 +293,6 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
-            # Check structured content - int return type should have structured output
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
 
@@ -340,7 +320,6 @@ class TestServerTools:
         )
 
     async def test_tool_image_helper(self, tmp_path: Path):
-        # Create a test image
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"fake png data")
 
@@ -353,14 +332,12 @@ class TestServerTools:
             assert isinstance(content, ImageContent)
             assert content.type == "image"
             assert content.mime_type == "image/png"
-            # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
-            # Check structured content - Image return type should NOT have structured output
+            # Image/Audio helper returns produce no structured output
             assert result.structured_content is None
 
     async def test_tool_audio_helper(self, tmp_path: Path):
-        # Create a test audio
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"fake wav data")
 
@@ -373,10 +350,8 @@ class TestServerTools:
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
             assert content.mime_type == "audio/wav"
-            # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake wav data"
-            # Check structured content - Image return type should NOT have structured output
             assert result.structured_content is None
 
     @pytest.mark.parametrize(
@@ -392,11 +367,9 @@ class TestServerTools:
         ],
     )
     async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
-        """Test that Audio helper correctly detects MIME types from file suffixes"""
         mcp = MCPServer()
         mcp.add_tool(audio_tool_fn)
 
-        # Create a test audio file with the specific extension
         audio_path = tmp_path / filename
         audio_path.write_bytes(b"fake audio data")
 
@@ -407,7 +380,6 @@ class TestServerTools:
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
             assert content.mime_type == expected_mime_type
-            # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake audio data"
 
@@ -442,18 +414,13 @@ class TestServerTools:
                     assert structured_result[i][key] == value
 
     async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
-        """Test that lists containing Image objects and other types are handled
-        correctly"""
-        # Create a test image
         image_path = tmp_path / "test.png"
         image_path.write_bytes(b"test image data")
 
-        # Create a test audio
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"test audio data")
 
-        # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
-        # We need to fix this.
+        # TODO(Marcelo): adding the proper type hint generates an invalid JSON schema.
         def mixed_list_fn() -> list:  # type: ignore
             return [  # type: ignore
                 "text message",
@@ -468,34 +435,27 @@ class TestServerTools:
         async with Client(mcp) as client:
             result = await client.call_tool("mixed_list_fn", {})
             assert len(result.content) == 5
-            # Check text conversion
             content1 = result.content[0]
             assert isinstance(content1, TextContent)
             assert content1.text == "text message"
-            # Check image conversion
             content2 = result.content[1]
             assert isinstance(content2, ImageContent)
             assert content2.mime_type == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
-            # Check audio conversion
             content3 = result.content[2]
             assert isinstance(content3, AudioContent)
             assert content3.mime_type == "audio/wav"
             assert base64.b64decode(content3.data) == b"test audio data"
-            # Check dict conversion
             content4 = result.content[3]
             assert isinstance(content4, TextContent)
             assert '"key": "value"' in content4.text
-            # Check direct TextContent
             content5 = result.content[4]
             assert isinstance(content5, TextContent)
             assert content5.text == "direct content"
-            # Check structured content - untyped list with Image objects should NOT have structured output
+            # Untyped list containing Image objects yields no structured output
             assert result.structured_content is None
 
     async def test_tool_structured_output_basemodel(self):
-        """Test tool with structured output returning BaseModel"""
-
         class UserOutput(BaseModel):
             name: str
             age: int
@@ -509,7 +469,6 @@ class TestServerTools:
         mcp.add_tool(get_user)
 
         async with Client(mcp) as client:
-            # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_user")
             assert tool.output_schema is not None
@@ -517,19 +476,15 @@ class TestServerTools:
             assert "name" in tool.output_schema["properties"]
             assert "age" in tool.output_schema["properties"]
 
-            # Call the tool and check structured output
             result = await client.call_tool("get_user", {"user_id": 123})
             assert result.is_error is False
             assert result.structured_content is not None
             assert result.structured_content == {"name": "John Doe", "age": 30, "active": True}
-            # Content should be JSON serialized version
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
             assert '"name": "John Doe"' in result.content[0].text
 
     async def test_tool_structured_output_primitive(self):
-        """Test tool with structured output returning primitive type"""
-
         def calculate_sum(a: int, b: int) -> int:
             """Add two numbers"""
             return a + b
@@ -538,7 +493,6 @@ class TestServerTools:
         mcp.add_tool(calculate_sum)
 
         async with Client(mcp) as client:
-            # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "calculate_sum")
             assert tool.output_schema is not None
@@ -547,15 +501,12 @@ class TestServerTools:
             assert "result" in tool.output_schema["properties"]
             assert tool.output_schema["properties"]["result"]["type"] == "integer"
 
-            # Call the tool
             result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
             assert result.is_error is False
             assert result.structured_content is not None
             assert result.structured_content == {"result": 12}
 
     async def test_tool_structured_output_list(self):
-        """Test tool with structured output returning list"""
-
         def get_numbers() -> list[int]:
             """Get a list of numbers"""
             return [1, 2, 3, 4, 5]
@@ -570,8 +521,6 @@ class TestServerTools:
             assert result.structured_content == {"result": [1, 2, 3, 4, 5]}
 
     async def test_tool_structured_output_server_side_validation_error(self):
-        """Test that server-side validation errors are handled properly"""
-
         def get_numbers() -> list[int]:
             return [1, 2, 3, 4, [5]]  # type: ignore
 
@@ -586,8 +535,6 @@ class TestServerTools:
             assert isinstance(result.content[0], TextContent)
 
     async def test_tool_structured_output_dict_str_any(self):
-        """Test tool with dict[str, Any] structured output"""
-
         def get_metadata() -> dict[str, Any]:
             """Get metadata dictionary"""
             return {
@@ -602,7 +549,6 @@ class TestServerTools:
         mcp.add_tool(get_metadata)
 
         async with Client(mcp) as client:
-            # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_metadata")
             assert tool.output_schema is not None
@@ -613,7 +559,6 @@ class TestServerTools:
                 or tool.output_schema.get("additionalProperties") is True
             )
 
-            # Call tool
             result = await client.call_tool("get_metadata", {})
             assert result.is_error is False
             assert result.structured_content is not None
@@ -627,8 +572,6 @@ class TestServerTools:
             assert result.structured_content == expected
 
     async def test_tool_structured_output_dict_str_typed(self):
-        """Test tool with dict[str, T] structured output for specific T"""
-
         def get_settings() -> dict[str, str]:
             """Get settings as string dictionary"""
             return {"theme": "dark", "language": "en", "timezone": "UTC"}
@@ -637,46 +580,37 @@ class TestServerTools:
         mcp.add_tool(get_settings)
 
         async with Client(mcp) as client:
-            # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_settings")
             assert tool.output_schema is not None
             assert tool.output_schema["type"] == "object"
             assert tool.output_schema["additionalProperties"]["type"] == "string"
 
-            # Call tool
             result = await client.call_tool("get_settings", {})
             assert result.is_error is False
             assert result.structured_content == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
     async def test_remove_tool(self):
-        """Test removing a tool from the server."""
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
 
-        # Verify tool exists
         assert len(mcp._tool_manager.list_tools()) == 1
 
-        # Remove the tool
         mcp.remove_tool("tool_fn")
 
-        # Verify tool is removed
         assert len(mcp._tool_manager.list_tools()) == 0
 
     async def test_remove_nonexistent_tool(self):
-        """Test that removing a non-existent tool raises ToolError."""
         mcp = MCPServer()
 
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
             mcp.remove_tool("nonexistent")
 
     async def test_remove_tool_and_list(self):
-        """Test that a removed tool doesn't appear in list_tools."""
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
         mcp.add_tool(error_tool_fn)
 
-        # Verify both tools exist
         async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 2
@@ -684,21 +618,17 @@ class TestServerTools:
             assert "tool_fn" in tool_names
             assert "error_tool_fn" in tool_names
 
-        # Remove one tool
         mcp.remove_tool("tool_fn")
 
-        # Verify only one tool remains
         async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
             assert tools.tools[0].name == "error_tool_fn"
 
     async def test_remove_tool_and_call(self):
-        """Test that calling a removed tool fails appropriately."""
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
 
-        # Verify tool works before removal
         async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert not result.is_error
@@ -706,10 +636,8 @@ class TestServerTools:
             assert isinstance(content, TextContent)
             assert content.text == "3"
 
-        # Remove the tool
         mcp.remove_tool("tool_fn")
 
-        # Verify calling removed tool returns an error
         async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert result.is_error
@@ -772,7 +700,6 @@ class TestServerResources:
             assert exc_info.value.error.data == {"uri": "unknown://missing"}
 
     async def test_read_resource_error(self):
-        """Test that resource read errors are properly wrapped in MCPError."""
         mcp = MCPServer()
 
         @mcp.resource("resource://failing")
@@ -806,7 +733,6 @@ class TestServerResources:
     async def test_file_resource_text(self, tmp_path: Path):
         mcp = MCPServer()
 
-        # Create a text file
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
@@ -822,7 +748,6 @@ class TestServerResources:
     async def test_file_resource_binary(self, tmp_path: Path):
         mcp = MCPServer()
 
-        # Create a binary file
         binary_file = tmp_path / "test.bin"
         binary_file.write_bytes(b"Binary file data")
 
@@ -860,8 +785,6 @@ class TestServerResources:
 
 class TestServerResourceTemplates:
     async def test_resource_with_params(self):
-        """Test that a resource with function parameters raises an error if the URI
-        parameters don't match"""
         mcp = MCPServer()
 
         with pytest.raises(ValueError, match="has no URI template variables"):
@@ -871,7 +794,6 @@ class TestServerResourceTemplates:
                 return f"Data: {param}"
 
     async def test_resource_with_uri_params(self):
-        """Test that a resource with URI parameters is automatically a template"""
         mcp = MCPServer()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
@@ -881,7 +803,6 @@ class TestServerResourceTemplates:
                 return "Data"
 
     async def test_resource_with_untyped_params(self):
-        """Test that a resource with untyped parameters raises an error"""
         mcp = MCPServer()
 
         @mcp.resource("resource://{param}")
@@ -889,7 +810,6 @@ class TestServerResourceTemplates:
             return "Data"
 
     async def test_resource_matching_params(self):
-        """Test that a resource with matching URI and function parameters works"""
         mcp = MCPServer()
 
         @mcp.resource("resource://{name}/data")
@@ -903,7 +823,6 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "Data for test"
 
     async def test_resource_mismatched_params(self):
-        """Test that mismatched parameters raise an error"""
         mcp = MCPServer()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
@@ -913,7 +832,6 @@ class TestServerResourceTemplates:
                 return f"Data for {user}"
 
     async def test_resource_multiple_params(self):
-        """Test that multiple parameters work correctly"""
         mcp = MCPServer()
 
         @mcp.resource("resource://{org}/{repo}/data")
@@ -927,7 +845,6 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "Data for cursor/myrepo"
 
     async def test_resource_multiple_mismatched_params(self):
-        """Test that mismatched parameters raise an error"""
         mcp = MCPServer()
 
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
@@ -936,7 +853,6 @@ class TestServerResourceTemplates:
             def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
                 return f"Data for {org}"
 
-        """Test that a resource with no parameters works as a regular resource"""
         mcp = MCPServer()
 
         @mcp.resource("resource://static")
@@ -950,25 +866,21 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "Static data"
 
     async def test_template_to_resource_conversion(self):
-        """Test that templates are properly converted to resources when accessed"""
         mcp = MCPServer()
 
         @mcp.resource("resource://{name}/data")
         def get_data(name: str) -> str:
             return f"Data for {name}"
 
-        # Should be registered as a template
         assert len(mcp._resource_manager._templates) == 1
         assert len(await mcp.list_resources()) == 0
 
-        # When accessed, should create a concrete resource
         resource = await mcp._resource_manager.get_resource("resource://test/data", Context())
         assert isinstance(resource, FunctionResource)
         result = await resource.read()
         assert result == "Data for test"
 
     async def test_resource_template_includes_mime_type(self):
-        """Test that list resource templates includes the correct mimeType."""
         mcp = MCPServer()
 
         @mcp.resource("resource://{user}/csv", mime_type="text/csv")
@@ -994,15 +906,9 @@ class TestServerResourceTemplates:
 
 
 class TestServerResourceMetadata:
-    """Test MCPServer @resource decorator meta parameter for list operations.
-
-    Meta flows: @resource decorator -> resource/template storage -> list_resources/list_resource_templates.
-    Note: read_resource does NOT pass meta to protocol response (lowlevel/server.py only extracts content/mime_type).
-    """
+    """Meta from the @resource decorator flows through to list and read responses."""
 
     async def test_resource_decorator_with_metadata(self):
-        """Test that @resource decorator accepts and passes meta parameter."""
-        # Tests static resource flow: decorator -> FunctionResource -> list_resources (server.py:544,635,361)
         mcp = MCPServer()
 
         @mcp.resource("resource://config", meta={"ui": {"component": "file-viewer"}, "priority": "high"})
@@ -1022,8 +928,6 @@ class TestServerResourceMetadata:
         )
 
     async def test_resource_template_decorator_with_metadata(self):
-        """Test that @resource decorator passes meta to templates."""
-        # Tests template resource flow: decorator -> add_template() -> list_resource_templates (server.py:544,622,377)
         mcp = MCPServer()
 
         @mcp.resource("resource://{city}/weather", meta={"api_version": "v2", "deprecated": False})
@@ -1043,8 +947,6 @@ class TestServerResourceMetadata:
         )
 
     async def test_read_resource_returns_meta(self):
-        """Test that read_resource includes meta in response."""
-        # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
         mcp = MCPServer()
 
         @mcp.resource("resource://data", meta={"version": "1.0", "category": "config"})
@@ -1068,10 +970,7 @@ class TestServerResourceMetadata:
 
 
 class TestContextInjection:
-    """Test context injection in tools, resources, and prompts."""
-
     async def test_context_detection(self):
-        """Test that context parameters are properly detected."""
         mcp = MCPServer()
 
         def tool_with_context(x: int, ctx: Context) -> str:  # pragma: no cover
@@ -1081,7 +980,6 @@ class TestContextInjection:
         assert tool.context_kwarg == "ctx"
 
     async def test_context_injection(self):
-        """Test that context is properly injected into tool calls."""
         mcp = MCPServer()
 
         def tool_with_context(x: int, ctx: Context) -> str:
@@ -1098,7 +996,6 @@ class TestContextInjection:
             assert "42" in content.text
 
     async def test_async_context(self):
-        """Test that context works in async functions."""
         mcp = MCPServer()
 
         async def async_tool(x: int, ctx: Context) -> str:
@@ -1115,7 +1012,6 @@ class TestContextInjection:
             assert "42" in content.text
 
     async def test_context_logging(self):
-        """Test that context logging methods work."""
         mcp = MCPServer()
 
         async def logging_tool(msg: str, ctx: Context) -> str:
@@ -1142,7 +1038,6 @@ class TestContextInjection:
                 mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="2")
 
     async def test_optional_context(self):
-        """Test that context is optional."""
         mcp = MCPServer()
 
         def no_context(x: int) -> int:
@@ -1157,7 +1052,6 @@ class TestContextInjection:
             assert content.text == "42"
 
     async def test_context_resource_access(self):
-        """Test that context can access resources."""
         mcp = MCPServer()
 
         @mcp.resource("test://data")
@@ -1180,7 +1074,6 @@ class TestContextInjection:
             assert "Read resource: resource data" in content.text
 
     async def test_resource_with_context(self):
-        """Test that resources can receive context parameter."""
         mcp = MCPServer()
 
         @mcp.resource("resource://context/{name}")
@@ -1189,7 +1082,6 @@ class TestContextInjection:
             assert ctx is not None
             return f"Resource {name} - context injected"
 
-        # Verify template has context_kwarg set
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
@@ -1202,11 +1094,9 @@ class TestContextInjection:
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
-            # Should have either request_id or indication that context was injected
             assert "Resource test - context injected" == content.text
 
     async def test_resource_without_context(self):
-        """Test that resources without context work normally."""
         mcp = MCPServer()
 
         @mcp.resource("resource://nocontext/{name}")
@@ -1214,7 +1104,6 @@ class TestContextInjection:
             """Resource without context."""
             return f"Resource {name} works"
 
-        # Verify template has no context_kwarg
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
@@ -1233,7 +1122,6 @@ class TestContextInjection:
             )
 
     async def test_resource_context_custom_name(self):
-        """Test resource context with custom parameter name."""
         mcp = MCPServer()
 
         @mcp.resource("resource://custom/{id}")
@@ -1242,7 +1130,6 @@ class TestContextInjection:
             assert my_ctx is not None
             return f"Resource {id} with context"
 
-        # Verify template detects custom context parameter
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
@@ -1261,7 +1148,6 @@ class TestContextInjection:
             )
 
     async def test_prompt_with_context(self):
-        """Test that prompts can receive context parameter."""
         mcp = MCPServer()
 
         @mcp.prompt("prompt_with_ctx")
@@ -1270,18 +1156,14 @@ class TestContextInjection:
             assert ctx is not None
             return f"Prompt '{text}' - context injected"
 
-        # Test via client
         async with Client(mcp) as client:
-            # Try calling without passing ctx explicitly
             result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
-            # If this succeeds, check if context was injected
             assert len(result.messages) == 1
             content = result.messages[0].content
             assert isinstance(content, TextContent)
             assert "Prompt 'test' - context injected" in content.text
 
     async def test_prompt_without_context(self):
-        """Test that prompts without context work normally."""
         mcp = MCPServer()
 
         @mcp.prompt("prompt_no_ctx")
@@ -1289,7 +1171,6 @@ class TestContextInjection:
             """Prompt without context."""
             return f"Prompt '{text}' works"
 
-        # Test via client
         async with Client(mcp) as client:
             result = await client.get_prompt("prompt_no_ctx", {"text": "test"})
             assert len(result.messages) == 1
@@ -1300,10 +1181,7 @@ class TestContextInjection:
 
 
 class TestServerPrompts:
-    """Test prompt functionality in MCPServer server."""
-
     async def test_get_prompt_direct_call_without_context(self):
-        """Test calling mcp.get_prompt() directly without passing context."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1316,7 +1194,6 @@ class TestServerPrompts:
         assert content.text == "Hello, world!"
 
     async def test_prompt_decorator(self):
-        """Test that the prompt decorator registers prompts correctly."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1332,7 +1209,6 @@ class TestServerPrompts:
         assert content[0].content.text == "Hello, world!"
 
     async def test_prompt_decorator_with_name(self):
-        """Test prompt decorator with custom name."""
         mcp = MCPServer()
 
         @mcp.prompt(name="custom_name")
@@ -1347,7 +1223,6 @@ class TestServerPrompts:
         assert content[0].content.text == "Hello, world!"
 
     async def test_prompt_decorator_with_description(self):
-        """Test prompt decorator with custom description."""
         mcp = MCPServer()
 
         @mcp.prompt(description="A custom description")
@@ -1362,7 +1237,6 @@ class TestServerPrompts:
         assert content[0].content.text == "Hello, world!"
 
     def test_prompt_decorator_error(self):
-        """Test error when decorator is used incorrectly."""
         mcp = MCPServer()
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
@@ -1370,7 +1244,6 @@ class TestServerPrompts:
             def fn() -> str: ...  # pragma: no branch
 
     async def test_list_prompts(self):
-        """Test listing prompts through MCP protocol."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1394,7 +1267,6 @@ class TestServerPrompts:
             )
 
     async def test_get_prompt(self):
-        """Test getting a prompt through MCP protocol."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1411,7 +1283,6 @@ class TestServerPrompts:
             )
 
     async def test_get_prompt_with_description(self):
-        """Test getting a prompt through MCP protocol."""
         mcp = MCPServer()
 
         @mcp.prompt(description="Test prompt description")
@@ -1423,7 +1294,6 @@ class TestServerPrompts:
             assert result.description == "Test prompt description"
 
     async def test_get_prompt_with_docstring_description(self):
-        """Test prompt uses docstring as description when not explicitly provided."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1441,7 +1311,6 @@ class TestServerPrompts:
             )
 
     async def test_get_prompt_with_resource(self):
-        """Test getting a prompt that returns resource content."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1472,7 +1341,6 @@ class TestServerPrompts:
             )
 
     async def test_get_unknown_prompt(self):
-        """Test error when getting unknown prompt."""
         mcp = MCPServer()
 
         async with Client(mcp, mode="legacy") as client:
@@ -1480,7 +1348,6 @@ class TestServerPrompts:
                 await client.get_prompt("unknown")
 
     async def test_get_prompt_missing_args(self):
-        """Test error when required arguments are missing."""
         mcp = MCPServer()
 
         @mcp.prompt()
@@ -1492,8 +1359,7 @@ class TestServerPrompts:
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():
-    # Regression: old regex-based param extraction couldn't see `path`
-    # in `{+path}` and failed with a confusing mismatch error.
+    # Regression: regex-based param extraction couldn't see `path` in `{+path}` and raised a confusing mismatch.
     mcp = MCPServer()
 
     @mcp.resource("file://docs/{+path}")
@@ -1511,8 +1377,6 @@ async def test_resource_decorator_rejects_malformed_template():
 
 
 async def test_resource_optional_query_params_use_function_defaults():
-    """Omitted {?...} query params should fall through to the
-    handler's Python defaults. Partial and reordered params work."""
     mcp = MCPServer()
 
     @mcp.resource("logs://{service}{?since,level}")
@@ -1542,10 +1406,7 @@ async def test_resource_optional_query_params_use_function_defaults():
 
 
 async def test_resource_query_param_without_default_rejected_at_decoration():
-    """A handler parameter bound to a {?...} query variable must have a
-    Python default: a client may omit a query parameter, so the handler has
-    to be callable without it. Omitting the default is an error when the
-    decorator runs, not on the first request that leaves the parameter out."""
+    """Clients may omit {?...} query params, so the bound handler parameter must declare a default."""
     mcp = MCPServer()
 
     with pytest.raises(ValueError, match=r"logs://.*\['level'\].*must declare a default"):
@@ -1556,9 +1417,7 @@ async def test_resource_query_param_without_default_rejected_at_decoration():
 
 
 async def test_resource_path_param_without_default_accepted():
-    """The default requirement applies only to query-bound parameters.
-    A path variable is always present in a matching URI, so its handler
-    parameter may be required."""
+    """Path variables are always present in a matching URI, so their parameters may be required."""
     mcp = MCPServer()
 
     @mcp.resource("logs://{service}{?level}")
@@ -1577,20 +1436,16 @@ async def test_resource_security_default_rejects_traversal():
         return f"item:{name}"
 
     async with Client(mcp) as client:
-        # Safe value passes through to the handler
         r = await client.read_resource("data://items/widget")
         assert isinstance(r.contents[0], TextResourceContents)
         assert r.contents[0].text == "item:widget"
 
-        # ".." as a path component is rejected by default policy
         with pytest.raises(MCPError, match="Unknown resource"):
             await client.read_resource("data://items/..")
 
 
 async def test_resource_template_non_match_is_unknown_resource():
-    """A URI that doesn't satisfy a registered template — including one
-    shorter than the template's literal segments — must surface as the
-    standard -32602 Unknown resource, not an internal error."""
+    """A URI shorter than the template's literal segments is -32602 Unknown resource, not an internal error."""
     mcp = MCPServer()
 
     @mcp.resource("api://{+path}/{id}")
@@ -1610,9 +1465,7 @@ async def test_resource_template_non_match_is_unknown_resource():
 
 
 async def test_resource_security_rejection_indistinguishable_from_not_found():
-    """A path-safety rejection must produce the same wire error as a
-    genuinely-absent resource: same code, same message shape, no hint
-    about which check failed."""
+    """Security rejections and absent resources are wire-identical: no hint about which check failed."""
     mcp = MCPServer()
 
     @mcp.resource("data://items/{name}")
@@ -1626,8 +1479,6 @@ async def test_resource_security_rejection_indistinguishable_from_not_found():
             await client.read_resource("nosuch://thing")
 
         assert rejected.value.error.code == absent.value.error.code == INVALID_PARAMS
-        # Message echoes the requested URI and nothing else; no
-        # reference to which validation step rejected it.
         assert rejected.value.error.message == "Unknown resource: data://items/.."
         assert absent.value.error.message == "Unknown resource: nosuch://thing"
         assert rejected.value.error.data == {"uri": "data://items/.."}
@@ -1645,7 +1496,6 @@ async def test_resource_security_per_resource_override():
         return f"diff:{range}"
 
     async with Client(mcp) as client:
-        # "../foo" would be rejected by default, but "range" is exempt
         result = await client.read_resource("git://diff/../foo")
         assert isinstance(result.contents[0], TextResourceContents)
         assert result.contents[0].text == "diff:../foo"
@@ -1659,17 +1509,14 @@ async def test_resource_security_server_wide_override():
         return f"item:{name}"
 
     async with Client(mcp) as client:
-        # Server-wide policy disabled traversal check; ".." now allowed
         result = await client.read_resource("data://items/..")
         assert isinstance(result.contents[0], TextResourceContents)
         assert result.contents[0].text == "item:.."
 
 
 async def test_resource_security_namespaced_identifier_requires_exempt():
-    """Single-letter-colon values like ``x:y`` are flagged by the
-    default absolute-path check (they parse as Windows drive-relative,
-    which discards the join base). A non-filesystem parameter that
-    legitimately accepts such values opts out via ``exempt_params``."""
+    """Values like `x:y` parse as Windows drive-relative (discarding the join base), so the default
+    absolute-path check flags them; non-filesystem params opt out via `exempt_params`."""
     mcp = MCPServer()
 
     @mcp.resource("data://items/{id}")
@@ -1695,9 +1542,6 @@ async def test_resource_security_namespaced_identifier_requires_exempt():
 
 
 async def test_resource_security_rejection_halts_template_iteration():
-    """A strict template's security rejection must surface as
-    not-found and stop; a later permissive template must not be
-    reached."""
     mcp = MCPServer()
 
     @mcp.resource("file://docs/{name}")
@@ -1719,9 +1563,7 @@ async def test_resource_security_rejection_halts_template_iteration():
 
 
 async def test_static_resource_with_context_param_errors():
-    """A non-template URI with a Context-only handler should error
-    at decoration time with a clear message, not silently register
-    an unreachable resource."""
+    """Errors at decoration time instead of silently registering an unreachable resource."""
     mcp = MCPServer()
 
     with pytest.raises(ValueError, match="Context injection for static resources is not supported"):
@@ -1732,8 +1574,6 @@ async def test_static_resource_with_context_param_errors():
 
 
 async def test_static_resource_with_extra_params_errors():
-    """A non-template URI with non-Context params should error at
-    decoration time."""
     mcp = MCPServer()
 
     with pytest.raises(ValueError, match="has no URI template variables"):
@@ -1744,7 +1584,6 @@ async def test_static_resource_with_extra_params_errors():
 
 
 async def test_completion_decorator() -> None:
-    """Test that the completion decorator registers a working handler."""
     mcp = MCPServer()
 
     @mcp.completion()
@@ -1761,28 +1600,19 @@ async def test_completion_decorator() -> None:
 
 
 def test_streamable_http_no_redirect() -> None:
-    """Test that streamable HTTP routes are correctly configured."""
     mcp = MCPServer()
     # streamable_http_path defaults to "/mcp"
     app = mcp.streamable_http_app()
 
-    # Find routes by type - streamable_http_app creates Route objects, not Mount objects
     streamable_routes = [r for r in app.routes if isinstance(r, Route) and hasattr(r, "path") and r.path == "/mcp"]
 
-    # Verify routes exist
     assert len(streamable_routes) == 1, "Should have one streamable route"
-
-    # Verify path values
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
 
 
 async def test_report_progress_delegates_to_session_report_progress():
-    """Context.report_progress delegates to ServerSession.report_progress unconditionally.
-
-    Stream routing (related_request_id, progress-token gating) is encapsulated in the
-    per-request DispatchContext that ServerSession holds, so Context never inspects
-    request metadata itself. See #953 and #2001 for the original streamable-HTTP routing bug.
-    """
+    """Stream routing lives in ServerSession's per-request DispatchContext, so Context never
+    inspects request metadata itself; see #953 and #2001 for the streamable-HTTP routing bug."""
     mock_session = AsyncMock()
     mock_session.report_progress = AsyncMock()
 

@@ -39,23 +39,17 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(..., description="The refresh token")
     scope: str | None = Field(None, description="Optional scope parameter")
     client_id: str
-    # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
-    # RFC 8707 resource indicator
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
 class JwtBearerRequest(BaseModel):
-    # RFC 7523 §2.1 JWT bearer authorization grant. SEP-990 leg 2: the client presents the
-    # enterprise IdP-issued ID-JAG to the MCP authorization server as the `assertion`.
+    # RFC 7523 §2.1 JWT bearer grant. SEP-990 leg 2: client presents the enterprise IdP-issued ID-JAG as `assertion`.
     grant_type: Literal["urn:ietf:params:oauth:grant-type:jwt-bearer"]
-    # See https://datatracker.ietf.org/doc/html/rfc7523#section-2.1
     assertion: str = Field(..., description="The ID-JAG (a signed JWT) being presented as the grant")
     scope: str | None = Field(None, description="Optional scope parameter")
     client_id: str
-    # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
-    # RFC 8707 resource indicator
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
@@ -74,9 +68,7 @@ class TokenErrorResponse(BaseModel):
     error_uri: AnyHttpUrl | None = None
 
 
-# this is just an alias over OAuthToken; the only reason we do this
-# is to have some separation between the HTTP response type, and the
-# type returned by the provider
+# alias to separate the HTTP response type from the provider's return type
 TokenSuccessResponse = OAuthToken
 
 
@@ -104,7 +96,6 @@ class TokenHandler:
         try:
             client_info = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:
-            # Authentication failures should return 401
             return PydanticJSONResponse(
                 content=TokenErrorResponse(
                     error="invalid_client",
@@ -151,8 +142,7 @@ class TokenHandler:
                         )
                     )
 
-                # make auth codes expire after a deadline
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
+                # enforce expiry per https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
                 if auth_code.expires_at < time.time():
                     return self.response(
                         TokenErrorResponse(
@@ -161,14 +151,13 @@ class TokenHandler:
                         )
                     )
 
-                # verify redirect_uri doesn't change between /authorize and /tokens
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
+                # redirect_uri must match /authorize, see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
                 if auth_code.redirect_uri_provided_explicitly:
                     authorize_request_redirect_uri = auth_code.redirect_uri
                 else:  # pragma: no cover
                     authorize_request_redirect_uri = None
 
-                # Convert both sides to strings for comparison to handle AnyUrl vs string issues
+                # compare as strings to handle AnyUrl vs str mismatches
                 token_redirect_str = str(token_request.redirect_uri) if token_request.redirect_uri is not None else None
                 auth_redirect_str = (
                     str(authorize_request_redirect_uri) if authorize_request_redirect_uri is not None else None
@@ -182,7 +171,6 @@ class TokenHandler:
                         )
                     )
 
-                # Verify PKCE code verifier
                 sha256 = hashlib.sha256(token_request.code_verifier.encode()).digest()
                 hashed_code_verifier = base64.urlsafe_b64encode(sha256).decode().rstrip("=")
 
@@ -196,7 +184,6 @@ class TokenHandler:
                     )
 
                 try:
-                    # Exchange authorization code for tokens
                     tokens = await self.provider.exchange_authorization_code(client_info, auth_code)
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
@@ -213,7 +200,6 @@ class TokenHandler:
                     )
 
                 if refresh_token.expires_at and refresh_token.expires_at < time.time():
-                    # if the refresh token has expired, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(
                             error="invalid_grant",
@@ -221,7 +207,6 @@ class TokenHandler:
                         )
                     )
 
-                # Parse scopes if provided
                 scopes = token_request.scope.split(" ") if token_request.scope else refresh_token.scopes
 
                 for scope in scopes:
@@ -234,7 +219,6 @@ class TokenHandler:
                         )
 
                 try:
-                    # Exchange refresh token for new tokens
                     tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
@@ -248,13 +232,11 @@ class TokenHandler:
                         )
                     )
 
-                # SEP-990 §5.1: only confidential clients may present an ID-JAG. ClientAuthenticator
-                # already rejects a secret-based method with no stored secret; this additionally
-                # rejects the public `none` method so an unauthenticated client never reaches the
-                # provider hook.
+                # SEP-990 §5.1: only confidential clients may present an ID-JAG. ClientAuthenticator already
+                # rejects secret-based methods lacking a stored secret; this blocks `none` before the provider hook.
                 if not client_info.client_secret:
-                    # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
-                    # unauthorized_client (not invalid_client, which is for failed authentication).
+                    # RFC 6749 §5.2: authenticated but not permitted this grant, so unauthorized_client
+                    # rather than invalid_client (which signals failed authentication).
                     return self.response(
                         TokenErrorResponse(
                             error="unauthorized_client",

@@ -40,16 +40,9 @@ class BinaryResource(Resource):
 
 
 class FunctionResource(Resource):
-    """A resource that defers data loading by wrapping a function.
+    """A resource that defers loading by calling `fn` only when read.
 
-    The function is only called when the resource is read, allowing for lazy loading
-    of potentially expensive data. This is particularly useful when listing resources,
-    as the function won't be called until the resource is actually accessed.
-
-    The function can return:
-    - str for text content (default)
-    - bytes for binary content
-    - other types will be converted to JSON
+    `fn` may return str (text), bytes (binary), or any other type, which is serialized to JSON.
     """
 
     fn: Callable[[], Any] = Field(exclude=True)
@@ -92,7 +85,6 @@ class FunctionResource(Resource):
         if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
 
-        # ensure the arguments are properly cast
         fn = validate_call(fn)
 
         return cls(
@@ -109,10 +101,7 @@ class FunctionResource(Resource):
 
 
 class FileResource(Resource):
-    """A resource that reads from a file.
-
-    Set is_binary=True to read the file as binary data instead of text.
-    """
+    """A resource that reads from a file."""
 
     path: Path = Field(description="Path to the file")
     is_binary: bool = Field(
@@ -127,7 +116,6 @@ class FileResource(Resource):
     @pydantic.field_validator("path")
     @classmethod
     def validate_absolute_path(cls, path: Path) -> Path:
-        """Ensure path is absolute."""
         if not path.is_absolute():
             raise ValueError("Path must be absolute")
         return path
@@ -135,7 +123,6 @@ class FileResource(Resource):
     @pydantic.field_validator("is_binary")
     @classmethod
     def set_binary_from_mime_type(cls, is_binary: bool, info: ValidationInfo) -> bool:
-        """Set is_binary based on mime_type if not explicitly set."""
         if is_binary:
             return True
         mime_type = info.data.get("mime_type", "text/plain")
@@ -176,7 +163,6 @@ class DirectoryResource(Resource):
     @pydantic.field_validator("path")
     @classmethod
     def validate_absolute_path(cls, path: Path) -> Path:  # pragma: no cover
-        """Ensure path is absolute."""
         if not path.is_absolute():
             raise ValueError("Path must be absolute")
         return path
@@ -195,7 +181,7 @@ class DirectoryResource(Resource):
         except Exception as e:
             raise ValueError(f"Error listing directory {self.path}: {e}")
 
-    async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
+    async def read(self) -> str:  # pragma: no cover
         """Read the directory listing."""
         try:
             files = await anyio.to_thread.run_sync(self.list_files)

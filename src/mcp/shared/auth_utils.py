@@ -9,19 +9,11 @@ from pydantic import AnyUrl, HttpUrl
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     """Convert server URL to canonical resource URL per RFC 8707.
 
-    RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
-    Returns absolute URI with lowercase scheme/host for canonical form.
-
-    Args:
-        url: Server URL to convert
-
-    Returns:
-        Canonical resource URL string
+    Lowercases scheme/host and strips the fragment (RFC 8707 section 2: resource URIs
+    "MUST NOT include a fragment component").
     """
-    # Convert to string if needed
     url_str = str(url)
 
-    # Parse the URL and remove fragment, create canonical form
     parsed = urlsplit(url_str)
     canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
 
@@ -31,28 +23,16 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 def check_resource_allowed(requested_resource: str, configured_resource: str) -> bool:
     """Check if a requested resource URL matches a configured resource URL.
 
-    A requested resource matches if it has the same scheme, domain, port,
-    and its path starts with the configured resource's path. This allows
-    hierarchical matching where a token for a parent resource can be used
-    for child resources.
-
-    Args:
-        requested_resource: The resource URL being requested
-        configured_resource: The resource URL that has been configured
-
-    Returns:
-        True if the requested resource matches the configured resource
+    Matches when the origin is identical and the requested path starts with the
+    configured path, so a token for a parent resource covers child resources.
     """
-    # Parse both URLs
     requested = urlparse(requested_resource)
     configured = urlparse(configured_resource)
 
-    # Compare scheme, host, and port (origin)
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
         return False
 
-    # Normalize trailing slashes before comparison so that
-    # "/foo" and "/foo/" are treated as equivalent.
+    # Normalize trailing slashes so "/foo" == "/foo/" and "/api123/" can't prefix-match "/api/".
     requested_path = requested.path
     configured_path = configured.path
     if not requested_path.endswith("/"):
@@ -60,21 +40,14 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     if not configured_path.endswith("/"):
         configured_path += "/"
 
-    # Check hierarchical match: requested must start with configured path.
-    # The trailing-slash normalization ensures "/api123/" won't match "/api/".
     return requested_path.startswith(configured_path)
 
 
 def calculate_token_expiry(expires_in: int | str | None) -> float | None:
-    """Calculate token expiry timestamp from expires_in seconds.
+    """Calculate the Unix expiry timestamp from `expires_in` seconds, or None if not specified.
 
-    Args:
-        expires_in: Seconds until token expiration (may be string from some servers)
-
-    Returns:
-        Unix timestamp when token expires, or None if no expiry specified
+    Accepts strings because some servers return `expires_in` as a string.
     """
     if expires_in is None:
         return None  # pragma: no cover
-    # Defensive: handle servers that return expires_in as string
     return time.time() + int(expires_in)

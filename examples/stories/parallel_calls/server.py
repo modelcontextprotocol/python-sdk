@@ -10,9 +10,8 @@ from stories._hosting import run_server_from_args
 
 def build_server() -> MCPServer:
     mcp = MCPServer("parallel-calls-example")
-    # One Event per tag, shared across every call to this server instance. A handler sets its
-    # own tag's event, then waits for every peer's — so no call can return until all named
-    # peers are concurrently in-flight. A sequential dispatcher would deadlock here.
+    # One Event per tag, shared across calls. A handler sets its own tag's event, then waits for every
+    # peer's — no call returns until all peers are concurrently in-flight; sequential dispatch would deadlock.
     arrivals: dict[str, anyio.Event] = defaultdict(anyio.Event)
 
     @mcp.tool()

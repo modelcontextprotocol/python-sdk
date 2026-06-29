@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Example low-level MCP server demonstrating structured output support.
-
-This example shows how to use the low-level server API to return
-structured data from tools.
-"""
+"""Low-level MCP server example returning structured output from tools."""
 
 import asyncio
 import json

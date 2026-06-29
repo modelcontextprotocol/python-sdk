@@ -9,7 +9,6 @@ from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
-# Create the Echo server
 echo_mcp = MCPServer(name="EchoServer")
 
 
@@ -19,7 +18,6 @@ def echo(message: str) -> str:
     return f"Echo: {message}"
 
 
-# Create the Math server
 math_mcp = MCPServer(name="MathServer")
 
 
@@ -29,7 +27,7 @@ def add_two(n: int) -> int:
     return n + 2
 
 
-# Create a combined lifespan to manage both session managers
+# A combined lifespan must run both servers' session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     async with contextlib.AsyncExitStack() as stack:
@@ -38,7 +36,6 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Create the Starlette app and mount the MCP servers
 app = Starlette(
     routes=[
         Mount("/echo", echo_mcp.streamable_http_app(stateless_http=True, json_response=True)),
@@ -47,7 +44,6 @@ app = Starlette(
     lifespan=lifespan,
 )
 
-# Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
-# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
-# math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+# Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp.
+# To mount at the root of each path (/echo instead of /echo/mcp), pass
+# streamable_http_path="/" to streamable_http_app().

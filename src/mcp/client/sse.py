@@ -39,16 +39,10 @@ async def sse_client(
 ):
     """Client transport for SSE.
 
-    `sse_read_timeout` determines how long (in seconds) the client will wait for a new
-    event before disconnecting. All other HTTP operations are controlled by `timeout`.
+    `sse_read_timeout` is how long (in seconds) to wait for a new SSE event before
+    disconnecting; all other HTTP operations are governed by `timeout`.
 
     Args:
-        url: The SSE endpoint URL.
-        headers: Optional headers to include in requests.
-        timeout: HTTP timeout for regular operations (in seconds).
-        sse_read_timeout: Timeout for SSE read operations (in seconds).
-        httpx_client_factory: Factory function for creating the HTTPX client.
-        auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
@@ -142,9 +136,8 @@ async def sse_client(
                 except Exception:  # pragma: lax no cover
                     logger.exception("Error in post_writer")
 
-            # On Python 3.14, coverage.py reports a phantom branch arc on this
-            # line (->yield) when nested two async-with levels deep. The branch
-            # is the unreachable "did __aexit__ suppress?" arm for memory streams.
+            # coverage.py on 3.14 reports a phantom ->yield branch arc here (the unreachable
+            # "did __aexit__ suppress?" arm) when nested two async-with levels deep.
             async with (  # pragma: no branch
                 read_stream_writer,
                 read_stream,

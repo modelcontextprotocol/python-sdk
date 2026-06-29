@@ -1,8 +1,6 @@
 """POSIX-only stdio lifecycle tests: a gracefully-exited server's children survive the client shutdown.
 
-SDK-defined policy, not spec-mandated (docs/migration.md, "`stdio_client` no
-longer kills children of a gracefully-exited server on POSIX"). Windows has the
-opposite documented outcome; see tests/transports/stdio/test_windows.py.
+SDK-defined policy, not spec-mandated (docs/migration.md); test_windows.py pins the opposite outcome.
 """
 
 import errno
@@ -31,17 +29,11 @@ async def test_a_gracefully_exiting_servers_child_survives_the_client_shutdown( 
     spawned_processes: list[anyio.abc.Process | FallbackProcess],
     terminate_calls: list[anyio.abc.Process | FallbackProcess],
 ) -> None:
-    """A server that exits on stdin closure keeps its background child running after `stdio_client` returns.
-
-    The client never escalates against the gracefully-exited server. SDK-defined
-    policy per docs/migration.md; regression for the pre-fix client that
-    tree-killed the child. The Windows twin in test_windows.py pins the opposite outcome.
-    """
+    """Regression: the pre-fix client tree-killed children of a gracefully-exited server."""
     sock, port = await open_liveness_listener()
     async with sock:
         child = connect_back_script(port, echo=True)
-        # The server hands its inherited pipes to a child, then exits as soon as
-        # its stdin closes: the well-behaved graceful path.
+        # Server hands its inherited pipes to a child, then exits when stdin closes: the graceful path.
         server = f"import subprocess, sys\nsubprocess.Popen([sys.executable, '-c', {child!r}])\nsys.stdin.read()\n"
         params = StdioServerParameters(command=sys.executable, args=["-c", server])
 
@@ -50,38 +42,29 @@ async def test_a_gracefully_exiting_servers_child_survives_the_client_shutdown( 
             async with stdio_client(params):
                 child_stream = await accept_alive(sock)
             async with child_stream:
-                # Only a live process answers an echo: the child survived shutdown.
                 await assert_peer_echoes(child_stream)
 
-    # A FIN-shaped probe cannot tell graceful exit from a kill; the seam can:
-    # no escalation was invoked, and the leader exited 0 on stdin closure.
+    # The echo probe can't tell graceful exit from a kill; the seam can: no escalation, leader exited 0.
     assert terminate_calls == []
     leader = spawned_processes[0]
     assert leader.returncode == 0
-    # The child is deliberately left running; the spawned_processes teardown
-    # SIGKILLs the spawn-time process group to reap it.
+    # The child is deliberately left running; the spawned_processes teardown SIGKILLs its group to reap it.
 
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("spawned_processes")  # failure-path safety net for the parked child
 # lax no cover: same Windows-runner coverage-gate reason as above.
 async def test_a_surviving_childs_write_to_the_inherited_stdout_fails_with_epipe() -> None:  # pragma: lax no cover
-    """A surviving child writing to the stdout pipe it inherited from the server gets EPIPE once the client is gone.
+    """Shutdown closes the pipe's only read end deterministically, not at GC time.
 
-    The pipe's only read end was the client's, and shutdown closed it
-    deterministically rather than at GC time. Pins the docs/migration.md claim
-    "a surviving child that keeps writing to an inherited stdout receives
-    EPIPE/SIGPIPE once the client is gone" (SDK-defined).
-
-    Steps: the server hands its stdio pipes to a child and exits on stdin closure;
-    the child parks on its socket until `stdio_client` has fully exited (so the
-    write cannot race transport teardown), then writes one byte to its inherited
-    fd 1 and reports the errno (0 on success) back over the socket.
+    Pins the docs/migration.md claim that a surviving child writing to its
+    inherited stdout gets EPIPE once the client is gone. The child parks on its
+    socket until `stdio_client` has fully exited (so the write can't race
+    transport teardown), then writes to fd 1 and reports the errno back.
     """
     sock, port = await open_liveness_listener()
     async with sock:
-        # Pin SIGPIPE to SIG_IGN explicitly (CPython already starts that way) so
-        # the write fails with EPIPE instead of relying on interpreter startup details.
+        # Pin SIGPIPE to SIG_IGN (CPython's startup default) so the write fails with EPIPE.
         child = (
             f"import os, signal, socket\n"
             f"signal.signal(signal.SIGPIPE, signal.SIG_IGN)\n"
@@ -103,11 +86,9 @@ async def test_a_surviving_childs_write_to_the_inherited_stdout_fails_with_epipe
             async with stdio_client(params):
                 child_stream = await accept_alive(sock)
             async with child_stream:
-                # The context has fully exited: the transport, and with it the
-                # pipe's only read end, is closed. Release the child's write.
+                # The transport (and the pipe's only read end) is now closed; release the child's write.
                 await child_stream.send(b"go")
-                # The child sends its errno report and exits, so read to EOF: the
-                # complete reply is everything before the kernel's FIN.
+                # Read to EOF: the child sends its errno report and exits.
                 reply = b""
                 with suppress(anyio.EndOfStream):
                     while True:

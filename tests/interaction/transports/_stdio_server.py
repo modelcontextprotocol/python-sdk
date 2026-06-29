@@ -1,9 +1,8 @@
-"""A real low-level Server over the stdio transport, for the suite's one subprocess test.
+"""Low-level Server over stdio for the suite's one subprocess test.
 
-Runnable as `python -m tests.interaction.transports._stdio_server` from the repo root; the test
-launches it that way via `stdio_client`. Kept separate from the test module so the server lives in
-its own importable file (subprocess coverage applies) while the test file follows the suite's
-test-only-functions convention.
+The test launches it via `stdio_client` as `python -m tests.interaction.transports._stdio_server`;
+kept separate from the test module so subprocess coverage applies to an importable file while the
+test file stays test-functions-only.
 """
 
 import sys
@@ -63,26 +62,19 @@ with warnings.catch_warnings():
 async def main() -> None:
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
-    # Flush this process's coverage data before the clean-exit line below. Without this, the
-    # data is only written by coverage's atexit hook during interpreter teardown -- and on a
-    # slow Windows runner that can overrun the transport's termination grace, so the kill
-    # silently destroys the data file and the 100% gate trips on this module's subprocess-only
-    # lines. Saving here puts the write before the line the test synchronizes on: once the
-    # parent has seen "clean exit", the data is durably on disk and the escalation is harmless.
-    # Nothing measured may execute after the save (it would be unrecordable by construction),
-    # hence the excluded lines below. The branch is pragma'd because under coverage the
-    # instance always exists, and without coverage nothing is measured anyway.
+    # Flush coverage before the clean-exit line the test synchronizes on: the atexit hook alone can
+    # overrun the transport's termination grace on slow Windows runners, and the kill then destroys
+    # the data file, tripping the 100% gate on this module's subprocess-only lines.
+    # The no-branch pragma: under coverage the instance always exists; without it nothing is measured.
     cov = getattr(coverage.process_startup, "coverage", None)
     if cov is not None:  # pragma: no branch
-        # stop() is load-bearing twice over: it ends tracing, making itself the last
-        # recordable line, and it leaves nothing new for coverage's atexit re-save to flush --
-        # so a kill landing during interpreter teardown cannot corrupt the file save() wrote
-        # (coverage opens it with sqlite journaling off; a torn rewrite would not roll back).
+        # stop() ends tracing, making itself the last recordable line, and leaves nothing for
+        # coverage's atexit re-save -- so a kill during interpreter teardown cannot tear the file
+        # save() wrote (coverage's sqlite journaling is off; a torn rewrite would not roll back).
         cov.stop()
         cov.save()  # pragma: lax no cover - untraced: stop() above already ended measurement
-    # Reached only when the run loop exits because stdin closed; if the process were terminated
-    # the test's stderr capture would not see this line. lax no cover: runs after the coverage
-    # save by design, so it can never appear covered.
+    # Reached only on clean stdin-close exit (a terminated process never prints it); runs after the
+    # save by design, hence lax no cover.
     print("stdio-echo: clean exit", file=sys.stderr, flush=True)  # pragma: lax no cover
 
 

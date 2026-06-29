@@ -1,12 +1,10 @@
 """Resumability over the streamable HTTP transport, exercised entirely in process.
 
-These tests configure the server with an event store, so every SSE event is stamped with an ID
-and a client that loses its connection can resume by sending `Last-Event-ID`. The wire-level
-tests (`mounted_app` + raw httpx) assert exactly what travels on the wire; the end-to-end test
-drives the SDK client through a server-initiated stream close and proves the call still
-completes. The bridge's `aclose()` delivers `http.disconnect` to the running application, so
-closing a streaming response mid-read is a deterministic in-process disconnect -- no sockets,
-no real time. Every server here uses `retry_interval=0` so reconnection waits are no-ops.
+Every server uses an event store, so SSE events carry IDs and clients resume via `Last-Event-ID`.
+The wire-level tests speak raw httpx via `mounted_app`; the end-to-end tests drive the SDK client.
+The bridge's `aclose()` delivers `http.disconnect` to the running application, so closing a
+streaming response mid-read is a deterministic in-process disconnect. `retry_interval=0` makes
+reconnection waits no-ops.
 """
 
 import json
@@ -63,7 +61,6 @@ def _counting_server() -> MCPServer:
 
 
 def _tools_call(request_id: int, name: str, arguments: dict[str, object]) -> str:
-    """A serialized tools/call JSON-RPC request body."""
     return JSONRPCRequest(
         jsonrpc="2.0", id=request_id, method="tools/call", params={"name": name, "arguments": arguments}
     ).model_dump_json(by_alias=True, exclude_none=True)
@@ -78,7 +75,6 @@ async def _read_events(response: httpx.Response, count: int) -> list[ServerSentE
 @requirement("hosting:resume:event-ids")
 @requirement("hosting:resume:priming")
 async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_event() -> None:
-    """A request's SSE stream opens with a priming event (id, empty data, retry) then stamps each message."""
     async with mounted_app(_counting_server(), event_store=SequencedEventStore(), retry_interval=0) as (http, _):
         session_id = await initialize_via_http(http)
         with anyio.fail_after(5):
@@ -89,13 +85,10 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
                 events = await _read_events(response, 4)
 
     priming, first, second, result = events
-    # The priming event is the only event a client could have seen before any work happened, so it
-    # is the resumption anchor: it carries an ID and empty data. The SDK attaches the retry hint
-    # to this event (see the divergence on hosting:resume:priming).
+    # The priming event is the resumption anchor: it carries an ID, empty data, and the SDK's
+    # retry hint (see the divergence on hosting:resume:priming).
     assert (priming.id, priming.data, priming.retry) == snapshot(("3", "", 0))
     assert priming.event == snapshot("message")
-    # Every subsequent event carries an event-store ID; the related notifications and the response
-    # all ride this stream and close it after the response.
     assert [event.id for event in (first, second, result)] == snapshot(["4", "5", "7"])
     assert [json.loads(event.data)["method"] for event in (first, second)] == snapshot(
         ["notifications/message", "notifications/message"]
@@ -115,11 +108,7 @@ async def test_a_post_sse_stream_begins_with_a_priming_event_and_stamps_every_ev
 
 @requirement("hosting:resume:priming")
 async def test_the_priming_row_is_stored_before_any_handler_output_for_that_stream() -> None:
-    """The priming cursor is the first row the event store records for a request's stream.
-
-    The POST handler stores the priming row before dispatching the request, so by construction
-    it precedes anything `message_router` can store for that stream id.
-    """
+    """The POST handler stores the priming row before dispatching, so it precedes any handler output."""
     store = SequencedEventStore()
     mcp = MCPServer("resumable")
 
@@ -154,19 +143,6 @@ async def test_the_priming_row_is_stored_before_any_handler_output_for_that_stre
 @requirement("hosting:resume:stream-scoped")
 @requirement("hosting:resume:buffered-replay")
 async def test_get_with_last_event_id_replays_only_that_streams_missed_events() -> None:
-    """Reconnecting with Last-Event-ID returns the missed events from that one stream, in order.
-
-    The handler also emits an unrelated notification (which the server stores under the
-    standalone-stream key); replay must not return it, proving replay is scoped to the stream
-    the given event ID belongs to.
-
-    Steps: (1) initialize; (2) POST a tool call and read events until the first notification is
-    captured; (3) close the response mid-stream -- the bridge delivers `http.disconnect`, the
-    handler keeps running; (4) release the handler so it emits the remaining messages, which the
-    server buffers in the event store; (5) wait on the event store for the handler's response to
-    be stored, so the replay's content is independent of task scheduling; (6) GET with
-    `Last-Event-ID` and assert the replay is exactly the missed events from this request's stream.
-    """
     release = anyio.Event()
     store = SequencedEventStore()
 
@@ -188,14 +164,12 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
             async with http.stream(
                 "POST", "/mcp", content=_tools_call(1, "count", {}), headers=base_headers(session_id=session_id)
             ) as response:
-                # Read the priming event and the first notification, then drop the connection.
                 priming, first = await _read_events(response, 2)
                 assert (priming.id, first.id) == snapshot(("3", "4"))
                 last_seen = first.id
             release.set()
-            # The handler keeps running after the disconnect; its remaining messages are stored.
-            # The first wait returns immediately (the priming and first tick are already stored);
-            # the second blocks until the response itself is stored so the replay content is fixed.
+            # The disconnected handler keeps running; row 4 is already stored, and waiting for
+            # row 8 (the response) fixes the replay content independent of task scheduling.
             await store.wait_until_stored(4)
             await store.wait_until_stored(8)
             replay_headers = base_headers(session_id=session_id) | {"last-event-id": last_seen}
@@ -211,8 +185,7 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
     )
     assert isinstance(decoded[2], JSONRPCResponse)
     assert decoded[2].id == 1
-    # The unrelated resource-updated notification was stored under the standalone-stream key, not
-    # this request's stream, so it must not appear in the replay.
+    # The unrelated resource-updated notification lives under the standalone-stream key, not this stream.
     assert all(
         not (isinstance(message, JSONRPCNotification) and message.method == "notifications/resources/updated")
         for message in decoded
@@ -221,10 +194,6 @@ async def test_get_with_last_event_id_replays_only_that_streams_missed_events() 
 
 @requirement("hosting:resume:priming")
 async def test_a_pre_2025_11_25_reconnect_replays_without_minting_a_priming_event() -> None:
-    """A pre-2025-11-25 client reconnecting via Last-Event-ID gets the replay with no priming row.
-
-    The store-length assertion is the load-bearing proof that no priming cursor was minted.
-    """
     release = anyio.Event()
     store = SequencedEventStore()
     mcp = MCPServer("resumable")
@@ -261,10 +230,7 @@ async def test_a_pre_2025_11_25_reconnect_replays_without_minting_a_priming_even
 
 @requirement("hosting:resume:bad-event-id")
 async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
-    """A Last-Event-ID the event store cannot map produces an empty SSE stream rather than an error.
-
-    See the divergence on hosting:resume:bad-event-id: this pins current behaviour.
-    """
+    """Pins current behaviour -- see the divergence on hosting:resume:bad-event-id."""
     async with mounted_app(_counting_server(), event_store=SequencedEventStore(), retry_interval=0) as (http, _):
         session_id = await initialize_via_http(http)
         with anyio.fail_after(5):
@@ -279,12 +245,7 @@ async def test_an_unknown_last_event_id_yields_an_empty_replay_stream() -> None:
 
 @requirement("hosting:http:disconnect-not-cancel")
 async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler() -> None:
-    """Closing the request's SSE connection while the handler is running leaves the handler running.
-
-    The handler signals when it has started and when it has finished; the test drops the
-    connection in between and then releases the handler. If the disconnect cancelled the handler,
-    `finished` would never be set and the test would time out.
-    """
+    """If the disconnect cancelled the handler, `finished` would never be set and the test would time out."""
     started = anyio.Event()
     release = anyio.Event()
     finished = anyio.Event()
@@ -321,14 +282,11 @@ async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler()
 @requirement("client-transport:http:reconnect-retry-value")
 @requirement("flow:resume:tool-call-resumption-token")
 async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() -> None:
-    """A server-closed request stream is reconnected by the client and the call completes.
+    """The client reconnects via GET with the priming event's Last-Event-ID and 0ms retry hint.
 
-    The handler emits one notification, closes its own SSE stream, then (once released) emits
-    another and returns. The client observed the priming event (so it has a Last-Event-ID and a
-    retry hint of 0ms), sees the stream end, reconnects via GET with Last-Event-ID, and receives
-    the post-close notification and the result over the replay stream. The shared events make the
-    test deterministic: the handler only proceeds once the test knows the first notification has
-    arrived (and so the client's reconnection has begun).
+    The post-close notification and the result arrive over the replay stream. The shared events
+    keep this deterministic: the handler proceeds only once the test has seen the first
+    notification (and so the client's reconnection has begun).
     """
     received: list[object] = []
     before_seen = anyio.Event()
@@ -375,16 +333,13 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
 
 @requirement("client-transport:http:resume-stream-api")
 async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_connection() -> None:
-    """A resumption token captured via on_resumption_token_update on one connection lets a fresh
-    connection retrieve the messages it missed by passing resumption_token to send_request.
+    """Drives a bare ClientSession to exercise the explicit ClientMessageMetadata resumption API.
 
-    This is the explicit ClientMessageMetadata API, distinct from the automatic reconnection the
-    previous test covers: the transport dispatches a resumption_token request as a GET with
-    Last-Event-ID instead of POSTing the body, and remaps the replayed response onto the new
-    request's id. Client.call_tool does not expose ClientMessageMetadata, so the test drives a
-    bare ClientSession via session.send_request -- the sanctioned drop-down for behaviour Client
-    cannot express. The second connection carries the original session id but does not initialize
-    (the server-side session already is), modelling a caller that resumes after a process restart.
+    Distinct from automatic reconnection: the transport dispatches a resumption_token request as a
+    GET with Last-Event-ID instead of POSTing the body, and remaps the replayed response onto the
+    new request's id. Client.call_tool does not expose ClientMessageMetadata, so the bare session
+    is the sanctioned drop-down. The second connection reuses the session id without initializing
+    (the server side already is), modelling a caller that resumes after a process restart.
     """
     captured: list[str] = []
     received: list[object] = []

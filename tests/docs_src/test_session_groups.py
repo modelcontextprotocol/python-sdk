@@ -1,7 +1,7 @@
-"""`docs/advanced/session-groups.md`: every claim the page makes, proved against the real SDK.
+"""Prove every claim in `docs/advanced/session-groups.md` against the real SDK.
 
-`connect_to_server` opens a real transport (a subprocess or a socket), so these tests drive the
-exact same aggregation path through `connect_with_session` with in-memory sessions instead.
+`connect_to_server` opens a real transport, so tests drive the same aggregation path
+through `connect_with_session` with in-memory sessions instead.
 """
 
 import traceback
@@ -17,7 +17,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_both_servers_call_their_tool_search() -> None:
-    """tutorial001 + tutorial002: two unrelated servers, one colliding tool name."""
     async with Client(tutorial001.mcp) as library, Client(tutorial002.mcp) as web:
         (library_tool,) = (await library.list_tools()).tools
         (web_tool,) = (await web.list_tools()).tools
@@ -53,7 +52,6 @@ async def test_colliding_names_are_rejected() -> None:
 
 
 async def test_component_name_hook_prefixes_every_name() -> None:
-    """tutorial004: the hook rewrites every registered name, so both servers coexist."""
     async with Client(tutorial001.mcp) as library, Client(tutorial002.mcp) as web:
         group = ClientSessionGroup(component_name_hook=tutorial004.by_server)
         await group.connect_with_session(library.server_info, library.session)
@@ -63,12 +61,10 @@ async def test_component_name_hook_prefixes_every_name() -> None:
 
 
 def test_the_hook_is_a_plain_function_of_name_and_server_info() -> None:
-    """tutorial004: `by_server` builds the key from `server_info.name`."""
     assert tutorial004.by_server("search", Implementation(name="Web", version="1.0.0")) == "Web.search"
 
 
 async def test_the_key_is_prefixed_but_the_wire_name_is_not() -> None:
-    """tutorial004: the dict key is yours; the `Tool` inside keeps the name the server declared."""
     async with Client(tutorial002.mcp) as web:
         group = ClientSessionGroup(component_name_hook=tutorial004.by_server)
         await group.connect_with_session(web.server_info, web.session)
@@ -76,7 +72,6 @@ async def test_the_key_is_prefixed_but_the_wire_name_is_not() -> None:
 
 
 async def test_call_tool_routes_to_the_owning_server() -> None:
-    """tutorial004: `group.call_tool` resolves the prefixed name to the session that owns it."""
     async with Client(tutorial001.mcp) as library, Client(tutorial002.mcp) as web:
         group = ClientSessionGroup(component_name_hook=tutorial004.by_server)
         await group.connect_with_session(library.server_info, library.session)
@@ -88,7 +83,6 @@ async def test_call_tool_routes_to_the_owning_server() -> None:
 
 
 async def test_disconnect_removes_every_component_of_that_server() -> None:
-    """tutorial004: `disconnect_from_server` takes the session back out of all three dicts."""
     async with Client(tutorial001.mcp) as library, Client(tutorial002.mcp) as web:
         group = ClientSessionGroup(component_name_hook=tutorial004.by_server)
         await group.connect_with_session(library.server_info, library.session)

@@ -1,20 +1,7 @@
 """`Connection` - per-client connection state and the standalone outbound channel.
 
-Always present on `Context` (never `None`), even in stateless deployments.
-Holds peer info, per-connection scratch `state` and an `exit_stack` for
-teardown, and an `Outbound` for the standalone stream (the SSE GET stream in
-streamable HTTP, or the single duplex stream in stdio).
-
-Construct via the factories: `Connection.from_envelope` for the 2026-era
-single-exchange path (born ready, no back-channel) and `Connection.for_loop`
-for the handshake-driven loop path. Both populate `protocol_version` so the
-kernel reads it as a fact.
-
-`notify` is best-effort: it never raises. If there's no standalone channel
-or the stream has been dropped, the notification is debug-logged and silently
-discarded - server-initiated notifications are inherently advisory.
-`send_raw_request` raises `NoBackChannelError` when there's no channel; `ping`
-is the only spec-sanctioned standalone request.
+Always present on `Context` (never `None`), even in stateless deployments. The
+standalone stream is the SSE GET in streamable HTTP or the duplex stream in stdio.
 """
 
 from __future__ import annotations
@@ -55,11 +42,7 @@ logger = logging.getLogger(__name__)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
-# Result types for the spec's server-to-client request set, used by
-# `Connection.send_request` to infer the result type. If the spec's request
-# set grows substantially, consider declaring the result mapping on the
-# request types themselves (a `__mcp_result__` ClassVar read via a structural
-# protocol) so this table and the overload ladder don't need maintaining.
+# Spec server-to-client requests -> result types; lets `Connection.send_request` infer the result type.
 _RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
     CreateMessageRequest: CreateMessageResult,
     ElicitRequest: ElicitResult,
@@ -77,12 +60,11 @@ def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> d
 
 
 class _NoChannelOutbound:
-    """Connection-scoped `Outbound` for the no-back-channel case.
+    """No-back-channel `Outbound`: requests raise, notifications drop.
 
-    The structural answer to "this connection cannot push to its peer":
-    `send_raw_request` raises `NoBackChannelError`; `notify` drops with a
-    debug log. `Connection.from_envelope` installs this so the modern
-    single-exchange path never needs a mode flag - the channel itself says no.
+    `send_raw_request` raises `NoBackChannelError`; `notify` drops with a debug
+    log. Installed by `Connection.from_envelope` so the single-exchange path
+    never needs a mode flag - the channel itself says no.
     """
 
     async def send_raw_request(
@@ -103,10 +85,8 @@ _NO_CHANNEL = _NoChannelOutbound()
 class Connection:
     """Per-client connection state and standalone-stream `Outbound`.
 
-    Construct via `from_envelope` (modern single-exchange: born ready, no
-    back-channel) or `for_loop` (handshake-driven: ready once the client's
-    `notifications/initialized` arrives). Either way `protocol_version` is
-    populated at construction.
+    Construct via `from_envelope` (born ready, no back-channel) or `for_loop`
+    (ready once the client's `notifications/initialized` arrives).
     """
 
     outbound: Outbound
@@ -115,26 +95,21 @@ class Connection:
     session_id: str | None
 
     client_params: InitializeRequestParams | None
-    """The full `initialize` request params, or the equivalent built from the
-    2026-era envelope. `None` when no client info was supplied."""
+    """The `initialize` request params (or the 2026-era envelope equivalent); `None` when none supplied."""
 
     protocol_version: str
-    """The protocol version this connection speaks. Populated at construction
-    by the factory and overwritten by `_handle_initialize` once the handshake
-    commits on the loop path."""
+    """The protocol version this connection speaks; seeded at construction and
+    overwritten once the loop-path handshake commits."""
 
     initialized: anyio.Event
-    """Set when `notifications/initialized` arrives (matches TS `oninitialized`);
-    the point from which the spec permits server-initiated requests beyond
-    ping/logging. Pre-set on connections built via `from_envelope`."""
+    """Set when `notifications/initialized` arrives (pre-set by `from_envelope`);
+    from here the spec permits server-initiated requests beyond ping/logging."""
 
     state: dict[str, Any]
     """Per-connection scratch state; persists across requests on this connection."""
 
     exit_stack: AsyncExitStack
-    """Per-connection teardown, unwound LIFO (shielded) when the connection
-    closes. Push cleanup from handlers or middleware; exceptions are logged
-    and swallowed."""
+    """Per-connection teardown, unwound LIFO (shielded) on close; cleanup exceptions are logged and swallowed."""
 
     def __init__(
         self,
@@ -163,11 +138,8 @@ class Connection:
     ) -> Connection:
         """A born-ready connection populated from a request's `_meta` envelope.
 
-        `initialized` is set and the envelope's client info/capabilities (when
-        both supplied) are recorded as `client_params` so capability checks
-        work. `outbound` defaults to the no-channel sentinel for the
-        single-exchange HTTP path; duplex modern transports (e.g. stdio) pass
-        the dispatcher so server-initiated messages have a back-channel.
+        `outbound` defaults to the no-channel sentinel for the single-exchange
+        HTTP path; duplex transports (e.g. stdio) pass the dispatcher.
         """
         client_params = None
         if client_info is not None and client_capabilities is not None:
@@ -190,10 +162,8 @@ class Connection:
     ) -> Connection:
         """A connection for the handshake-driven loop path.
 
-        Not born-ready: `initialized` is set later by the kernel when
-        `notifications/initialized` arrives. `protocol_version` is seeded from
-        the transport hint (or `LATEST_HANDSHAKE_VERSION`) so it's never `None`;
-        the handshake overwrites it once negotiated.
+        Not born-ready: the kernel sets `initialized` when `notifications/initialized`
+        arrives; the handshake overwrites the seeded `protocol_version` once negotiated.
         """
         return cls(
             outbound,
@@ -203,16 +173,13 @@ class Connection:
 
     @property
     def has_standalone_channel(self) -> bool:
-        """Whether this connection has a real back-channel for server-initiated
-        messages. Derived from `outbound` - the no-channel sentinel is the only
-        case that doesn't."""
+        """Whether this connection has a real back-channel for server-initiated messages."""
         return self.outbound is not _NO_CHANNEL
 
     @property
     def initialize_accepted(self) -> bool:
         """True once the inbound request gate is open: `initialize` recorded the
-        peer info, or the handshake completed outright (born-ready, or a bare
-        `notifications/initialized`). Derived, never stored."""
+        peer info, or the handshake completed outright."""
         return self.client_params is not None or self.initialized.is_set()
 
     async def send_raw_request(
@@ -223,10 +190,8 @@ class Connection:
     ) -> dict[str, Any]:
         """Send a raw request on the standalone stream.
 
-        Low-level `Outbound` channel. Prefer the typed `send_request` or the
-        convenience methods below; use this directly only for off-spec
-        messages. `opts` carries per-call `timeout` / `on_progress` /
-        resumption hints; see `CallOptions`.
+        Prefer the typed `send_request` or the convenience methods below; use
+        this directly only for off-spec messages.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -278,8 +243,8 @@ class Connection:
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a best-effort notification on the standalone stream.
 
-        Never raises. If there's no standalone channel or the stream is broken,
-        the notification is dropped and debug-logged.
+        Never raises (server-initiated notifications are advisory): with no
+        channel or a broken stream the notification is dropped and debug-logged.
         """
         try:
             await self.outbound.notify(method, params, opts)
@@ -287,7 +252,7 @@ class Connection:
             logger.debug("dropped %s: standalone stream closed", method)
 
     async def ping(self, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
-        """Send a `ping` request on the standalone stream.
+        """Send a `ping` request - the only spec-sanctioned standalone request.
 
         Raises:
             MCPError: The peer responded with an error.
@@ -316,12 +281,8 @@ class Connection:
         await self.notify("notifications/resources/updated", _notification_params({"uri": uri}, meta))
 
     def check_capability(self, capability: ClientCapabilities) -> bool:
-        """Return whether the connected client declared the given capability.
-
-        Returns `False` when no client info has been recorded.
-        """
-        # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability
-        # verbatim for parity.
+        """Return whether the connected client declared the given capability; `False` when no client info recorded."""
+        # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability verbatim for parity.
         if self.client_params is None:
             return False
         have = self.client_params.capabilities
@@ -346,10 +307,8 @@ class Connection:
                 if k not in have.experimental or have.experimental[k] != v:
                     return False
         if capability.extensions is not None:
-            # SEP-2133: an extension is supported when the client declares its
-            # identifier. Settings are negotiated per-extension (the client may
-            # advertise more than the server asks for), so presence - not value
-            # equality - is the meaningful check.
+            # SEP-2133: support means the client declares the identifier; settings are
+            # negotiated per-extension, so presence - not value equality - is the check.
             if have.extensions is None:
                 return False
             for identifier in capability.extensions:

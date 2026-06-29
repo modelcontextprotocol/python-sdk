@@ -20,14 +20,12 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_streamable_http_app_is_a_starlette_app_with_one_route() -> None:
-    """tutorial001: the factory returns a Starlette application with a single route at `/mcp`."""
     (route,) = tutorial001.app.routes
     assert isinstance(route, Route)
     assert route.path == "/mcp"
 
 
 async def test_the_server_behind_the_app_is_unchanged() -> None:
-    """tutorial001: wrapping the server in an ASGI app changes nothing about its tools."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("add_note", {"text": "milk"})
         assert result.content == [TextContent(type="text", text="Saved: milk")]
@@ -35,7 +33,7 @@ async def test_the_server_behind_the_app_is_unchanged() -> None:
 
 
 async def test_streamable_http_app_takes_runs_options_except_port() -> None:
-    """The tip: every `run("streamable-http", ...)` option is here except `port`. `host` is one of them."""
+    """The page's tip: every `run("streamable-http", ...)` option is here except `port`."""
     parameters = set(inspect.signature(MCPServer.streamable_http_app).parameters) - {"self"}
     assert parameters == {
         "streamable_http_path",
@@ -57,7 +55,6 @@ async def test_a_request_before_the_session_manager_runs_is_rejected() -> None:
 
 
 async def test_mounting_at_the_root_keeps_the_default_path() -> None:
-    """tutorial002: `Mount("/")` plus the default `streamable_http_path` leaves the endpoint at `/mcp`."""
     (mount,) = tutorial002.app.routes
     assert isinstance(mount, Mount)
     assert mount.path == ""
@@ -86,7 +83,6 @@ async def test_a_root_mount_swallows_routes_listed_after_it() -> None:
 
 
 async def test_the_host_lifespan_enters_the_session_manager() -> None:
-    """tutorial002: the host app's lifespan owns `session_manager.run()` and starts and stops cleanly."""
     async with tutorial002.lifespan(tutorial002.app):
         async with Client(tutorial002.mcp) as client:
             result = await client.call_tool("add_note", {"text": "milk"})
@@ -94,7 +90,6 @@ async def test_the_host_lifespan_enters_the_session_manager() -> None:
 
 
 async def test_two_servers_get_two_mounts() -> None:
-    """tutorial003: each server is mounted under its own prefix, each still ending in `/mcp`."""
     notes_mount, tasks_mount = tutorial003.app.routes
     assert isinstance(notes_mount, Mount)
     assert isinstance(tasks_mount, Mount)
@@ -103,7 +98,6 @@ async def test_two_servers_get_two_mounts() -> None:
 
 
 async def test_one_lifespan_starts_both_session_managers() -> None:
-    """tutorial003: a single `AsyncExitStack` lifespan runs both managers; both servers answer."""
     async with tutorial003.lifespan(tutorial003.app):
         async with Client(tutorial003.notes) as client:
             notes_result = await client.call_tool("add_note", {"text": "milk"})
@@ -114,7 +108,6 @@ async def test_one_lifespan_starts_both_session_managers() -> None:
 
 
 async def test_streamable_http_path_moves_the_endpoint_to_the_mount_prefix() -> None:
-    """tutorial004: `streamable_http_path="/"` makes the `Mount` prefix the whole public path."""
     (mount,) = tutorial004.app.routes
     assert isinstance(mount, Mount)
     assert mount.path == "/notes"
@@ -124,7 +117,6 @@ async def test_streamable_http_path_moves_the_endpoint_to_the_mount_prefix() -> 
 
 
 async def test_cors_exposes_the_session_id_header() -> None:
-    """tutorial005: the browser origin gets the three MCP methods and can read `Mcp-Session-Id`."""
     (middleware,) = tutorial005.app.user_middleware
     assert middleware.cls is CORSMiddleware
     transport = httpx.ASGITransport(app=tutorial005.app)
@@ -142,7 +134,6 @@ async def test_cors_exposes_the_session_id_header() -> None:
 
 
 async def test_custom_route_lands_next_to_the_mcp_endpoint() -> None:
-    """tutorial006: `@mcp.custom_route()` adds a plain Starlette route to the returned app."""
     mcp_route, health_route = tutorial006.app.routes
     assert isinstance(mcp_route, Route)
     assert isinstance(health_route, Route)
@@ -151,7 +142,6 @@ async def test_custom_route_lands_next_to_the_mcp_endpoint() -> None:
 
 
 async def test_the_health_check_answers_outside_the_protocol() -> None:
-    """tutorial006: `GET /health` is ordinary HTTP, with no session manager and no MCP."""
     transport = httpx.ASGITransport(app=tutorial006.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         response = await http.get("/health")
@@ -169,9 +159,7 @@ MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": 
 
 
 async def test_the_default_app_is_localhost_only() -> None:
-    """The "Localhost only" section: with no `transport_security=`, the app answers a real hostname
-    with the page's `421 Invalid Host header` and a foreign Origin with `403 Invalid Origin header`,
-    before any MCP code runs."""
+    """The "Localhost only" section: with no `transport_security=`, host/origin rejections fire before any MCP code."""
     bare = MCPServer("Notes")
     app = bare.streamable_http_app()
     transport = httpx.ASGITransport(app=app)
@@ -187,8 +175,6 @@ async def test_the_default_app_is_localhost_only() -> None:
 
 
 async def test_the_documented_browser_origin_works_end_to_end() -> None:
-    """tutorial005: the page's scenario for real. The public hostname, the browser origin, a
-    realistic preflight naming the `Mcp-*` headers, then the actual request."""
     transport = httpx.ASGITransport(app=tutorial005.app)
     async with tutorial005.lifespan(tutorial005.app):
         async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:

@@ -2,12 +2,7 @@
 # dependencies = ["pydantic-ai-slim[openai]", "asyncpg", "numpy", "pgvector"]
 # ///
 
-# uv pip install 'pydantic-ai-slim[openai]' asyncpg numpy pgvector
-
-"""Recursive memory system inspired by the human brain's clustering of memories.
-Uses OpenAI's 'text-embedding-3-small' model and pgvector for efficient
-similarity search.
-"""
+"""Recursive memory system inspired by the human brain's clustering of memories."""
 
 import asyncio
 import math
@@ -20,7 +15,7 @@ from typing import Annotated, Self, TypeVar
 import asyncpg
 import numpy as np
 from openai import AsyncOpenAI
-from pgvector.asyncpg import register_vector  # Import register_vector
+from pgvector.asyncpg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
@@ -141,7 +136,6 @@ class MemoryNode(BaseModel):
         self.embedding = [(a + b) / 2 for a, b in zip(self.embedding, other.embedding)]
         self.summary = await do_ai(self.content, "Summarize the following text concisely.", str, deps)
         await self.save(deps)
-        # Delete the merged node from the database
         if other.id is not None:
             await delete_memory(other.id, deps)
 

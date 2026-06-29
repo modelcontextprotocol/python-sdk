@@ -29,8 +29,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("prompts:list:basic")
 async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None:
-    """The prompts returned by the handler reach the client with their argument declarations intact."""
-
     async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
         return ListPromptsResult(
             prompts=[
@@ -72,8 +70,6 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
 
 @requirement("prompts:get:with-args")
 async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
-    """Arguments supplied by the client reach the prompt handler; the templated message comes back."""
-
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "greet"
         assert params.arguments is not None
@@ -97,8 +93,6 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
 
 @requirement("prompts:get:multi-message")
 async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Connect) -> None:
-    """A prompt returning a user/assistant conversation reaches the client with roles and order intact."""
-
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "geography_quiz"
         return GetPromptResult(
@@ -127,8 +121,6 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
 
 @requirement("prompts:get:no-args")
 async def test_get_prompt_without_arguments_returns_the_messages(connect: Connect) -> None:
-    """A prompt fetched with no arguments delivers None as the handler's arguments and returns its messages."""
-
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "static"
         assert params.arguments is None
@@ -148,12 +140,7 @@ async def test_get_prompt_without_arguments_returns_the_messages(connect: Connec
 @requirement("prompts:get:content:audio")
 @requirement("prompts:get:content:embedded-resource")
 async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) -> None:
-    """Prompt messages can carry image, audio, and embedded-resource content; all reach the client.
-
-    A single full-result snapshot proves all three content types round-trip: each block in the result
-    is one of the three behaviours under test. Tiny fixed base64 payloads ("aW1n" is b"img", "YXVk"
-    is b"aud") so the snapshot pins the exact bytes.
-    """
+    """One snapshot proves all three tagged content types round-trip; base64 `aW1n`/`YXVk` decode to `img`/`aud`."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "media"
@@ -193,10 +180,7 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
 
 @requirement("prompts:get:unknown-name")
 async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised prompt name with MCPError produces a JSON-RPC error.
-
-    The error's code and message chosen by the handler reach the client verbatim.
-    """
+    """The handler's MCPError code and message reach the client verbatim as a JSON-RPC error."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {params.name}")

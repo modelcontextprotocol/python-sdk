@@ -68,7 +68,6 @@ server = Server(
 
 
 async def run():
-    """Run the structured output server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

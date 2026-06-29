@@ -1,8 +1,4 @@
-"""Regression test for issue #1630: OAuth2 scope incorrectly set to resource_metadata URL.
-
-This test verifies that when a 401 response contains both resource_metadata and scope
-in the WWW-Authenticate header, the actual scope is used (not the resource_metadata URL).
-"""
+"""Regression test for #1630: OAuth2 scope was incorrectly set to the resource_metadata URL from WWW-Authenticate."""
 
 from unittest import mock
 
@@ -20,8 +16,6 @@ from mcp.shared.auth import (
 
 
 class MockTokenStorage:
-    """Mock token storage for testing."""
-
     def __init__(self) -> None:
         self._tokens: OAuthToken | None = None
         self._client_info: OAuthClientInformationFull | None = None
@@ -41,15 +35,6 @@ class MockTokenStorage:
 
 @pytest.mark.anyio
 async def test_401_uses_www_auth_scope_not_resource_metadata_url():
-    """Regression test for #1630: Ensure scope is extracted from WWW-Authenticate header,
-    not the resource_metadata URL.
-
-    When a 401 response contains:
-        WWW-Authenticate: Bearer resource_metadata="https://...", scope="read write"
-
-    The client should use "read write" as the scope, NOT the resource_metadata URL.
-    """
-
     async def redirect_handler(url: str) -> None:
         pass  # pragma: no cover
 
@@ -82,11 +67,9 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     test_request = httpx.Request("GET", "https://api.example.com/mcp")
     auth_flow = provider.async_auth_flow(test_request)
 
-    # First request (no auth header yet)
     await auth_flow.__anext__()
 
-    # 401 response with BOTH resource_metadata URL and scope in WWW-Authenticate
-    # This is the key: the bug would use the URL as scope instead of "read write"
+    # WWW-Authenticate carries both resource_metadata and scope; the bug used the URL as the scope
     resource_metadata_url = "https://api.example.com/.well-known/oauth-protected-resource"
     expected_scope = "read write"
 
@@ -96,11 +79,10 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
         request=test_request,
     )
 
-    # Send 401, expect PRM discovery request
     prm_request = await auth_flow.asend(response_401)
     assert ".well-known/oauth-protected-resource" in str(prm_request.url)
 
-    # PRM response with scopes_supported (these should be overridden by WWW-Auth scope)
+    # scopes_supported must lose to the WWW-Authenticate scope
     prm_response = httpx.Response(
         200,
         content=(
@@ -111,11 +93,9 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
         request=prm_request,
     )
 
-    # Send PRM response, expect OAuth metadata discovery
     oauth_metadata_request = await auth_flow.asend(prm_response)
     assert ".well-known/oauth-authorization-server" in str(oauth_metadata_request.url)
 
-    # OAuth metadata response
     oauth_metadata_response = httpx.Response(
         200,
         content=(
@@ -129,23 +109,17 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     # Mock authorization to skip interactive flow
     provider._perform_authorization_code_grant = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
-    # Send OAuth metadata response, expect token request
     token_request = await auth_flow.asend(oauth_metadata_response)
     assert "token" in str(token_request.url)
 
-    # NOW CHECK: The scope should be the WWW-Authenticate scope, NOT the URL
-    # This is where the bug manifested - scope was set to resource_metadata_url
     actual_scope = provider.context.client_metadata.scope
 
-    # This assertion would FAIL on main (scope would be the URL)
-    # but PASS on the fix branch (scope is "read write")
     assert actual_scope == expected_scope, (
         f"Expected scope to be '{expected_scope}' from WWW-Authenticate header, "
         f"but got '{actual_scope}'. "
         f"If scope is '{resource_metadata_url}', the bug from #1630 is present."
     )
 
-    # Verify it's definitely not the URL (explicit check for the bug)
     assert actual_scope != resource_metadata_url, (
         f"BUG #1630: Scope was incorrectly set to resource_metadata URL '{resource_metadata_url}' "
         f"instead of the actual scope '{expected_scope}'"
@@ -161,7 +135,6 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     final_request = await auth_flow.asend(token_response)
     assert final_request.headers["Authorization"] == "Bearer test_token"
 
-    # Finish the flow
     final_response = httpx.Response(200, request=final_request)
     try:
         await auth_flow.asend(final_response)

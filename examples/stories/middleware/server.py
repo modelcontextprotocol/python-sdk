@@ -1,7 +1,6 @@
-"""Dispatch-layer middleware: `Server.middleware` is the public hook.
+"""Dispatch-layer middleware via the `middleware` list on lowlevel `Server`.
 
-A lowlevel-only story: `MCPServer` has no public middleware accessor yet, so the
-one supported registration point is the `middleware` list on `lowlevel.Server`.
+`MCPServer` has no public middleware accessor yet, so this story is lowlevel-only.
 """
 
 import json

@@ -1,13 +1,9 @@
 """Discovery + parametrization for the example-stories matrix.
 
-Reads ``examples/stories/manifest.toml`` and expands each story across
-(server_variant × transport × era). The story modules are imported as
-real packages (the ``mcp-example-stories`` workspace member installs ``stories``
-editable), so pyright sees them and a signature change red-lines every story.
-
-The HTTP-ASGI leg reuses the interaction suite's in-process bridge directly
-from ``tests.interaction.transports._bridge`` (both live under ``tests/``); the
-move to ``stories._shared.bridge`` is a later batch.
+Expands each story in `examples/stories/manifest.toml` across (server_variant ×
+transport × era). Story modules import as real packages (`mcp-example-stories`
+installs `stories` editable), so pyright red-lines every story on a signature change.
+The HTTP-ASGI leg reuses the interaction suite's in-process bridge until a `stories._shared.bridge` exists.
 """
 
 from __future__ import annotations
@@ -43,10 +39,8 @@ DEFAULTS: dict[str, Any] = MANIFEST["defaults"]
 STORIES: dict[str, dict[str, Any]] = MANIFEST["story"]
 
 _ERA_TO_MODE = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}
-"""``Client`` rejects handshake-era version strings, so ``legacy`` resolves to
-``mode='legacy'`` rather than ``LATEST_HANDSHAKE_VERSION``. ``in-body`` legs pin
-their connection modes inside ``main`` themselves, so they get ``"auto"`` — the
-``Client`` default; the era axis still passes every ``mode=`` explicitly."""
+"""`Client` rejects handshake-era version strings, so `legacy` maps to `mode='legacy'`, not
+`LATEST_HANDSHAKE_VERSION`; `in-body` legs pin modes inside `main`, so they get an explicit `mode="auto"`."""
 
 
 def story_cfg(name: str) -> dict[str, Any]:
@@ -74,7 +68,7 @@ class Leg:
 
     @property
     def mode(self) -> str:
-        """The explicit ``mode=`` this leg passes to the story's ``main``."""
+        """The explicit `mode=` this leg passes to the story's `main`."""
         return _ERA_TO_MODE[self.era]
 
 
@@ -123,10 +117,9 @@ def client_module(leg: Leg) -> Any:
 class Hosted:
     """One server/app instance hosted for the leg's whole duration.
 
-    ``targets`` yields a fresh connection target against that single instance on
-    every call, so state observed by one connection is visible to the next.
-    ``http`` is the shared raw ``httpx.AsyncClient`` bound to the same ASGI app,
-    or ``None`` on the in-memory leg.
+    `targets` yields a fresh connection target against that single instance per call
+    (state carries across connections); `http` is the shared `httpx.AsyncClient` on
+    the same ASGI app, or None on the in-memory leg.
     """
 
     targets: TargetFactory
@@ -137,11 +130,11 @@ class Hosted:
 async def hosted(
     leg: Leg, cfg: dict[str, Any], server_module: Any, client_module: Any, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Hosted]:
-    """Build the leg's server/app once and keep it running for the test.
+    """Host the leg's server/app once for the whole test.
 
-    The story's ``main`` owns the ``Client(target, mode=...)`` construction; this
-    fixture only decides what ``target`` is. Auth stories thread an ``httpx.Auth``
-    onto the bridge client via a module-level ``build_auth(http)`` export.
+    The story's `main` owns `Client(target, mode=...)`; this fixture only decides the
+    target. Auth stories thread an `httpx.Auth` onto the bridge client via a
+    module-level `build_auth(http)` export.
     """
     for key, value in cfg["env"].items():
         monkeypatch.setenv(key, value)
@@ -152,9 +145,7 @@ async def hosted(
         yield Hosted(lambda: server, None)
         return
 
-    # http-asgi: one Starlette app per leg. ``server_export="app"`` stories hand us the
-    # app directly; ``"factory"`` stories are wrapped via ``asgi_from``. Either way the
-    # app's own lifespan is what brings the session manager up, and the in-process
+    # http-asgi: the app's own lifespan brings the session manager up, and the in-process
     # bridge never fires ASGI lifespan events itself, so enter it explicitly.
     if cfg["server_export"] == "app":
         app: Starlette = server_module.build_app()

@@ -1,11 +1,7 @@
-"""An in-memory implementation of the SDK's OAuth authorization-server provider protocol.
+"""In-memory implementation of the SDK's OAuth authorization-server provider protocol.
 
-The provider holds clients, authorization codes, refresh tokens and access tokens in plain
-instance dicts so tests can inspect them; tokens are minted from `secrets.token_hex` so the
-values are unique without being predictable. The behaviour mirrors what the SDK's authorization
-handlers expect: `authorize` immediately mints a code and returns the redirect, `exchange_*`
-issue and rotate tokens, and `load_*` are simple lookups. Only the parts the auth interaction
-suite drives are implemented; methods the suite does not exercise raise `NotImplementedError`.
+State lives in plain instance dicts so tests can inspect it; only what the auth interaction
+suite drives is implemented — unexercised methods raise `NotImplementedError`.
 """
 
 import secrets
@@ -26,29 +22,22 @@ from tests.interaction._connect import BASE_URL
 
 _TOKEN_LIFETIME_SECONDS = 3600
 
-# The only ID-JAG assertion the in-memory provider accepts; any other value is rejected with
-# invalid_grant, standing in for the signature/policy validation a real AS performs.
+# The only ID-JAG assertion accepted; others get invalid_grant, standing in for real signature/policy validation.
 VALID_ASSERTION = "valid-id-jag"
 
 
 class InMemoryAuthorizationServerProvider(
     OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]
 ):
-    """An OAuth authorization-server provider backed by in-memory dicts.
-
-    Holds registered clients, issued codes, refresh tokens and access tokens as instance state
-    so tests can both drive the SDK's authorization handlers and inspect what was issued.
+    """OAuth authorization-server provider backed by in-memory dicts tests can inspect.
 
     Knobs:
         `default_scopes`: scopes granted when an authorize request supplies none.
         `deny_authorize`: every authorize request returns an `error=access_denied` redirect.
-        `issue_expired_first`: the first issued token's `expires_in` is in the past so the
-            client immediately considers it expired and refreshes; the server-side
-            `AccessToken.expires_at` stays in the future so the bearer middleware accepts it
-            on the retry that completes the connect.
-        `fail_next_refresh`: the next refresh-token exchange raises `invalid_grant` once.
-        `reject_all_tokens`: `load_access_token` returns None for every token, so the bearer
-            middleware 401s every authenticated request.
+        `issue_expired_first`: the first token's `expires_in` is in the past so the client refreshes
+            immediately; the server-side `expires_at` stays valid so the retry succeeds.
+        `fail_next_refresh`: the next refresh-token exchange raises `invalid_grant`, once.
+        `reject_all_tokens`: `load_access_token` returns None, so every authenticated request 401s.
     """
 
     def __init__(
@@ -62,10 +51,8 @@ class InMemoryAuthorizationServerProvider(
         issuer: str | None = None,
     ) -> None:
         self._default_scopes = list(default_scopes) if default_scopes is not None else ["mcp"]
-        # The authorization-response iss must equal the AS metadata issuer the client recorded
-        # (RFC 9207 simple string comparison). `real_asm` builds the issuer from an AnyHttpUrl
-        # object, so it carries the trailing slash; the redirect iss matches it. Path-issuer
-        # tests pass the recorded issuer explicitly.
+        # Must string-match the AS metadata issuer the client recorded (RFC 9207); `real_asm` builds
+        # it from AnyHttpUrl, hence the trailing slash. Path-issuer tests pass the issuer explicitly.
         self._issuer = issuer if issuer is not None else f"{BASE_URL}/"
         self._deny_authorize = deny_authorize
         self._issue_expired_first = issue_expired_first
@@ -76,8 +63,7 @@ class InMemoryAuthorizationServerProvider(
         self.codes: dict[str, AuthorizationCode] = {}
         self.refresh_tokens: dict[str, RefreshToken] = {}
         self.access_tokens: dict[str, AccessToken] = {}
-        # The most recent jwt-bearer request the SDK handler passed to exchange_identity_assertion,
-        # for tests to assert what the client sent (None until the first exchange).
+        # Last params passed to exchange_identity_assertion, for tests to assert what the client sent.
         self.last_assertion_params: IdentityAssertionParams | None = None
 
     def _next_expires_in(self) -> int:
@@ -87,12 +73,7 @@ class InMemoryAuthorizationServerProvider(
         return _TOKEN_LIFETIME_SECONDS
 
     def mint_access_token(self, *, client_id: str, scopes: list[str], resource: str | None = None) -> str:
-        """Mint and store an access token, returning its value.
-
-        Used by the auth-code and refresh exchanges and by the M2M `/token` shim. The
-        server-side `expires_at` is always in the future regardless of `issue_expired_first`,
-        which only affects what the client is told.
-        """
+        """Mint and store an access token; always valid server-side even with `issue_expired_first`."""
         access = f"access_{secrets.token_hex(16)}"
         self.access_tokens[access] = AccessToken(
             token=access,
@@ -111,12 +92,7 @@ class InMemoryAuthorizationServerProvider(
         self.clients[client_info.client_id] = client_info
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        """Mint an authorization code immediately and return the redirect carrying it.
-
-        A real provider would interpose user consent here; the test provider grants
-        unconditionally so the headless redirect handler can complete the flow in-process.
-        When `deny_authorize` is set, returns an `error=access_denied` redirect instead.
-        """
+        """Mint a code and return the redirect immediately; a real provider would interpose user consent here."""
         assert client.client_id is not None
         if self._deny_authorize:
             return construct_redirect_uri(
@@ -133,10 +109,8 @@ class InMemoryAuthorizationServerProvider(
             resource=params.resource,
         )
         self.codes[code.code] = code
-        # `iss` is RFC 9207's authorization-response issuer identifier — an extra parameter many
-        # real authorization servers send. Including it on every success redirect proves the
-        # client tolerates unrecognized callback parameters (RFC 6749 §4.1.2 MUST) by virtue of
-        # every flow test passing unchanged.
+        # The RFC 9207 `iss` parameter on every success redirect also proves the client tolerates
+        # unrecognized callback parameters (RFC 6749 §4.1.2 MUST).
         return construct_redirect_uri(str(params.redirect_uri), code=code.code, state=params.state, iss=self._issuer)
 
     async def load_authorization_code(
@@ -147,7 +121,6 @@ class InMemoryAuthorizationServerProvider(
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
     ) -> OAuthToken:
-        """Mint an access token and a refresh token for a valid authorization code, then consume the code."""
         assert client.client_id is not None
         access = self.mint_access_token(
             client_id=client.client_id, scopes=authorization_code.scopes, resource=authorization_code.resource
@@ -178,7 +151,6 @@ class InMemoryAuthorizationServerProvider(
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
     ) -> OAuthToken:
-        """Mint a new access token and rotate the refresh token, consuming the old one."""
         assert client.client_id is not None
         if self._fail_next_refresh:
             self._fail_next_refresh = False
@@ -198,11 +170,9 @@ class InMemoryAuthorizationServerProvider(
     async def exchange_identity_assertion(
         self, client: OAuthClientInformationFull, params: IdentityAssertionParams
     ) -> OAuthToken:
-        """Validate the ID-JAG assertion and mint an MCP access token (RFC 7523 jwt-bearer / SEP-990).
+        """Validate the ID-JAG assertion and mint an access token (RFC 7523 jwt-bearer / SEP-990).
 
-        Records `params` for inspection and rejects any assertion other than `VALID_ASSERTION` with
-        invalid_grant (standing in for signature/policy validation). The granted scopes are exactly
-        those the client requested; a real provider would derive them from the validated ID-JAG.
+        Grants the requested scopes verbatim; a real provider would derive them from the validated ID-JAG.
         """
         self.last_assertion_params = params
         assert client.client_id is not None
@@ -218,5 +188,4 @@ class InMemoryAuthorizationServerProvider(
         )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
-        """Not exercised by this suite; revocation is out of scope for the interaction tests."""
         raise NotImplementedError

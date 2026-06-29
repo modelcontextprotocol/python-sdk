@@ -1,8 +1,7 @@
-"""Unit tests for the standalone SEP-990 jwt-bearer `httpx.Auth`.
+"""Tests for the standalone SEP-990 jwt-bearer `httpx.Auth`.
 
-The provider's authorization server is configuration; these tests assert that authorization-server
-metadata is fetched only from the configured issuer, that the resource server is never consulted for
-AS selection, and that the ID-JAG and client secret reach only the issuer's token endpoint.
+The AS is configuration: metadata is fetched only from the configured issuer, the resource server is
+never consulted for AS selection, and the ID-JAG and client secret reach only the issuer's token endpoint.
 """
 
 import base64
@@ -88,11 +87,9 @@ def mock_transport(
     rs_first_status: int = 401,
     rs_first_headers: dict[str, str] | None = None,
 ) -> httpx.MockTransport:
-    """Build a `MockTransport` that records every request and serves the configured ASM and token.
+    """Record every request; `asm`/`token` are a body (served as 200 JSON) or an int status (no body).
 
-    `asm` / `token` are either a body (served as 200 JSON) or an int status (served with no body).
-    The MCP resource server's first response is `rs_first_status` (default 401) with optional
-    headers; subsequent RS requests return 200.
+    The RS's first response is `rs_first_status` (default 401) with optional headers; later RS requests get 200.
     """
     rs_hits = 0
 
@@ -124,7 +121,6 @@ def form(request: httpx.Request) -> dict[str, str]:
 
 @pytest.mark.anyio
 async def test_on_401_exchanges_assertion_at_configured_issuer_and_retries() -> None:
-    """A 401 fetches ASM from the configured issuer, posts the jwt-bearer grant, and retries."""
     requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
     storage = InMemoryStorage()
@@ -160,11 +156,6 @@ async def test_on_401_exchanges_assertion_at_configured_issuer_and_retries() -> 
 
 @pytest.mark.anyio
 async def test_resource_server_metadata_is_never_consulted() -> None:
-    """No PRM well-known and no RS-origin ASM well-known is ever fetched.
-
-    This is the by-construction property: the AS is configuration, so the resource server has no
-    input into where the ID-JAG or client secret go. Any GET to the RS host fails the test.
-    """
     requests: list[httpx.Request] = []
     auth = make_provider()
 
@@ -182,7 +173,6 @@ async def test_resource_server_metadata_is_never_consulted() -> None:
 
 @pytest.mark.anyio
 async def test_asm_404_at_configured_issuer_raises_before_minting_assertion() -> None:
-    """If the issuer's well-knowns 404, the flow fails closed and the assertion is never minted."""
     requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
     auth = make_provider(record=record)
@@ -199,7 +189,6 @@ async def test_asm_404_at_configured_issuer_raises_before_minting_assertion() ->
 
 @pytest.mark.anyio
 async def test_asm_5xx_stops_discovery_and_raises() -> None:
-    """A 5xx at the issuer's well-known stops discovery without trying further URLs."""
     requests: list[httpx.Request] = []
     auth = make_provider()
 
@@ -229,7 +218,6 @@ async def test_asm_with_wrong_issuer_is_rejected_before_minting_assertion() -> N
 
 @pytest.mark.anyio
 async def test_asm_with_off_origin_token_endpoint_is_rejected_before_minting_assertion() -> None:
-    """A `token_endpoint` off the configured issuer's origin is refused before any credential is sent."""
     requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
     auth = make_provider(record=record)
@@ -246,7 +234,6 @@ async def test_asm_with_off_origin_token_endpoint_is_rejected_before_minting_ass
 
 @pytest.mark.anyio
 async def test_403_insufficient_scope_unions_challenged_scope_with_configured() -> None:
-    """A 403 `insufficient_scope` re-exchanges with the union of configured and challenged scopes."""
     requests: list[httpx.Request] = []
     auth = make_provider(scope="mcp")
 
@@ -267,7 +254,6 @@ async def test_403_insufficient_scope_unions_challenged_scope_with_configured() 
 
 @pytest.mark.anyio
 async def test_403_without_insufficient_scope_does_not_reauthorize() -> None:
-    """A plain 403 (not `insufficient_scope`) is returned to the caller without re-exchanging."""
     requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
     auth = make_provider(record=record)
@@ -309,7 +295,6 @@ async def test_client_secret_basic_sends_basic_header_not_body_secret() -> None:
 
 @pytest.mark.anyio
 async def test_stored_token_is_reused_without_reauthorizing() -> None:
-    """A valid stored token is sent on the first request; on success no ASM or /token is fetched."""
     requests: list[httpx.Request] = []
     storage = InMemoryStorage(tokens=OAuthToken(access_token="cached", token_type="Bearer", expires_in=3600))
     auth = make_provider(storage)
@@ -325,7 +310,6 @@ async def test_stored_token_is_reused_without_reauthorizing() -> None:
 
 @pytest.mark.anyio
 async def test_second_401_re_exchanges_without_refetching_asm() -> None:
-    """ASM is discovered once; a later 401 mints a fresh assertion against the cached token endpoint."""
     requests: list[httpx.Request] = []
     record: list[tuple[str, str]] = []
     auth = make_provider(record=record)
@@ -337,7 +321,6 @@ async def test_second_401_re_exchanges_without_refetching_asm() -> None:
         host, path = request.url.host, request.url.path
         if host == "mcp.example.com":
             rs_hits += 1
-            # First and third RS hits draw a 401; second and fourth succeed.
             return httpx.Response(401 if rs_hits in (1, 3) else 200)
         if host == "auth.example.com" and path == ASM_PATH:
             return httpx.Response(200, content=asm_body(), headers={"content-type": "application/json"})
@@ -404,7 +387,6 @@ def test_empty_issuer_is_rejected() -> None:
 
 
 def test_origin_normalizes_default_ports() -> None:
-    """`_origin` treats an explicit scheme-default port as equal to the port-less form."""
     assert _origin("https://host") == _origin("https://host:443")
     assert _origin("http://host") == _origin("http://host:80")
     assert _origin("https://host") != _origin("https://host:8443")

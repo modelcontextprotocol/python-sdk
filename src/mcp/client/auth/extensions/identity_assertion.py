@@ -1,22 +1,7 @@
-"""SEP-990 Identity Assertion Authorization Grant (RFC 7523 jwt-bearer) client provider.
+"""SEP-990 Identity Assertion Authorization Grant (ID-JAG) client provider.
 
-`IdentityAssertionOAuthProvider` is the client side of SEP-990 leg 2: it presents an Identity
-Assertion Authorization Grant (ID-JAG) - a signed JWT issued by the enterprise identity provider -
-to the MCP authorization server's token endpoint using the RFC 7523 jwt-bearer grant
-(`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`, ID-JAG as `assertion`), and receives an
-MCP access token.
-
-The authorization server is configuration, not discovery. SEP-990's trust model is the inverse of
-the default OAuth client's: the AS issuer is supplied at construction, authorization-server metadata
-is fetched from that issuer's own RFC 8414 well-known, and the resource server is never asked which
-AS to use - so it cannot redirect the ID-JAG or client secret elsewhere. There is no protected
-resource metadata fetch, no dynamic client registration, and no server-driven scope selection.
-
-Obtaining the ID-JAG (logging into the IdP and the leg-1 token exchange against it) is
-deployment-specific and out of scope for the SDK. The caller supplies it through the
-`assertion_provider` callback, which receives the configured issuer (the `aud` the ID-JAG must
-carry) and the MCP server's resource identifier (the `resource` claim it must carry, per ext-auth
-section 4.3), and returns the ID-JAG.
+The client side of SEP-990 leg 2: exchange an enterprise-IdP-issued ID-JAG for an MCP access token
+via the RFC 7523 jwt-bearer grant at a statically configured authorization server.
 """
 
 import base64
@@ -46,11 +31,7 @@ _DEFAULT_PORTS = {"https": 443, "http": 80}
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
-    """Return the (scheme, host, port) origin of a URL for same-origin comparison.
-
-    The port is normalized to the scheme's default so an explicit `:443`/`:80` compares equal to the
-    same origin written without a port.
-    """
+    """Return a URL's (scheme, host, port) origin for comparison; a missing port becomes the scheme's default."""
     parsed = urlsplit(url)
     port = parsed.port if parsed.port is not None else _DEFAULT_PORTS.get(parsed.scheme)
     return (parsed.scheme, parsed.hostname or "", port)
@@ -59,17 +40,16 @@ def _origin(url: str) -> tuple[str, str, int | None]:
 class IdentityAssertionOAuthProvider(httpx.Auth):
     """`httpx.Auth` for the SEP-990 ID-JAG flow (RFC 7523 jwt-bearer grant) against a configured AS.
 
-    The authorization server `issuer` is fixed at construction; metadata is fetched from its
-    RFC 8414 well-known and the ID-JAG and client secret are sent only to that issuer's token
-    endpoint. The resource server is never consulted for AS selection. The ID-JAG is fetched lazily
-    from `assertion_provider` so a fresh assertion is used on each exchange.
+    The AS `issuer` is fixed at construction; metadata comes from its RFC 8414 well-known, and the
+    ID-JAG and client secret are sent only to its token endpoint. The resource server is never asked
+    which AS to use, so it cannot redirect them elsewhere - there is no protected-resource metadata
+    fetch, dynamic client registration, or server-driven scope selection. The ID-JAG is fetched
+    lazily from `assertion_provider` so each exchange uses a fresh assertion.
 
     Example:
         ```python
         async def fetch_id_jag(audience: str, resource: str) -> str:
-            # `audience` is the configured issuer (the ID-JAG `aud`); `resource` is the MCP
-            # server's identifier (the ID-JAG `resource` claim). Obtaining the ID-JAG from the
-            # enterprise IdP is deployment-specific and not handled by the SDK.
+            # Obtaining the ID-JAG from the enterprise IdP is deployment-specific; the SDK does not handle it.
             return await my_idp.issue_id_jag(audience=audience, resource=resource)
 
 
@@ -100,18 +80,10 @@ class IdentityAssertionOAuthProvider(httpx.Auth):
         """Initialize the identity-assertion OAuth provider.
 
         Args:
-            server_url: The MCP server URL.
-            storage: Token storage implementation.
-            client_id: The OAuth client ID registered with the MCP authorization server.
-            client_secret: The client secret. SEP-990 section 5.1 requires a confidential client.
-            issuer: The issuer identifier of the MCP authorization server this client is provisioned
-                for. Authorization-server metadata is fetched from this issuer's well-known and the
-                ID-JAG and secret are sent only to its token endpoint.
-            assertion_provider: Async callback taking `(audience, resource)` - the configured issuer
-                and the MCP server's resource identifier - and returning the ID-JAG.
-            scope: Optional space-separated list of scopes to request.
-            token_endpoint_auth_method: Confidential-client auth method, either `client_secret_post`
-                (default) or `client_secret_basic`.
+            client_secret: Required; SEP-990 section 5.1 mandates a confidential client.
+            assertion_provider: Async callback `(audience, resource) -> ID-JAG`: `audience` is the
+                configured issuer (the ID-JAG `aud`), `resource` the MCP server's identifier (its
+                `resource` claim, per ext-auth section 4.3).
         """
         if not client_secret:
             raise ValueError("client_secret is required: SEP-990 mandates a confidential client")

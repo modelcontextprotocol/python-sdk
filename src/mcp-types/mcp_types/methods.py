@@ -48,8 +48,6 @@ __all__ = [
 ]
 
 
-# --- Surface maps: client-to-server ---
-
 CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
@@ -150,8 +148,6 @@ CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
 )
 
 
-# --- Surface maps: server-to-client ---
-
 SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
     {
         # 2024-11-05
@@ -223,8 +219,6 @@ SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
     }
 )
 
-
-# --- Surface maps: results ---
 
 SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
     {
@@ -325,16 +319,12 @@ CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
 """Results clients send, keyed by the originating server request's (method, version)."""
 
 
-# --- Direction-specific method sets ---
-
 SPEC_CLIENT_METHODS: Final[frozenset[str]] = frozenset(m for m, _ in CLIENT_REQUESTS)
 """Spec request methods a client may send (any version); the server-side spec-method discriminator."""
 
 SPEC_CLIENT_NOTIFICATION_METHODS: Final[frozenset[str]] = frozenset(m for m, _ in CLIENT_NOTIFICATIONS)
 """Spec notification methods a client may send (any version); the server-side spec-method discriminator."""
 
-
-# --- Monolith maps ---
 
 MONOLITH_REQUESTS: Final[Mapping[str, type[types.Request[Any, Any]]]] = MappingProxyType(
     {
@@ -404,8 +394,6 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
 """Monolith result model (or two-arm union) per request method."""
 
 
-# --- Parse functions ---
-
 # Envelope stubs merged into bodies for surface validation (surface classes are full frames).
 _REQUEST_STUB: Final[Mapping[str, Any]] = MappingProxyType({"jsonrpc": "2.0", "id": 0})
 _NOTIFICATION_STUB: Final[Mapping[str, Any]] = MappingProxyType({"jsonrpc": "2.0"})
@@ -418,7 +406,6 @@ def _check_known_version(version: str) -> None:
 
 
 def _body(method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Build a JSON-RPC body, omitting `params` when None."""
     body: dict[str, Any] = {"method": method}
     if params is not None:
         body["params"] = params
@@ -473,12 +460,7 @@ def parse_client_request(
 ) -> types.Request[Any, Any]:
     """Validate a client request against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -500,12 +482,7 @@ def parse_server_request(
 ) -> types.Request[Any, Any]:
     """Validate a server request against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -547,12 +524,7 @@ def parse_client_notification(
 ) -> types.Notification[Any, Any]:
     """Validate a client notification against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -574,12 +546,7 @@ def parse_server_notification(
 ) -> types.Notification[Any, Any]:
     """Validate a server notification against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -644,12 +611,7 @@ def parse_server_result(
 ) -> types.Result:
     """Validate a server result against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.
@@ -690,12 +652,7 @@ def parse_client_result(
 ) -> types.Result:
     """Validate a client result against `surface`, then parse and return its `monolith` model.
 
-    Args:
-        surface: `(method, version)` to wire-type map; the version-gate lookup
-            and (per-schema-era) shape check run against this. Pass an extended
-            map to admit custom methods.
-        monolith: `method` to version-free model map; the returned instance is
-            parsed from this row. Must cover every method `surface` admits.
+    Pass extended maps to admit custom methods; `monolith` must cover every method `surface` admits.
 
     Raises:
         ValueError: `version` is not a known protocol version.

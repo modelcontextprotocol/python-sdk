@@ -44,11 +44,9 @@ def build_server() -> MCPServer:
     mcp = MCPServer("stickynotes-example", lifespan=lifespan)
 
     def unregister_note(note_id: str) -> None:
-        # DO NOT copy this line into your own server. `MCPServer` has no public
-        # `remove_resource()` yet (only `add_resource`), so unregistering a runtime-added
-        # resource has to reach a private attribute. `server_lowlevel.py` shows the clean
-        # shape: `on_list_resources` rebuilds the list from the board on every call, so
-        # removal never touches a registry at all.
+        # Don't copy this: `MCPServer` has no public `remove_resource()` yet, so this reaches a
+        # private attribute. `server_lowlevel.py` shows the clean shape — `on_list_resources`
+        # rebuilds the list from the board on every call, so removal never touches a registry.
         mcp._resource_manager._resources.pop(f"note:///{note_id}", None)  # pyright: ignore[reportPrivateUsage]
 
     @mcp.tool()

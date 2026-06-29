@@ -1,9 +1,7 @@
 """Token lifecycle, step-up, and registration-variant flows of the SDK's OAuth client.
 
-Every test connects end to end via `connect_with_oauth`; the assertions are recording-first
-(the recorded request sequence is asserted before, or independently of, the call result), so a
-surprise in the refresh or step-up paths produces a readable diff of what fired rather than an
-opaque failure. The provider knobs that drive each scenario are documented per test.
+Assertions are recording-first: the recorded request sequence is asserted before, or independently
+of, the call result, so a surprise in the refresh or step-up paths yields a readable diff of what fired.
 """
 
 import base64
@@ -49,12 +47,10 @@ async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestPa
 
 
 def form_body(request: RecordedRequest) -> dict[str, str]:
-    """Parse an `application/x-www-form-urlencoded` request body into a flat dict."""
     return dict(parse_qsl(request.content.decode()))
 
 
 def authorize_params(authorize_url: str) -> dict[str, str]:
-    """Parse the authorize URL's query string into a flat dict."""
     return dict(parse_qsl(urlsplit(authorize_url).query))
 
 
@@ -83,7 +79,6 @@ def cimd_supported_metadata() -> bytes:
 
 
 def seeded_client(provider: InMemoryAuthorizationServerProvider, **kwargs: object) -> OAuthClientInformationFull:
-    """Register a client with the provider and return its info, for pre-registration and CIMD scenarios."""
     base: dict[str, object] = {
         "client_id": "preregistered",
         "token_endpoint_auth_method": "none",
@@ -100,14 +95,8 @@ def seeded_client(provider: InMemoryAuthorizationServerProvider, **kwargs: objec
 
 @requirement("client-auth:refresh:transparent")
 async def test_an_expired_access_token_is_transparently_refreshed_before_the_next_request() -> None:
-    """An access token the client considers expired is refreshed and the new bearer is used.
-
-    The provider tells the client `expires_in=-3600` for the first token while keeping the
-    server-side `expires_at` in the future, so the connect's retry succeeds and the next
-    request finds the token expired and refreshes. The recorded requests prove exactly one
-    `grant_type=refresh_token` exchange carrying the resource indicator, and the bearer used
-    after the refresh is the second access token, which is the one persisted to storage.
-    """
+    """The provider reports `expires_in=-3600` for the first token while its server-side `expires_at`
+    stays in the future, so the connect retry succeeds and the next request refreshes the token."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
     storage = InMemoryTokenStorage()
@@ -137,16 +126,10 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
 
 @requirement("client-auth:403-scope-upgrade")
 async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challenged_scope() -> None:
-    """A 403 `insufficient_scope` challenge is answered by one re-authorize with the challenge's scope.
-
-    The shim 403s the second authenticated `/mcp` POST (the `notifications/initialized` request,
-    which reaches the auth flow's step-up handler; the first authenticated POST is the post-401
-    retry, after which the generator ends without inspecting the response). The challenge names a
-    wider scope; step-up reuses cached metadata and the existing client registration,
-    re-authorizes with the new scope, and the connect completes. The client is pre-registered
-    with both scopes so the server's authorize handler accepts the wider second request. One
-    re-authorize, one retry; the spec's SHOULD-retry-limit ("a few") is not enforced.
-    """
+    """The shim 403s the second authenticated `/mcp` POST (`notifications/initialized`) — the first
+    is the post-401 retry, after which the auth generator ends without inspecting the response.
+    The client is pre-registered with both scopes so the server accepts the wider re-authorize;
+    the spec's SHOULD-retry-limit ("a few") is not enforced."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
@@ -181,12 +164,8 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
 
 @requirement("client-auth:403-scope-union")
 async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenged_scopes() -> None:
-    """The step-up re-authorize requests the union of the previously requested and challenged scopes.
-
-    The first authorization requests `mcp`; the 403 challenges a disjoint `write` (not naming
-    `mcp`). Per SEP-2350 the client must re-authorize with `mcp write`, not drop `mcp`. The client
-    is pre-registered with both scopes so the server's authorize handler accepts the wider request.
-    """
+    """The 403 challenges a disjoint `write` scope; per SEP-2350 the re-authorize must request the
+    union `mcp write`, not drop `mcp`. Pre-registration with both scopes lets the server accept it."""
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
     server = Server("guarded", on_list_tools=list_tools)
@@ -210,13 +189,9 @@ async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenge
 
 @requirement("client-auth:as-binding")
 async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_client_re_registers() -> None:
-    """Credentials bound to a stale issuer are dropped and re-registered against the current AS.
-
-    The stored client is bound (SEP-2352) to a different issuer than the one the server's PRM
-    advertises, simulating an authorization-server migration. The client must discard it, perform
-    Dynamic Client Registration with the current AS, and never present the stale `client_id` at the
-    authorize or token endpoints.
-    """
+    """The stored client is bound (SEP-2352) to an issuer other than the one the server's PRM
+    advertises, simulating an AS migration: the client must discard it, re-register, and never
+    present the stale `client_id` at the authorize or token endpoints."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     stale = seeded_client(provider, client_id="stale-as-client", issuer="https://old-as.example.com")
@@ -230,13 +205,10 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
         ):
             await client.list_tools()
 
-    # The client re-registered with the current AS...
     assert path_counts(recorded)[("POST", "/register")] == 1
-    # ...and the stale client_id never reached the authorize or token endpoints.
     authorize_and_token = find(recorded, "GET", "/authorize") + find(recorded, "POST", "/token")
     assert all("stale-as-client" not in r.url.query.decode() for r in authorize_and_token)
     assert all("stale-as-client" not in r.content.decode() for r in find(recorded, "POST", "/token"))
-    # The persisted client is now bound to the current AS.
     assert storage.client_info is not None
     assert storage.client_info.client_id != "stale-as-client"
     assert storage.client_info.issuer == f"{BASE_URL}/"
@@ -244,13 +216,9 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
 
 @requirement("client-auth:401-after-auth-throws")
 async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_looping() -> None:
-    """A 401 on the post-auth retry surfaces as an error rather than re-entering discovery.
-
-    The provider rejects every token at verification, so the full flow runs once and the retry
-    is 401'd. The auth-flow generator ends after that retry, so the 401 propagates and the
-    transport converts it to an INTERNAL_ERROR result, raising during connect. Discovery,
-    registration, authorize, and token each ran exactly once: no loop.
-    """
+    """The provider rejects every token at verification, so the post-auth retry 401s; the auth
+    generator has already ended, so the 401 surfaces as INTERNAL_ERROR instead of re-entering
+    discovery."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(reject_all_tokens=True)
     server = Server("guarded", on_list_tools=list_tools)
@@ -260,8 +228,7 @@ async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_loopin
 
     with anyio.fail_after(5):
         with pytest.RaisesGroup(pytest.RaisesExc(MCPError, check=is_internal_error), flatten_subgroups=True):
-            # Entering the connect raises during the OAuth handshake (inside `Client.__aenter__`),
-            # so an `async with` body would be unreachable; entering explicitly avoids dead code.
+            # The handshake raises inside `Client.__aenter__`, so an `async with` body would be dead code.
             await connect_with_oauth(server, provider=provider, on_request=on_request).__aenter__()
 
     counts = path_counts(recorded)
@@ -275,15 +242,8 @@ async def test_a_second_401_after_a_completed_oauth_flow_surfaces_without_loopin
 
 @requirement("client-auth:cimd")
 async def test_cimd_is_selected_when_the_as_advertises_support_and_a_metadata_url_is_supplied() -> None:
-    """A client-ID metadata-document URL is used as `client_id` instead of registering.
-
-    AS metadata is shimmed to advertise `client_id_metadata_document_supported: true`; the
-    provider is pre-seeded so the server's authorize and token handlers accept the URL as a
-    client_id (the SDK server has no CIMD-aware client lookup of its own). The recorded
-    requests prove no `/register` call, the authorize URL's `client_id` is the CIMD URL, the
-    token request uses `token_endpoint_auth_method=none`, and storage persists the URL as
-    `client_id`.
-    """
+    """AS metadata is shimmed to advertise `client_id_metadata_document_supported: true`, and the
+    provider is pre-seeded to accept the URL as a `client_id` — the SDK server supports neither."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     seeded_client(provider, client_id=CIMD_URL)
@@ -318,15 +278,9 @@ async def test_cimd_is_selected_when_the_as_advertises_support_and_a_metadata_ur
 
 @requirement("client-auth:invalid-grant-clears-tokens")
 async def test_a_failed_refresh_clears_stored_tokens_and_restarts_the_full_flow() -> None:
-    """A non-200 refresh response clears the in-memory tokens and the flow re-runs from discovery.
-
-    The first token is reported expired so the next request refreshes; the provider denies the
-    refresh once with `invalid_grant`, the auth flow clears its tokens, the unauthenticated
-    request 401s, and discovery, authorize, and token run again. The original registration is
-    preserved (`client_info` is not cleared). The SDK clears tokens on any non-200 refresh
-    response, not specifically `error=invalid_grant`; `source="sdk"` so this is a precision
-    note rather than a divergence.
-    """
+    """The provider denies one refresh with `invalid_grant`: the flow clears its tokens and re-runs
+    from discovery, keeping the registration. The SDK clears tokens on any non-200 refresh response,
+    not specifically `invalid_grant` — `source="sdk"`, so a precision note rather than a divergence."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True, fail_next_refresh=True)
     storage = InMemoryTokenStorage()
@@ -356,13 +310,8 @@ async def test_a_failed_refresh_clears_stored_tokens_and_restarts_the_full_flow(
 
 @requirement("client-auth:client-credentials")
 async def test_client_credentials_provider_obtains_a_token_without_an_authorize_step() -> None:
-    """The client-credentials provider connects with no authorize step and a `client_credentials` grant.
-
-    The SDK server's `TokenHandler` does not route `client_credentials`, so the harness shim
-    handles it (the shim is harness; the SDK-under-test is the client provider). The recorded
-    `/token` body proves the grant type, scope, resource indicator, and HTTP-Basic client
-    authentication; no `/authorize` or `/register` request was made.
-    """
+    """The SDK server's `TokenHandler` does not route `client_credentials`, so the harness shim
+    serves the token endpoint; the SDK under test is the client-side provider."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -401,13 +350,8 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
 
 @requirement("client-auth:private-key-jwt")
 async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_assertion() -> None:
-    """The private-key-JWT provider sends a `client_assertion` on the token request, with the issuer as audience.
-
-    The assertion provider is a closure that records the audience it was called with and returns
-    a fixed opaque value (the JWT contents are not the SDK's concern here); the test asserts the
-    `client_assertion`/`client_assertion_type` form fields and that the audience matches the AS
-    metadata's issuer.
-    """
+    """The assertion provider returns a fixed opaque value (the JWT contents are not the SDK's
+    concern); the audience it is called with must be the AS metadata's issuer."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -463,13 +407,7 @@ async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_
 async def test_registration_priority_prefers_preregistered_then_cimd_then_dcr(
     case: str, preseed_storage: bool, advertise_cimd: bool
 ) -> None:
-    """The client picks pre-registration over CIMD over DCR, falling through when each is unavailable.
-
-    Two priority edges are exercised: with a CIMD URL configured but no AS support, DCR runs and
-    the registered `client_id` is used; with a CIMD URL configured and AS support but a
-    pre-registered client in storage, the stored `client_id` is used and neither CIMD nor DCR
-    runs. (The positive CIMD case and pre-registration over DCR are covered by their own tests.)
-    """
+    """The positive CIMD case and pre-registration-over-DCR are covered by their own tests."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)

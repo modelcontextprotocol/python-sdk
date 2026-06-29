@@ -8,10 +8,8 @@ from mcp.server.mcpserver import MCPServer
 
 @pytest.fixture()
 def test_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Create a temporary directory with test files."""
     tmp = tmp_path_factory.mktemp("test_files")
 
-    # Create test files
     (tmp / "example.py").write_text("print('hello world')")
     (tmp / "readme.md").write_text("# Test Directory\nThis is a test.")
     (tmp / "config.json").write_text('{"test": true}')
@@ -64,7 +62,6 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
 def tools(mcp: MCPServer, test_dir: Path) -> MCPServer:
     @mcp.tool()
     def delete_file(path: str) -> bool:
-        # ensure path is in test_dir
         if Path(path).resolve().parent != test_dir:  # pragma: no cover
             raise ValueError(f"Path must be in test_dir: {path}")
         Path(path).unlink()

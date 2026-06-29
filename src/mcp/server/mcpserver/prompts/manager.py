@@ -22,20 +22,16 @@ class PromptManager:
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 
     def get_prompt(self, name: str) -> Prompt | None:
-        """Get prompt by name."""
         return self._prompts.get(name)
 
     def list_prompts(self) -> list[Prompt]:
-        """List all registered prompts."""
         return list(self._prompts.values())
 
     def add_prompt(
         self,
         prompt: Prompt,
     ) -> Prompt:
-        """Add a prompt to the manager."""
-
-        # Check for duplicates
+        """Register a prompt; if the name is already registered, the existing prompt is returned unchanged."""
         existing = self._prompts.get(prompt.name)
         if existing:
             if self.warn_on_duplicate_prompts:
@@ -51,7 +47,6 @@ class PromptManager:
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
     ) -> list[Message]:
-        """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")

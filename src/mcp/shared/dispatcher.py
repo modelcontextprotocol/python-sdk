@@ -1,19 +1,10 @@
 """Dispatcher Protocol - the call/return boundary between transports and handlers.
 
-A Dispatcher turns a duplex message channel into two things:
-
-* an outbound API: `send_raw_request(method, params)` and `notify(method, params)`
-* an inbound pump: `run(on_request, on_notify)` that drives the receive loop
-  and invokes the supplied handlers for each incoming request/notification
-
-It is deliberately *not* MCP-aware. Method names are strings, params and
-results are `dict[str, Any]`. The MCP type layer (request/result models,
-capability negotiation, `Context`) sits above this; the wire encoding
-(JSON-RPC, gRPC, in-process direct calls) sits below it.
-
-See `JSONRPCDispatcher` for the production implementation and
-`DirectDispatcher` for an in-memory implementation used in tests and for
-embedding a server in-process.
+A Dispatcher turns a duplex message channel into an outbound API
+(`send_raw_request`, `notify`) and an inbound pump (`run`). It is deliberately
+not MCP-aware: methods are strings, params and results are dicts; the MCP type
+layer sits above, the wire encoding (JSON-RPC, in-process) below. See
+`JSONRPCDispatcher` (production) and `DirectDispatcher` (in-memory).
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -48,7 +39,7 @@ class ProgressFnT(Protocol):
 class CallOptions(TypedDict, total=False):
     """Per-call options for `Outbound.send_raw_request`.
 
-    All keys are optional. Dispatchers ignore keys they do not understand.
+    Dispatchers ignore keys they do not understand.
     """
 
     timeout: float
@@ -67,21 +58,16 @@ class CallOptions(TypedDict, total=False):
     resumption_token: str
     """Opaque token to resume a previously interrupted request.
 
-    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports, and also ignored (with a debug log) for requests sent from a
-    `DispatchContext`, where routing onto the inbound request's stream takes
-    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
-    resumption is removed in the next protocol revision.
+    Client-side, streamable-HTTP only. Ignored (with a debug log) for requests
+    sent from a `DispatchContext`, where routing onto the inbound request's
+    stream takes precedence. Protocol version 2025-11-25 and earlier;
+    SSE-stream resumption is removed in the next protocol revision.
     """
 
     on_resumption_token: Callable[[str], Awaitable[None]]
     """Receive a resumption token when the transport issues one for this request.
 
-    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports, and also ignored (with a debug log) for requests sent from a
-    `DispatchContext`, where routing onto the inbound request's stream takes
-    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
-    resumption is removed in the next protocol revision.
+    Same scope and caveats as `resumption_token`.
     """
 
     headers: dict[str, str]
@@ -90,13 +76,7 @@ class CallOptions(TypedDict, total=False):
 
 @runtime_checkable
 class Outbound(Protocol):
-    """Anything that can send requests and notifications to the peer.
-
-    Both `Dispatcher` (top-level outbound) and `DispatchContext` (back-channel
-    during an inbound request) extend this. The MCP type layer (`ClientPeer`,
-    `Connection`) builds typed `send_request` / convenience methods on top of
-    this raw channel.
-    """
+    """Anything that can send requests and notifications to the peer."""
 
     async def send_raw_request(
         self,
@@ -107,9 +87,8 @@ class Outbound(Protocol):
         """Send a request and await its raw result dict.
 
         Raises:
-            MCPError: If the peer responded with an error, or the handler
-                raised. Implementations normalize all handler exceptions to
-                `MCPError` so callers see a single exception type.
+            MCPError: If the peer responded with an error or the handler
+                raised; implementations normalize all handler exceptions to `MCPError`.
         """
         ...
 
@@ -119,13 +98,7 @@ class Outbound(Protocol):
 
 
 class DispatchContext(Outbound, Protocol[TransportT_co]):
-    """Per-request context handed to `on_request` / `on_notify`.
-
-    Carries the transport metadata for the inbound message and provides the
-    back-channel for sending requests/notifications to the peer while handling
-    it. `send_raw_request` raises `NoBackChannelError` if `can_send_request`
-    is `False`.
-    """
+    """Per-request context handed to `on_request` / `on_notify`: transport metadata plus the back-channel."""
 
     @property
     def transport(self) -> TransportT_co:
@@ -136,8 +109,8 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
     def can_send_request(self) -> bool:
         """Whether the back-channel can currently deliver server-initiated requests.
 
-        `False` when the transport has no back-channel, or when this context has
-        been closed (the inbound request finished). `send_raw_request` raises
+        `False` when the transport has no back-channel or this context has closed
+        (the inbound request finished); `send_raw_request` raises
         `NoBackChannelError` exactly when this is `False`.
         """
         ...
@@ -146,9 +119,8 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
     def request_id(self) -> RequestId | None:
         """The id of the inbound request, or `None` for a notification.
 
-        For JSON-RPC this is the wire `id` field. Handlers thread it through
-        as `related_request_id` on outbound notifications so HTTP transports
-        can route them onto the originating request's response stream.
+        Threaded through as `related_request_id` on outbound notifications so
+        HTTP transports can route them onto the originating request's stream.
         """
         ...
 
@@ -156,11 +128,9 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
     def message_metadata(self) -> MessageMetadata:
         """The metadata the transport attached to this inbound message, if any.
 
-        This is `SessionMessage.metadata` passed through verbatim: HTTP
-        transports attach `ServerMessageMetadata` (the HTTP request, SSE
-        stream-close callbacks); stdio and in-memory dispatch attach nothing.
-        Tied to the `SessionMessage` wire format - goes away when transports
-        stop delivering messages that way.
+        `SessionMessage.metadata` passed through verbatim: HTTP transports
+        attach `ServerMessageMetadata`, stdio and in-memory dispatch attach
+        nothing. Goes away when transports stop delivering `SessionMessage`s.
         """
         # TODO(maxisbey): remove for context rework
         ...
@@ -171,10 +141,7 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
         ...
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        """Report progress for the inbound request, if the peer supplied a progress token.
-
-        A no-op when no token was supplied.
-        """
+        """Report progress for the inbound request; a no-op when the peer supplied no progress token."""
         ...
 
 
@@ -188,10 +155,9 @@ OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] |
 class Dispatcher(Outbound, Protocol[TransportT_co]):
     """A duplex request/notification channel with call-return semantics.
 
-    Implementations own correlation of outbound requests to inbound results, the
-    receive loop, per-request concurrency, and cancellation/progress wiring.
-
-    The lifecycle surface is provisional; `run()` may change before v2 stable.
+    Implementations own request/result correlation, the receive loop,
+    per-request concurrency, and cancellation/progress wiring. The lifecycle
+    surface is provisional; `run()` may change before v2 stable.
     """
 
     async def run(
@@ -203,12 +169,9 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
-        Each inbound request is dispatched to `on_request` in its own task;
-        the returned dict (or raised `MCPError`) is sent back as the response.
-        Inbound notifications go to `on_notify`.
-
-        `task_status.started()` is called once the dispatcher is ready to
-        accept `send_request`/`notify` calls, so callers can use
-        `await tg.start(dispatcher.run, on_request, on_notify)`.
+        Each inbound request is dispatched to `on_request` in its own task; the
+        returned dict (or raised `MCPError`) is sent back as the response.
+        `task_status.started()` fires once the dispatcher accepts outbound
+        calls, so callers can use `await tg.start(dispatcher.run, ...)`.
         """
         ...

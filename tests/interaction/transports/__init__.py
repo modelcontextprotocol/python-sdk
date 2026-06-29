@@ -1,7 +1,7 @@
-"""Transport-specific interaction tests, and the in-process streaming bridge they are built on.
+"""Transport-specific interaction tests.
 
-`StreamingASGITransport` is re-exported here as the sanctioned import point for test code
-outside this suite (the bridge module itself is suite-private).
+`StreamingASGITransport` is re-exported here as the sanctioned import point for test code outside
+this suite (the bridge module itself is suite-private).
 """
 
 from tests.interaction.transports._bridge import StreamingASGITransport

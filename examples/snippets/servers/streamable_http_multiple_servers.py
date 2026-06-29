@@ -11,7 +11,6 @@ from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
-# Create multiple MCP servers
 api_mcp = MCPServer("API Server")
 chat_mcp = MCPServer("Chat Server")
 
@@ -28,7 +27,7 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Create a combined lifespan to manage both session managers
+# A combined lifespan must run both servers' session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     async with contextlib.AsyncExitStack() as stack:
@@ -37,8 +36,7 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Mount the servers with transport-specific options passed to streamable_http_app()
-# streamable_http_path="/" means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
+# streamable_http_path="/" puts endpoints at /api and /chat instead of /api/mcp and /chat/mcp
 app = Starlette(
     routes=[
         Mount("/api", app=api_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),

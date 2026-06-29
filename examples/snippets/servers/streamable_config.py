@@ -7,14 +7,12 @@ from mcp.server.mcpserver import MCPServer
 mcp = MCPServer("StatelessServer")
 
 
-# Add a simple tool to demonstrate the server
 @mcp.tool()
 def greet(name: str = "World") -> str:
     """Greet someone by name."""
     return f"Hello, {name}!"
 
 
-# Run server with streamable_http transport
 # Transport-specific options (stateless_http, json_response) are passed to run()
 if __name__ == "__main__":
     # Stateless server with JSON responses (recommended)

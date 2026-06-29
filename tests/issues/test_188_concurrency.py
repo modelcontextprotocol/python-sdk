@@ -22,7 +22,6 @@ async def test_messages_are_executed_concurrently_tools():
 
     @server.tool("trigger")
     async def trigger():
-        # Wait for tool to start before setting the event
         await tool_started.wait()
         call_order.append("trigger_started")
         event.set()
@@ -30,14 +29,10 @@ async def test_messages_are_executed_concurrently_tools():
         return "slow"
 
     async with Client(server) as client_session:
-        # First tool will wait on event, second will set it
         async with anyio.create_task_group() as tg:
-            # Start the tool first (it will wait on event)
             tg.start_soon(client_session.call_tool, "sleep")
-            # Then the trigger tool will set the event to allow the first tool to continue
             await client_session.call_tool("trigger")
 
-        # Verify that both ran concurrently
         assert call_order == [
             "waiting_for_event",
             "trigger_started",
@@ -63,21 +58,16 @@ async def test_messages_are_executed_concurrently_tools_and_resources():
 
     @server.resource("slow://slow_resource")
     async def slow_resource():
-        # Wait for tool to start before setting the event
         await tool_started.wait()
         event.set()
         call_order.append("resource_end")
         return "slow"
 
     async with Client(server) as client_session:
-        # First tool will wait on event, second will set it
         async with anyio.create_task_group() as tg:
-            # Start the tool first (it will wait on event)
             tg.start_soon(client_session.call_tool, "sleep")
-            # Then the resource (it will set the event)
             tg.start_soon(client_session.read_resource, "slow://slow_resource")
 
-        # Verify that both ran concurrently
         assert call_order == [
             "waiting_for_event",
             "resource_end",

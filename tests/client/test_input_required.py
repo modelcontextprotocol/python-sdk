@@ -1,10 +1,7 @@
 """Unit tests for the SEP-2322 client-side multi-round-trip driver.
 
-`run_input_required_driver` is pure: it takes the first `InputRequiredResult`
-plus `dispatch` / `retry` closures and loops until a terminal result. These
-tests build those closures by hand (scripted lists, recording lists) so the
-driver is exercised without a `ClientSession`. Integration against a real
-server lives in `test_client.py`.
+`run_input_required_driver` is pure, so these tests hand-build its `dispatch`/`retry`
+closures and never touch a `ClientSession`; integration lives in `test_client.py`.
 """
 
 import anyio
@@ -48,8 +45,6 @@ async def _never_dispatch(key: str, req: InputRequest) -> InputResponse | ErrorD
 
 
 async def test_single_round_dispatches_then_retries_to_terminal_result() -> None:
-    """One `InputRequiredResult` with one elicit request: dispatch runs once,
-    retry runs once with the collected response, and the terminal result is returned."""
     first = InputRequiredResult(input_requests={"ask": _elicit()})
     terminal = CallToolResult(content=[TextContent(text="done")])
     dispatched: list[tuple[str, InputRequest]] = []
@@ -73,8 +68,6 @@ async def test_single_round_dispatches_then_retries_to_terminal_result() -> None
 
 
 async def test_multi_round_loops_until_retry_returns_non_input_required() -> None:
-    """Two consecutive `InputRequiredResult` legs followed by a terminal result:
-    the driver dispatches and retries each leg in order."""
     terminal = CallToolResult(content=[TextContent(text="done")])
     script: list[CallToolResult | InputRequiredResult] = [
         InputRequiredResult(input_requests={"b": _elicit("second?")}),
@@ -106,8 +99,6 @@ async def test_multi_round_loops_until_retry_returns_non_input_required() -> Non
 
 
 async def test_exceeding_max_rounds_raises_with_the_configured_cap() -> None:
-    """When every retry returns another `InputRequiredResult`, the driver gives
-    up after `max_rounds` retries with `InputRequiredRoundsExceededError`."""
     rounds: list[int] = []
 
     async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
@@ -128,9 +119,6 @@ async def test_exceeding_max_rounds_raises_with_the_configured_cap() -> None:
 
 
 async def test_dispatch_returning_error_data_aborts_the_loop_as_mcp_error() -> None:
-    """SDK-defined: a callback that refuses an embedded request returns
-    `ErrorData`; the driver surfaces it as `MCPError` rather than retrying."""
-
     async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
         return ErrorData(code=INVALID_REQUEST, message="not supported")
 
@@ -145,8 +133,6 @@ async def test_dispatch_returning_error_data_aborts_the_loop_as_mcp_error() -> N
 
 
 async def test_request_state_passes_through_byte_identical() -> None:
-    """`request_state` is opaque to the driver: each leg's value reaches `retry`
-    as the same object the server sent, never parsed or rebuilt."""
     states = ['{"round": 1, "tag": "héllo"}', '{"round": 2, "tag": "wörld"}']
     received_states: list[str | None] = []
 
@@ -167,16 +153,12 @@ async def test_request_state_passes_through_byte_identical() -> None:
     assert received_states[1] is states[1]
 
 
-# Runs on trio's autojumping virtual clock so the backoff sleeps add zero
-# wall-clock and the recorded deltas are exact: `anyio.sleep` advances the
-# MockClock by precisely the requested duration once every task is idle.
+# Trio's autojumping MockClock makes the backoff sleeps instant and the recorded deltas exact.
 @pytest.mark.parametrize(
     "anyio_backend",
     [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
 )
 async def test_state_only_legs_back_off_exponentially_to_the_cap() -> None:
-    """SDK-defined pacing: state-only legs sleep 50ms, 100ms, 200ms, then cap at
-    250ms. Six state-only rounds → deltas `[0.05, 0.1, 0.2, 0.25, 0.25, 0.25]`."""
     retry_times: list[float] = []
 
     async def retry(responses: InputResponses | None, state: str | None) -> CallToolResult | InputRequiredResult:
@@ -203,9 +185,6 @@ async def test_state_only_legs_back_off_exponentially_to_the_cap() -> None:
     [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
 )
 async def test_backoff_counter_resets_after_a_leg_with_input_requests() -> None:
-    """A leg carrying `input_requests` resets `consecutive_state_only`: the
-    next state-only leg sleeps the initial 50ms again, not the prior position."""
-    # state-only, state-only, dispatch leg (no sleep), state-only, terminal.
     script: list[CallToolResult | InputRequiredResult] = [
         InputRequiredResult(request_state="s"),
         InputRequiredResult(input_requests={"k": _elicit()}),
@@ -233,9 +212,6 @@ async def test_backoff_counter_resets_after_a_leg_with_input_requests() -> None:
 
 
 async def test_input_requests_are_dispatched_concurrently() -> None:
-    """All `input_requests` in a round are dispatched together: each dispatch
-    blocks on a shared gate that only opens once every key has started, so a
-    sequential implementation would deadlock under the `fail_after`."""
     keys = ["a", "b", "c"]
     started: set[str] = set()
     all_started = anyio.Event()
@@ -244,7 +220,7 @@ async def test_input_requests_are_dispatched_concurrently() -> None:
         started.add(key)
         if started == set(keys):
             all_started.set()
-        await all_started.wait()  # blocks until every sibling is in-flight
+        await all_started.wait()  # gate opens only when every key has started; sequential dispatch deadlocks here
         return ElicitResult(action="accept", content={"name": key})
 
     received: list[InputResponses | None] = []

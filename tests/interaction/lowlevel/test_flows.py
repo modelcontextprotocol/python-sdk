@@ -1,9 +1,6 @@
 """Composed multi-feature flows against the low-level Server, driven through the public Client API.
 
-Each test reads as the scenario it proves: the steps run top to bottom in the order a real client
-would perform them, composing two or more feature areas (a tool call followed by a resource read;
-a chain of elicitations inside one tool call; the full URL-elicitation-required retry loop). The
-individual features are pinned by their own tests; these prove they compose.
+The individual features are pinned by their own tests; these flows prove they compose.
 """
 
 from collections.abc import Awaitable, Callable
@@ -54,12 +51,6 @@ def _list_tools(*names: str) -> ListToolsHandler:
 
 @requirement("flow:tool-result:resource-link-follow")
 async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(connect: Connect) -> None:
-    """A tool returns a resource_link; reading that link's URI returns the referenced contents.
-
-    Steps: (1) call the tool, (2) extract the link from its content, (3) read_resource on the
-    link's URI, (4) the read result carries the linked contents.
-    """
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "generate"
         return CallToolResult(content=[ResourceLink(uri="file:///report.txt", name="report")])
@@ -86,15 +77,7 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
 
 @requirement("flow:elicitation:multi-step-form")
 async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forward(connect: Connect) -> None:
-    """Sequential form elicitations inside one tool call: each accepted answer feeds the next step.
-
-    Steps: (1) call the tool, (2) the handler issues a step-one form elicitation that the client
-    accepts with content, (3) the handler issues a step-two elicitation whose message references
-    the step-one answer, (4) the client accepts step two, (5) the tool result summarises both
-    answers. The callback is invoked exactly twice with the expected messages and schemas. The
-    short-circuit on decline is the application's choice (proven separately by the per-action
-    elicitation tests); what this flow pins is that the chain itself works end to end.
-    """
+    """Decline short-circuiting is the application's choice, pinned by the per-action elicitation tests."""
     received: list[ElicitRequestFormParams] = []
     answers: list[dict[str, str | int | float | bool | list[str] | None]] = [{"name": "ada"}, {"age": 37}]
 
@@ -134,17 +117,6 @@ async def test_a_tool_handler_chains_form_elicitations_feeding_each_answer_forwa
 async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_after_completion(
     connect: Connect,
 ) -> None:
-    """The full URL-elicitation-required retry loop: -32042, completion announced, retry succeeds.
-
-    Steps: (1) the first call is rejected with -32042 carrying the required URL elicitation in
-    its error data, (2) the client extracts the elicitation id from the error, (3) the server
-    announces completion via the elicitation/complete notification (driven via the captured
-    session, the same way a real out-of-band callback would reach a held session reference),
-    (4) the client observes the matching completion notification and retries, (5) the retry
-    succeeds. The handler distinguishes the two calls by a closure flag the test flips between
-    them; the test waits on the completion notification with an event so the retry only happens
-    after the announcement has arrived.
-    """
     elicitation_id = "auth-001"
     authorised: list[bool] = [False]
     captured: list[ServerSession] = []
@@ -155,8 +127,7 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
         assert params.name == "read_files"
         captured.append(ctx.session)
         if not authorised[0]:
-            # The log line gives the message handler a non-completion notification, so the test's
-            # filtering branch is exercised in both directions and the wait remains specific.
+            # A non-completion notification, so collect's filtering branch is exercised in both directions.
             await ctx.session.send_log_message(level="warning", data="authorisation required", logger="gate")  # pyright: ignore[reportDeprecated]
             raise UrlElicitationRequiredError(
                 [

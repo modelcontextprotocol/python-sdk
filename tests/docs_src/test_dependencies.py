@@ -14,7 +14,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_the_resolver_fills_the_parameter_from_the_tools_own_argument() -> None:
-    """tutorial001: `check_stock` receives `title` by name and its return value becomes `stock`."""
     async with Client(tutorial001.mcp) as client:
         in_stock = await client.call_tool("reserve_book", {"title": "Dune"})
         sold_out = await client.call_tool("reserve_book", {"title": "Neuromancer"})
@@ -24,7 +23,7 @@ async def test_the_resolver_fills_the_parameter_from_the_tools_own_argument() ->
 
 
 async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
-    """tutorial001: the input schema shown on the page is exactly what `tools/list` reports."""
+    """The snapshot is the exact input schema shown on the docs page."""
     async with Client(tutorial001.mcp) as client:
         (tool,) = (await client.list_tools()).tools
 
@@ -39,7 +38,6 @@ async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
 
 
 async def test_a_client_supplied_value_for_a_resolved_parameter_is_ignored() -> None:
-    """tutorial001: the resolver's value is the only one the tool can receive."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("reserve_book", {"title": "Dune", "stock": {"title": "Dune", "copies": 999}})
 
@@ -47,7 +45,6 @@ async def test_a_client_supplied_value_for_a_resolved_parameter_is_ignored() -> 
 
 
 async def test_a_resolver_can_depend_on_another_resolver() -> None:
-    """tutorial002: `estimate_delivery` consumes `check_stock`'s result, and the tool gets both."""
     async with Client(tutorial002.mcp) as client:
         in_stock = await client.call_tool("order_book", {"title": "Dune"})
         backorder = await client.call_tool("order_book", {"title": "Neuromancer"})
@@ -59,8 +56,6 @@ async def test_a_resolver_can_depend_on_another_resolver() -> None:
 
 
 async def test_a_shared_dependency_runs_once_per_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """tutorial002: `stock` and `delivery` both need `check_stock`; one call, one inventory lookup."""
-
     class CountingInventory:
         def __init__(self, data: dict[str, int]) -> None:
             self.data = data
@@ -81,14 +76,11 @@ async def test_a_shared_dependency_runs_once_per_call(monkeypatch: pytest.Monkey
         assert inventory.lookups == ["Dune", "Dune"]
 
 
-# The `!!! info` claims the tutorial003 behaviour is transport-independent, so each claim is
-# proved on both: mode="legacy" elicits synchronously mid-call (2025-11-25 and earlier), while
-# mode="auto" negotiates 2026-07-28, where the question rides a multi-round-trip `tools/call`
-# and `Client` drives the retries.
+# The docs' `!!! info` claims tutorial003 is transport-independent, so each claim is proved in both
+# modes: "legacy" elicits synchronously mid-call (2025-11-25 and earlier); "auto" negotiates
+# 2026-07-28, where the question rides a multi-round-trip `tools/call` and `Client` drives retries.
 @pytest.mark.parametrize("mode", ["legacy", "auto"])
 async def test_an_in_stock_order_asks_no_question(mode: Literal["legacy", "auto"]) -> None:
-    """tutorial003: `confirm_backorder` returns directly when stock exists - no round-trip."""
-
     async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
         raise AssertionError("an in-stock order must not elicit")
 
@@ -109,7 +101,6 @@ async def test_an_in_stock_order_asks_no_question(mode: Literal["legacy", "auto"
 async def test_an_out_of_stock_order_asks_and_honours_the_answer(
     mode: Literal["legacy", "auto"], confirm: bool, expected: str
 ) -> None:
-    """tutorial003: the resolver elicits, the SDK validates the answer, the tool reads it."""
     asked: list[str] = []
 
     async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
@@ -125,7 +116,7 @@ async def test_an_out_of_stock_order_asks_and_honours_the_answer(
 
 @pytest.mark.parametrize("mode", ["legacy", "auto"])
 async def test_declining_an_unwrapped_dependency_aborts_the_call(mode: Literal["legacy", "auto"]) -> None:
-    """tutorial003: no answer, no order - the error text on the page is the real one."""
+    """The asserted error text is the one shown on the docs page."""
 
     async def decline(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")

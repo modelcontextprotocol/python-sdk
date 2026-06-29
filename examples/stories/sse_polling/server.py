@@ -12,11 +12,7 @@ def build_app() -> Starlette:
 
     @mcp.tool()
     async def long_operation(ctx: Context) -> str:
-        """Emit progress, close this call's SSE stream, emit more progress, then return.
-
-        Everything sent after `close_sse_stream()` lands in the event store and is
-        replayed when the client reconnects with `Last-Event-ID`.
-        """
+        """Emit progress, close this call's SSE stream, emit more progress, then return."""
         await ctx.report_progress(0.5, total=1.0, message="before-close")
         await ctx.close_sse_stream()
         await ctx.report_progress(1.0, total=1.0, message="after-close")

@@ -1,11 +1,7 @@
 """serve_one / serve_connection mechanics: the kernel drivers a transport entry composes.
 
-`handle_one()` is the modern single-exchange recipe (`Connection.from_envelope`
-+ `serve_one` → raw result dict). `main()` is the loop recipe
-(`JSONRPCDispatcher` + `Connection.for_loop` + `serve_connection`) — what
-`Server.run()` does for stdio. Both drivers take a `lowlevel.Server`, so this is
-a lowlevel-only story: `MCPServer` has no public accessor for its underlying
-`Server` yet.
+`handle_one()` is the single-exchange recipe; `main()` is the loop recipe (what `Server.run()`
+does for stdio). Lowlevel-only: `MCPServer` has no public accessor for its underlying `Server` yet.
 """
 
 from collections.abc import Mapping
@@ -48,8 +44,7 @@ def build_server() -> Server[Any]:
 class SingleExchangeContext:
     """Minimal `DispatchContext` for one inbound request with no back-channel.
 
-    A custom transport entry hand-builds one of these per request. The SDK
-    ships no public concrete class for this yet; this is the structural minimum.
+    A custom transport entry hand-builds one per request; the SDK ships no public concrete class yet.
     """
 
     request_id: int | str | None
@@ -73,10 +68,8 @@ async def handle_one(
 ) -> dict[str, Any]:
     """Serve exactly one modern-era request and return its raw result dict.
 
-    Reads the envelope from `params._meta` (the 2026 wire shape), builds a
-    born-ready `Connection.from_envelope`, and drives `serve_one`. The transport
-    entry enters `server.lifespan(server)` once and threads `lifespan_state` to
-    every call — never enter the lifespan per-request.
+    The envelope rides in `params._meta` (the 2026 wire shape). Enter `server.lifespan(server)`
+    once and thread `lifespan_state` to every call — never enter the lifespan per-request.
     """
     meta = params.get("_meta", {})
     connection = Connection.from_envelope(

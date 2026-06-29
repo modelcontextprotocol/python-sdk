@@ -18,11 +18,6 @@ pytestmark = pytest.mark.anyio
 
 @requirement("roots:list:basic")
 async def test_list_roots_round_trip(connect: Connect) -> None:
-    """A roots/list request from a tool handler is answered by the client's roots callback.
-
-    The tool reports the URIs and names it received, proving the client's roots reached the server.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -56,8 +51,6 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 
 @requirement("roots:list:empty")
 async def test_list_roots_empty(connect: Connect) -> None:
-    """A client with no roots to offer answers roots/list with an empty list, not an error."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -81,10 +74,9 @@ async def test_list_roots_empty(connect: Connect) -> None:
 
 @requirement("roots:list:not-supported")
 async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
-    """A roots/list request to a client with no roots callback fails with an error the handler can observe.
+    """The default callback answers INVALID_REQUEST rather than leaving the server hanging.
 
-    The client's default callback answers with INVALID_REQUEST rather than leaving the server
-    hanging; the spec names -32601 for this case (see the divergence note on the requirement).
+    The spec names -32601 for this case (see the divergence note on the requirement).
     """
 
     async def list_tools(
@@ -110,11 +102,6 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
 
 @requirement("roots:list:client-error")
 async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connect) -> None:
-    """A roots callback that answers with an error fails the roots/list request with that exact error.
-
-    The callback's code and message reach the requesting handler verbatim as an MCPError.
-    """
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -141,11 +128,6 @@ async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connec
 
 @requirement("roots:list-changed")
 async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> None:
-    """A roots/list_changed notification from the client is delivered to the server's handler.
-
-    Unlike a request, a notification has no response to await: the handler sets an event and the
-    test waits on it, which is the only synchronisation point proving delivery.
-    """
     delivered = anyio.Event()
     received: list[types.NotificationParams | None] = []
 

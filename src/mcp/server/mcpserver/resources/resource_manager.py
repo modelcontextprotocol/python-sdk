@@ -37,14 +37,7 @@ class ResourceManager:
             self.add_resource(resource)
 
     def add_resource(self, resource: Resource) -> Resource:
-        """Add a resource to the manager.
-
-        Args:
-            resource: A Resource instance to add.
-
-        Returns:
-            The added resource. If a resource with the same URI already exists, returns the existing resource.
-        """
+        """Add a resource, returning the existing one if a resource with the same URI is already registered."""
         logger.debug(
             "Adding resource",
             extra={"uri": resource.uri, "type": type(resource).__name__, "resource_name": resource.name},
@@ -94,22 +87,16 @@ class ResourceManager:
             ResourceError: If a matching template fails to create the resource.
 
         Note:
-            Pydantic's ``AnyUrl`` normalises percent-encoding and
-            resolves ``..`` segments during validation, so a value
-            constructed as ``AnyUrl("file:///a/%2E%2E/b")`` arrives
-            here as ``file:///b``. The JSON-RPC protocol layer passes
-            raw ``str`` values and is unaffected, but internal callers
-            wrapping URIs in ``AnyUrl`` should be aware that security
-            checks see the already-normalised form.
+            Pydantic's `AnyUrl` normalises percent-encoding and resolves `..` segments during
+            validation, so internal callers wrapping URIs in `AnyUrl` reach the security checks
+            with the already-normalised form. The JSON-RPC layer passes raw `str` and is unaffected.
         """
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 
-        # First check concrete resources
         if resource := self._resources.get(uri_str):
             return resource
 
-        # Then check templates
         for template in self._templates.values():
             try:
                 params = template.matches(uri_str)

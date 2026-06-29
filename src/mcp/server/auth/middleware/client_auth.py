@@ -17,39 +17,20 @@ class AuthenticationError(Exception):
 
 
 class ClientAuthenticator:
-    """ClientAuthenticator is a callable which validates requests from a client
-    application, used to verify /token calls.
+    """Validates client credentials on /token calls.
 
-    If, during registration, the client requested to be issued a secret, the
-    authenticator asserts that /token calls must be authenticated with
-    that same secret.
-
-    NOTE: clients can opt for no authentication during registration, in which case this
-    logic is skipped.
+    A client that was issued a secret at registration must present that secret;
+    clients that registered with no authentication skip this check.
     """
 
     def __init__(self, provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
-        """Initialize the authenticator.
-
-        Args:
-            provider: Provider to look up client information
-        """
         self.provider = provider
 
     async def authenticate_request(self, request: Request) -> OAuthClientInformationFull:
-        """Authenticate a client from an HTTP request.
-
-        Extracts client credentials from the appropriate location based on the
-        client's registered authentication method and validates them.
-
-        Args:
-            request: The HTTP request containing client credentials
-
-        Returns:
-            The authenticated client information
+        """Validate the request's client credentials per the client's registered auth method.
 
         Raises:
-            AuthenticationError: If authentication fails
+            AuthenticationError: If authentication fails.
         """
         form_data = await request.form()
         client_id = form_data.get("client_id")
@@ -85,7 +66,7 @@ class ClientAuthenticator:
 
         elif client.token_endpoint_auth_method == "client_secret_post":
             raw_form_data = form_data.get("client_secret")
-            # form_data.get() can return an UploadFile or None, so we need to check if it's a string
+            # form_data.get() can return an UploadFile, not just str/None
             if isinstance(raw_form_data, str):
                 request_client_secret = str(raw_form_data)
 
@@ -96,20 +77,15 @@ class ClientAuthenticator:
                 f"Unsupported auth method: {client.token_endpoint_auth_method}"
             )
 
-        # A client registered for a secret-based auth method but with no stored secret is
-        # misconfigured: nothing was actually verified above, so it must not pass authentication.
+        # Secret-based auth method with no stored secret: nothing was verified above, so reject.
         if client.token_endpoint_auth_method != "none" and not client.client_secret:
             raise AuthenticationError("Client is registered for secret-based authentication but has no stored secret")
 
-        # If client from the store expects a secret, validate that the request provides
-        # that secret
         if client.client_secret:
             if not request_client_secret:
                 raise AuthenticationError("Client secret is required")
 
-            # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
-            # only ASCII characters. Since we do not control `request_client_secret`, we encode both
-            # arguments to bytes.
+            # Encode to bytes: compare_digest requires bytes or ASCII-only str, and we don't control the input
             if not hmac.compare_digest(client.client_secret.encode(), request_client_secret.encode()):
                 raise AuthenticationError("Invalid client_secret")
 

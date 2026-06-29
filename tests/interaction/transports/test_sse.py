@@ -1,10 +1,8 @@
 """Behaviour specific to the legacy HTTP+SSE transport, exercised entirely in process.
 
-Transport-agnostic behaviour is covered by the `connect`-fixture matrix, which runs the rest of
-the suite over this transport as well; this file pins only what is observable on the SSE wiring
-itself: the GET-then-POST connection lifecycle, the endpoint event, and how the message endpoint
-rejects requests it cannot route to a session. Every test drives the server's real Starlette app
-through the suite's streaming ASGI bridge.
+Transport-agnostic behaviour runs over this transport via the `connect`-fixture matrix; this file
+pins only the SSE wiring itself — the endpoint event and message-endpoint session routing — by
+driving the server's real Starlette app through the suite's streaming ASGI bridge.
 """
 
 from uuid import UUID, uuid4
@@ -28,9 +26,6 @@ pytestmark = pytest.mark.anyio
 @requirement("transport:sse")
 @requirement("transport:sse:endpoint-event")
 async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id() -> None:
-    """Connecting opens a GET stream whose first event names the POST endpoint and a fresh
-    session id; messages POSTed there are answered on that stream, and disconnecting releases the
-    server's session entry."""
     app, sse = build_sse_app(Server("legacy"))
     captured_session_id: list[str] = []
 
@@ -61,7 +56,6 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
 
 @requirement("transport:sse:post:session-routing")
 async def test_post_without_a_session_id_is_rejected() -> None:
-    """A POST to the message endpoint with no session_id query parameter is answered 400."""
     app, _ = build_sse_app(Server("legacy"))
     async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post("/messages/", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
@@ -70,7 +64,6 @@ async def test_post_without_a_session_id_is_rejected() -> None:
 
 @requirement("transport:sse:post:session-routing")
 async def test_post_with_a_malformed_session_id_is_rejected() -> None:
-    """A POST whose session_id query parameter is not a UUID is answered 400."""
     app, _ = build_sse_app(Server("legacy"))
     async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post(
@@ -81,7 +74,6 @@ async def test_post_with_a_malformed_session_id_is_rejected() -> None:
 
 @requirement("transport:sse:post:session-routing")
 async def test_post_for_an_unknown_session_is_rejected() -> None:
-    """A POST naming a well-formed session_id that no SSE stream owns is answered 404."""
     app, _ = build_sse_app(Server("legacy"))
     async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post(

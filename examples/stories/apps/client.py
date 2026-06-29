@@ -8,11 +8,9 @@ from stories._harness import Target, run_client
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    # Advertise MCP Apps support so the server returns the UI-enabled result; a
-    # client that omits this gets the text-only fallback (graceful degradation).
+    # Advertise MCP Apps support; a client that omits this gets the text-only fallback.
     async with Client(target, mode=mode, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as client:
-        # The extensions capability map rides `server/discover` (modern only). On a
-        # legacy connection (today's stdio) it is absent, so assert it only when present.
+        # The extensions capability map rides `server/discover` (modern only), so it's absent on legacy stdio.
         if client.server_capabilities.extensions is not None:
             assert client.server_capabilities.extensions == {EXTENSION_ID: {}}, client.server_capabilities.extensions
 

@@ -1,13 +1,9 @@
 """Protected-resource and authorization-server metadata discovery, end to end.
 
-Every client-side test connects a real `Client` via `connect_with_oauth` and asserts on the
-recorded request paths the discovery probes produced; the discovery URL ordering is a wire
-detail `Client` cannot observe directly but the recording can. Tests that need a metadata
-endpoint to 404 or return alternate content wrap the SDK's app in `shimmed_app` while leaving
-the real authorize and token endpoints behind it, so the rest of the flow runs unaltered.
-
-The two server-side tests (#5, #6) drive raw httpx against `mounted_app` because their
-assertions are the metadata response bodies and headers, which `Client` does not surface.
+Client-side tests connect a real `Client` via `connect_with_oauth` and assert on recorded request
+paths: discovery URL ordering is a wire detail only the recording can observe. Shims 404 or
+replace metadata endpoints while the real authorize/token endpoints stay live. Server-side tests
+drive raw httpx against `mounted_app` to assert on metadata response bodies and headers.
 """
 
 import json
@@ -66,12 +62,7 @@ def real_asm() -> OAuthMetadata:
 
 @requirement("client-auth:prm-discovery:fallback-order")
 async def test_prm_discovery_uses_the_resource_metadata_url_from_www_authenticate() -> None:
-    """The first protected-resource probe is the URL the 401's `WWW-Authenticate` header supplied.
-
-    With co-hosted defaults the header carries the path-suffixed well-known URL; the client
-    fetches that one first and, because it succeeds, never falls back. The single-probe
-    sequence proves priority 1.
-    """
+    """The single PRM probe proves the 401's `WWW-Authenticate` URL took priority over fallbacks."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -87,13 +78,9 @@ async def test_prm_discovery_uses_the_resource_metadata_url_from_www_authenticat
 
 @requirement("client-auth:prm-discovery:fallback-order")
 async def test_prm_discovery_falls_back_from_path_well_known_to_root_on_404() -> None:
-    """When the path-suffixed PRM well-known 404s, the client falls back to the root well-known.
-
-    The exact GET count is not asserted: the WWW-Authenticate URL equals the path well-known
-    here, so the SDK probes it twice (once as priority 1, once as priority 2) before reaching
-    root. Asserting "path before root, root reached, then the flow proceeds" pins the spec
-    invariant; the duplicate probe is an implementation detail. The served PRM body carries an
-    unrecognized field to prove the client's parser ignores unknown members (RFC 9728 §3.2).
+    """No exact GET count asserted: the WWW-Authenticate URL equals the path well-known here, so the
+    SDK probes it twice before reaching root — an implementation detail, not the spec invariant.
+    The served PRM carries an unknown field to prove the parser ignores unknown members (RFC 9728 §3.2).
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -123,12 +110,8 @@ async def test_prm_discovery_falls_back_from_path_well_known_to_root_on_404() ->
 
 @requirement("client-auth:prm-discovery:no-prm-fallback")
 async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_the_server_origin() -> None:
-    """When every protected-resource metadata probe 404s, the client falls back to the legacy path.
-
-    The legacy 2025-03-26 behaviour: with no PRM document available, treat the MCP server's
-    origin as the authorization server and fetch its `/.well-known/oauth-authorization-server`
-    directly. The real co-hosted ASM endpoint is at exactly that location, so the flow completes.
-    The recorded sequence shows both PRM well-known paths probed (and failed) before ASM_ROOT.
+    """Legacy 2025-03-26 behaviour: with no PRM document, the client treats the server origin as the
+    authorization server and fetches its `/.well-known/oauth-authorization-server` directly.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -152,12 +135,7 @@ async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_th
 
 @requirement("client-auth:dcr:registration-error-surfaces")
 async def test_a_400_from_the_registration_endpoint_surfaces_as_a_registration_error() -> None:
-    """A 400 from `/register` surfaces as `OAuthRegistrationError` carrying the server's body.
-
-    The shim makes `/register` return RFC 7591's `invalid_client_metadata`; the SDK reads the
-    body and raises with the status and text in the message, before any authorize or token
-    request is made.
-    """
+    """The shim's `/register` returns RFC 7591's `invalid_client_metadata`; the error carries status and body."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -176,13 +154,8 @@ async def test_a_400_from_the_registration_endpoint_surfaces_as_a_registration_e
 
 @requirement("client-auth:prm-resource-mismatch")
 async def test_prm_with_a_mismatched_resource_aborts_the_flow_before_authorize() -> None:
-    """A PRM document whose `resource` does not cover the server URL aborts the flow.
-
-    The shim serves PRM at the URL the WWW-Authenticate header supplies, but with a `resource`
-    on a different path; `check_resource_allowed` rejects it and `OAuthFlowError` is raised
-    before any authorize or token request is made. The error reaches the test wrapped in nested
-    single-element exception groups by the streamable-HTTP client's task group.
-    """
+    """The error arrives wrapped in nested single-element exception groups by the streamable-HTTP
+    client's task group, hence `RaisesGroup` with `flatten_subgroups`."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
@@ -225,15 +198,9 @@ async def test_prm_with_a_mismatched_resource_aborts_the_flow_before_authorize()
 async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
     authorization_server: str, not_found: frozenset[str], serve_at: str, expected_order: list[str]
 ) -> None:
-    """Authorization-server metadata is fetched at the spec's endpoints in the spec's order.
-
-    The shim 404s every endpoint before the last so the recording proves each probe and its
-    position. For an issuer URL with no path the order is OAuth root then OIDC root; for an
-    issuer URL with a path component it is OAuth path-inserted, OIDC path-inserted, then OIDC
-    path-appended (the spec's three-endpoint MUST). The path-issuer case is driven by serving
-    a PRM whose `authorization_servers` carries the path; the SDK's own AS routes stay at root
-    (the served body points at the real `/authorize` and `/token`). The served bodies carry an
-    unrecognized field to prove the client's parser ignores unknown members (RFC 8414 §3.2).
+    """The path-issuer case serves a PRM whose `authorization_servers` carries the path; the SDK's
+    real AS routes stay at root and the served body points at the real `/authorize` and `/token`.
+    Served bodies carry an unknown field to prove the parser ignores unknown members (RFC 8414 §3.2).
     """
     recorded, on_request = record_requests()
     asm = real_asm()
@@ -266,12 +233,8 @@ async def test_as_metadata_discovery_falls_back_through_the_spec_endpoint_order(
 @requirement("hosting:auth:metadata-endpoints")
 @requirement("hosting:auth:prm:authorization-servers-field")
 async def test_the_prm_endpoint_serves_the_resource_url_and_at_least_one_authorization_server() -> None:
-    """The protected-resource metadata document the SDK serves identifies the resource and an authorization server.
-
-    Also asserts the response is `application/json` (RFC 9728 §3.2) and that fields the SDK has
-    no value for are absent rather than null (`PydanticJSONResponse` serializes with
-    `exclude_none=True`, satisfying RFC 9728 §3.2's omit-zero-value rule).
-    """
+    """The content type must be `application/json` and valueless fields omitted rather than null
+    (`PydanticJSONResponse` serializes with `exclude_none=True`), per RFC 9728 §3.2."""
     server = Server("bare")
     provider = InMemoryAuthorizationServerProvider()
 
@@ -293,7 +256,6 @@ async def test_the_prm_endpoint_serves_the_resource_url_and_at_least_one_authori
 
 @requirement("hosting:auth:as-router")
 async def test_as_metadata_advertises_authorize_token_registration_and_s256() -> None:
-    """The authorization-server metadata document the SDK serves names the required endpoints and S256."""
     server = Server("bare")
     provider = InMemoryAuthorizationServerProvider()
 
@@ -315,12 +277,8 @@ async def test_as_metadata_advertises_authorize_token_registration_and_s256() ->
 
 @requirement("client-auth:as-metadata-discovery:issuer-validation")
 async def test_as_metadata_with_a_mismatched_issuer_aborts_the_flow() -> None:
-    """Authorization-server metadata whose `issuer` does not match the discovery URL is rejected.
-
-    RFC 8414 §3.3 / SEP-2468 require the client to reject the document; the SDK compares `issuer`
-    to the URL the metadata was fetched from and raises `OAuthFlowError` before any authorize or
-    token request is made.
-    """
+    """RFC 8414 §3.3 / SEP-2468: the client must reject metadata whose `issuer` differs from the
+    URL it was fetched from."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)

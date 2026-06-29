@@ -1,13 +1,8 @@
 """Wire-level invariants observed at the client's transport boundary.
 
-These behaviours are invisible to API callers -- they are properties of the raw JSON-RPC frames.
-The tests wrap the in-memory transport in a RecordingTransport, which tees every message crossing
-the transport seam into a list without touching the session, so the assertions hold for whatever
-the session implementation sends rather than for what its API returns.
-
-The later tests drive the wire by hand instead: one closes the server-to-client stream while a
-request is in flight to pin the connection-closed teardown, and the last two send deliberately
-malformed JSON-RPC requests that the typed client API cannot produce.
+RecordingTransport tees every frame crossing the transport seam, so assertions hold for what the
+session sends rather than what its API returns. The later tests drive the wire by hand instead,
+producing conditions the typed client API cannot: a mid-request close and malformed requests.
 """
 
 import anyio
@@ -44,8 +39,6 @@ pytestmark = pytest.mark.anyio
 
 
 def _echo_server() -> Server:
-    """A server with one echo tool, used by every test in this module."""
-
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
@@ -60,10 +53,6 @@ def _echo_server() -> Server:
 
 @requirement("protocol:request-id:unique")
 async def test_request_ids_are_unique_and_never_null() -> None:
-    """Every request the client sends carries a distinct, non-null id.
-
-    The id sequence is pinned: sequential integers from one, in send order.
-    """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
     async with Client(recording, mode="legacy") as client:
@@ -76,20 +65,12 @@ async def test_request_ids_are_unique_and_never_null() -> None:
     request_ids = [message.id for message in sent if isinstance(message, JSONRPCRequest)]
     assert all(request_id is not None for request_id in request_ids)
     assert len(request_ids) == len(set(request_ids))
-    # initialize, tools/list, tools/call, tools/call, ping -- the client does not issue a
-    # schema-cache refresh here because the explicit tools/list already populated the cache.
+    # initialize, tools/list, tools/call x2, ping -- no schema-cache refresh; the explicit tools/list filled the cache
     assert request_ids == snapshot([1, 2, 3, 4, 5])
 
 
 @requirement("protocol:notifications:no-response")
 async def test_notifications_are_never_answered() -> None:
-    """A notification produces no response: everything the server sends back answers a request.
-
-    The client sends two notifications (initialized and roots/list_changed) and several requests;
-    the messages received from the server must be exactly one response per request, each carrying
-    the id of the request it answers, and nothing else.
-    """
-
     async def list_roots(context: ClientRequestContext) -> ListRootsResult:
         """Registered so the client declares the roots capability; the server never asks for roots."""
         raise NotImplementedError
@@ -112,12 +93,7 @@ async def test_notifications_are_never_answered() -> None:
 
 
 async def test_recording_read_stream_ends_iteration_when_the_sender_closes() -> None:
-    """The recording wrapper preserves the end-of-stream behaviour of the stream it wraps.
-
-    This exercises the helper itself rather than an interaction-model behaviour: a transport whose
-    far end closes must end the client's receive loop cleanly, and the wrapper must not swallow or
-    mistranslate that.
-    """
+    """Exercises the helper itself: the wrapper must preserve, not swallow, the wrapped stream's end-of-stream."""
     send_stream, receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     log: list[SessionMessage | Exception] = []
     async with send_stream, _RecordingReadStream(receive_stream, log) as wrapped:
@@ -129,10 +105,6 @@ async def test_recording_read_stream_ends_iteration_when_the_sender_closes() -> 
 
 @requirement("lifecycle:initialized-notification")
 async def test_exactly_one_initialized_notification_is_sent_after_the_handshake() -> None:
-    """The client sends initialized exactly once, between the initialize response and its first request.
-
-    The full method sequence the client puts on the wire is pinned in send order.
-    """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
     async with Client(recording, mode="legacy") as client:
@@ -149,20 +121,14 @@ async def test_exactly_one_initialized_notification_is_sent_after_the_handshake(
 
 @requirement("protocol:error:connection-closed")
 async def test_closing_the_transport_fails_in_flight_requests_with_connection_closed() -> None:
-    """When the server-to-client stream closes, every in-flight client request fails with CONNECTION_CLOSED.
-
-    Driven over a bare ClientSession against a real Server so the test holds the transport stream
-    pair directly: once the request is in flight (the server handler signals it has started) the
-    test closes the server's write stream, which ends the client's receive loop and triggers the
-    teardown that fails the pending request.
-    """
+    """Driven over a bare ClientSession so the test holds the raw streams and can close the server's write side."""
     handler_started = anyio.Event()
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
         handler_started.set()
-        await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
-        raise NotImplementedError  # unreachable: the wait above never completes normally
+        await anyio.Event().wait()  # blocks until cancelled
+        raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_call_tool=call_tool)
 
@@ -197,13 +163,7 @@ async def test_closing_the_transport_fails_in_flight_requests_with_connection_cl
 
 @requirement("protocol:error:invalid-params")
 async def test_malformed_request_params_are_answered_with_invalid_params() -> None:
-    """A request whose params fail validation is answered with -32602 Invalid params.
-
-    The typed client API cannot construct a request with the wrong parameter types, so the test
-    plays the client's side of the wire by hand against a real Server: it completes the
-    initialization handshake at the JSON-RPC layer and then sends a tools/call whose `name` is an
-    integer. Reserve this pattern for behaviour the typed API cannot produce.
-    """
+    """Plays the client's wire by hand: the typed API cannot produce a tools/call with an integer `name`."""
     server = Server("strict")
     errors: list[ErrorData] = []
 
@@ -251,12 +211,7 @@ async def test_malformed_request_params_are_answered_with_invalid_params() -> No
 
 @requirement("logging:set-level:invalid-level")
 async def test_set_level_with_an_unrecognized_value_is_answered_with_invalid_params() -> None:
-    """logging/setLevel with a value outside the spec's level enum is answered with -32602 Invalid params.
-
-    The typed client API cannot construct a setLevel request with an unrecognized level (pyright and
-    the client-side model both reject it), so the test plays the client's side of the wire by hand
-    against a real Server. Reserve this pattern for behaviour the typed API cannot produce.
-    """
+    """Plays the client's wire by hand: the typed API rejects an unrecognized level before it reaches the wire."""
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
         """Registered so the logging capability is advertised; never called -- params validation fails first."""

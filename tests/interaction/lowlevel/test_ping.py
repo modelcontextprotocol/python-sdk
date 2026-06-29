@@ -15,7 +15,6 @@ pytestmark = pytest.mark.anyio
 @requirement("lifecycle:ping")
 @requirement("ping:client-to-server")
 async def test_client_ping_returns_empty_result(connect: Connect) -> None:
-    """A client ping is answered with an empty result, even by a server with no handlers."""
     server = Server("silent")
 
     async with connect(server) as client:
@@ -27,11 +26,7 @@ async def test_client_ping_returns_empty_result(connect: Connect) -> None:
 @requirement("lifecycle:ping")
 @requirement("ping:server-to-client")
 async def test_server_ping_returns_empty_result(connect: Connect) -> None:
-    """A server-initiated ping sent while a request is in flight is answered by the client.
-
-    The tool returns the type of the ping response, proving the round trip completed inside
-    the handler before the tool result was produced.
-    """
+    """The tool returns the pong's type name, proving the ping round trip completed inside the handler."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None

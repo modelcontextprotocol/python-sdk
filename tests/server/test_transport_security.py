@@ -1,5 +1,3 @@
-"""Tests for the transport-security request validation middleware."""
-
 import pytest
 from starlette.requests import Request
 
@@ -42,7 +40,6 @@ SETTINGS = TransportSecuritySettings(
 async def test_validate_request_checks_host_then_origin(
     host: str | None, origin: str | None, expected: int | None
 ) -> None:
-    """Host is checked first, then Origin; exact and wildcard-port allowlist entries are honoured."""
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
     assert (None if response is None else response.status_code) == expected
@@ -50,14 +47,12 @@ async def test_validate_request_checks_host_then_origin(
 
 @pytest.mark.anyio
 async def test_validate_request_skips_host_and_origin_when_protection_is_disabled() -> None:
-    """With DNS-rebinding protection off, any Host/Origin is accepted."""
     middleware = TransportSecurityMiddleware(TransportSecuritySettings(enable_dns_rebinding_protection=False))
     assert await middleware.validate_request(_request("evil.example", "http://evil.example")) is None
 
 
 @pytest.mark.anyio
 async def test_validate_request_defaults_to_protection_disabled() -> None:
-    """Constructing the middleware without settings leaves DNS-rebinding protection off."""
     middleware = TransportSecurityMiddleware()
     assert await middleware.validate_request(_request("evil.example", "http://evil.example")) is None
 
@@ -74,7 +69,6 @@ async def test_validate_request_defaults_to_protection_disabled() -> None:
     ],
 )
 async def test_validate_request_checks_content_type_on_post(content_type: str | None, expected: int | None) -> None:
-    """POST requests must carry an application/json Content-Type, regardless of DNS-rebinding settings."""
     middleware = TransportSecurityMiddleware()
     response = await middleware.validate_request(_request("any", None, content_type=content_type), is_post=True)
     assert (None if response is None else response.status_code) == expected
@@ -82,7 +76,6 @@ async def test_validate_request_checks_content_type_on_post(content_type: str | 
 
 @pytest.mark.anyio
 async def test_validate_request_ignores_content_type_on_get() -> None:
-    """Content-Type is only enforced for POST requests."""
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request("good.example", None, content_type="text/plain"))
     assert response is None

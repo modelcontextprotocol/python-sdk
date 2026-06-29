@@ -1,12 +1,4 @@
-"""Tests for `Connection`.
-
-`Connection` wraps an `Outbound` (the standalone stream). Construct it via the
-`from_envelope` / `for_loop` factories so `protocol_version` is always
-populated and `has_standalone_channel` is derived from the held outbound. Its
-`notify` is best-effort (never raises); `send_raw_request` raises
-`NoBackChannelError` structurally from the no-channel sentinel. Tested with a
-stub `Outbound` so we can assert wire shape and inject failures.
-"""
+"""Tests for `Connection`, exercised against a stub `Outbound` to assert wire shape and inject failures."""
 
 import logging
 from collections.abc import Mapping
@@ -63,12 +55,7 @@ class StubOutbound:
         self.notifications.append((method, params))
 
 
-# --- factories -----------------------------------------------------------------
-
-
 def test_from_envelope_is_born_ready_with_no_back_channel():
-    """SDK-defined: `from_envelope` populates `protocol_version`, sets `initialized`,
-    and holds the no-channel sentinel so `has_standalone_channel` derives False."""
     conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     assert conn.protocol_version == LATEST_MODERN_VERSION
     assert conn.initialized.is_set()
@@ -79,8 +66,6 @@ def test_from_envelope_is_born_ready_with_no_back_channel():
 
 
 def test_from_envelope_records_client_params_when_both_info_and_caps_supplied():
-    """SDK-defined: when both client info and capabilities are supplied,
-    `from_envelope` synthesizes `client_params` so capability checks can run."""
     caps = ClientCapabilities(sampling=SamplingCapability())
     conn = Connection.from_envelope(LATEST_MODERN_VERSION, _CLIENT_INFO, caps)
     assert conn.client_params is not None
@@ -96,15 +81,11 @@ def test_from_envelope_records_client_params_when_both_info_and_caps_supplied():
 def test_from_envelope_leaves_client_params_none_when_either_is_missing(
     info: Implementation | None, caps: ClientCapabilities | None
 ):
-    """SDK-defined: `client_params` is only synthesized when both info and
-    caps are present; either missing leaves it `None`."""
     conn = Connection.from_envelope(LATEST_MODERN_VERSION, info, caps)
     assert conn.client_params is None
 
 
 def test_from_envelope_with_explicit_outbound_has_standalone_channel():
-    """SDK-defined: duplex modern transports pass an outbound; `has_standalone_channel`
-    derives True since the held outbound is not the no-channel sentinel."""
     out = StubOutbound()
     conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=out)
     assert conn.has_standalone_channel is True
@@ -113,8 +94,6 @@ def test_from_envelope_with_explicit_outbound_has_standalone_channel():
 
 
 def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
-    """SDK-defined: `for_loop` seeds `protocol_version` from the hint when given,
-    else `LATEST_HANDSHAKE_VERSION`; the connection awaits the initialize handshake."""
     out = StubOutbound()
     conn = Connection.for_loop(out)
     assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
@@ -128,12 +107,8 @@ def test_for_loop_seeds_version_from_hint_or_latest_and_is_not_born_ready():
 
 
 def test_for_loop_records_session_id_when_supplied():
-    """SDK-defined: `for_loop` stores the `session_id` kwarg verbatim."""
     conn = Connection.for_loop(StubOutbound(), session_id="sess-1")
     assert conn.session_id == "sess-1"
-
-
-# --- outbound channel ----------------------------------------------------------
 
 
 @pytest.mark.anyio
@@ -155,7 +130,6 @@ async def test_connection_notify_swallows_broken_stream_and_debug_logs(caplog: p
 
 @pytest.mark.anyio
 async def test_connection_notify_drops_when_no_standalone_channel(caplog: pytest.LogCaptureFixture):
-    """SDK-defined: the no-channel sentinel debug-logs and drops; `notify` never raises."""
     caplog.set_level(logging.DEBUG, logger="mcp.server.connection")
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     await conn.notify("notifications/message", {"data": "x"})  # must not raise
@@ -164,7 +138,7 @@ async def test_connection_notify_drops_when_no_standalone_channel(caplog: pytest
 
 @pytest.mark.anyio
 async def test_connection_send_raw_request_raises_nobackchannel_when_no_standalone_channel():
-    """SDK-defined: the no-channel sentinel raises structurally; `Connection` does no pre-check."""
+    """The no-channel sentinel raises structurally; `Connection` does no pre-check."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     with pytest.raises(NoBackChannelError):
         await conn.send_raw_request("ping", None)
@@ -192,8 +166,7 @@ async def test_connection_send_request_with_spec_type_infers_result_type():
 
 @pytest.mark.anyio
 async def test_connection_send_request_validates_result_alias_only():
-    """Peer results validate alias-only; a snake_case key from the wire is
-    ignored as extra, not populated by Python field name."""
+    """Peer results validate alias-only; snake_case wire keys are ignored as extra, not matched by field name."""
     snake = {"role": "assistant", "content": {"type": "text", "text": "x"}, "model": "m", "stop_reason": "endTurn"}
     conn = Connection.for_loop(StubOutbound(result=snake))
     result = await conn.send_request(CreateMessageRequest(params=CreateMessageRequestParams(messages=[], max_tokens=1)))
@@ -217,8 +190,7 @@ async def test_connection_send_request_nonconforming_result_raises_validation_er
 
 @pytest.mark.anyio
 async def test_send_request_validates_the_client_result_against_the_surface_schema():
-    """A spec-method result that fails the per-version surface schema raises
-    `ValidationError` even when the caller's `result_type` would accept it."""
+    """The surface gate rejects a nonconforming result even when the caller's `result_type` would accept it."""
     conn = Connection.for_loop(StubOutbound(result={"roots": "nope"}))
     with pytest.raises(ValidationError):
         await conn.send_request(ListRootsRequest(), result_type=EmptyResult)
@@ -226,7 +198,6 @@ async def test_send_request_validates_the_client_result_against_the_surface_sche
 
 @pytest.mark.anyio
 async def test_send_request_passes_a_spec_valid_client_result():
-    """A spec-valid client result passes the surface gate and parses to the typed model."""
     conn = Connection.for_loop(StubOutbound(result={"roots": [{"uri": "file:///ws"}]}))
     assert conn.protocol_version == LATEST_HANDSHAKE_VERSION
     result = await conn.send_request(ListRootsRequest())
@@ -245,8 +216,7 @@ class _CustomResult(BaseModel):
 
 @pytest.mark.anyio
 async def test_send_request_skips_the_surface_gate_when_method_absent_at_version():
-    """Surface row absent for the negotiated version: gate is bypassed and only
-    the inferred result type validates."""
+    """With no surface row at the negotiated version, only the inferred result type validates."""
     conn = Connection.for_loop(StubOutbound(result={}), protocol_version_hint=LATEST_MODERN_VERSION)
     result = await conn.send_request(PingRequest())
     assert isinstance(result, EmptyResult)
@@ -254,7 +224,6 @@ async def test_send_request_skips_the_surface_gate_when_method_absent_at_version
 
 @pytest.mark.anyio
 async def test_send_request_with_a_custom_method_skips_the_surface_gate():
-    """Non-spec methods are not blocked by the surface gate; `result_type` validates."""
     conn = Connection.for_loop(StubOutbound(result={"value": 7}))
     result = await conn.send_request(_CustomRequest(), result_type=_CustomResult)
     assert isinstance(result, _CustomResult)
@@ -318,15 +287,9 @@ async def test_connection_send_tool_list_changed_with_meta_includes_meta_only_pa
     assert out.notifications == [("notifications/tools/list_changed", {"_meta": {"k": 1}})]
 
 
-# --- check_capability ----------------------------------------------------------
-
-
 def test_connection_check_capability_false_when_no_client_params_recorded():
-    """SDK-defined: `check_capability` returns False when no `client_params`
-    were recorded, regardless of which factory built the connection."""
     conn = Connection.for_loop(StubOutbound())
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is False
-    # Same for a born-ready connection that supplied neither info nor caps.
     assert Connection.from_envelope(LATEST_MODERN_VERSION, None, None).check_capability(ClientCapabilities()) is False
 
 

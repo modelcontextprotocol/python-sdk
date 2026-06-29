@@ -1,5 +1,3 @@
-"""Shared fixtures for server-side tests."""
-
 from collections.abc import Iterator
 
 import pytest
@@ -8,13 +6,7 @@ from opentelemetry.sdk.trace import ReadableSpan
 
 
 class SpanCapture:
-    """Thin adapter over logfire's `TestExporter` for asserting on MCP spans.
-
-    `finished()` returns the raw `ReadableSpan` objects emitted by the
-    `mcp-python-sdk` instrumentation scope, filtered to exclude logfire's
-    synthetic `pending_span` markers, so tests can assert directly on
-    `.name`, `.kind`, `.status`, `.attributes`, `.parent`, `.events`.
-    """
+    """Adapter over logfire's `TestExporter`; `finished()` excludes logfire's synthetic `pending_span` markers."""
 
     def __init__(self, exporter: TestExporter) -> None:
         self._exporter = exporter
@@ -34,11 +26,10 @@ class SpanCapture:
 
 @pytest.fixture
 def spans(capfire: CaptureLogfire) -> Iterator[SpanCapture]:
-    """In-memory MCP span capture, cleared before and after each test.
+    """MCP span capture, cleared before and after each test.
 
-    Backed by the project-level `capfire` override (see `tests/conftest.py`),
-    which scopes `mcp.shared._otel._tracer` to the test so the real tracer
-    doesn't leak into later tests in the same worker.
+    Backed by the `capfire` override in `tests/conftest.py`, which scopes
+    `mcp.shared._otel._tracer` to the test so it doesn't leak into later tests.
     """
     capture = SpanCapture(capfire.exporter)
     capture.clear()

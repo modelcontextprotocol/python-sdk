@@ -112,9 +112,8 @@ def build_server() -> MCPServer:
         cents: Annotated[int, Resolve(refund_amount)],
         restock: Annotated[ElicitationResult[RestockChoice], Resolve(ask_restock)],
     ) -> Receipt:
-        # `restock` keeps the full elicitation outcome: a declined restock still refunds. A plain
-        # (non-Elicit) resolver return arrives wrapped as an accepted outcome, so the fast path
-        # lands in the same `AcceptedElicitation` branch.
+        # `restock` keeps the full elicitation outcome: a declined restock still refunds. A non-Elicit
+        # resolver return arrives wrapped as accepted, so the fast path hits the same `AcceptedElicitation` branch.
         restocked = isinstance(restock, AcceptedElicitation) and restock.data.restock
         return Receipt(order_id=order_id, refunded_cents=cents, restocked=restocked, reason=reason)
 

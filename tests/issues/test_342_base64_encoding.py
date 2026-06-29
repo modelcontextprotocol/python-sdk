@@ -1,8 +1,4 @@
-"""Test for base64 encoding issue in MCP server.
-
-This test verifies that binary resource data is encoded with standard base64
-(not urlsafe_b64encode), so BlobResourceContents validation succeeds.
-"""
+"""Issue #342 regression: binary resource data must use standard base64, not urlsafe_b64encode."""
 
 import base64
 
@@ -16,18 +12,11 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_server_base64_encoding():
-    """Tests that binary resource data round-trips correctly through base64 encoding.
-
-    The test uses binary data that produces different results with urlsafe vs standard
-    base64, ensuring the server uses standard encoding.
-    """
     mcp = MCPServer("test")
 
-    # Create binary data that will definitely result in + and / characters
-    # when encoded with standard base64
+    # Data containing + and / when standard-encoded, so urlsafe and standard outputs differ
     binary_data = bytes(list(range(255)) * 4)
 
-    # Sanity check: our test data produces different encodings
     urlsafe_b64 = base64.urlsafe_b64encode(binary_data).decode()
     standard_b64 = base64.b64encode(binary_data).decode()
     assert urlsafe_b64 != standard_b64, "Test data doesn't demonstrate encoding difference"
@@ -44,9 +33,7 @@ async def test_server_base64_encoding():
         blob_content = result.contents[0]
         assert isinstance(blob_content, BlobResourceContents)
 
-        # Verify standard base64 was used (not urlsafe)
         assert blob_content.blob == standard_b64
 
-        # Verify we can decode the data back correctly
         decoded = base64.b64decode(blob_content.blob)
         assert decoded == binary_data

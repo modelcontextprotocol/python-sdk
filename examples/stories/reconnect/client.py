@@ -8,9 +8,7 @@ from stories._harness import TargetFactory, run_client
 
 
 async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
-    # The caller's mode (the real-user "auto" default) probes server/discover inside
-    # __aenter__ and caches the result; a hard version pin would skip the probe and
-    # never see the server's real DiscoverResult.
+    # mode="auto" probes server/discover inside __aenter__ and caches the result; a hard version pin skips the probe.
     async with Client(targets(), mode=mode) as client:
         discovered = client.session.discover_result
         assert discovered is not None, "mode='auto' against a modern server populates discover_result"
@@ -26,10 +24,8 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
     rehydrated = DiscoverResult.model_validate_json(saved)
     assert rehydrated == discovered
 
-    # Reconnect: a version pin plus the cached DiscoverResult adopts the prior state with
-    # zero round-trips on entry. A Client cannot be re-entered after exit, so targets()
-    # yields a fresh one. Without prior_discover= a bare pin would synthesize a blank
-    # server_info — the cache is what makes the era-neutral accessors useful here.
+    # Reconnect: a version pin plus prior_discover= adopts the prior state with zero round-trips; a bare pin
+    # would synthesize a blank server_info. A Client cannot be re-entered after exit, so targets() yields a fresh one.
     async with Client(targets(), mode=LATEST_MODERN_VERSION, prior_discover=rehydrated) as second:
         assert second.protocol_version == LATEST_MODERN_VERSION
         assert second.server_info.name == "reconnect-example"

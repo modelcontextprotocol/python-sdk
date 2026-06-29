@@ -1,7 +1,4 @@
-"""MCPServer Icons Demo Server
-
-Demonstrates using icons with tools, resources, prompts, and implementation.
-"""
+"""Demonstrates using icons with tools, resources, prompts, and the server implementation."""
 
 import base64
 from pathlib import Path
@@ -15,7 +12,6 @@ icon_data_uri = f"data:image/png;base64,{icon_data}"
 
 icon_data = Icon(src=icon_data_uri, mime_type="image/png", sizes=["64x64"])
 
-# Create server with icons in implementation
 mcp = MCPServer(
     "Icons Demo Server", website_url="https://github.com/modelcontextprotocol/python-sdk", icons=[icon_data]
 )
@@ -52,5 +48,4 @@ def multi_icon_tool(action: str) -> str:
 
 
 if __name__ == "__main__":
-    # Run the server
     mcp.run()

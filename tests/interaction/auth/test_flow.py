@@ -1,11 +1,9 @@
 """End-to-end OAuth authorization-code flow against the SDK's own server, fully in process.
 
-Auth is HTTP-only so these tests are not transport-parametrized; each connects via
-`connect_with_oauth`, which co-hosts the SDK's authorization server, protected-resource
-metadata, and bearer-gated MCP endpoint on one bridge-backed Starlette app and drives the
-whole flow through one `httpx.AsyncClient` carrying the SDK's `OAuthClientProvider`. The
-authorize redirect completes headlessly through the same bridge, so every request the flow
-makes is observable via `on_request`.
+Auth is HTTP-only, so no transport parametrization. `connect_with_oauth` co-hosts the
+authorization server, resource metadata, and bearer-gated MCP endpoint on one bridge-backed
+app and completes the authorize redirect headlessly, so every request the flow makes is
+observable via `on_request`.
 """
 
 import json
@@ -47,22 +45,9 @@ async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestPa
 @requirement("client-auth:401-triggers-flow")
 @requirement("hosting:auth:missing-401")
 async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow_connects() -> None:
-    """Connecting to a bearer-gated server walks the full authorization-code flow and succeeds.
-
-    Three requirements are proven by one connect: the flow runs end to end (authorization-code
-    roundtrip), it was triggered by a 401 on the first MCP request (401-triggers-flow), and
-    that 401 carried `resource_metadata` in `WWW-Authenticate` for discovery (missing-401).
-    The flagship test pins the recorded request sequence so the discovery → registration →
-    authorize → token → retry order is asserted explicitly.
-
-    Steps the SDK is expected to perform:
-      1. POST /mcp without a token → 401 with `WWW-Authenticate: Bearer resource_metadata=...`.
-      2. GET the protected-resource metadata.
-      3. GET the authorization-server metadata.
-      4. POST /register (dynamic client registration).
-      5. GET /authorize → 302 with code+state (completed by the headless redirect).
-      6. POST /token (authorization-code exchange).
-      7. Retry POST /mcp with `Authorization: Bearer <access_token>` → succeeds.
+    """One connect proves three requirements: the authorization-code flow runs end to end,
+    it was triggered by a 401 on the first MCP request, and that 401 carried
+    `resource_metadata` in `WWW-Authenticate` for discovery.
     """
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
@@ -96,13 +81,10 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     )
 
     assert (requests[0].method, requests[0].url.path) == ("POST", "/mcp")
-    # The recorded Request objects are live references: the auth flow mutates the original
-    # request's headers in place when it adds the bearer token for the retry, so the first
-    # entry's headers cannot be used to assert "no Authorization on the first attempt". The
-    # path multiset above proving discovery happened is the evidence the first attempt was 401.
+    # The recorded Requests are live references (the retry mutates headers in place), so the first
+    # entry can't prove the first attempt lacked Authorization; the discovery calls above are the 401 evidence.
 
-    # The first PRM discovery GET carries the protocol-version header (an SDK behaviour, not a
-    # spec requirement on discovery requests).
+    # The PRM discovery GET carries the protocol-version header (SDK behaviour, not a spec requirement).
     prm_get = next(r for r in requests if r.url.path == "/.well-known/oauth-protected-resource/mcp")
     assert prm_get.headers.get("mcp-protocol-version") == snapshot("2026-07-28")
 
@@ -120,8 +102,6 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
 
 @requirement("hosting:auth:authinfo-propagates")
 async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() -> None:
-    """A tool handler reads the request's access token through `get_access_token()`."""
-
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "whoami"
         token = get_access_token()
@@ -140,11 +120,7 @@ async def test_the_access_token_reaches_the_tool_handler_via_get_access_token() 
 
 @requirement("client-auth:pre-registration")
 async def test_a_preregistered_client_skips_registration() -> None:
-    """A client whose storage already holds client info uses it instead of registering.
-
-    The provider holds the same registration server-side so the authorize and token steps
-    accept it; the recorded requests prove no `/register` call was made.
-    """
+    """The provider holds the same registration server-side so authorize and token accept the stored client."""
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
@@ -174,12 +150,7 @@ async def test_a_preregistered_client_skips_registration() -> None:
 
 @requirement("client-auth:dcr")
 async def test_the_dcr_request_carries_the_client_metadata() -> None:
-    """Dynamic registration sends the client's metadata and persists what the server issued.
-
-    The body of the recorded `/register` POST carries the metadata the test supplied (with the
-    scope filled in from server discovery), and the server's issued client_id and secret are
-    persisted to storage and held by the provider.
-    """
+    """The recorded `/register` body carries the supplied metadata, with scope filled in from server discovery."""
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
@@ -216,12 +187,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
 
 
 async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_wrapped_app() -> None:
-    """Harness self-test: `shimmed_app` serves canned bodies, 404s, and forwards everything else.
-
-    Wraps a real auth-hosting Starlette app so the forward path is exercised against the SDK's
-    own routing; provided here so the discovery tests can rely on the shim without each adding
-    their own contract test.
-    """
+    """Harness self-test, kept here so the discovery tests can rely on `shimmed_app` without re-proving it."""
     server = Server("bare")
     provider = InMemoryAuthorizationServerProvider()
     real_app = server.streamable_http_app(auth=auth_settings(), auth_server_provider=provider)

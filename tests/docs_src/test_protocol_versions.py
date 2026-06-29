@@ -13,7 +13,6 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_auto_lands_on_the_modern_version() -> None:
-    """tutorial001: the default `mode="auto"` probes `server/discover` and adopts the result."""
     async with Client(tutorial001.mcp) as client:
         assert client.protocol_version == "2026-07-28"
         assert client.server_info.name == "Bookshop"
@@ -22,7 +21,6 @@ async def test_auto_lands_on_the_modern_version() -> None:
 
 
 async def test_legacy_forces_the_initialize_handshake() -> None:
-    """tutorial002: `mode="legacy"` runs `initialize` against the very same server."""
     async with Client(tutorial002.mcp, mode="legacy") as client:
         assert client.protocol_version == "2025-11-25"
         assert client.server_info.name == "Bookshop"
@@ -31,7 +29,6 @@ async def test_legacy_forces_the_initialize_handshake() -> None:
 
 
 async def test_version_pin_sends_nothing_and_knows_nothing() -> None:
-    """tutorial003: a pin adopts the version locally; `server_info` and capabilities are blank."""
     async with Client(tutorial003.mcp, mode="2026-07-28") as client:
         assert client.protocol_version == "2026-07-28"
         assert client.server_info == Implementation(name="", version="")
@@ -43,7 +40,7 @@ async def test_version_pin_sends_nothing_and_knows_nothing() -> None:
 
 
 def test_handshake_era_version_is_not_a_valid_pin() -> None:
-    """A pre-2026 version string is rejected at construction with the exact error the page shows."""
+    # The match is the exact error text the page shows.
     with pytest.raises(
         ValueError,
         match=re.escape(
@@ -55,7 +52,6 @@ def test_handshake_era_version_is_not_a_valid_pin() -> None:
 
 
 async def test_prior_discover_round_trips() -> None:
-    """tutorial004: save `discover_result`, reconnect with it, and the identity comes back."""
     async with Client(tutorial004.mcp) as client:
         saved = client.session.discover_result
     assert saved is not None
@@ -68,7 +64,6 @@ async def test_prior_discover_round_trips() -> None:
 
 
 async def test_discover_result_survives_json() -> None:
-    """`DiscoverResult` is a Pydantic model: dump it to JSON, validate it back, reconnect with it."""
     async with Client(tutorial004.mcp) as client:
         saved = client.session.discover_result
     assert saved is not None

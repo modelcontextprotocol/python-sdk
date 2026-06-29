@@ -14,8 +14,7 @@ from mcp_types import methods
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
-# Transcribed from each schema's ClientRequest/ServerRequest/ClientNotification/
-# ServerNotification unions, minus the tasks/* family (extensions register those).
+# Transcribed from each schema's Client/Server Request/Notification unions, minus tasks/* (extensions register those).
 EXPECTED_METHODS: dict[str, dict[str, frozenset[str]]] = {
     "2024-11-05": {
         "CLIENT_REQUESTS": frozenset(
@@ -293,7 +292,6 @@ EXPECTED_CLIENT_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
 EMPTY_SERVER_RESPONSE_METHODS = frozenset({"logging/setLevel", "ping", "resources/subscribe", "resources/unsubscribe"})
 EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
-# Pre-2026 versions share the 2025-11-25 surface package.
 PACKAGE_BY_VERSION = {
     "2024-11-05": "mcp_types.v2025_11_25",
     "2025-03-26": "mcp_types.v2025_11_25",
@@ -419,8 +417,7 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
 
 
 def test_maps_define_exactly_the_expected_methods_for_every_known_version():
-    # Derive the version axis from KNOWN_PROTOCOL_VERSIONS so a new version
-    # without map rows fails here rather than gating every method at runtime.
+    # Axis from KNOWN_PROTOCOL_VERSIONS: a new version without map rows fails here, not gating every method at runtime.
     assert set(EXPECTED_METHODS) == set(KNOWN_PROTOCOL_VERSIONS)
     surface_maps: dict[str, Mapping[tuple[str, str], object]] = {
         "CLIENT_REQUESTS": methods.CLIENT_REQUESTS,
@@ -499,7 +496,6 @@ def test_response_row_values_match_the_pinned_classes_and_unions():
 
 
 def test_surface_keys_agree_with_their_classes_and_the_monolith_maps():
-    """Each surface key's method matches its class's method literal, its monolith row, and its version's package."""
     request_maps: list[Mapping[tuple[str, str], type[BaseModel]]] = [
         methods.CLIENT_REQUESTS,
         methods.SERVER_REQUESTS,
@@ -578,7 +574,6 @@ def test_minimal_result_bodies_parse_through_every_result_row():
 def test_non_file_root_uri_passes_the_surface_step_and_rejects_at_the_monolith_step():
     """The monolith's `Root.uri` is file-scheme only; the surfaces declare a plain string."""
     non_file_roots = {"roots": [{"uri": "https://example.com/x"}]}
-    # Surface step admits the body, so the two-step parse fails at the monolith step.
     pydantic.TypeAdapter(v2025.ListRootsResult).validate_python(non_file_roots)
     with pytest.raises(pydantic.ValidationError):
         methods.parse_client_result("roots/list", "2025-11-25", non_file_roots)
@@ -675,13 +670,7 @@ def test_embedded_input_request_entries_without_method_reject_at_the_surface_ste
 
 
 def test_input_required_url_elicit_without_elicitation_id_parses_at_2026():
-    """A 2026-07-28 `InputRequiredResult` embedding a URL-mode elicitation parses
-    through both the surface and monolith steps without `elicitationId`.
-
-    Spec-mandated: the field is required at 2025-11-25 only and removed at
-    2026-07-28; the monolith model carries it as optional so the superset can
-    accept both versions.
-    """
+    """`elicitationId` is required at 2025-11-25 but removed at 2026-07-28; the monolith keeps it optional."""
     body = {
         "resultType": "input_required",
         "inputRequests": {
@@ -817,9 +806,8 @@ def test_validate_functions_accept_reject_and_gate_like_their_parse_siblings():
         methods.validate_client_request("ping", "2099-01-01", None)
 
 
-# One minimal monolith result instance per request method, dumped via the same
-# `_dump_result` path the runner uses. Cacheable results set `ttl_ms`/`cache_scope`
-# explicitly because the monolith no longer defaults them and 2026 requires them.
+# One minimal monolith result per method, dumped the same way as the runner's `_dump_result`. Cacheable rows set
+# `ttl_ms`/`cache_scope` explicitly: the monolith no longer defaults them and 2026 requires them.
 MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "completion/complete": types.CompleteResult(completion=types.Completion(values=[])),
     "initialize": types.InitializeResult(

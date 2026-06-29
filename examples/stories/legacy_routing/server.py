@@ -1,4 +1,4 @@
-"""Exported era classifier: the body-primary predicate, the built-in dual-era app, and CORS — exports `build_app()`."""
+"""Dual-era routing: a standalone era classifier for custom ingress, plus the built-in dual-era app with CORS."""
 
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -23,11 +23,10 @@ MCP_ALLOWED_METHODS = ["GET", "POST", "DELETE"]
 def classify_era(
     body: Mapping[str, Any], headers: Mapping[str, str]
 ) -> Literal["modern", "legacy"] | InboundLadderRejection:
-    """Tri-state era classifier built on the exported `classify_inbound_request` predicate.
+    """Tri-state era classifier for ingress layers that route the two eras to different backends.
 
-    Compose this in your own ASGI/ingress layer when the two eras need different
-    backends. Only a rung-1 ``INVALID_PARAMS`` rejection (no envelope keys) means
-    "treat as legacy"; other rejections are malformed-modern and should be refused.
+    Only a rung-1 `INVALID_PARAMS` rejection (no envelope keys) means legacy;
+    other rejections are malformed-modern and should be refused.
     """
     verdict = classify_inbound_request(body, headers=headers)
     if isinstance(verdict, InboundModernRoute):

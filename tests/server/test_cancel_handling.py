@@ -1,4 +1,4 @@
-"""Test that cancelled requests don't cause double responses."""
+"""Tests for request cancellation and transport-close handling."""
 
 import anyio
 import pytest
@@ -28,9 +28,6 @@ from mcp.shared.message import SessionMessage
 
 @pytest.mark.anyio
 async def test_server_remains_functional_after_cancel():
-    """Verify server can handle new requests after a cancellation."""
-
-    # Track tool calls
     call_count = 0
     ev_first_call = anyio.Event()
     first_request_id = None
@@ -53,14 +50,14 @@ async def test_server_remains_functional_after_cancel():
             if call_count == 1:
                 first_request_id = ctx.request_id
                 ev_first_call.set()
-                await anyio.sleep(5)  # First call is slow
+                await anyio.sleep(5)
             return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
         raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server, mode="legacy") as client:
-        # First request (will be cancelled)
+
         async def first_request():
             try:
                 await client.session.send_request(
@@ -69,16 +66,12 @@ async def test_server_remains_functional_after_cancel():
                 )
                 pytest.fail("First request should have been cancelled")  # pragma: no cover
             except MCPError:
-                pass  # Expected
+                pass
 
-        # Start first request
         async with anyio.create_task_group() as tg:
             tg.start_soon(first_request)
-
-            # Wait for it to start
             await ev_first_call.wait()
 
-            # Cancel it
             assert first_request_id is not None
             await client.session.send_notification(
                 CancelledNotification(
@@ -86,12 +79,9 @@ async def test_server_remains_functional_after_cancel():
                 )
             )
 
-        # Second request (should work normally)
         result = await client.call_tool("test_tool", {})
 
-        # Verify second request completed successfully
         assert len(result.content) == 1
-        # Type narrowing for pyright
         content = result.content[0]
         assert content.type == "text"
         assert isinstance(content, TextContent)
@@ -101,15 +91,12 @@ async def test_server_remains_functional_after_cancel():
 
 @pytest.mark.anyio
 async def test_server_cancels_in_flight_handlers_on_transport_close():
-    """When the transport closes mid-request, server.run() must cancel in-flight
-    handlers rather than join on them.
+    """On transport close, server.run() must cancel in-flight handlers rather than join on them.
 
-    Without the cancel, the task group waits for the handler, which then tries
-    to respond through a write stream that _receive_loop already closed,
-    raising ClosedResourceError and crashing server.run() with exit code 1.
-
-    This drives server.run() with raw memory streams because InMemoryTransport
-    wraps it in its own finally-cancel (_memory.py) which masks the bug.
+    Without the cancel, the task group waits for the handler, which then responds through a
+    write stream _receive_loop already closed — ClosedResourceError crashes server.run().
+    Drives server.run() with raw memory streams because InMemoryTransport's own
+    finally-cancel masks the bug.
     """
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
@@ -162,9 +149,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
 
             await handler_started.wait()
 
-            # Close the server's input stream — this is what stdin EOF does.
-            # server.run()'s incoming_messages loop ends, finally-cancel fires,
-            # handler gets CancelledError, server.run() returns.
+            # Closing the server's input stream is what stdin EOF does.
             await to_server.aclose()
 
             await server_run_returned.wait()
@@ -174,15 +159,11 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
 
 @pytest.mark.anyio
 async def test_server_handles_transport_close_with_pending_server_to_client_requests():
-    """When the transport closes while handlers are blocked on server→client
-    requests (sampling, roots, elicitation), server.run() must still exit cleanly.
+    """server.run() must exit cleanly when the transport closes while handlers block on server-to-client requests.
 
-    Two bugs covered:
-      1. _receive_loop's finally iterates _response_streams with await checkpoints
-         inside; the woken handler's send_request finally pops from that dict
-         before the next __next__() — RuntimeError: dictionary changed size.
-      2. The woken handler's MCPError is caught in _handle_request, which falls
-         through to respond() against a write stream _receive_loop already closed.
+    Pins two bugs: _receive_loop's finally iterates _response_streams while woken handlers'
+    send_request pops from it (RuntimeError: dictionary changed size); and the woken handler's
+    MCPError is caught in _handle_request, which then respond()s on the closed write stream.
     """
     handlers_started = 0
     both_started = anyio.Event()
@@ -193,8 +174,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
         handlers_started += 1
         if handlers_started == 2:
             both_started.set()
-        # Blocks on send_request waiting for a client response that never comes.
-        # _receive_loop's finally will wake this with CONNECTION_CLOSED.
+        # Blocks awaiting a client response that never comes; _receive_loop's finally wakes it with CONNECTION_CLOSED.
         await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         raise AssertionError  # pragma: no cover
 
@@ -238,13 +218,11 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
                 await to_server.send(SessionMessage(call_req))
 
             await both_started.wait()
-            # Drain the two roots/list requests so send_request's _write_stream.send()
-            # completes and both handlers are parked at response_stream_reader.receive().
+            # Drain the two roots/list requests so both handlers are parked at response_stream_reader.receive().
             await from_server.receive()
             await from_server.receive()
 
             await to_server.aclose()
 
-            # Without the fixes: RuntimeError (dict mutation) or ClosedResourceError
-            # (respond after write-stream close) escapes run_server and this hangs.
+            # Without the fixes, RuntimeError or ClosedResourceError escapes run_server and this hangs.
             await server_run_returned.wait()

@@ -9,10 +9,6 @@ from mcp.server.mcpserver.resources import FileResource
 
 @pytest.fixture
 def temp_file():
-    """Create a temporary file for testing.
-
-    File is automatically cleaned up after the test if it still exists.
-    """
     content = "test content"
     with NamedTemporaryFile(mode="w", delete=False) as f:
         f.write(content)
@@ -25,10 +21,7 @@ def temp_file():
 
 
 class TestFileResource:
-    """Test FileResource functionality."""
-
     def test_file_resource_creation(self, temp_file: Path):
-        """Test creating a FileResource."""
         resource = FileResource(
             uri=temp_file.as_uri(),
             name="test",
@@ -43,7 +36,6 @@ class TestFileResource:
         assert resource.is_binary is False  # default
 
     def test_file_resource_str_path_conversion(self, temp_file: Path):
-        """Test FileResource handles string paths."""
         resource = FileResource(
             uri=f"file://{temp_file}",
             name="test",
@@ -54,7 +46,6 @@ class TestFileResource:
 
     @pytest.mark.anyio
     async def test_read_text_file(self, temp_file: Path):
-        """Test reading a text file."""
         resource = FileResource(
             uri=f"file://{temp_file}",
             name="test",
@@ -66,7 +57,6 @@ class TestFileResource:
 
     @pytest.mark.anyio
     async def test_read_binary_file(self, temp_file: Path):
-        """Test reading a file as binary."""
         resource = FileResource(
             uri=f"file://{temp_file}",
             name="test",
@@ -78,7 +68,6 @@ class TestFileResource:
         assert content == b"test content"
 
     def test_relative_path_error(self):
-        """Test error on relative path."""
         with pytest.raises(ValueError, match="Path must be absolute"):
             FileResource(
                 uri="file:///test.txt",
@@ -88,8 +77,6 @@ class TestFileResource:
 
     @pytest.mark.anyio
     async def test_missing_file_error(self, temp_file: Path):
-        """Test error when file doesn't exist."""
-        # Create path to non-existent file
         missing = temp_file.parent / "missing.txt"
         resource = FileResource(
             uri="file:///missing.txt",
@@ -102,8 +89,7 @@ class TestFileResource:
     @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
     @pytest.mark.anyio
     async def test_permission_error(self, temp_file: Path):  # pragma: lax no cover
-        """Test reading a file without permissions."""
-        temp_file.chmod(0o000)  # Remove all permissions
+        temp_file.chmod(0o000)
         try:
             resource = FileResource(
                 uri=temp_file.as_uri(),
@@ -113,4 +99,4 @@ class TestFileResource:
             with pytest.raises(ValueError, match="Error reading file"):
                 await resource.read()
         finally:
-            temp_file.chmod(0o644)  # Restore permissions
+            temp_file.chmod(0o644)

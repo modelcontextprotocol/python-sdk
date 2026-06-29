@@ -19,7 +19,7 @@ def _make_server(
     tools: list[Tool],
     structured_content: dict[str, Any],
 ) -> Server:
-    """Create a low-level server that returns the given structured_content for any tool call."""
+    """Server that returns `structured_content` for every tool call."""
 
     async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=tools)
@@ -35,7 +35,6 @@ def _make_server(
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_basemodel():
-    """Test that client validates structured content against schema for BaseModel outputs"""
     output_schema = {
         "type": "object",
         "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
@@ -63,7 +62,6 @@ async def test_tool_structured_output_client_side_validation_basemodel():
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_primitive():
-    """Test that client validates structured content for primitive outputs"""
     output_schema = {
         "type": "object",
         "properties": {"result": {"type": "integer", "title": "Result"}},
@@ -91,7 +89,6 @@ async def test_tool_structured_output_client_side_validation_primitive():
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_dict_typed():
-    """Test that client validates dict[str, T] structured content"""
     output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
     server = _make_server(
@@ -114,7 +111,6 @@ async def test_tool_structured_output_client_side_validation_dict_typed():
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_missing_required():
-    """Test that client validates missing required fields"""
     output_schema = {
         "type": "object",
         "properties": {"name": {"type": "string"}, "age": {"type": "integer"}, "email": {"type": "string"}},
@@ -142,8 +138,6 @@ async def test_tool_structured_output_client_side_validation_missing_required():
 
 @pytest.mark.anyio
 async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
-    """Test that client logs warning when tool is not in list_tools but has output_schema"""
-
     async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[])
 

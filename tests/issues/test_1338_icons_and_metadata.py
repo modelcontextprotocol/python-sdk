@@ -9,43 +9,34 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_icons_and_website_url():
-    """Test that icons and websiteUrl are properly returned in API calls."""
-
-    # Create test icon
     test_icon = Icon(
         src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
         mime_type="image/png",
         sizes=["1x1"],
     )
 
-    # Create server with website URL and icon
     mcp = MCPServer("TestServer", website_url="https://example.com", icons=[test_icon])
 
-    # Create tool with icon
     @mcp.tool(icons=[test_icon])
     def test_tool(message: str) -> str:  # pragma: no cover
         """A test tool with an icon."""
         return message
 
-    # Create resource with icon
     @mcp.resource("test://resource", icons=[test_icon])
     def test_resource() -> str:  # pragma: no cover
         """A test resource with an icon."""
         return "test content"
 
-    # Create prompt with icon
     @mcp.prompt("test_prompt", icons=[test_icon])
     def test_prompt(text: str) -> str:  # pragma: no cover
         """A test prompt with an icon."""
         return text
 
-    # Create resource template with icon
     @mcp.resource("test://weather/{city}", icons=[test_icon])
     def test_resource_template(city: str) -> str:  # pragma: no cover
         """Get weather for a city."""
         return f"Weather for {city}"
 
-    # Test server metadata includes websiteUrl and icons
     assert mcp.name == "TestServer"
     assert mcp.website_url == "https://example.com"
     assert mcp.icons is not None
@@ -54,7 +45,6 @@ async def test_icons_and_website_url():
     assert mcp.icons[0].mime_type == test_icon.mime_type
     assert mcp.icons[0].sizes == test_icon.sizes
 
-    # Test tool includes icon
     tools = await mcp.list_tools()
     assert len(tools) == 1
     tool = tools[0]
@@ -63,7 +53,6 @@ async def test_icons_and_website_url():
     assert len(tool.icons) == 1
     assert tool.icons[0].src == test_icon.src
 
-    # Test resource includes icon
     resources = await mcp.list_resources()
     assert len(resources) == 1
     resource = resources[0]
@@ -72,7 +61,6 @@ async def test_icons_and_website_url():
     assert len(resource.icons) == 1
     assert resource.icons[0].src == test_icon.src
 
-    # Test prompt includes icon
     prompts = await mcp.list_prompts()
     assert len(prompts) == 1
     prompt = prompts[0]
@@ -81,7 +69,6 @@ async def test_icons_and_website_url():
     assert len(prompt.icons) == 1
     assert prompt.icons[0].src == test_icon.src
 
-    # Test resource template includes icon
     templates = await mcp.list_resource_templates()
     assert len(templates) == 1
     template = templates[0]
@@ -93,22 +80,17 @@ async def test_icons_and_website_url():
 
 
 async def test_multiple_icons():
-    """Test that multiple icons can be added to tools, resources, and prompts."""
-
-    # Create multiple test icons
     icon1 = Icon(src="data:image/png;base64,icon1", mime_type="image/png", sizes=["16x16"])
     icon2 = Icon(src="data:image/png;base64,icon2", mime_type="image/png", sizes=["32x32"])
     icon3 = Icon(src="data:image/png;base64,icon3", mime_type="image/png", sizes=["64x64"])
 
     mcp = MCPServer("MultiIconServer")
 
-    # Create tool with multiple icons
     @mcp.tool(icons=[icon1, icon2, icon3])
     def multi_icon_tool() -> str:  # pragma: no cover
         """A tool with multiple icons."""
         return "success"
 
-    # Test tool has all icons
     tools = await mcp.list_tools()
     assert len(tools) == 1
     tool = tools[0]
@@ -120,8 +102,6 @@ async def test_multiple_icons():
 
 
 async def test_no_icons_or_website():
-    """Test that server works without icons or websiteUrl."""
-
     mcp = MCPServer("BasicServer")
 
     @mcp.tool()
@@ -129,12 +109,10 @@ async def test_no_icons_or_website():
         """A basic tool without icons."""
         return "success"
 
-    # Test server metadata has no websiteUrl or icons
     assert mcp.name == "BasicServer"
     assert mcp.website_url is None
     assert mcp.icons is None
 
-    # Test tool has no icons
     tools = await mcp.list_tools()
     assert len(tools) == 1
     tool = tools[0]

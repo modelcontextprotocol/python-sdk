@@ -18,10 +18,6 @@ from mcp.shared.exceptions import MCPError
 
 @pytest.fixture
 def mock_exit_stack():
-    """Fixture for a mocked AsyncExitStack."""
-    # Use unittest.mock.Mock directly if needed, or just a plain object
-    # if only attribute access/existence is needed.
-    # For AsyncExitStack, Mock or MagicMock is usually fine.
     return mock.MagicMock(spec=contextlib.AsyncExitStack)
 
 
@@ -34,18 +30,15 @@ def test_client_session_group_init():
 
 
 def test_client_session_group_component_properties():
-    # --- Mock Dependencies ---
     mock_prompt = mock.Mock()
     mock_resource = mock.Mock()
     mock_tool = mock.Mock()
 
-    # --- Prepare Session Group ---
     mcp_session_group = ClientSessionGroup()
     mcp_session_group._prompts = {"my_prompt": mock_prompt}
     mcp_session_group._resources = {"my_resource": mock_resource}
     mcp_session_group._tools = {"my_tool": mock_tool}
 
-    # --- Assertions ---
     assert mcp_session_group.prompts == {"my_prompt": mock_prompt}
     assert mcp_session_group.resources == {"my_resource": mock_resource}
     assert mcp_session_group.tools == {"my_tool": mock_tool}
@@ -53,10 +46,8 @@ def test_client_session_group_component_properties():
 
 @pytest.mark.anyio
 async def test_client_session_group_call_tool():
-    # --- Mock Dependencies ---
     mock_session = mock.AsyncMock()
 
-    # --- Prepare Session Group ---
     def hook(name: str, server_info: types.Implementation) -> str:  # pragma: no cover
         return f"{(server_info.name)}-{name}"
 
@@ -66,7 +57,6 @@ async def test_client_session_group_call_tool():
     text_content = types.TextContent(type="text", text="OK")
     mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])
 
-    # --- Test Execution ---
     result = await mcp_session_group.call_tool(
         name="server1-my_tool",
         arguments={
@@ -75,7 +65,6 @@ async def test_client_session_group_call_tool():
         },
     )
 
-    # --- Assertions ---
     assert result.content == [text_content]
     mock_session.call_tool.assert_called_once_with(
         "my_tool",
@@ -105,8 +94,6 @@ async def test_client_session_group_call_tool_forwards_allow_input_required():
 
 @pytest.mark.anyio
 async def test_client_session_group_connect_to_server(mock_exit_stack: contextlib.AsyncExitStack):
-    """Test connecting to a server and aggregating components."""
-    # --- Mock Dependencies ---
     mock_server_info = mock.Mock(spec=types.Implementation)
     mock_server_info.name = "TestServer1"
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
@@ -120,12 +107,10 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
     mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource1])
     mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt1])
 
-    # --- Test Execution ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
     with mock.patch.object(group, "_establish_session", return_value=(mock_server_info, mock_session)):
         await group.connect_to_server(StdioServerParameters(command="test"))
 
-    # --- Assertions ---
     assert mock_session in group._sessions
     assert len(group.tools) == 1
     assert "tool_a" in group.tools
@@ -144,8 +129,6 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
 
 @pytest.mark.anyio
 async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):
-    """Test connecting with a component name hook."""
-    # --- Mock Dependencies ---
     mock_server_info = mock.Mock(spec=types.Implementation)
     mock_server_info.name = "HookServer"
     mock_session = mock.AsyncMock(spec=mcp.ClientSession)
@@ -155,16 +138,13 @@ async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_s
     mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
     mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
 
-    # --- Test Setup ---
     def name_hook(name: str, server_info: types.Implementation) -> str:
         return f"{server_info.name}.{name}"
 
-    # --- Test Execution ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack, component_name_hook=name_hook)
     with mock.patch.object(group, "_establish_session", return_value=(mock_server_info, mock_session)):
         await group.connect_to_server(StdioServerParameters(command="test"))
 
-    # --- Assertions ---
     assert mock_session in group._sessions
     assert len(group.tools) == 1
     expected_tool_name = "HookServer.base_tool"
@@ -175,12 +155,9 @@ async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_s
 
 @pytest.mark.anyio
 async def test_client_session_group_disconnect_from_server():
-    """Test disconnecting from a server."""
-    # --- Test Setup ---
     group = ClientSessionGroup()
     server_name = "ServerToDisconnect"
 
-    # Manually populate state using standard mocks
     mock_session1 = mock.MagicMock(spec=mcp.ClientSession)
     mock_session2 = mock.MagicMock(spec=mcp.ClientSession)
     mock_tool1 = mock.Mock(spec=types.Tool)
@@ -220,17 +197,14 @@ async def test_client_session_group_disconnect_from_server():
         )
     }
 
-    # --- Assertions ---
     assert mock_session in group._sessions
     assert "tool1" in group._tools
     assert "tool2" in group._tools
     assert "res1" in group._resources
     assert "prm1" in group._prompts
 
-    # --- Test Execution ---
     await group.disconnect_from_server(mock_session)
 
-    # --- Assertions ---
     assert mock_session not in group._sessions
     assert "tool1" not in group._tools
     assert "tool2" not in group._tools
@@ -242,32 +216,24 @@ async def test_client_session_group_disconnect_from_server():
 async def test_client_session_group_connect_to_server_duplicate_tool_raises_error(
     mock_exit_stack: contextlib.AsyncExitStack,
 ):
-    """Test MCPError raised when connecting a server with a dup name."""
-    # --- Setup Pre-existing State ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
     existing_tool_name = "shared_tool"
-    # Manually add a tool to simulate a previous connection
     group._tools[existing_tool_name] = mock.Mock(spec=types.Tool)
     group._tools[existing_tool_name].name = existing_tool_name
-    # Need a dummy session associated with the existing tool
     mock_session = mock.MagicMock(spec=mcp.ClientSession)
     group._tool_to_session[existing_tool_name] = mock_session
     group._session_exit_stacks[mock_session] = mock.Mock(spec=contextlib.AsyncExitStack)
 
-    # --- Mock New Connection Attempt ---
     mock_server_info_new = mock.Mock(spec=types.Implementation)
     mock_server_info_new.name = "ServerWithDuplicate"
     mock_session_new = mock.AsyncMock(spec=mcp.ClientSession)
 
-    # Configure the new session to return a tool with the *same name*
     duplicate_tool = mock.Mock(spec=types.Tool)
     duplicate_tool.name = existing_tool_name
     mock_session_new.list_tools.return_value = mock.AsyncMock(tools=[duplicate_tool])
-    # Keep other lists empty for simplicity
     mock_session_new.list_resources.return_value = mock.AsyncMock(resources=[])
     mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
 
-    # --- Test Execution and Assertion ---
     with pytest.raises(MCPError) as excinfo:
         with mock.patch.object(
             group,
@@ -276,19 +242,17 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
         ):
             await group.connect_to_server(StdioServerParameters(command="test"))
 
-    # Assert details about the raised error
     assert excinfo.value.error.code == types.INVALID_PARAMS
     assert existing_tool_name in excinfo.value.error.message
     assert "already exist " in excinfo.value.error.message
 
-    # Verify the duplicate tool was *not* added again (state should be unchanged)
-    assert len(group._tools) == 1  # Should still only have the original
-    assert group._tools[existing_tool_name] is not duplicate_tool  # Ensure it's the original mock
+    # Failed connect must leave the pre-existing tool state untouched
+    assert len(group._tools) == 1
+    assert group._tools[existing_tool_name] is not duplicate_tool
 
 
 @pytest.mark.anyio
 async def test_client_session_group_disconnect_non_existent_server():
-    """Test disconnecting a server that isn't connected."""
     session = mock.Mock(spec=mcp.ClientSession)
     group = ClientSessionGroup()
     with pytest.raises(MCPError):
@@ -309,17 +273,17 @@ async def test_client_session_group_disconnect_non_existent_server():
             SseServerParameters(url="http://test.com/sse", timeout=10.0),
             "sse",
             "mcp.client.session_group.sse_client",
-        ),  # url, headers, timeout, sse_read_timeout
+        ),
         (
             StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
             "streamablehttp",
             "mcp.client.session_group.streamable_http_client",
-        ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
+        ),
     ],
 )
 async def test_client_session_group_establish_session_parameterized(
     server_params_instance: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
-    client_type_name: str,  # Just for clarity or conditional logic if needed
+    client_type_name: str,
     patch_target_for_client_func: str,
 ):
     with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
@@ -328,14 +292,11 @@ async def test_client_session_group_establish_session_parameterized(
             mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
             mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
-            # All client context managers return (read_stream, write_stream)
             mock_client_cm_instance.__aenter__.return_value = (mock_read_stream, mock_write_stream)
 
             mock_client_cm_instance.__aexit__ = mock.AsyncMock(return_value=None)
             mock_specific_client_func.return_value = mock_client_cm_instance
 
-            # --- Mock mcp.ClientSession (class) ---
-            # mock_ClientSession_class is already provided by the outer patch
             mock_raw_session_cm = mock.AsyncMock(name="RawSessionCM")
             mock_ClientSession_class.return_value = mock_raw_session_cm
 
@@ -343,12 +304,10 @@ async def test_client_session_group_establish_session_parameterized(
             mock_raw_session_cm.__aenter__.return_value = mock_entered_session
             mock_raw_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
 
-            # Mock session.initialize()
             mock_initialize_result = mock.AsyncMock(name="InitializeResult")
             mock_initialize_result.server_info = types.Implementation(name="foo", version="1")
             mock_entered_session.initialize.return_value = mock_initialize_result
 
-            # --- Test Execution ---
             group = ClientSessionGroup()
             returned_server_info = None
             returned_session = None
@@ -360,8 +319,6 @@ async def test_client_session_group_establish_session_parameterized(
                     returned_session,
                 ) = await group._establish_session(server_params_instance, ClientSessionParameters())
 
-            # --- Assertions ---
-            # 1. Assert the correct specific client function was called
             if client_type_name == "stdio":
                 assert isinstance(server_params_instance, StdioServerParameters)
                 mock_specific_client_func.assert_called_once_with(server_params_instance)
@@ -375,8 +332,7 @@ async def test_client_session_group_establish_session_parameterized(
                 )
             elif client_type_name == "streamablehttp":  # pragma: no branch
                 assert isinstance(server_params_instance, StreamableHttpParameters)
-                # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
-                # The http_client is created by the real create_mcp_http_client
+                # http_client is built internally by the real create_mcp_http_client, so only its type is checked
                 call_args = mock_specific_client_func.call_args
                 assert call_args.kwargs["url"] == server_params_instance.url
                 assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
@@ -384,7 +340,6 @@ async def test_client_session_group_establish_session_parameterized(
 
             mock_client_cm_instance.__aenter__.assert_awaited_once()
 
-            # 2. Assert ClientSession was called correctly
             mock_ClientSession_class.assert_called_once_with(
                 mock_read_stream,
                 mock_write_stream,
@@ -399,6 +354,5 @@ async def test_client_session_group_establish_session_parameterized(
             mock_raw_session_cm.__aenter__.assert_awaited_once()
             mock_entered_session.initialize.assert_awaited_once()
 
-            # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session

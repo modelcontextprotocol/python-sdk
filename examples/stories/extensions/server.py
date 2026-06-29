@@ -1,9 +1,7 @@
 """Package a vendor verb and a tool as a reusable, advertised extension (SEP-2133).
 
-`custom_methods/` registers a verb on the lowlevel `Server` by hand; this story
-bundles the same idea as an `Extension`: declared contributions, a settings entry
-under `ServerCapabilities.extensions`, and a `require_client_extension` gate on
-the vendor method.
+Unlike the hand-registered verb in `custom_methods/`, an `Extension` bundles contributions,
+settings under `ServerCapabilities.extensions`, and a `require_client_extension` gate.
 """
 
 from collections.abc import Sequence

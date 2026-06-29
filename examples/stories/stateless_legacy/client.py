@@ -8,8 +8,7 @@ from stories._harness import TargetFactory, run_client
 
 
 async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
-    # ── modern era: the caller's mode (the real-user "auto" default) routes this connection
-    # through the 2026 envelope path. No initialize handshake, no session id.
+    # Modern era: the caller's mode (default "auto") takes the 2026 envelope path — no handshake, no session id.
     async with Client(targets(), mode=mode) as client:
         assert client.protocol_version == LATEST_MODERN_VERSION
 
@@ -21,9 +20,8 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Hello, world!", result
 
-    # ── legacy era: a fresh mode="legacy" client runs the initialize handshake against the
-    # SAME stateless app. It is answered statelessly (no Mcp-Session-Id) and the same tool
-    # gives the same answer — the era is invisible to the server body.
+    # Legacy era: a fresh mode="legacy" client runs the initialize handshake against the SAME app,
+    # answered statelessly (no Mcp-Session-Id); the era is invisible to the server body.
     async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
 
