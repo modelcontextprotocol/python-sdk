@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from mkdocs.config.defaults import MkDocsConfig
@@ -43,10 +44,16 @@ _OPTIONAL_PAGES = [
 _SNIPPET_LINE = re.compile(r'^(?P<indent>[ \t]*)--8<-- "(?P<path>[^"\n]+)"$', flags=re.MULTILINE)
 _MD_LINK = re.compile(r'(\]\()([^)\s]+\.md)(#[^)\s]*)?( +"[^"]*")?(\))')
 
-_page_markdown: dict[str, str] = {}
-_rendition_uris: set[str] = set()
-_nav: Navigation | None = None
-_files: Files | None = None
+
+@dataclass
+class _State:
+    page_markdown: dict[str, str] = field(default_factory=dict)
+    rendition_uris: set[str] = field(default_factory=set)
+    nav: Navigation | None = None
+    files: Files | None = None
+
+
+_state = _State()
 
 
 def _site_url(config: MkDocsConfig) -> str:
@@ -60,21 +67,19 @@ def _md_uri(file: File) -> str:
 
 def on_config(config: MkDocsConfig) -> None:
     # `mkdocs serve` rebuilds reuse the imported module; start each build clean.
-    global _nav, _files
-    _page_markdown.clear()
-    _rendition_uris.clear()
-    _nav = _files = None
+    _state.page_markdown.clear()
+    _state.rendition_uris.clear()
+    _state.nav = _state.files = None
 
 
 def on_nav(nav: Navigation, config: MkDocsConfig, files: Files) -> None:
-    global _nav, _files
-    _nav = nav
-    _files = files
-    _rendition_uris.update(page.file.src_uri for page in nav.pages if not page.file.src_uri.startswith("api/"))
+    _state.nav = nav
+    _state.files = files
+    _state.rendition_uris.update(page.file.src_uri for page in nav.pages if not page.file.src_uri.startswith("api/"))
 
 
 def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Files) -> str | None:
-    if page.file.src_uri not in _rendition_uris:
+    if page.file.src_uri not in _state.rendition_uris:
         return None
 
     # Same anchor as the pymdownx.snippets `base_path` in mkdocs.yml.
@@ -110,17 +115,17 @@ def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Fil
         if linked is None:
             return match.group(0)
         # Pages without a markdown rendition (the api/ stubs) link to their HTML instead.
-        url = _md_uri(linked) if linked.src_uri in _rendition_uris else linked.url
+        url = _md_uri(linked) if linked.src_uri in _state.rendition_uris else linked.url
         return f"{opening}{site_url}{url}{anchor or ''}{title or ''}{closing}"
 
-    _page_markdown[page.file.src_uri] = _MD_LINK.sub(rewrite, resolved)
+    _state.page_markdown[page.file.src_uri] = _MD_LINK.sub(rewrite, resolved)
     return None
 
 
 def _section_pages(section: Section) -> list[Page]:
     pages: list[Page] = []
     for child in section.children:
-        if isinstance(child, Page) and child.file.src_uri in _rendition_uris:
+        if isinstance(child, Page) and child.file.src_uri in _state.rendition_uris:
             pages.append(child)
         elif isinstance(child, Section):
             pages.extend(_section_pages(child))
@@ -128,17 +133,19 @@ def _section_pages(section: Section) -> list[Page]:
 
 
 def on_post_build(config: MkDocsConfig) -> None:
-    assert _nav is not None and _files is not None
-    missing = _rendition_uris - _page_markdown.keys()
+    assert _state.nav is not None and _state.files is not None
+    missing = _state.rendition_uris - _state.page_markdown.keys()
     if missing:
         raise PluginError(f"llms_txt: pages skipped this build (is this a --dirty build?): {sorted(missing)}")
 
     site_dir = Path(config.site_dir)
     site_url = _site_url(config)
 
-    top_level = [item for item in _nav.items if isinstance(item, Page) and item.file.src_uri in _rendition_uris]
+    top_level = [
+        item for item in _state.nav.items if isinstance(item, Page) and item.file.src_uri in _state.rendition_uris
+    ]
     sections: list[tuple[str, list[Page]]] = [("Docs", top_level)] if top_level else []
-    for item in _nav.items:
+    for item in _state.nav.items:
         if isinstance(item, Section):
             pages = _section_pages(item)
             if pages:
@@ -149,7 +156,7 @@ def on_post_build(config: MkDocsConfig) -> None:
     for title, pages in sections:
         index += [f"## {title}", ""]
         for page in pages:
-            markdown = _page_markdown[page.file.src_uri]
+            markdown = _state.page_markdown[page.file.src_uri]
             (site_dir / _md_uri(page.file)).write_text(markdown, encoding="utf-8")
 
             description = page.meta.get("description")
@@ -162,7 +169,7 @@ def on_post_build(config: MkDocsConfig) -> None:
 
     index += ["## Optional", ""]
     for src_uri, title, description in _OPTIONAL_PAGES:
-        linked = _files.get_file_from_path(src_uri)
+        linked = _state.files.get_file_from_path(src_uri)
         if linked is None:
             raise PluginError(f"llms_txt: optional page {src_uri} not found")
         index.append(f"- [{title}]({site_url}{linked.url}): {description}")
