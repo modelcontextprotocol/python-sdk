@@ -1089,12 +1089,14 @@ async def test_a_negative_inbound_ttl_is_served_as_zero_and_never_cached(wire_tt
     assert listings_served == 2  # the clamped-to-zero ttl was never stored: the second call re-fetched
 
 
-async def test_a_negative_discover_ttl_still_connects_modern_in_auto_mode() -> None:
+@pytest.mark.parametrize("wire_ttl", [-5, -5.0])
+async def test_a_negative_discover_ttl_still_connects_modern_in_auto_mode(wire_ttl: int | float) -> None:
     """Spec SHOULD (2026-07-28 caching) — silent-downgrade regression: before the
     parse-seam clamp, a negative `ttlMs` on `server/discover` failed `DiscoverResult`
     validation inside the mode='auto' probe, which reads as "not modern evidence" and
     silently fell back to the legacy initialize handshake. Clamped, the probe adopts
-    the modern era and the result carries `ttl_ms == 0`."""
+    the modern era and the result carries `ttl_ms == 0` — for float negatives too,
+    the same as the tools/list seam (both call the shared clamp)."""
     methods_seen: list[str] = []
 
     async def scripted_server(streams: MessageStream) -> None:
@@ -1111,7 +1113,7 @@ async def test_a_negative_discover_ttl_still_connects_modern_in_auto_mode() -> N
                 "capabilities": {},
                 "serverInfo": {"name": "negative-ttl", "version": "0.0.1"},
                 "resultType": "complete",
-                "ttlMs": -5,
+                "ttlMs": wire_ttl,
             }
             await server_write.send(SessionMessage(types.JSONRPCResponse(jsonrpc="2.0", id=frame.id, result=result)))
 
