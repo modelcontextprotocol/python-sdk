@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -13,10 +13,13 @@ import pydantic_core
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
     CallToolResult,
+    ClientCapabilities,
     CompleteRequestParams,
     CompleteResult,
     Completion,
@@ -28,6 +31,7 @@ from mcp_types import (
     ListResourcesResult,
     ListResourceTemplatesResult,
     ListToolsResult,
+    MissingRequiredClientCapabilityErrorData,
     PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -54,7 +58,14 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.context import HandlerResult, ServerRequestContext
+from mcp.server.extension import (
+    Extension,
+    MethodBinding,
+    RequestHandler,
+    compose_tool_call_interceptor,
+    validate_extension_identifier,
+)
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
@@ -148,6 +159,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
+        extensions: Sequence[Extension] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -215,6 +227,11 @@ class MCPServer(Generic[LifespanResultT]):
         # Configure logging
         configure_logging(self.settings.log_level)
 
+        self._extensions: list[Extension] = []
+        for extension in extensions or ():
+            self._apply_extension(extension)
+        self._install_extension_interceptor()
+
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
@@ -254,6 +271,44 @@ class MCPServer(Generic[LifespanResultT]):
             RuntimeError: If called before streamable_http_app() has been called.
         """
         return self._lowlevel_server.session_manager
+
+    def _apply_extension(self, extension: Extension) -> None:
+        """Apply one opt-in extension's contributions through the public surface.
+
+        Registers its tools/resources/methods and advertises its settings under
+        `ServerCapabilities.extensions[extension.identifier]`. Extensions are fixed
+        at construction, so this is private; the `tools/call` interceptor is
+        composed once afterwards by `_install_extension_interceptor`.
+        """
+        identifier = getattr(extension, "identifier", None)
+        validate_extension_identifier(identifier, owner=type(extension).__name__)
+        if any(e.identifier == identifier for e in self._extensions):
+            raise ValueError(f"Extension {identifier!r} is already registered")
+        self._extensions.append(extension)
+
+        for tool in extension.tools():
+            self.add_tool(tool.fn, meta=tool.meta, **tool.kwargs)
+        for resource in extension.resources():
+            self.add_resource(resource.resource)
+        for method in extension.methods():
+            if self._lowlevel_server.get_request_handler(method.method) is not None:
+                raise ValueError(
+                    f"Extension {identifier!r} binds method {method.method!r}, which is already "
+                    "registered; extension methods are additive and cannot replace another handler"
+                )
+            handler = _version_gated(method) if method.protocol_versions is not None else method.handler
+            self._lowlevel_server.add_request_handler(method.method, method.params_type, handler)
+
+        self._lowlevel_server.extensions[extension.identifier] = extension.settings()
+
+    def _install_extension_interceptor(self) -> None:
+        """Compose every extension's `tools/call` interceptor into one middleware.
+
+        Installed only when at least one extension overrides `intercept_tool_call`,
+        so a server with purely additive extensions adds no middleware.
+        """
+        if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
+            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -1152,3 +1207,50 @@ class MCPServer(Generic[LifespanResultT]):
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e
+
+
+def _version_gated(method: MethodBinding) -> RequestHandler:
+    """Wrap a method handler so a request at a disallowed protocol version is rejected.
+
+    The low-level `_request_handlers` dict is keyed by method only, so per-version
+    scoping is enforced here rather than at the runner's boundary table.
+    """
+    versions = method.protocol_versions
+    assert versions is not None
+
+    async def gated(ctx: ServerRequestContext[Any, Any], params: Any) -> HandlerResult:
+        if ctx.protocol_version not in versions:
+            raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method.method)
+        return await method.handler(ctx, params)
+
+    return gated
+
+
+def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
+    """Assert the connected client declared support for `identifier`.
+
+    Call this from an extension's handler or `intercept_tool_call` before
+    offering extension-specific behaviour. Raises `MCPError` with the
+    `-32021` (missing required client capability) code and a
+    `requiredCapabilities` payload when the client did not declare the
+    extension, per SEP-2133.
+
+    Args:
+        ctx: The current request context.
+        identifier: The extension identifier the client must have declared.
+
+    Raises:
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
+            did not advertise `identifier`.
+    """
+    client_params = ctx.session.client_params
+    declared = client_params.capabilities.extensions if client_params else None
+    if not declared or identifier not in declared:
+        data = MissingRequiredClientCapabilityErrorData(
+            required_capabilities=ClientCapabilities(extensions={identifier: {}})
+        )
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message=f"Client did not declare required extension {identifier!r}",
+            data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
+        )

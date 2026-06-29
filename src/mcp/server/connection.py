@@ -345,4 +345,14 @@ class Connection:
             for k, v in capability.experimental.items():
                 if k not in have.experimental or have.experimental[k] != v:
                     return False
+        if capability.extensions is not None:
+            # SEP-2133: an extension is supported when the client declares its
+            # identifier. Settings are negotiated per-extension (the client may
+            # advertise more than the server asks for), so presence - not value
+            # equality - is the meaningful check.
+            if have.extensions is None:
+                return False
+            for identifier in capability.extensions:
+                if identifier not in have.extensions:
+                    return False
         return True

@@ -48,6 +48,21 @@ status = "deprecated"
 [story.custom_methods]
 lowlevel = false
 
+[story.apps]
+# Extension API is MCPServer-tier (Apps decorators + extensions=[...]); no lowlevel variant.
+# The extensions capability map (SEP-2133) rides server/discover, a modern-only path, so
+# `main` pins "auto" (legacy initialize cannot carry it) and the leg is http-asgi.
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
+[story.extensions]
+# Same constraints as `apps`: MCPServer-tier extension API, capability map rides
+# server/discover (modern only), client guards the capability assert by presence.
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
 [story.schema_validators]
 
 [story.middleware]
@@ -147,7 +162,6 @@ fixed_port    = 8000                            # issuer/PRM metadata bake in :8
 [deferred]
 caching       = "client honouring + per-result override unlanded"
 subscriptions = "#2901 — Client.listen / ServerEventBus"
-tasks         = "extensions capability map + tasks runtime"
-apps          = "#2896 — extensions capability map"
+tasks         = "SEP-2663 — tasks extension runtime (server-decided augmentation, CreateTaskResult)"
 skills        = "#2896 — SEP-2640"
 events        = "#2901 + #2896"

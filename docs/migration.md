@@ -407,6 +407,50 @@ On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return th
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.
 
+### Server extensions API (SEP-2133)
+
+`MCPServer` now accepts opt-in extensions that bundle MCP behaviour behind a
+reverse-DNS identifier and advertise it under `ServerCapabilities.extensions`
+(the 2026-07-28 capability map). An extension subclasses `mcp.server.extension.Extension`
+and overrides only the contribution methods it needs: `tools()`/`resources()`/`methods()`
+(additive) and `intercept_tool_call()` (wraps `tools/call`). The `identifier` must be a
+`vendor-prefix/name` string following the spec's `_meta` key grammar; a class-level
+`identifier` is validated when the subclass is defined, one assigned in `__init__` when
+the extension is registered. Pass instances at construction:
+
+```python
+from mcp.server.mcpserver import MCPServer
+from mcp.server.apps import Apps
+
+mcp = MCPServer("demo", extensions=[Apps()])
+```
+
+The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
+it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
+`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback — `True` only
+when the client's ui-extension settings list the `text/html;profile=mcp-app`
+MIME type, per the Apps spec's required `mimeTypes` field. Every
+`@apps.tool(resource_uri=...)` must have a matching resource registered on the
+same `Apps` instance (`add_html_resource` for inline HTML, `add_resource` for a
+pre-built `Resource`); a tool bound to an unregistered URI raises at
+`MCPServer(...)` construction rather than 404ing on `resources/read` at runtime.
+
+Extension methods are strictly additive: a `MethodBinding` cannot name a
+spec-defined request method, and registering one whose method collides with
+another handler raises at construction. A `MethodBinding` may set
+`protocol_versions` to scope an extension method to specific wire versions
+(`frozenset()` is rejected — use `None` to admit every version); a request at
+any other version is `METHOD_NOT_FOUND`. An
+extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
+to reject a request with the `-32021` (missing required client capability) error
+when the client did not declare the extension.
+
+Clients advertise extension support with the new `Client(extensions=...)` /
+`ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.
+The extensions capability map is negotiated over `server/discover` (modern path);
+a legacy `initialize` handshake does not carry it. Extensions are off by default
+and never alter behaviour unless registered.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.

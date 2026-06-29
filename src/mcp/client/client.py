@@ -217,6 +217,10 @@ class Client:
     `read_resource` give up. Use `client.session.<method>(..., allow_input_required=True)`
     to drive the loop manually instead."""
 
+    extensions: dict[str, dict[str, Any]] | None = None
+    """SEP-2133 extension support to advertise under `ClientCapabilities.extensions`
+    (identifier -> settings), e.g. `{"io.modelcontextprotocol/ui": {"mimeTypes": [...]}}`."""
+
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
@@ -255,6 +259,7 @@ class Client:
             message_handler=self.message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
+            extensions=self.extensions,
         )
 
     async def __aenter__(self) -> Client:

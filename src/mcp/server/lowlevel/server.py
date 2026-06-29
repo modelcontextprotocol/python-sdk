@@ -434,6 +434,10 @@ class Server(Generic[LifespanResultT]):
         # Context/middleware rework (covariant `Context[L]`, outbound seam) before
         # v2 final.
         self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
+        # SEP-2133 extension settings advertised under `ServerCapabilities.extensions`
+        # (identifier -> settings). Higher layers (e.g. `MCPServer(extensions=...)`)
+        # populate it; `get_capabilities` reads it when no explicit map is passed.
+        self.extensions: dict[str, dict[str, Any]] = {}
         logger.debug("Initializing server %r", name)
 
         _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
@@ -521,8 +525,15 @@ class Server(Generic[LifespanResultT]):
         self,
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
-        """Create initialization options from this server instance."""
+        """Create initialization options from this server instance.
+
+        `extensions` advertises SEP-2133 extension support under
+        `ServerCapabilities.extensions`; keys are extension identifiers (e.g.
+        `io.modelcontextprotocol/ui`), values are per-extension settings.
+        Defaults to `self.extensions`, which higher layers populate.
+        """
         return InitializationOptions(
             server_name=self.name,
             server_version=self.version if self.version else _package_version("mcp"),
@@ -531,6 +542,7 @@ class Server(Generic[LifespanResultT]):
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
+                extensions if extensions is not None else self.extensions,
             ),
             instructions=self.instructions,
             website_url=self.website_url,
@@ -541,8 +553,14 @@ class Server(Generic[LifespanResultT]):
         self,
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
     ) -> types.ServerCapabilities:
-        """Convert existing handlers to a ServerCapabilities object."""
+        """Convert existing handlers to a ServerCapabilities object.
+
+        `extensions` is the SEP-2133 extension map (identifier -> settings)
+        advertised under `ServerCapabilities.extensions`; it defaults to
+        `self.extensions`.
+        """
         notification_options = notification_options or NotificationOptions()
         prompts_capability = None
         resources_capability = None
@@ -579,6 +597,7 @@ class Server(Generic[LifespanResultT]):
             tools=tools_capability,
             logging=logging_capability,
             experimental=experimental_capabilities,
+            extensions=extensions if extensions is not None else (self.extensions or None),
             completions=completions_capability,
         )
         return capabilities
